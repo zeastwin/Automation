@@ -23,6 +23,79 @@ if (Test-Path -LiteralPath $sfPath)
 {
     $violations.Add("全局容器文件仍然存在：$sfPath")
 }
+Get-ChildItem -LiteralPath $repoRoot -File -Filter "*.cs" | ForEach-Object {
+    $violations.Add("生产源码必须归入明确功能目录，不得重新堆放在仓库根目录：$($_.FullName)")
+}
+foreach ($requiredModulePath in @(
+    "Application\README.md",
+    "Editor\README.md",
+    "Models\README.md",
+    "Editor\Shell",
+    "Editor\Process",
+    "Editor\Variables",
+    "Editor\Io",
+    "Editor\Motion",
+    "Editor\Communication",
+    "Editor\Data",
+    "Editor\Diagnostics",
+    "Editor\Ai",
+    "Editor\Common",
+    "Models\Operations",
+    "Runtime\README.md",
+    "Runtime\Ai",
+    "Runtime\Configuration",
+    "Runtime\Diagnostics",
+    "Runtime\Editing",
+    "Runtime\Hosting",
+    "Runtime\Infrastructure",
+    "Runtime\Lifecycle",
+    "Runtime\Motion",
+    "Runtime\Process",
+    "Engine\README.md",
+    "Engine\Compilation",
+    "Engine\Definitions",
+    "Engine\Definitions\OperationModelDesign.md",
+    "Engine\Editing",
+    "Engine\Execution",
+    "Engine\Extensibility",
+    "Engine\Models",
+    "Engine\Validation",
+    "Stores\README.md",
+    "Stores\Infrastructure",
+    "Stores\Process",
+    "Stores\Data",
+    "Stores\Variables",
+    "Stores\Devices",
+    "Bridge\README.md",
+    "Bridge\Service",
+    "Communication\README.md",
+    "MotionControl\README.md",
+    "MotionControl\Core",
+    "MotionControl\Drivers"))
+{
+    $fullModulePath = Join-Path $repoRoot $requiredModulePath
+    if (-not (Test-Path -LiteralPath $fullModulePath))
+    {
+        $violations.Add("功能模块目录或导航文档缺失：$fullModulePath")
+    }
+}
+foreach ($retiredSourceBucket in @("UI", "Inspector", "ParamFrm", "Tool"))
+{
+    $retiredSourcePath = Join-Path $repoRoot $retiredSourceBucket
+    if (Test-Path -LiteralPath $retiredSourcePath)
+    {
+        Get-ChildItem -LiteralPath $retiredSourcePath -Recurse -File -Include "*.cs", "*.resx" | ForEach-Object {
+            $violations.Add("已退役的宽泛源码目录不得恢复，请归入 Editor 对应功能模块：$($_.FullName)")
+        }
+    }
+}
+foreach ($classifiedModuleRoot in @("Runtime", "Engine", "Stores", "MotionControl"))
+{
+    $classifiedModulePath = Join-Path $repoRoot $classifiedModuleRoot
+    Get-ChildItem -LiteralPath $classifiedModulePath -File -Filter "*.cs" | ForEach-Object {
+        $violations.Add("$classifiedModuleRoot 源码必须归入职责子目录，不得重新堆放在模块根目录：$($_.FullName)")
+    }
+}
 $projectPath = Join-Path $repoRoot "Automation.csproj"
 Select-String -LiteralPath $projectPath -SimpleMatch 'Compile Include="SF.cs"' | ForEach-Object {
     $violations.Add("$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
@@ -30,9 +103,28 @@ Select-String -LiteralPath $projectPath -SimpleMatch 'Compile Include="SF.cs"' |
 Select-String -LiteralPath $projectPath -Pattern '(Compile|Content|None) Include="IntentTemplates' | ForEach-Object {
     $violations.Add("项目文件仍包含已退役 IntentTemplates：$($_.Path):$($_.LineNumber)")
 }
+Select-String -LiteralPath $projectPath -SimpleMatch '<EmbeddedResource Include="Hmi\CustomFunctions.cs">' | ForEach-Object {
+    $violations.Add("CustomFunctions 源码不得同时作为 Compile 和可见 EmbeddedResource 项重复显示：$($_.Path):$($_.LineNumber)")
+}
+if (-not (Select-String -LiteralPath $projectPath -SimpleMatch 'Name="PrepareEmbeddedCustomFunctionsSource"'))
+{
+    $violations.Add("平台项目缺少构建期 CustomFunctions 源码快照目标。")
+}
+$machineAppProjectPath = Join-Path (Split-Path -Parent $repoRoot) "DeviceProject\MachineApp.csproj"
+if (Test-Path -LiteralPath $machineAppProjectPath)
+{
+    Select-String -LiteralPath $machineAppProjectPath -SimpleMatch '<EmbeddedResource Include="Hmi\CustomFunctions.cs">' | ForEach-Object {
+        $violations.Add("设备工程 CustomFunctions 源码不得作为可见 EmbeddedResource 项重复显示：$($_.Path):$($_.LineNumber)")
+    }
+    if (-not (Select-String -LiteralPath $machineAppProjectPath -SimpleMatch 'Name="PrepareEmbeddedCustomFunctionsSource"'))
+    {
+        $violations.Add("设备工程缺少构建期 CustomFunctions 源码快照目标。")
+    }
+}
 
-$bridgePath = Join-Path $repoRoot "Bridge\AutomationBridgeService.cs"
-$bridgeFiles = Get-ChildItem -LiteralPath (Join-Path $repoRoot "Bridge") -Filter "AutomationBridgeService*.cs"
+$bridgeServicePath = Join-Path $repoRoot "Bridge\Service"
+$bridgePath = Join-Path $bridgeServicePath "AutomationBridgeService.cs"
+$bridgeFiles = Get-ChildItem -LiteralPath $bridgeServicePath -Filter "AutomationBridgeService*.cs"
 foreach ($retiredRoute in @(
     "/bridge/intent/list_templates",
     "/bridge/intent/get_template",
@@ -49,26 +141,26 @@ foreach ($retiredRoute in @(
 }
 
 foreach ($requiredBridgeModule in @(
-    "Bridge\AutomationBridgeService.ChangeSet.cs",
-    "Bridge\AutomationBridgeService.DataStructures.cs",
-    "Bridge\AutomationBridgeService.AuditDiagnostics.cs",
-    "Bridge\AutomationBridgeService.HardwareResources.cs",
-    "Bridge\AutomationBridgeService.IoResources.cs",
-    "Bridge\AutomationBridgeService.Migration.cs",
-    "Bridge\AutomationBridgeService.PreviewState.cs",
-    "Bridge\AutomationBridgeService.ProcessCommands.cs",
-    "Bridge\AutomationBridgeService.ProcessInspection.cs",
-    "Bridge\AutomationBridgeService.ProcessProjection.cs",
-    "Bridge\AutomationBridgeService.ProcessQueries.cs",
-    "Bridge\AutomationBridgeService.Protocol.cs",
-    "Bridge\AutomationBridgeService.ProtocolSupport.cs",
-    "Bridge\AutomationBridgeService.ReferenceDiagnostics.cs",
-    "Bridge\AutomationBridgeService.Routing.cs",
-    "Bridge\AutomationBridgeService.RuntimeDiagnostics.cs",
-    "Bridge\AutomationBridgeService.OperationProjection.cs",
-    "Bridge\AutomationBridgeService.Stations.cs",
-    "Bridge\AutomationBridgeService.ValueConversion.cs",
-    "Bridge\AutomationBridgeService.Variables.cs"))
+    "Bridge\Service\AutomationBridgeService.ChangeSet.cs",
+    "Bridge\Service\AutomationBridgeService.DataStructures.cs",
+    "Bridge\Service\AutomationBridgeService.AuditDiagnostics.cs",
+    "Bridge\Service\AutomationBridgeService.HardwareResources.cs",
+    "Bridge\Service\AutomationBridgeService.IoResources.cs",
+    "Bridge\Service\AutomationBridgeService.Migration.cs",
+    "Bridge\Service\AutomationBridgeService.PreviewState.cs",
+    "Bridge\Service\AutomationBridgeService.ProcessCommands.cs",
+    "Bridge\Service\AutomationBridgeService.ProcessInspection.cs",
+    "Bridge\Service\AutomationBridgeService.ProcessProjection.cs",
+    "Bridge\Service\AutomationBridgeService.ProcessQueries.cs",
+    "Bridge\Service\AutomationBridgeService.Protocol.cs",
+    "Bridge\Service\AutomationBridgeService.ProtocolSupport.cs",
+    "Bridge\Service\AutomationBridgeService.ReferenceDiagnostics.cs",
+    "Bridge\Service\AutomationBridgeService.Routing.cs",
+    "Bridge\Service\AutomationBridgeService.RuntimeDiagnostics.cs",
+    "Bridge\Service\AutomationBridgeService.OperationProjection.cs",
+    "Bridge\Service\AutomationBridgeService.Stations.cs",
+    "Bridge\Service\AutomationBridgeService.ValueConversion.cs",
+    "Bridge\Service\AutomationBridgeService.Variables.cs"))
 {
     $modulePath = Join-Path $repoRoot $requiredBridgeModule
     if (-not (Test-Path -LiteralPath $modulePath))
@@ -104,7 +196,7 @@ if ($bridgeMainLineCount -gt 250)
 {
     $violations.Add("Bridge 主文件重新膨胀：当前 $bridgeMainLineCount 行，组合根上限为 250 行。")
 }
-foreach ($bridgeModule in Get-ChildItem -LiteralPath (Join-Path $repoRoot "Bridge") -Filter "AutomationBridgeService*.cs")
+foreach ($bridgeModule in Get-ChildItem -LiteralPath $bridgeServicePath -Filter "AutomationBridgeService*.cs")
 {
     $lineCount = (Get-Content -LiteralPath $bridgeModule.FullName).Count
     if ($lineCount -gt 1000)
@@ -113,8 +205,8 @@ foreach ($bridgeModule in Get-ChildItem -LiteralPath (Join-Path $repoRoot "Bridg
     }
 }
 foreach ($retiredBridgeFile in @(
-    "Bridge\AutomationBridgeService.Diagnostics.cs",
-    "Bridge\AutomationBridgeService.Serialization.cs"))
+    "Bridge\Service\AutomationBridgeService.Diagnostics.cs",
+    "Bridge\Service\AutomationBridgeService.Serialization.cs"))
 {
     $retiredPath = Join-Path $repoRoot $retiredBridgeFile
     if (Test-Path -LiteralPath $retiredPath)
@@ -122,7 +214,7 @@ foreach ($retiredBridgeFile in @(
         $violations.Add("Bridge 聚合文件已退役但仍存在：$retiredPath")
     }
 }
-$bridgeChangeSetPath = Join-Path $repoRoot "Bridge\AutomationBridgeService.ChangeSet.cs"
+$bridgeChangeSetPath = Join-Path $repoRoot "Bridge\Service\AutomationBridgeService.ChangeSet.cs"
 foreach ($pattern in @(
     "ProcessVariableConfigurationTransaction.Commit(",
     "runtime.Stores.Values.ReplaceConfiguration(",
@@ -177,20 +269,20 @@ foreach ($retiredArchitectureName in @(
     }
 }
 
-$ioDebugFormPath = Join-Path $repoRoot "FrmIODebug.cs"
+$ioDebugFormPath = Join-Path $repoRoot "Editor\Io\FrmIODebug.cs"
 foreach ($pattern in @("GetInIO(", "GetOutIO(", "UpdateIoCacheIfNeeded", "TryResolveIoByName"))
 {
     Select-String -LiteralPath $ioDebugFormPath -SimpleMatch $pattern | ForEach-Object {
         $violations.Add("FrmIODebug 重新承担设备读取或 IO 索引：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
     }
 }
-$ioDebugMonitorPath = Join-Path $repoRoot "UI\IoDebugMonitorService.cs"
+$ioDebugMonitorPath = Join-Path $repoRoot "Editor\Io\IoDebugMonitorService.cs"
 if (-not (Test-Path -LiteralPath $ioDebugMonitorPath))
 {
     $violations.Add("IO 调试监视服务缺失：$ioDebugMonitorPath")
 }
-$ioDebugEditorPath = Join-Path $repoRoot "UI\IoDebugConfigurationEditorService.cs"
-$ioDebugModelsPath = Join-Path $repoRoot "Stores\IoDebugModels.cs"
+$ioDebugEditorPath = Join-Path $repoRoot "Editor\Io\IoDebugConfigurationEditorService.cs"
+$ioDebugModelsPath = Join-Path $repoRoot "Stores\Devices\IoDebugModels.cs"
 foreach ($requiredIoDebugFile in @($ioDebugEditorPath, $ioDebugModelsPath))
 {
     if (-not (Test-Path -LiteralPath $requiredIoDebugFile))
@@ -216,8 +308,8 @@ foreach ($pattern in @(
     }
 }
 
-$variableEditorPath = Join-Path $repoRoot "UI\VariableEditorService.cs"
-$processSelectionPath = Join-Path $repoRoot "UI\ProcessEditorSelectionState.cs"
+$variableEditorPath = Join-Path $repoRoot "Editor\Variables\VariableEditorService.cs"
+$processSelectionPath = Join-Path $repoRoot "Editor\Process\ProcessEditorSelectionState.cs"
 foreach ($requiredEditorService in @($variableEditorPath, $processSelectionPath))
 {
     if (-not (Test-Path -LiteralPath $requiredEditorService))
@@ -231,14 +323,14 @@ foreach ($requiredEditorService in @($variableEditorPath, $processSelectionPath)
         }
     }
 }
-$valueFormPath = Join-Path $repoRoot "FrmValue.cs"
+$valueFormPath = Join-Path $repoRoot "Editor\Variables\FrmValue.cs"
 foreach ($pattern in @("TryCommitConfiguration(", "BuildSaveData(", "setValueByIndex(", "VariableReferenceCatalog"))
 {
     Select-String -LiteralPath $valueFormPath -SimpleMatch $pattern | ForEach-Object {
         $violations.Add("FrmValue 重新承担变量配置规则：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
     }
 }
-$dataGridFormPath = Join-Path $repoRoot "FrmDataGrid.cs"
+$dataGridFormPath = Join-Path $repoRoot "Editor\Process\FrmDataGrid.cs"
 foreach ($pattern in @("Workspace.Proc.SelectedProcNum", "Workspace.Proc.SelectedStepNum", "Workspace.Proc.procsList", "Workspace.Proc?.SelectedProcNum", "Workspace.Proc?.SelectedStepNum"))
 {
     Select-String -LiteralPath $dataGridFormPath -SimpleMatch $pattern | ForEach-Object {
@@ -255,7 +347,7 @@ foreach ($pattern in @(
     }
 }
 
-$procFormPath = Join-Path $repoRoot "FrmProc.cs"
+$procFormPath = Join-Path $repoRoot "Editor\Process\FrmProc.cs"
 foreach ($pattern in @("ProcessVariableConfigurationTransaction", "TryCommitProcessVariableConfiguration"))
 {
     Select-String -LiteralPath $procFormPath -SimpleMatch $pattern | ForEach-Object {
@@ -264,9 +356,9 @@ foreach ($pattern in @("ProcessVariableConfigurationTransaction", "TryCommitProc
 }
 
 foreach ($requiredEditingService in @(
-    "Engine\OperationEditingService.cs",
-    "Runtime\ProcessVariableConfigurationService.cs",
-    "Stores\ProcessVariableConfigurationTransaction.cs"))
+    "Engine\Editing\OperationEditingService.cs",
+    "Runtime\Editing\ProcessVariableConfigurationService.cs",
+    "Stores\Process\ProcessVariableConfigurationTransaction.cs"))
 {
     $servicePath = Join-Path $repoRoot $requiredEditingService
     if (-not (Test-Path -LiteralPath $servicePath))
@@ -274,7 +366,7 @@ foreach ($requiredEditingService in @(
         $violations.Add("流程编辑服务缺失：$servicePath")
     }
 }
-$processRuntimeControlPath = Join-Path $repoRoot "Runtime\ProcessRuntimeControl.cs"
+$processRuntimeControlPath = Join-Path $repoRoot "Runtime\Process\ProcessRuntimeControl.cs"
 foreach ($unusedMember in @(
     "GetProcCount(",
     "TryGetProcName(",
@@ -289,14 +381,14 @@ foreach ($unusedMember in @(
     }
 }
 
-$aiFormPath = Join-Path $repoRoot "FrmAiAssistant.cs"
+$aiFormPath = Join-Path $repoRoot "Editor\Ai\FrmAiAssistant.cs"
 foreach ($requiredAiModule in @(
-    "FrmAiAssistant.WebTemplate.cs",
-    "FrmAiAssistant.Rendering.cs",
-    "FrmAiAssistant.Dialogs.cs",
-    "Runtime\AiConversationCoordinator.cs",
-    "Runtime\GooseAcpEventReader.cs",
-    "UI\AiPreviewConfirmationCoordinator.cs",
+    "Editor\Ai\FrmAiAssistant.WebTemplate.cs",
+    "Editor\Ai\FrmAiAssistant.Rendering.cs",
+    "Editor\Ai\FrmAiAssistant.Dialogs.cs",
+    "Runtime\Ai\AiConversationCoordinator.cs",
+    "Runtime\Ai\GooseAcpEventReader.cs",
+    "Editor\Ai\AiPreviewConfirmationCoordinator.cs",
     "Bridge\AutomationBridgePreviewClient.cs"))
 {
     $aiModulePath = Join-Path $repoRoot $requiredAiModule
@@ -333,9 +425,9 @@ if ($aiFormLineCount -gt 3000)
     $violations.Add("FrmAiAssistant 主文件重新膨胀：当前 $aiFormLineCount 行，上限为 3000 行。")
 }
 foreach ($nonUiCoordinator in @(
-    "Runtime\AiConversationCoordinator.cs",
-    "Runtime\GooseAcpEventReader.cs",
-    "UI\AiPreviewConfirmationCoordinator.cs"))
+    "Runtime\Ai\AiConversationCoordinator.cs",
+    "Runtime\Ai\GooseAcpEventReader.cs",
+    "Editor\Ai\AiPreviewConfirmationCoordinator.cs"))
 {
     $coordinatorPath = Join-Path $repoRoot $nonUiCoordinator
     if (Test-Path -LiteralPath $coordinatorPath)
@@ -345,25 +437,23 @@ foreach ($nonUiCoordinator in @(
         }
     }
 }
-$retiredAiTaskCoordinatorPath = Join-Path $repoRoot "Runtime\AiTaskExecutionCoordinator.cs"
-if (Test-Path -LiteralPath $retiredAiTaskCoordinatorPath)
-{
-    $violations.Add("AI 任务执行已并回会话协调器，独立协调器文件不得恢复：$retiredAiTaskCoordinatorPath")
+Get-ChildItem -LiteralPath (Join-Path $repoRoot "Runtime") -Recurse -File -Filter "AiTaskExecutionCoordinator.cs" | ForEach-Object {
+    $violations.Add("AI 任务执行已并回会话协调器，独立协调器文件不得恢复：$($_.FullName)")
 }
 Select-String -LiteralPath $projectPath -SimpleMatch "AiTaskExecutionCoordinator" | ForEach-Object {
     $violations.Add("项目文件重新包含独立 AI 任务协调器：$($_.Path):$($_.LineNumber)")
 }
 
 foreach ($requiredInspectorFile in @(
-    "Inspector\InspectorCollectionFieldControls.cs",
-    "Inspector\InspectorComboBoxControl.cs",
-    "Inspector\InspectorControls.cs",
-    "Inspector\InspectorFieldControls.cs",
-    "Inspector\InspectorScalarFieldControl.cs",
-    "Inspector\InspectorToggleControls.cs",
-    "Inspector\InspectorValueCellControls.cs",
-    "Inspector\InspectorValueReferenceFieldControl.cs",
-    "Inspector\InspectorValueConversion.cs"))
+    "Editor\Process\Inspector\InspectorCollectionFieldControls.cs",
+    "Editor\Process\Inspector\InspectorComboBoxControl.cs",
+    "Editor\Process\Inspector\InspectorControls.cs",
+    "Editor\Process\Inspector\InspectorFieldControls.cs",
+    "Editor\Process\Inspector\InspectorScalarFieldControl.cs",
+    "Editor\Process\Inspector\InspectorToggleControls.cs",
+    "Editor\Process\Inspector\InspectorValueCellControls.cs",
+    "Editor\Process\Inspector\InspectorValueReferenceFieldControl.cs",
+    "Editor\Process\Inspector\InspectorValueConversion.cs"))
 {
     $inspectorPath = Join-Path $repoRoot $requiredInspectorFile
     if (-not (Test-Path -LiteralPath $inspectorPath))
@@ -371,7 +461,7 @@ foreach ($requiredInspectorFile in @(
         $violations.Add("Inspector 职责文件缺失：$inspectorPath")
     }
 }
-$inspectorCollectionServicePath = Join-Path $repoRoot "Inspector\InspectorCollectionEditorService.cs"
+$inspectorCollectionServicePath = Join-Path $repoRoot "Editor\Process\Inspector\InspectorCollectionEditorService.cs"
 if (Test-Path -LiteralPath $inspectorCollectionServicePath)
 {
     $violations.Add("Inspector 集合编辑只服务一个控件，不得恢复独立 Service：$inspectorCollectionServicePath")
@@ -379,20 +469,20 @@ if (Test-Path -LiteralPath $inspectorCollectionServicePath)
 Select-String -LiteralPath $projectPath -SimpleMatch "InspectorCollectionEditorService" | ForEach-Object {
     $violations.Add("项目文件重新包含 Inspector 集合 Service：$($_.Path):$($_.LineNumber)")
 }
-Get-ChildItem -LiteralPath (Join-Path $repoRoot "Inspector") -Filter "Inspector*.cs" | ForEach-Object {
+Get-ChildItem -LiteralPath (Join-Path $repoRoot "Editor\Process\Inspector") -Filter "Inspector*.cs" | ForEach-Object {
     $lineCount = (Get-Content -LiteralPath $_.FullName).Count
     if ($lineCount -gt 1000)
     {
         $violations.Add("Inspector 职责文件重新膨胀：$($_.Name) 当前 $lineCount 行，上限为 1000 行。")
     }
 }
-$inspectorViewPath = Join-Path $repoRoot "Inspector\InspectorView.cs"
+$inspectorViewPath = Join-Path $repoRoot "Editor\Process\Inspector\InspectorView.cs"
 $inspectorViewLineCount = (Get-Content -LiteralPath $inspectorViewPath).Count
 if ($inspectorViewLineCount -gt 600)
 {
     $violations.Add("InspectorView 重新膨胀：当前 $inspectorViewLineCount 行，上限为 600 行。")
 }
-$inspectorValuePath = Join-Path $repoRoot "Inspector\InspectorValueConversion.cs"
+$inspectorValuePath = Join-Path $repoRoot "Editor\Process\Inspector\InspectorValueConversion.cs"
 if (-not (Select-String -LiteralPath $inspectorValuePath -SimpleMatch "class InspectorFieldValueService"))
 {
     $violations.Add("Inspector 字段写入服务缺失：$inspectorValuePath")
@@ -404,7 +494,7 @@ else
     }
 }
 
-Get-ChildItem -LiteralPath $repoRoot -Filter "Frm*.cs" | ForEach-Object {
+Get-ChildItem -LiteralPath (Join-Path $repoRoot "Editor") -Filter "Frm*.cs" -Recurse | ForEach-Object {
     Select-String -LiteralPath $_.FullName -SimpleMatch "AtomicJsonFileStore" | ForEach-Object {
         $violations.Add("窗体仍直接读写配置：$($_.Path):$($_.LineNumber)")
     }
@@ -435,17 +525,17 @@ Get-ChildItem -LiteralPath $enginePath -Filter *.cs -Recurse | ForEach-Object {
     }
 }
 
-$runtimeComposerPath = Join-Path $repoRoot "Runtime\PlatformRuntimeComposer.cs"
+$runtimeComposerPath = Join-Path $repoRoot "Runtime\Hosting\PlatformRuntimeComposer.cs"
 if (-not (Test-Path -LiteralPath $runtimeComposerPath))
 {
     $violations.Add("平台内核组合器缺失：$runtimeComposerPath")
 }
 
 foreach ($runtimeCoreFile in @(
-    "Runtime\PlatformRuntimeComposer.cs",
-    "Runtime\PlatformRuntimeInitializer.cs",
-    "Runtime\PlatformDeviceCoordinator.cs",
-    "Runtime\PlatformSystemStatusService.cs"))
+    "Runtime\Hosting\PlatformRuntimeComposer.cs",
+    "Runtime\Hosting\PlatformRuntimeInitializer.cs",
+    "Runtime\Lifecycle\PlatformDeviceCoordinator.cs",
+    "Runtime\Lifecycle\PlatformSystemStatusService.cs"))
 {
     $runtimeCorePath = Join-Path $repoRoot $runtimeCoreFile
     if (-not (Test-Path -LiteralPath $runtimeCorePath))
@@ -461,7 +551,7 @@ foreach ($runtimeCoreFile in @(
     }
 }
 
-$platformHostPath = Join-Path $repoRoot "Runtime\AutomationPlatformHost.cs"
+$platformHostPath = Join-Path $repoRoot "Runtime\Hosting\AutomationPlatformHost.cs"
 $platformHostSource = Get-Content -LiteralPath $platformHostPath -Raw
 $initializeMethod = [regex]::Match(
     $platformHostSource,
@@ -474,7 +564,7 @@ elseif ($initializeMethod.Value -match '\bFrmMain\b|EnsurePlatformEditorCreated|
 {
     $violations.Add("AutomationPlatformHost.Initialize 重新依赖平台编辑器窗体。")
 }
-$mainFormPath = Join-Path $repoRoot "FrmMain.cs"
+$mainFormPath = Join-Path $repoRoot "Editor\Shell\FrmMain.cs"
 foreach ($pattern in @(
     "new EngineContext",
     "new ProcessEngine",
@@ -491,7 +581,9 @@ if ($mainFormLineCount -gt 1100)
 {
     $violations.Add("FrmMain 主文件重新膨胀：当前 $mainFormLineCount 行，上限为 1100 行。")
 }
-foreach ($requiredMainModule in @("FrmMain.Lifecycle.cs", "FrmMain.Navigation.cs"))
+foreach ($requiredMainModule in @(
+    "Editor\Shell\FrmMain.Lifecycle.cs",
+    "Editor\Shell\FrmMain.Navigation.cs"))
 {
     $mainModulePath = Join-Path $repoRoot $requiredMainModule
     if (-not (Test-Path -LiteralPath $mainModulePath))
@@ -499,12 +591,14 @@ foreach ($requiredMainModule in @("FrmMain.Lifecycle.cs", "FrmMain.Navigation.cs
         $violations.Add("FrmMain 职责文件缺失：$mainModulePath")
     }
 }
-$shutdownCoordinatorPath = Join-Path $repoRoot "Runtime\PlatformShutdownCoordinator.cs"
+$shutdownCoordinatorPath = Join-Path $repoRoot "Runtime\Lifecycle\PlatformShutdownCoordinator.cs"
 if (-not (Test-Path -LiteralPath $shutdownCoordinatorPath))
 {
     $violations.Add("平台关闭协调器缺失：$shutdownCoordinatorPath")
 }
-foreach ($mainLifecycleFile in @("FrmMain.cs", "FrmMain.Lifecycle.cs"))
+foreach ($mainLifecycleFile in @(
+    "Editor\Shell\FrmMain.cs",
+    "Editor\Shell\FrmMain.Lifecycle.cs"))
 {
     $lifecyclePath = Join-Path $repoRoot $mainLifecycleFile
     foreach ($pattern in @("Communication.Dispose(", "PlcRuntime.Dispose(", "Devices.Dispose(", "ProcessEngine.Dispose(", "WaitForAllProcsStopped"))

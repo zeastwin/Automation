@@ -1,4 +1,7 @@
 using Newtonsoft.Json;
+// 模块：Bridge / 前台确认。
+// 职责范围：在编辑器前台与 Bridge 之间传输预演确认状态。
+
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;

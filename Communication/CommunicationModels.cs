@@ -1,4 +1,7 @@
 namespace Automation
+// 模块：通讯运行时。
+// 职责范围：管理 TCP/串口通道、帧解码、接收分发、事务等待和通讯配置模型。
+
 {
     public class SocketInfo
     {

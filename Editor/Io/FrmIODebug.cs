@@ -1,0 +1,2825 @@
+// 模块：编辑器 / IO。
+// 职责范围：IO 配置、状态监视、调试布局和配置提交。
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using IoRefreshData = Automation.IoDebugRefreshSnapshot;
+
+namespace Automation
+{
+    public partial class FrmIODebug : Form
+    {
+        public IODebugMap IODebugMaps = new IODebugMap();
+        private readonly Font font = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
+        public List<Control> buttonsIn = new List<Control>();
+        public List<Control> buttonsOut = new List<Control>();
+        public List<ConnectButton> btnCon = new List<ConnectButton>();
+        private ListView listView6;
+        private readonly ListView[] connectListView3 = new ListView[3];
+        private readonly ListView[] connectListView4 = new ListView[3];
+        private readonly ListView[] connectListView5 = new ListView[3];
+        private readonly ListView[] connectListView6 = new ListView[3];
+        private readonly Splitter[][] connectSplitters = new Splitter[3][];
+        private readonly bool[] connectConfigAutoSizeEnabled = new bool[] { true, true, true };
+        private const int ConnectSplitterWidth = 4;
+        private bool isConnectConfigAutoSizing = false;
+        private IoDebugMonitorService ioMonitorService;
+        private IoDebugConfigurationEditorService ioConfigurationEditor;
+        private IoDebugMonitorService IoMonitor => ioMonitorService
+            ?? throw new InvalidOperationException("FrmIODebug 尚未挂接平台编辑器工作区。");
+
+        private readonly object ioRefreshLock = new object();
+        private CancellationTokenSource ioRefreshCts;
+        private Task ioRefreshTask;
+        private volatile bool ioRefreshEnabled = false;
+        private readonly int ioRefreshIntervalMs = 200;
+        private volatile int currentTabIndex = 0;
+        private const int IoColWidth = 160;
+        private const int IoRowHeight = 46;
+        private const int IoItemWidth = 150;
+        private const int IoItemHeight = 34;
+        private const string RemarkHeaderTag = "RemarkHeader";
+        private const string RemarkLabelTag = "RemarkLabel";
+        private const string RemarkLineLeftTag = "RemarkLineLeft";
+        private const string RemarkLineRightTag = "RemarkLineRight";
+        private int inputRowsPerColumn = -1;
+        private int outputRowsPerColumn = -1;
+        private int connectRowsPerColumn = -1;
+        private bool connectConfigResetNotified = false;
+        private TabPage connectPage1;
+        private TabPage connectPage2;
+        private TabPage connectPage3;
+        private TabPage connectConfigPage1;
+        private TabControl connectConfigTabControl;
+        private TabPage connectConfigTabPage1;
+        private TabPage connectConfigTabPage2;
+        private TabPage connectConfigTabPage3;
+        private int currentConnectDisplayIndex = 0;
+        private int currentConnectConfigIndex = 0;
+
+        public FrmIODebug()
+        {
+            InitializeComponent();
+            this.DoubleBuffered = true;
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+            this.UpdateStyles();
+            listView1.View = View.SmallIcon;
+            listView2.View = View.SmallIcon;
+            listView3.View = View.SmallIcon;
+            listView4.View = View.SmallIcon;
+            listView5.View = View.SmallIcon;
+            listView1.View = View.Details;
+            listView2.View = View.Details;
+            listView3.View = View.Details;
+            listView4.View = View.Details;
+            listView5.View = View.Details;
+            listView4.CheckBoxes = true;
+            listView5.CheckBoxes = true;
+            InitializeConnectConfigTabs();
+            InitializeConnectPages();
+            ContextMenuStrip inputMenu = new ContextMenuStrip();
+            ToolStripMenuItem inputConfigItem = new ToolStripMenuItem("配置显示");
+            inputConfigItem.Click += InputConfigItem_Click;
+            ToolStripMenuItem inputRemarkItem = new ToolStripMenuItem("添加备注");
+            inputRemarkItem.Click += InputRemarkItem_Click;
+            inputMenu.Items.Add(inputConfigItem);
+            inputMenu.Items.Add(inputRemarkItem);
+            listView1.ContextMenuStrip = inputMenu;
+            ContextMenuStrip outputMenu = new ContextMenuStrip();
+            ToolStripMenuItem outputConfigItem = new ToolStripMenuItem("配置显示");
+            outputConfigItem.Click += OutputConfigItem_Click;
+            ToolStripMenuItem outputRemarkItem = new ToolStripMenuItem("添加备注");
+            outputRemarkItem.Click += OutputRemarkItem_Click;
+            outputMenu.Items.Add(outputConfigItem);
+            outputMenu.Items.Add(outputRemarkItem);
+            listView2.ContextMenuStrip = outputMenu;
+            ContextMenuStrip connectMenu = new ContextMenuStrip();
+            ToolStripMenuItem connectConfigItem = new ToolStripMenuItem("配置显示");
+            connectConfigItem.Click += ConnectConfigItem_Click;
+            ToolStripMenuItem connectRemarkItem = new ToolStripMenuItem("添加备注");
+            connectRemarkItem.Click += ConnectRemarkItem_Click;
+            connectMenu.Items.Add(connectConfigItem);
+            connectMenu.Items.Add(connectRemarkItem);
+            listView3.ContextMenuStrip = connectMenu;
+            this.VisibleChanged += FrmIODebug_VisibleChanged;
+            this.Resize += FrmIODebug_Resize;
+            ApplyIoDebugStyle();
+        }
+
+        private void OnEditorWorkspaceAttached()
+        {
+            ioMonitorService = new IoDebugMonitorService(Workspace.Runtime);
+            ioConfigurationEditor = new IoDebugConfigurationEditorService(Workspace.Runtime);
+        }
+
+        private void ApplyIoDebugStyle()
+        {
+            BackColor = UiPalette.Background;
+            tabControl1.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            tabControl1.SizeMode = TabSizeMode.Fixed;
+            tabControl1.ItemSize = new Size(112, 30);
+            tabControl1.Padding = new Point(14, 5);
+            foreach (TabPage page in tabControl1.TabPages)
+            {
+                page.BackColor = UiPalette.Background;
+                page.UseVisualStyleBackColor = false;
+            }
+            foreach (Control control in EnumerateControls(this))
+            {
+                if (control is ListView listView)
+                {
+                    listView.BackColor = UiPalette.SurfaceStrong;
+                    listView.ForeColor = UiPalette.TextPrimary;
+                    listView.BorderStyle = BorderStyle.FixedSingle;
+                    listView.Font = new Font("微软雅黑", 9.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                    listView.FullRowSelect = true;
+                    listView.HideSelection = false;
+                    if (listView.View == View.Details)
+                    {
+                        listView.GridLines = true;
+                    }
+                }
+                else if (control is TabControl tabs)
+                {
+                    tabs.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
+                    tabs.SizeMode = TabSizeMode.Fixed;
+                    tabs.ItemSize = new Size(112, 30);
+                    tabs.Padding = new Point(14, 5);
+                    foreach (TabPage page in tabs.TabPages)
+                    {
+                        page.BackColor = UiPalette.Background;
+                        page.UseVisualStyleBackColor = false;
+                    }
+                }
+            }
+            foreach (ContextMenuStrip menu in new[] { listView1.ContextMenuStrip, listView2.ContextMenuStrip, listView3.ContextMenuStrip })
+            {
+                if (menu == null)
+                {
+                    continue;
+                }
+                menu.ShowImageMargin = false;
+                menu.Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134);
+            }
+        }
+
+        private static IEnumerable<Control> EnumerateControls(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                yield return child;
+                foreach (Control descendant in EnumerateControls(child))
+                {
+                    yield return descendant;
+                }
+            }
+        }
+
+        private void ShowIoConfigurationError(string error)
+        {
+            Workspace.Runtime.ProcessEngine?.Logger?.Log(error, LogLevel.Error);
+            if (IsHandleCreated && !IsDisposed && !Disposing)
+            {
+                MessageBox.Show(error, "IO调试",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        public bool CheckFormIsOpen(Form form)
+        {
+            bool bResult = false;
+
+            if (form.Visible == true && form.WindowState != FormWindowState.Minimized)
+            {
+                bResult = true;
+            }
+            return bResult;
+        }
+        bool[] InTemp = new bool[300];
+        bool[] OutTemp = new bool[300];
+        Connect[] ConnectTemp = new Connect[300];
+        bool[] InValid = new bool[300];
+        bool[] OutValid = new bool[300];
+        bool[] ConnectOutValid = new bool[300];
+        bool[] ConnectIn1Valid = new bool[300];
+        bool[] ConnectIn2Valid = new bool[300];
+
+        public class ConnectButton
+        {
+            public Control OutPut;
+            public Label InPut1;
+            public Label InPut2;
+        }
+        public class Connect
+        {
+            public bool OutPut = false;
+            public bool InPut1 = false;
+            public bool InPut2 = false;
+        }
+
+        public void RefleshIODebug()
+        {
+            UpdateRefreshEnabled();
+        }
+        private void FrmIODebug_VisibleChanged(object sender, EventArgs e)
+        {
+            UpdateRefreshEnabled();
+            RelayoutIoButtonsIfNeeded();
+        }
+
+        private void FrmIODebug_Resize(object sender, EventArgs e)
+        {
+            UpdateRefreshEnabled();
+            RelayoutIoButtonsIfNeeded();
+        }
+
+        private void UpdateRefreshEnabled()
+        {
+            bool enable = this.Visible && this.WindowState != FormWindowState.Minimized;
+            ioRefreshEnabled = enable;
+            if (enable)
+            {
+                StartIoRefreshLoop();
+            }
+            else
+            {
+                StopIoRefreshLoop();
+            }
+        }
+
+        private void InitializeConnectConfigTabs()
+        {
+            connectConfigTabControl = new TabControl();
+            connectConfigTabControl.Name = "connectConfigTabControl";
+            connectConfigTabControl.Dock = DockStyle.Fill;
+
+            connectConfigTabPage1 = new TabPage("关联配置1");
+            connectConfigTabPage2 = new TabPage("关联配置2");
+            connectConfigTabPage3 = new TabPage("关联配置3");
+            connectConfigTabPage1.UseVisualStyleBackColor = true;
+            connectConfigTabPage2.UseVisualStyleBackColor = true;
+            connectConfigTabPage3.UseVisualStyleBackColor = true;
+
+            connectConfigTabControl.Controls.Add(connectConfigTabPage1);
+            connectConfigTabControl.Controls.Add(connectConfigTabPage2);
+            connectConfigTabControl.Controls.Add(connectConfigTabPage3);
+            connectConfigTabControl.SelectedIndex = 0;
+
+            tabPage4.Controls.Add(connectConfigTabControl);
+            tabPage4.Controls.SetChildIndex(connectConfigTabControl, 0);
+            connectConfigTabControl.BringToFront();
+
+            InitializeConnectConfigListViews();
+            MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab ?? connectConfigTabPage1);
+            currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+            connectConfigTabControl.SelectedIndexChanged += ConnectConfigTabControl_SelectedIndexChanged;
+            connectConfigTabControl.Resize += ConnectConfigTabControl_Resize;
+        }
+
+        private void InitializeConnectConfigListViews()
+        {
+            connectListView3[0] = listView3;
+            connectListView4[0] = listView4;
+            connectListView5[0] = listView5;
+            connectListView6[0] = CreateConnectOutput2ListView("listView6");
+            connectSplitters[0] = new[]
+            {
+                CreateConnectSplitter("connectSplitter1_1", 0),
+                CreateConnectSplitter("connectSplitter1_2", 0),
+                CreateConnectSplitter("connectSplitter1_3", 0)
+            };
+            ApplyConnectListViewLayout(0, connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0], connectSplitters[0][0], connectSplitters[0][1], connectSplitters[0][2]);
+
+            connectListView3[1] = CreateConnectOutputListView("listView3_2");
+            connectListView4[1] = CreateConnectInputListView("listView4_2");
+            connectListView5[1] = CreateConnectInputListView("listView5_2");
+            connectListView6[1] = CreateConnectOutput2ListView("listView6_2");
+            connectSplitters[1] = new[]
+            {
+                CreateConnectSplitter("connectSplitter2_1", 1),
+                CreateConnectSplitter("connectSplitter2_2", 1),
+                CreateConnectSplitter("connectSplitter2_3", 1)
+            };
+            ApplyConnectListViewLayout(1, connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1], connectSplitters[1][0], connectSplitters[1][1], connectSplitters[1][2]);
+
+            connectListView3[2] = CreateConnectOutputListView("listView3_3");
+            connectListView4[2] = CreateConnectInputListView("listView4_3");
+            connectListView5[2] = CreateConnectInputListView("listView5_3");
+            connectListView6[2] = CreateConnectOutput2ListView("listView6_3");
+            connectSplitters[2] = new[]
+            {
+                CreateConnectSplitter("connectSplitter3_1", 2),
+                CreateConnectSplitter("connectSplitter3_2", 2),
+                CreateConnectSplitter("connectSplitter3_3", 2)
+            };
+            ApplyConnectListViewLayout(2, connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2], connectSplitters[2][0], connectSplitters[2][1], connectSplitters[2][2]);
+        }
+
+        private ListView CreateConnectOutputListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = UiPalette.SurfaceStrong;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            listView.ItemDrag += new ItemDragEventHandler(this.listView3_ItemDrag);
+            listView.SelectedIndexChanged += new EventHandler(this.listView3_SelectedIndexChanged);
+            listView.DragDrop += new DragEventHandler(this.listView3_DragDrop);
+            listView.DragEnter += new DragEventHandler(this.listView3_DragEnter);
+            listView.DragOver += new DragEventHandler(this.listView3_DragOver);
+            return listView;
+        }
+
+        private ListView CreateConnectInputListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = UiPalette.SurfaceStrong;
+            listView.CheckBoxes = true;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            return listView;
+        }
+
+        private ListView CreateConnectOutput2ListView(string name)
+        {
+            ListView listView = new ListView();
+            listView.AllowDrop = true;
+            listView.BackColor = UiPalette.SurfaceStrong;
+            listView.CheckBoxes = true;
+            listView.HideSelection = false;
+            listView.Name = name;
+            listView.UseCompatibleStateImageBehavior = false;
+            listView.View = View.Details;
+            listView.ItemChecked += listView6_ItemChecked;
+            return listView;
+        }
+
+        private Splitter CreateConnectSplitter(string name, int pageIndex)
+        {
+            Splitter splitter = new Splitter();
+            splitter.Name = name;
+            splitter.Width = ConnectSplitterWidth;
+            splitter.BackColor = UiPalette.StrokeStrong;
+            splitter.Tag = pageIndex;
+            splitter.SplitterMoved += ConnectSplitter_SplitterMoved;
+            return splitter;
+        }
+
+        private void ApplyConnectListViewLayout(int pageIndex, TabPage page, ListView output1, ListView output2, ListView input1, ListView input2, Splitter splitter1, Splitter splitter2, Splitter splitter3)
+        {
+            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null || splitter1 == null || splitter2 == null || splitter3 == null)
+            {
+                return;
+            }
+            page.SuspendLayout();
+            try
+            {
+                if (output1.Parent != page)
+                {
+                    page.Controls.Add(output1);
+                }
+                if (input1.Parent != page)
+                {
+                    page.Controls.Add(input1);
+                }
+                if (input2.Parent != page)
+                {
+                    page.Controls.Add(input2);
+                }
+                if (output2.Parent != page)
+                {
+                    page.Controls.Add(output2);
+                }
+                if (splitter1.Parent != page)
+                {
+                    page.Controls.Add(splitter1);
+                }
+                if (splitter2.Parent != page)
+                {
+                    page.Controls.Add(splitter2);
+                }
+                if (splitter3.Parent != page)
+                {
+                    page.Controls.Add(splitter3);
+                }
+
+                output1.Dock = DockStyle.Left;
+                splitter1.Dock = DockStyle.Left;
+                output2.Dock = DockStyle.Left;
+                splitter2.Dock = DockStyle.Left;
+                input1.Dock = DockStyle.Left;
+                splitter3.Dock = DockStyle.Left;
+                input2.Dock = DockStyle.Fill;
+
+                page.Controls.SetChildIndex(input2, 0);
+                page.Controls.SetChildIndex(splitter3, 1);
+                page.Controls.SetChildIndex(input1, 2);
+                page.Controls.SetChildIndex(splitter2, 3);
+                page.Controls.SetChildIndex(output2, 4);
+                page.Controls.SetChildIndex(splitter1, 5);
+                page.Controls.SetChildIndex(output1, 6);
+                UpdateConnectConfigColumnWidths(pageIndex, page, output1, output2, input1, input2, splitter1, splitter2, splitter3);
+            }
+            finally
+            {
+                page.ResumeLayout();
+            }
+        }
+
+        private void ConnectConfigTabControl_Resize(object sender, EventArgs e)
+        {
+            int pageIndex = currentConnectConfigIndex;
+            connectConfigAutoSizeEnabled[pageIndex] = true;
+            if (!IsHandleCreated || IsDisposed || Disposing)
+            {
+                return;
+            }
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed || Disposing)
+                {
+                    return;
+                }
+                connectConfigAutoSizeEnabled[pageIndex] = true;
+                UpdateConnectConfigColumnWidthsForIndex(pageIndex);
+            }));
+        }
+
+        private void UpdateConnectConfigColumnWidthsForIndex(int pageIndex)
+        {
+            switch (pageIndex)
+            {
+                case 1:
+                    UpdateConnectConfigColumnWidths(1, connectConfigTabPage2, connectListView3[1], connectListView6[1], connectListView4[1], connectListView5[1], connectSplitters[1][0], connectSplitters[1][1], connectSplitters[1][2]);
+                    return;
+                case 2:
+                    UpdateConnectConfigColumnWidths(2, connectConfigTabPage3, connectListView3[2], connectListView6[2], connectListView4[2], connectListView5[2], connectSplitters[2][0], connectSplitters[2][1], connectSplitters[2][2]);
+                    return;
+                default:
+                    UpdateConnectConfigColumnWidths(0, connectConfigTabPage1, connectListView3[0], connectListView6[0], connectListView4[0], connectListView5[0], connectSplitters[0][0], connectSplitters[0][1], connectSplitters[0][2]);
+                    return;
+            }
+        }
+
+        private void UpdateConnectConfigColumnWidths(int pageIndex, TabPage page, ListView output1, ListView output2, ListView input1, ListView input2, Splitter splitter1, Splitter splitter2, Splitter splitter3)
+        {
+            if (page == null || output1 == null || output2 == null || input1 == null || input2 == null || splitter1 == null || splitter2 == null || splitter3 == null)
+            {
+                return;
+            }
+            if (pageIndex < 0 || pageIndex >= connectConfigAutoSizeEnabled.Length)
+            {
+                return;
+            }
+            if (!connectConfigAutoSizeEnabled[pageIndex])
+            {
+                return;
+            }
+            int width = page.ClientSize.Width;
+            if (width <= 0)
+            {
+                return;
+            }
+            int splitterWidth = splitter1.Width + splitter2.Width + splitter3.Width;
+            int availableWidth = width - splitterWidth;
+            if (availableWidth <= 0)
+            {
+                return;
+            }
+            int colWidth = availableWidth / 4;
+            if (colWidth <= 0)
+            {
+                return;
+            }
+            int lastWidth = availableWidth - (colWidth * 3);
+            if (lastWidth <= 0)
+            {
+                lastWidth = colWidth;
+            }
+            isConnectConfigAutoSizing = true;
+            try
+            {
+                output1.Width = colWidth;
+                output2.Width = colWidth;
+                input1.Width = colWidth;
+                input2.Width = lastWidth;
+            }
+            finally
+            {
+                isConnectConfigAutoSizing = false;
+            }
+            UpdateConnectListViewColumnWidth(output1);
+            UpdateConnectListViewColumnWidth(output2);
+            UpdateConnectListViewColumnWidth(input1);
+            UpdateConnectListViewColumnWidth(input2);
+        }
+
+        private void UpdateConnectListViewColumnWidth(ListView listView)
+        {
+            if (listView == null || listView.Columns.Count == 0)
+            {
+                return;
+            }
+            int width = listView.ClientSize.Width;
+            if (width <= 0)
+            {
+                return;
+            }
+            int columnWidth = width - SystemInformation.VerticalScrollBarWidth - 2;
+            if (columnWidth <= 0)
+            {
+                columnWidth = width;
+            }
+            listView.Columns[0].Width = columnWidth;
+        }
+
+        private void EnsureListViewSingleColumn(ListView listView, string header, int width)
+        {
+            if (listView == null)
+            {
+                return;
+            }
+            if (listView.Columns.Count == 0)
+            {
+                listView.Columns.Add(header, width);
+                return;
+            }
+            listView.Columns[0].Text = header;
+            listView.Columns[0].Width = width;
+            while (listView.Columns.Count > 1)
+            {
+                listView.Columns.RemoveAt(1);
+            }
+        }
+
+        private void ConnectSplitter_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            if (isConnectConfigAutoSizing)
+            {
+                return;
+            }
+            Splitter splitter = sender as Splitter;
+            if (splitter == null)
+            {
+                return;
+            }
+            if (splitter.Tag is int pageIndex && pageIndex >= 0 && pageIndex < connectConfigAutoSizeEnabled.Length)
+            {
+                connectConfigAutoSizeEnabled[pageIndex] = false;
+                UpdateConnectListViewColumnWidth(connectListView3[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView6[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView4[pageIndex]);
+                UpdateConnectListViewColumnWidth(connectListView5[pageIndex]);
+            }
+        }
+
+        private void InitializeConnectPages()
+        {
+            connectPage1 = tabPage3;
+            connectPage2 = tabPage5;
+            connectPage3 = tabPage6;
+            connectConfigPage1 = tabPage4;
+
+            if (connectPage1 != null && string.IsNullOrWhiteSpace(connectPage1.Text))
+            {
+                connectPage1.Text = "输入输出关联1";
+            }
+            if (connectPage2 != null && string.IsNullOrWhiteSpace(connectPage2.Text))
+            {
+                connectPage2.Text = "输入输出关联2";
+            }
+            if (connectPage3 != null && string.IsNullOrWhiteSpace(connectPage3.Text))
+            {
+                connectPage3.Text = "输入输出关联3";
+            }
+            if (connectConfigPage1 != null && string.IsNullOrWhiteSpace(connectConfigPage1.Text))
+            {
+                connectConfigPage1.Text = "关联配置1";
+            }
+            currentConnectDisplayIndex = 0;
+        }
+
+        private TabPage GetCurrentConnectDisplayPage()
+        {
+            if (currentConnectDisplayIndex == 1 && connectPage2 != null)
+            {
+                return connectPage2;
+            }
+            if (currentConnectDisplayIndex == 2 && connectPage3 != null)
+            {
+                return connectPage3;
+            }
+            return connectPage1 ?? tabPage3;
+        }
+
+        private void ConnectConfigTabControl_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            RunConnectConfigLayoutUpdate(() =>
+            {
+                currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+                MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                BeginConnectListViewUpdate();
+                try
+                {
+                    listView4.ItemChecked -= listView4_ItemChecked;
+                    listView5.ItemChecked -= listView5_ItemChecked;
+                    listView6.ItemChecked -= listView6_ItemChecked;
+                    SetConnectItemm();
+                    RefleshConnecdt();
+                    listView4.ItemChecked += listView4_ItemChecked;
+                    listView5.ItemChecked += listView5_ItemChecked;
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    RefreshConnectDisplayForCurrentConfig();
+                    UpdateConnectConfigColumnWidthsForIndex(currentConnectConfigIndex);
+                }
+                finally
+                {
+                    EndConnectListViewUpdate();
+                }
+            });
+        }
+
+        private void MoveConnectConfigViewsTo(TabPage targetPage)
+        {
+            if (targetPage == null)
+            {
+                return;
+            }
+            int index = 0;
+            if (targetPage == connectConfigTabPage2)
+            {
+                index = 1;
+            }
+            else if (targetPage == connectConfigTabPage3)
+            {
+                index = 2;
+            }
+            listView3 = connectListView3[index];
+            listView4 = connectListView4[index];
+            listView5 = connectListView5[index];
+            listView6 = connectListView6[index];
+        }
+
+        private void RunConnectConfigLayoutUpdate(Action updateAction)
+        {
+            TabPage targetPage = connectConfigTabControl?.SelectedTab;
+            connectConfigTabControl?.SuspendLayout();
+            targetPage?.SuspendLayout();
+            try
+            {
+                updateAction?.Invoke();
+            }
+            finally
+            {
+                targetPage?.ResumeLayout();
+                connectConfigTabControl?.ResumeLayout();
+            }
+        }
+
+        private void BeginConnectListViewUpdate()
+        {
+            listView3?.BeginUpdate();
+            listView4?.BeginUpdate();
+            listView5?.BeginUpdate();
+            listView6?.BeginUpdate();
+        }
+
+        private void EndConnectListViewUpdate()
+        {
+            listView3?.EndUpdate();
+            listView4?.EndUpdate();
+            listView5?.EndUpdate();
+            listView6?.EndUpdate();
+        }
+
+        private void EnsureConnectConfigReady()
+        {
+            if (IODebugMaps == null)
+            {
+                IODebugMaps = new IODebugMap();
+                return;
+            }
+            if (IODebugMaps.iOConnects == null || IODebugMaps.iOConnects2 == null || IODebugMaps.iOConnects3 == null)
+            {
+                if (!connectConfigResetNotified)
+                {
+                    connectConfigResetNotified = true;
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        if (InvokeRequired)
+                        {
+                            BeginInvoke(new Action(() => MessageBox.Show(
+                                "输入输出关联配置无效，原文件已保留；本次关联调试已使用空配置，请重新配置后再使用。",
+                                "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                "输入输出关联配置无效，原文件已保留；本次关联调试已使用空配置，请重新配置后再使用。",
+                                "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+                }
+                Workspace.Runtime.ProcessEngine?.Logger?.Log("输入输出关联配置字段缺失，已保留原文件，本次关联调试使用空配置", LogLevel.Error);
+                IODebugMaps = new IODebugMap();
+            }
+        }
+
+        private List<IOConnect> GetConnectList(int pageIndex)
+        {
+            EnsureConnectConfigReady();
+            switch (pageIndex)
+            {
+                case 1:
+                    return IODebugMaps.iOConnects2;
+                case 2:
+                    return IODebugMaps.iOConnects3;
+                default:
+                    return IODebugMaps.iOConnects;
+            }
+        }
+
+        private List<IOConnect> GetConnectListForDisplay()
+        {
+            EnsureConnectConfigReady();
+            return GetConnectList(currentConnectDisplayIndex);
+        }
+
+        private List<IOConnect> GetConnectListForConfig()
+        {
+            EnsureConnectConfigReady();
+            return GetConnectList(currentConnectConfigIndex);
+        }
+
+        private void RefreshConnectDisplayForCurrentConfig()
+        {
+            if (connectPage1 == null)
+            {
+                return;
+            }
+            if (currentConnectDisplayIndex != currentConnectConfigIndex)
+            {
+                return;
+            }
+            RefreshCurrentConnectDisplayPage();
+        }
+
+        private void RefreshCurrentConnectDisplayPage()
+        {
+            TabPage connectPage = GetCurrentConnectDisplayPage();
+            List<IOConnect> connectList = GetConnectListForDisplay();
+            CreateButtonConnect(connectList, connectPage, true);
+            Array.Clear(ConnectOutValid, 0, ConnectOutValid.Length);
+            Array.Clear(ConnectIn1Valid, 0, ConnectIn1Valid.Length);
+            Array.Clear(ConnectIn2Valid, 0, ConnectIn2Valid.Length);
+            IoRefreshData data = BuildIoRefreshData(2);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+        }
+
+        private int GetRowsPerColumn(TabPage tabPage, int rowHeight)
+        {
+            int height = tabPage.ClientSize.Height;
+            if (height <= 0 || rowHeight <= 0)
+            {
+                return 1;
+            }
+            int rows = height / rowHeight;
+            return Math.Max(1, rows);
+        }
+
+        private void RelayoutIoButtonsIfNeeded()
+        {
+            if (!CheckFormIsOpen(this))
+            {
+                return;
+            }
+            int newInputRows = GetRowsPerColumn(tabPage1, IoRowHeight);
+            if (inputRowsPerColumn != newInputRows && IODebugMaps?.inputs != null)
+            {
+                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
+                EnsureInputTempSize(IODebugMaps.inputs.Count);
+                Array.Clear(InTemp, 0, IODebugMaps.inputs.Count);
+                Array.Clear(InValid, 0, IODebugMaps.inputs.Count);
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+            }
+
+            int newOutputRows = GetRowsPerColumn(tabPage2, IoRowHeight);
+            if (outputRowsPerColumn != newOutputRows && IODebugMaps?.outputs != null)
+            {
+                buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
+                EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                Array.Clear(OutTemp, 0, IODebugMaps.outputs.Count);
+                Array.Clear(OutValid, 0, IODebugMaps.outputs.Count);
+                IoRefreshData data = BuildIoRefreshData(1);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+            }
+
+            TabPage connectPage = GetCurrentConnectDisplayPage();
+            List<IOConnect> connectList = GetConnectListForDisplay();
+            int newConnectRows = GetRowsPerColumn(connectPage, IoRowHeight);
+            if (connectRowsPerColumn != newConnectRows && connectList != null)
+            {
+                CreateButtonConnect(connectList, connectPage, true);
+                EnsureConnectTempSize(connectList.Count);
+                Array.Clear(ConnectOutValid, 0, connectList.Count);
+                Array.Clear(ConnectIn1Valid, 0, connectList.Count);
+                Array.Clear(ConnectIn2Valid, 0, connectList.Count);
+                IoRefreshData data = BuildIoRefreshData(2);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+            }
+        }
+
+        private void StartIoRefreshLoop()
+        {
+            lock (ioRefreshLock)
+            {
+                if (ioRefreshCts != null)
+                {
+                    return;
+                }
+                ioRefreshCts = new CancellationTokenSource();
+                CancellationToken token = ioRefreshCts.Token;
+                ioRefreshTask = Task.Run(() => IoRefreshLoop(token), token);
+            }
+        }
+
+        private void StopIoRefreshLoop()
+        {
+            CancellationTokenSource cts;
+            Task task;
+            lock (ioRefreshLock)
+            {
+                if (ioRefreshCts == null)
+                {
+                    return;
+                }
+                cts = ioRefreshCts;
+                task = ioRefreshTask;
+                ioRefreshCts = null;
+                ioRefreshTask = null;
+            }
+            cts.Cancel();
+            if (task == null)
+            {
+                cts.Dispose();
+                return;
+            }
+            task.ContinueWith(completedTask =>
+            {
+                _ = completedTask.Exception;
+                cts.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        private async Task IoRefreshLoop(CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    if (!ioRefreshEnabled || Workspace.Runtime.Editor.ModifyKind == ModifyKind.IO)
+                    {
+                        await Task.Delay(ioRefreshIntervalMs, token);
+                        continue;
+                    }
+                    IoRefreshData data = BuildIoRefreshData(currentTabIndex);
+                    if (data != null)
+                    {
+                        try
+                        {
+                            if (IsDisposed || Disposing || !IsHandleCreated)
+                            {
+                                return;
+                            }
+                            BeginInvoke(new Action(() => ApplyIoRefresh(data)));
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            return;
+                        }
+                    }
+                    await Task.Delay(ioRefreshIntervalMs, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Workspace.Info?.PrintInfo($"IO监控刷新已停止：{ex.Message}", FrmInfo.Level.Error);
+            }
+        }
+
+        private IoDebugRefreshSnapshot BuildIoRefreshData(int tabIndex)
+        {
+            try
+            {
+                IReadOnlyList<IOConnect> connections = tabIndex == 2
+                    ? GetConnectListForDisplay().ToArray()
+                    : Array.Empty<IOConnect>();
+                return IoMonitor.BuildSnapshot(tabIndex, IODebugMaps, connections);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void ApplyIoRefresh(IoRefreshData data)
+        {
+            if (!CheckFormIsOpen(this))
+            {
+                return;
+            }
+            if (data.TabIndex == 0)
+            {
+                if (buttonsIn.Count != IODebugMaps.inputs.Count || data.InputCount != IODebugMaps.inputs.Count)
+                {
+                    buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
+                    EnsureInputTempSize(IODebugMaps.inputs.Count);
+                    return;
+                }
+                EnsureInputTempSize(data.InputCount);
+                for (int i = 0; i < data.InputCount; i++)
+                {
+                    if (i >= buttonsIn.Count)
+                    {
+                        continue;
+                    }
+                    IO ioItem = IODebugMaps.inputs[i];
+                    if (ioItem == null || ioItem.IsRemark)
+                    {
+                        InTemp[i] = false;
+                        InValid[i] = false;
+                        continue;
+                    }
+                    Control control = buttonsIn[i];
+                    if (control == null || control.IsDisposed)
+                    {
+                        continue;
+                    }
+                    if (!data.InputValid[i])
+                    {
+                        if (control.BackColor != UiPalette.Danger)
+                        {
+                            control.BackColor = UiPalette.Danger;
+                        }
+                        InTemp[i] = false;
+                        InValid[i] = false;
+                        continue;
+                    }
+                    bool open = data.InputStates[i];
+                    if (!InValid[i] || InTemp[i] != open)
+                    {
+                        control.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
+                        InTemp[i] = open;
+                        InValid[i] = true;
+                    }
+                }
+                return;
+            }
+            if (data.TabIndex == 1)
+            {
+                if (buttonsOut.Count != IODebugMaps.outputs.Count || data.OutputCount != IODebugMaps.outputs.Count)
+                {
+                    buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
+                    EnsureOutputTempSize(IODebugMaps.outputs.Count);
+                    return;
+                }
+                EnsureOutputTempSize(data.OutputCount);
+                for (int i = 0; i < data.OutputCount; i++)
+                {
+                    if (i >= buttonsOut.Count)
+                    {
+                        continue;
+                    }
+                    IO ioItem = IODebugMaps.outputs[i];
+                    if (ioItem == null || ioItem.IsRemark)
+                    {
+                        OutTemp[i] = false;
+                        OutValid[i] = false;
+                        continue;
+                    }
+                    Control control = buttonsOut[i];
+                    if (control == null || control.IsDisposed)
+                    {
+                        continue;
+                    }
+                    if (!data.OutputValid[i])
+                    {
+                        if (control.BackColor != UiPalette.Danger)
+                        {
+                            control.BackColor = UiPalette.Danger;
+                        }
+                        OutTemp[i] = false;
+                        OutValid[i] = false;
+                        continue;
+                    }
+                    bool open = data.OutputStates[i];
+                    if (!OutValid[i] || OutTemp[i] != open)
+                    {
+                        control.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
+                        OutTemp[i] = open;
+                        OutValid[i] = true;
+                    }
+                }
+                return;
+            }
+            if (data.TabIndex == 2)
+            {
+                List<IOConnect> connectList = GetConnectListForDisplay();
+                TabPage connectPage = GetCurrentConnectDisplayPage();
+                if (btnCon.Count != connectList.Count || data.ConnectCount != connectList.Count)
+                {
+                    CreateButtonConnect(connectList, connectPage, true);
+                    EnsureConnectTempSize(connectList.Count);
+                    return;
+                }
+                EnsureConnectTempSize(data.ConnectCount);
+                for (int i = 0; i < data.ConnectCount; i++)
+                {
+                    if (i >= btnCon.Count || btnCon[i] == null)
+                    {
+                        continue;
+                    }
+                    IOConnect connect = connectList[i];
+                    if (connect?.Output == null || connect.Output.IsRemark)
+                    {
+                        ConnectTemp[i].OutPut = false;
+                        ConnectTemp[i].InPut1 = false;
+                        ConnectTemp[i].InPut2 = false;
+                        ConnectOutValid[i] = false;
+                        ConnectIn1Valid[i] = false;
+                        ConnectIn2Valid[i] = false;
+                        continue;
+                    }
+                    if (!data.ConnectOutValid[i])
+                    {
+                        if (btnCon[i].OutPut != null && btnCon[i].OutPut.BackColor != UiPalette.Danger)
+                        {
+                            btnCon[i].OutPut.BackColor = UiPalette.Danger;
+                        }
+                        ConnectTemp[i].OutPut = false;
+                        ConnectOutValid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectOutStates[i];
+                        if (!ConnectOutValid[i] || ConnectTemp[i].OutPut != open)
+                        {
+                            if (btnCon[i].OutPut != null)
+                            {
+                                btnCon[i].OutPut.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
+                            }
+                            ConnectTemp[i].OutPut = open;
+                            ConnectOutValid[i] = true;
+                        }
+                    }
+                    if (!data.ConnectIn1Valid[i])
+                    {
+                        if (btnCon[i].InPut1 != null && btnCon[i].InPut1.BackColor != UiPalette.Danger)
+                        {
+                            btnCon[i].InPut1.BackColor = UiPalette.Danger;
+                        }
+                        ConnectTemp[i].InPut1 = false;
+                        ConnectIn1Valid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectIn1States[i];
+                        if (!ConnectIn1Valid[i] || ConnectTemp[i].InPut1 != open)
+                        {
+                            if (btnCon[i].InPut1 != null)
+                            {
+                                btnCon[i].InPut1.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
+                            }
+                            ConnectTemp[i].InPut1 = open;
+                            ConnectIn1Valid[i] = true;
+                        }
+                    }
+                    if (!data.ConnectIn2Valid[i])
+                    {
+                        if (btnCon[i].InPut2 != null && btnCon[i].InPut2.BackColor != UiPalette.Danger)
+                        {
+                            btnCon[i].InPut2.BackColor = UiPalette.Danger;
+                        }
+                        ConnectTemp[i].InPut2 = false;
+                        ConnectIn2Valid[i] = false;
+                    }
+                    else
+                    {
+                        bool open = data.ConnectIn2States[i];
+                        if (!ConnectIn2Valid[i] || ConnectTemp[i].InPut2 != open)
+                        {
+                            if (btnCon[i].InPut2 != null)
+                            {
+                                btnCon[i].InPut2.BackColor = open ? UiPalette.Success : UiPalette.TextMuted;
+                            }
+                            ConnectTemp[i].InPut2 = open;
+                            ConnectIn2Valid[i] = true;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        public void SetConnectItemm()
+        {
+            // 初始化右键菜单
+            ContextMenuStrip contextMenu = new ContextMenuStrip();
+            listView3.ContextMenuStrip = contextMenu;
+            contextMenu.Items.Clear();
+            ToolStripMenuItem configItem = new ToolStripMenuItem("配置显示");
+            configItem.Click += ConnectConfigItem_Click;
+            ToolStripMenuItem remarkItem = new ToolStripMenuItem("添加备注");
+            remarkItem.Click += ConnectRemarkItem_Click;
+            contextMenu.Items.Add(configItem);
+            contextMenu.Items.Add(remarkItem);
+            listView3.Items.Clear();
+            listView4.Items.Clear();
+            listView5.Items.Clear();
+            listView6.Items.Clear();
+            EnsureListViewSingleColumn(listView3, "通用输出1", 220);
+            EnsureListViewSingleColumn(listView4, "通用输入", 220);
+            EnsureListViewSingleColumn(listView5, "通用输入", 220);
+            EnsureListViewSingleColumn(listView6, "通用输出2", 220);
+
+
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
+
+            if (cacheIOs == null)
+            {
+                MessageBox.Show("轴卡未配置");
+                return;
+            }
+
+
+            IO cacheIO;
+
+            for (int j = 0; j < cacheIOs.Count; j++)
+            {
+                cacheIO = cacheIOs[j];
+                if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输出")
+                {
+                    string copiedString = string.Copy(cacheIO.Name);
+                    ListViewItem item = new ListViewItem(copiedString);
+                    item.Text = copiedString;
+                    item.Font = font;
+                    listView6.Items.Add(item);
+                }
+                if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输入")
+                {
+
+                    string copiedString = string.Copy(cacheIO.Name);
+                    ListViewItem item = new ListViewItem(copiedString);
+
+                    item.Text = copiedString;
+                    item.Font = font;
+
+                    listView4.Items.Add(item);
+
+                    ListViewItem item2 = new ListViewItem(copiedString);
+
+                    item2.Text = copiedString;
+                    item2.Font = font;
+                    listView5.Items.Add(item2);
+                }
+            }
+
+        }
+        private void DynamicMenuItem_Click(object sender, EventArgs e)
+        {
+            ToolStripMenuItem menuItem = (ToolStripMenuItem)sender;
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
+            IO cacheIO = cacheIOs.FirstOrDefault(dsh => dsh.Name == menuItem.Text);
+            if (cacheIO == null)
+            {
+                return;
+            }
+            if (!ioConfigurationEditor.TryAddConnection(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                cacheIO,
+                out IODebugMap committed,
+                out string error))
+            {
+                MessageBox.Show(error, "IO调试", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            IODebugMaps = committed;
+            RefreshIODebugMapFrm();
+            RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
+
+        }
+        public void RefleshConnecdt()
+        {
+            listView3.Items.Clear();
+            EnsureListViewSingleColumn(listView3, "通用输出1", 220);
+            IoMonitor.RefreshCatalog();
+            List<IOConnect> IOConnects = GetConnectListForConfig();
+            IOConnect iOConnect = null;
+            for (int j = 0; j < IOConnects.Count; j++)
+            {
+                iOConnect = IOConnects[j];
+                if (iOConnect == null || iOConnect.Output == null)
+                {
+                    continue;
+                }
+                string name = iOConnect.Output.Name;
+                ListViewItem item = new ListViewItem(name);
+                item.Text = name;
+                item.Font = font;
+                item.Tag = iOConnect;
+                if (iOConnect.Output.IsRemark)
+                {
+                    item.ForeColor = UiPalette.TextMuted;
+                }
+                else
+                {
+                    if (!IoMonitor.TryResolveIo(name, "通用输出", out _, false))
+                    {
+                        item.ForeColor = UiPalette.Danger;
+                    }
+                    if (iOConnect.Output2 != null
+                        && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
+                        && !IoMonitor.TryResolveIo(iOConnect.Output2.Name, "通用输出", out _, false))
+                    {
+                        item.ForeColor = UiPalette.Danger;
+                    }
+                }
+                listView3.Items.Add(item);
+
+            }
+        }
+        private void FrmIODebug_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            ioRefreshEnabled = false;
+            StopIoRefreshLoop();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
+        }
+        private void FrmIODebug_Load(object sender, EventArgs e)
+        {
+            for (int i = 0; i < 300; i++)
+            {
+                ConnectTemp[i] = new Connect();
+            }
+            currentTabIndex = tabControl1.SelectedIndex;
+            RefreshIODebugMapFrm();
+            IoRefreshData data = BuildIoRefreshData(0);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            data = BuildIoRefreshData(1);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            data = BuildIoRefreshData(2);
+            if (data != null)
+            {
+                ApplyIoRefresh(data);
+            }
+            if (Workspace.IO?.IOMap?.FirstOrDefault() != null)
+            {
+                if (listView6 == null)
+                {
+                    MessageBox.Show("输入输出关联配置初始化失败，无法加载关联配置。");
+                    return;
+                }
+                listView4.ItemChecked -= listView4_ItemChecked;
+                listView5.ItemChecked -= listView5_ItemChecked;
+                listView6.ItemChecked -= listView6_ItemChecked;
+                SetConnectItemm();
+                RefleshConnecdt();
+                listView4.ItemChecked += listView4_ItemChecked;
+                listView5.ItemChecked += listView5_ItemChecked;
+                listView6.ItemChecked += listView6_ItemChecked;
+            }
+        }
+        public List<Control> CreateButtonIO(List<IO> iOs, TabPage tabPage, List<Control> existingControls = null)
+        {
+            if (iOs == null || tabPage == null)
+            {
+                return existingControls ?? new List<Control>();
+            }
+            bool reuse = existingControls != null && existingControls.Count == iOs.Count;
+            if (!reuse)
+            {
+                if (existingControls != null)
+                {
+                    foreach (Control control in existingControls)
+                    {
+                        if (control == null || control.IsDisposed)
+                        {
+                            continue;
+                        }
+                        if (control.Parent == tabPage)
+                        {
+                            tabPage.Controls.Remove(control);
+                        }
+                        control.Dispose();
+                    }
+                }
+                tabPage.Controls.Clear();
+                existingControls = new List<Control>(iOs.Count);
+            }
+
+            tabPage.AutoScroll = true;
+            int col = 0, row = 0;
+            int colWidth = IoColWidth;
+            int rowHeight = IoRowHeight;
+            int itemWidth = IoItemWidth;
+            int itemHeight = IoItemHeight;
+            int rowsPerColumn = GetRowsPerColumn(tabPage, rowHeight);
+            bool isInputPage = tabPage == tabPage1;
+            if (tabPage == tabPage1)
+            {
+                inputRowsPerColumn = rowsPerColumn;
+            }
+            else if (tabPage == tabPage2)
+            {
+                outputRowsPerColumn = rowsPerColumn;
+            }
+
+            tabPage.SuspendLayout();
+            try
+            {
+                for (int i = 0; i < iOs.Count; i++)
+                {
+                    IO io = iOs[i];
+                    Control current = reuse ? existingControls[i] : null;
+                    if (current != null && current.IsDisposed)
+                    {
+                        current = null;
+                    }
+                    Control result = null;
+                    Point location = new Point(col * colWidth, row * rowHeight);
+
+                    if (io == null)
+                    {
+                        if (current != null)
+                        {
+                            if (current.Parent == tabPage)
+                            {
+                                tabPage.Controls.Remove(current);
+                            }
+                            current.Dispose();
+                        }
+                    }
+                    else if (io.IsRemark)
+                    {
+                        result = EnsureRemarkHeader(current, io.Name, location, itemWidth, itemHeight, tabPage);
+                    }
+                    else
+                    {
+                        bool useLabel = isInputPage || io.IOType == "通用输入";
+                        if (useLabel)
+                        {
+                            bool created = false;
+                            Label label = current as Label;
+                            if (label == null)
+                            {
+                                if (current != null)
+                                {
+                                    if (current.Parent == tabPage)
+                                    {
+                                        tabPage.Controls.Remove(current);
+                                    }
+                                    current.Dispose();
+                                }
+                                label = new Label();
+                                label.AutoSize = false;
+                                label.TextAlign = ContentAlignment.MiddleCenter;
+                                label.BackColor = UiPalette.TextMuted;
+                                created = true;
+                                tabPage.Controls.Add(label);
+                            }
+                            if (label.Parent != tabPage)
+                            {
+                                tabPage.Controls.Add(label);
+                            }
+                            label.Text = io.Name;
+                            label.Location = location;
+                            label.Size = new Size(itemWidth, itemHeight);
+                            label.Font = font;
+                            label.ForeColor = UiPalette.TextInverse;
+                            label.BorderStyle = BorderStyle.FixedSingle;
+                            label.Padding = new Padding(6, 0, 6, 0);
+                            if (created)
+                            {
+                                label.BackColor = UiPalette.TextMuted;
+                            }
+                            result = label;
+                        }
+                        else
+                        {
+                            Button button = current as Button;
+                            if (button == null)
+                            {
+                                if (current != null)
+                                {
+                                    if (current.Parent == tabPage)
+                                    {
+                                        tabPage.Controls.Remove(current);
+                                    }
+                                    current.Dispose();
+                                }
+                                button = new Button();
+                                tabPage.Controls.Add(button);
+                            }
+                            if (button.Parent != tabPage)
+                            {
+                                tabPage.Controls.Add(button);
+                            }
+                            button.Text = io.Name;
+                            button.Location = location;
+                            button.Size = new Size(itemWidth, itemHeight);
+                            button.Font = font;
+                            button.ForeColor = UiPalette.TextInverse;
+                            button.BackColor = UiPalette.TextMuted;
+                            button.FlatStyle = FlatStyle.Flat;
+                            button.FlatAppearance.BorderSize = 1;
+                            button.FlatAppearance.BorderColor = UiPalette.TextSecondary;
+                            button.UseVisualStyleBackColor = false;
+                            button.Cursor = Cursors.Hand;
+                            button.TabStop = false;
+                            button.Tag = null;
+                            button.Click -= IOButton_Click;
+                            if (io.IOType == "通用输出")
+                            {
+                                button.Click += IOButton_Click;
+                            }
+                            result = button;
+                        }
+                    }
+
+                    if (reuse)
+                    {
+                        existingControls[i] = result;
+                    }
+                    else
+                    {
+                        existingControls.Add(result);
+                    }
+
+                    row++;
+                    if (row >= rowsPerColumn)
+                    {
+                        row = 0;
+                        col++;
+                    }
+                }
+            }
+            finally
+            {
+                tabPage.ResumeLayout(true);
+            }
+
+            return existingControls;
+        }
+        public void CreateButtonConnect(List<IOConnect> connects, TabPage targetPage, bool reuseExisting = false)
+        {
+            if (connects == null || targetPage == null)
+            {
+                return;
+            }
+            bool reuse = reuseExisting && btnCon != null && btnCon.Count == connects.Count;
+            if (!reuse)
+            {
+                if (btnCon != null)
+                {
+                    foreach (ConnectButton item in btnCon)
+                    {
+                        if (item?.OutPut != null && !item.OutPut.IsDisposed)
+                        {
+                            if (item.OutPut.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.OutPut);
+                            }
+                            item.OutPut.Dispose();
+                        }
+                        if (item?.InPut1 != null && !item.InPut1.IsDisposed)
+                        {
+                            if (item.InPut1.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.InPut1);
+                            }
+                            item.InPut1.Dispose();
+                        }
+                        if (item?.InPut2 != null && !item.InPut2.IsDisposed)
+                        {
+                            if (item.InPut2.Parent == targetPage)
+                            {
+                                targetPage.Controls.Remove(item.InPut2);
+                            }
+                            item.InPut2.Dispose();
+                        }
+                    }
+                }
+                targetPage.Controls.Clear();
+                btnCon = new List<ConnectButton>(connects.Count);
+            }
+
+            targetPage.AutoScroll = true;
+            int col = 0, row = 0;
+            int colWidth = IoColWidth;
+            int rowHeight = IoRowHeight;
+            int itemWidth = IoItemWidth;
+            int itemHeight = IoItemHeight;
+            int groupWidth = colWidth * 3;
+            int rowsPerColumn = GetRowsPerColumn(targetPage, rowHeight);
+            connectRowsPerColumn = rowsPerColumn;
+
+            void RemoveControl(Control control)
+            {
+                if (control == null || control.IsDisposed)
+                {
+                    return;
+                }
+                if (control.Parent == targetPage)
+                {
+                    targetPage.Controls.Remove(control);
+                }
+                control.Dispose();
+            }
+
+            targetPage.SuspendLayout();
+            try
+            {
+                for (int i = 0; i < connects.Count; i++)
+                {
+                    IOConnect ioConnect = connects[i];
+                    ConnectButton item = reuse ? btnCon[i] ?? new ConnectButton() : new ConnectButton();
+                    int baseX = col * groupWidth;
+
+                    if (ioConnect?.Output == null)
+                    {
+                        RemoveControl(item.OutPut);
+                        RemoveControl(item.InPut1);
+                        RemoveControl(item.InPut2);
+                        item.OutPut = null;
+                        item.InPut1 = null;
+                        item.InPut2 = null;
+                    }
+                    else if (ioConnect.Output.IsRemark)
+                    {
+                        RemoveControl(item.InPut1);
+                        RemoveControl(item.InPut2);
+                        item.InPut1 = null;
+                        item.InPut2 = null;
+                        int remarkWidth = groupWidth - 10;
+                        item.OutPut = EnsureRemarkHeader(item.OutPut, ioConnect.Output.Name,
+                            new Point(baseX, row * rowHeight), remarkWidth, itemHeight, targetPage);
+                    }
+                    else
+                    {
+                        Button outputButton = item.OutPut as Button;
+                        if (outputButton == null || outputButton.IsDisposed)
+                        {
+                            RemoveControl(item.OutPut);
+                            outputButton = new Button();
+                            targetPage.Controls.Add(outputButton);
+                        }
+                        if (outputButton.Parent != targetPage)
+                        {
+                            targetPage.Controls.Add(outputButton);
+                        }
+                        outputButton.Text = ioConnect.Output.Name;
+                        outputButton.Location = new Point(baseX, row * rowHeight);
+                        outputButton.Size = new Size(itemWidth, itemHeight);
+                        outputButton.Font = font;
+                        outputButton.ForeColor = UiPalette.TextInverse;
+                        outputButton.BackColor = UiPalette.TextMuted;
+                        outputButton.FlatStyle = FlatStyle.Flat;
+                        outputButton.FlatAppearance.BorderSize = 1;
+                        outputButton.FlatAppearance.BorderColor = UiPalette.TextSecondary;
+                        outputButton.UseVisualStyleBackColor = false;
+                        outputButton.Cursor = Cursors.Hand;
+                        outputButton.TabStop = false;
+                        outputButton.Tag = ioConnect;
+                        outputButton.Click -= IOButton_Click;
+                        outputButton.Click += IOButton_Click;
+                        item.OutPut = outputButton;
+
+                        if (ioConnect.Intput1 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput1.Name))
+                        {
+                            Label input1 = item.InPut1;
+                            if (input1 == null || input1.IsDisposed)
+                            {
+                                RemoveControl(item.InPut1);
+                                input1 = new Label
+                                {
+                                    AutoSize = false,
+                                    TextAlign = ContentAlignment.MiddleCenter,
+                                    BackColor = UiPalette.TextMuted
+                                };
+                                targetPage.Controls.Add(input1);
+                            }
+                            if (input1.Parent != targetPage)
+                            {
+                                targetPage.Controls.Add(input1);
+                            }
+                            input1.Text = ioConnect.Intput1.Name;
+                            input1.Location = new Point(baseX + colWidth, row * rowHeight);
+                            input1.Size = new Size(itemWidth, itemHeight);
+                            input1.Font = font;
+                            input1.ForeColor = UiPalette.TextInverse;
+                            input1.BorderStyle = BorderStyle.FixedSingle;
+                            input1.Padding = new Padding(6, 0, 6, 0);
+                            item.InPut1 = input1;
+                        }
+                        else
+                        {
+                            RemoveControl(item.InPut1);
+                            item.InPut1 = null;
+                        }
+
+                        if (ioConnect.Intput2 != null && !string.IsNullOrWhiteSpace(ioConnect.Intput2.Name))
+                        {
+                            Label input2 = item.InPut2;
+                            if (input2 == null || input2.IsDisposed)
+                            {
+                                RemoveControl(item.InPut2);
+                                input2 = new Label
+                                {
+                                    AutoSize = false,
+                                    TextAlign = ContentAlignment.MiddleCenter,
+                                    BackColor = UiPalette.TextMuted
+                                };
+                                targetPage.Controls.Add(input2);
+                            }
+                            if (input2.Parent != targetPage)
+                            {
+                                targetPage.Controls.Add(input2);
+                            }
+                            input2.Text = ioConnect.Intput2.Name;
+                            input2.Location = new Point(baseX + colWidth * 2, row * rowHeight);
+                            input2.Size = new Size(itemWidth, itemHeight);
+                            input2.Font = font;
+                            input2.ForeColor = UiPalette.TextInverse;
+                            input2.BorderStyle = BorderStyle.FixedSingle;
+                            input2.Padding = new Padding(6, 0, 6, 0);
+                            item.InPut2 = input2;
+                        }
+                        else
+                        {
+                            RemoveControl(item.InPut2);
+                            item.InPut2 = null;
+                        }
+                    }
+
+                    if (reuse)
+                    {
+                        btnCon[i] = item;
+                    }
+                    else
+                    {
+                        btnCon.Add(item);
+                    }
+
+                    row++;
+                    if (row >= rowsPerColumn)
+                    {
+                        row = 0;
+                        col++;
+                    }
+                }
+            }
+            finally
+            {
+                targetPage.ResumeLayout(true);
+            }
+        }
+
+        private void IOButton_Click(object sender, EventArgs e)
+        {
+            if (!(sender is Button button))
+            {
+                return;
+            }
+            try
+            {
+                IOConnect connection = button.Tag as IOConnect;
+                string primaryName = connection?.Output?.Name ?? button.Text;
+                string inverseName = connection?.Output2?.Name;
+                if (IoMonitor.TryToggleOutput(primaryName, inverseName,
+                    out IoDebugOutputFailure failure, out string error))
+                {
+                    return;
+                }
+                if (failure == IoDebugOutputFailure.OutputNotFound)
+                {
+                    button.BackColor = UiPalette.Danger;
+                    return;
+                }
+                MessageBoxIcon icon = failure == IoDebugOutputFailure.DeviceUnavailable
+                    ? MessageBoxIcon.Warning
+                    : MessageBoxIcon.Error;
+                string title = failure == IoDebugOutputFailure.SafetyLocked
+                    ? "系统已安全锁定"
+                    : "IO调试失败";
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"IO调试输出失败:{error}", LogLevel.Error);
+                MessageBox.Show(error, title, MessageBoxButtons.OK, icon);
+            }
+            catch (Exception ex)
+            {
+                Workspace.Runtime.ProcessEngine?.Logger?.Log($"IO调试输出异常:{ex}", LogLevel.Error);
+                MessageBox.Show(ex.Message, "IO调试失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        private Control CreateRemarkHeader(string text, Point location, int width, int height)
+        {
+            Panel panel = new Panel();
+            panel.Location = location;
+            panel.Size = new Size(width, height);
+            panel.BackColor = UiPalette.SurfaceHover;
+            panel.Tag = RemarkHeaderTag;
+
+            Label textLabel = new Label();
+            textLabel.Text = text;
+            textLabel.Dock = DockStyle.Fill;
+            textLabel.TextAlign = ContentAlignment.MiddleCenter;
+            textLabel.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
+            textLabel.ForeColor = UiPalette.TextPrimary;
+            textLabel.BackColor = Color.Transparent;
+            textLabel.Tag = RemarkLabelTag;
+
+            int linePadding = 8;
+            int textWidth = TextRenderer.MeasureText(text, textLabel.Font).Width;
+            int lineWidth = Math.Max(12, (width - textWidth - linePadding * 2) / 2);
+            int lineY = height / 2;
+
+            Panel leftLine = new Panel();
+            leftLine.BackColor = UiPalette.NavigationTextMuted;
+            leftLine.Size = new Size(lineWidth, 1);
+            leftLine.Location = new Point(linePadding, lineY);
+            leftLine.Tag = RemarkLineLeftTag;
+
+            Panel rightLine = new Panel();
+            rightLine.BackColor = leftLine.BackColor;
+            rightLine.Size = new Size(lineWidth, 1);
+            rightLine.Location = new Point(width - linePadding - lineWidth, lineY);
+            rightLine.Tag = RemarkLineRightTag;
+
+            panel.Controls.Add(leftLine);
+            panel.Controls.Add(rightLine);
+            panel.Controls.Add(textLabel);
+            return panel;
+        }
+
+        private Panel EnsureRemarkHeader(Control existing, string text, Point location, int width, int height, Control parent)
+        {
+            Panel panel = existing as Panel;
+            if (panel == null || panel.IsDisposed || !Equals(panel.Tag, RemarkHeaderTag))
+            {
+                if (existing != null && !existing.IsDisposed && parent != null)
+                {
+                    parent.Controls.Remove(existing);
+                    existing.Dispose();
+                }
+                panel = (Panel)CreateRemarkHeader(text, location, width, height);
+                parent?.Controls.Add(panel);
+                return panel;
+            }
+            UpdateRemarkHeaderLayout(panel, text, location, width, height);
+            if (panel.Parent != parent && parent != null)
+            {
+                parent.Controls.Add(panel);
+            }
+            return panel;
+        }
+
+        private void UpdateRemarkHeaderLayout(Panel panel, string text, Point location, int width, int height)
+        {
+            panel.Location = location;
+            panel.Size = new Size(width, height);
+
+            Label textLabel = panel.Controls.OfType<Label>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLabelTag));
+            if (textLabel == null)
+            {
+                textLabel = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+                    ForeColor = UiPalette.TextPrimary,
+                    BackColor = Color.Transparent,
+                    Tag = RemarkLabelTag
+                };
+                panel.Controls.Add(textLabel);
+            }
+            textLabel.Text = text;
+
+            Panel leftLine = panel.Controls.OfType<Panel>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLineLeftTag));
+            if (leftLine == null)
+            {
+                leftLine = new Panel
+                {
+                    BackColor = UiPalette.NavigationTextMuted,
+                    Tag = RemarkLineLeftTag
+                };
+                panel.Controls.Add(leftLine);
+            }
+            Panel rightLine = panel.Controls.OfType<Panel>().FirstOrDefault(ctrl => Equals(ctrl.Tag, RemarkLineRightTag));
+            if (rightLine == null)
+            {
+                rightLine = new Panel
+                {
+                    BackColor = UiPalette.NavigationTextMuted,
+                    Tag = RemarkLineRightTag
+                };
+                panel.Controls.Add(rightLine);
+            }
+
+            int linePadding = 8;
+            int textWidth = TextRenderer.MeasureText(text, textLabel.Font).Width;
+            int lineWidth = Math.Max(12, (width - textWidth - linePadding * 2) / 2);
+            int lineY = height / 2;
+            leftLine.Size = new Size(lineWidth, 1);
+            leftLine.Location = new Point(linePadding, lineY);
+            rightLine.Size = new Size(lineWidth, 1);
+            rightLine.Location = new Point(width - linePadding - lineWidth, lineY);
+        }
+        public void RefreshIODebugMapFrm()
+        {
+            listView1.Clear();
+            listView2.Clear();
+            listView1.Columns.Add("通用输入", 220);
+            listView2.Columns.Add("通用输出", 220);
+            IoMonitor.RefreshCatalog();
+            //for (int i = 0; i < Workspace.Card.card.controlCards.Count; i++)
+            //{
+            List<IO> cacheIOs = Workspace.IODebug.IODebugMaps.inputs;
+
+            IO cacheIO;
+
+            for (int j = 0; j < cacheIOs.Count; j++)
+            {
+                cacheIO = cacheIOs[j];
+                if (cacheIO != null)
+                {
+                    string name = cacheIO.Name;
+                    ListViewItem item = new ListViewItem(name);
+                    if (cacheIO.IsRemark)
+                    {
+                        item.Text = $"【{name}】";
+                        item.ForeColor = UiPalette.TextMuted;
+                    }
+                    else
+                    {
+                        item.Text = name;
+                    }
+                    item.Font = font;
+                    if (!cacheIO.IsRemark && !IoMonitor.TryResolveIo(name, "通用输入", out _, false))
+                    {
+                        item.ForeColor = UiPalette.Danger;
+                    }
+                    listView1.Items.Add(item);
+
+                }
+            }
+
+            cacheIOs = Workspace.IODebug.IODebugMaps.outputs;
+
+
+
+            for (int j = 0; j < cacheIOs.Count; j++)
+            {
+                cacheIO = cacheIOs[j];
+                if (cacheIO != null)
+                {
+                    string name = cacheIO.Name;
+                    ListViewItem item = new ListViewItem(name);
+                    if (cacheIO.IsRemark)
+                    {
+                        item.Text = $"【{name}】";
+                        item.ForeColor = UiPalette.TextMuted;
+                    }
+                    else
+                    {
+                        item.Text = name;
+                    }
+                    item.Font = font;
+                    if (!cacheIO.IsRemark && !IoMonitor.TryResolveIo(name, "通用输出", out _, false))
+                    {
+                        item.ForeColor = UiPalette.Danger;
+                    }
+                    listView2.Items.Add(item);
+
+                }
+            }
+            // }
+
+
+
+        }
+        private void RefreshIoDisplayAfterReorder(bool isInput)
+        {
+            if (isInput)
+            {
+                buttonsIn = CreateButtonIO(IODebugMaps.inputs, tabPage1, buttonsIn);
+                EnsureInputTempSize(IODebugMaps.inputs.Count);
+                Array.Clear(InTemp, 0, IODebugMaps.inputs.Count);
+                Array.Clear(InValid, 0, IODebugMaps.inputs.Count);
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+
+            buttonsOut = CreateButtonIO(IODebugMaps.outputs, tabPage2, buttonsOut);
+            EnsureOutputTempSize(IODebugMaps.outputs.Count);
+            Array.Clear(OutTemp, 0, IODebugMaps.outputs.Count);
+            Array.Clear(OutValid, 0, IODebugMaps.outputs.Count);
+            IoRefreshData outputData = BuildIoRefreshData(1);
+            if (outputData != null)
+            {
+                ApplyIoRefresh(outputData);
+            }
+        }
+        public void RefreshIODebugMap()
+        {
+            if (Workspace.Runtime.Stores.IoDebug.Load(
+                    Workspace.Runtime.Paths.ConfigPath, out string error))
+            {
+                IODebugMaps = Workspace.Runtime.Stores.IoDebug.Current;
+                EnsureConnectConfigReady();
+                return;
+            }
+            IODebugMaps = new IODebugMap();
+            EnsureConnectConfigReady();
+            Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                $"输入输出调试配置加载失败:{error}", LogLevel.Error);
+        }
+
+        internal void RefreshIODebugMapFromStore()
+        {
+            IODebugMaps = Workspace.Runtime.Stores.IoDebug.Current ?? new IODebugMap();
+            EnsureConnectConfigReady();
+        }
+        private void InputConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenDebugConfig("通用输入");
+        }
+        private void OutputConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenDebugConfig("通用输出");
+        }
+        private void InputRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkItem("通用输入", IODebugMaps.inputs, listView1);
+        }
+        private void OutputRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkItem("通用输出", IODebugMaps.outputs, listView2);
+        }
+        private void ConnectConfigItem_Click(object sender, EventArgs e)
+        {
+            OpenConnectConfig();
+        }
+        private void ConnectRemarkItem_Click(object sender, EventArgs e)
+        {
+            AddRemarkConnectItem();
+        }
+        private void OpenDebugConfig(string ioType)
+        {
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                MessageBox.Show("轴卡未配置");
+                return;
+            }
+            List<string> allNames = new List<string>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != ioType || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!allNames.Contains(io.Name))
+                {
+                    allNames.Add(io.Name);
+                }
+            }
+            HashSet<string> selectedNames = new HashSet<string>();
+            List<IO> currentList = ioType == "通用输入" ? IODebugMaps.inputs : IODebugMaps.outputs;
+            foreach (IO io in currentList)
+            {
+                if (io != null && !string.IsNullOrWhiteSpace(io.Name))
+                {
+                    if (io.IsRemark)
+                    {
+                        continue;
+                    }
+                    selectedNames.Add(io.Name);
+                }
+            }
+            using (FrmIODebugConfig frm = new FrmIODebugConfig($"{ioType}显示配置", allNames, selectedNames))
+            {
+                if (frm.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                ApplyDebugSelection(ioType, frm.SelectedNames, cacheIOs);
+            }
+        }
+        private void ApplyDebugSelection(string ioType, List<string> selectedNames, List<IO> cacheIOs)
+        {
+            if (!ioConfigurationEditor.TryApplyIoSelection(
+                IODebugMaps,
+                ioType,
+                selectedNames,
+                cacheIOs,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefreshIODebugMapFrm();
+        }
+        private void OpenConnectConfig()
+        {
+            List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
+            if (cacheIOs == null)
+            {
+                MessageBox.Show("轴卡未配置");
+                return;
+            }
+            List<string> allNames = new List<string>();
+            foreach (IO io in cacheIOs)
+            {
+                if (io == null || io.IOType != "通用输出" || string.IsNullOrWhiteSpace(io.Name))
+                {
+                    continue;
+                }
+                if (!allNames.Contains(io.Name))
+                {
+                    allNames.Add(io.Name);
+                }
+            }
+            HashSet<string> selectedNames = new HashSet<string>();
+            List<IOConnect> connectList = GetConnectListForConfig();
+            foreach (IOConnect connect in connectList)
+            {
+                if (connect?.Output == null || connect.Output.IsRemark)
+                {
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(connect.Output.Name))
+                {
+                    selectedNames.Add(connect.Output.Name);
+                }
+            }
+            using (FrmIODebugConfig frm = new FrmIODebugConfig("输入输出关联显示配置", allNames, selectedNames))
+            {
+                if (frm.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                ApplyConnectSelection(frm.SelectedNames, cacheIOs);
+            }
+        }
+        private void ApplyConnectSelection(List<string> selectedNames, List<IO> cacheIOs)
+        {
+            if (!ioConfigurationEditor.TryApplyConnectionSelection(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                selectedNames,
+                cacheIOs,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
+        }
+        private void AddRemarkItem(string ioType, List<IO> targetList, ListView targetView)
+        {
+            string remarkText = PromptRemark($"{ioType}备注");
+            if (string.IsNullOrWhiteSpace(remarkText))
+            {
+                return;
+            }
+            int insertIndex = targetList.Count;
+            if (targetView.SelectedItems.Count > 0)
+            {
+                insertIndex = targetView.SelectedItems[0].Index + 1;
+                if (insertIndex < 0 || insertIndex > targetList.Count)
+                {
+                    insertIndex = targetList.Count;
+                }
+            }
+            if (!ioConfigurationEditor.TryAddIoRemark(
+                IODebugMaps,
+                ioType,
+                remarkText,
+                insertIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefreshIODebugMapFrm();
+        }
+        private void AddRemarkConnectItem()
+        {
+            string remarkText = PromptRemark("输入输出关联备注");
+            if (string.IsNullOrWhiteSpace(remarkText))
+            {
+                return;
+            }
+            List<IOConnect> connectList = GetConnectListForConfig();
+            int insertIndex = connectList.Count;
+            if (listView3.SelectedItems.Count > 0)
+            {
+                insertIndex = listView3.SelectedItems[0].Index + 1;
+                if (insertIndex < 0 || insertIndex > connectList.Count)
+                {
+                    insertIndex = connectList.Count;
+                }
+            }
+            if (!ioConfigurationEditor.TryAddConnectionRemark(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                remarkText,
+                insertIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
+        }
+        private string PromptRemark(string title)
+        {
+            using (Form form = new Form())
+            {
+                form.Text = title;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.Width = 300;
+                form.Height = 150;
+
+                Label label = new Label();
+                label.Text = "备注内容";
+                label.AutoSize = true;
+                label.Location = new Point(12, 12);
+
+                TextBox textBox = new TextBox();
+                textBox.Location = new Point(12, 36);
+                textBox.Width = 260;
+
+                Button ok = new Button();
+                ok.Text = "确定";
+                ok.DialogResult = DialogResult.OK;
+                ok.Location = new Point(116, 70);
+                ok.Width = 70;
+
+                Button cancel = new Button();
+                cancel.Text = "取消";
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.Location = new Point(202, 70);
+                cancel.Width = 70;
+
+                form.Controls.Add(label);
+                form.Controls.Add(textBox);
+                form.Controls.Add(ok);
+                form.Controls.Add(cancel);
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    return textBox.Text.Trim();
+                }
+            }
+            return string.Empty;
+        }
+        private void EnsureInputTempSize(int count)
+        {
+            if (InTemp.Length < count)
+            {
+                Array.Resize(ref InTemp, count);
+            }
+            if (InValid.Length < count)
+            {
+                Array.Resize(ref InValid, count);
+            }
+        }
+        private void EnsureOutputTempSize(int count)
+        {
+            if (OutTemp.Length < count)
+            {
+                Array.Resize(ref OutTemp, count);
+            }
+            if (OutValid.Length < count)
+            {
+                Array.Resize(ref OutValid, count);
+            }
+        }
+        private void EnsureConnectTempSize(int count)
+        {
+            if (ConnectTemp.Length < count)
+            {
+                int oldSize = ConnectTemp.Length;
+                Array.Resize(ref ConnectTemp, count);
+                for (int i = oldSize; i < count; i++)
+                {
+                    ConnectTemp[i] = new Connect();
+                }
+            }
+            if (ConnectOutValid.Length < count)
+            {
+                Array.Resize(ref ConnectOutValid, count);
+            }
+            if (ConnectIn1Valid.Length < count)
+            {
+                Array.Resize(ref ConnectIn1Valid, count);
+            }
+            if (ConnectIn2Valid.Length < count)
+            {
+                Array.Resize(ref ConnectIn2Valid, count);
+            }
+        }
+        private ListViewItem sourceItem;
+        private void listView1_ItemDrag(object sender, ItemDragEventArgs e)
+        {
+            sourceItem = (ListViewItem)e.Item;
+            listView1.DoDragDrop(e.Item, DragDropEffects.Move);
+        }
+
+        private void listView1_DragEnter(object sender, DragEventArgs e)
+        {
+            listView1.InsertionMark.Color = UiPalette.Focus;
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private void listView1_DragDrop(object sender, DragEventArgs e)
+        {
+            if (sourceItem == null)
+            {
+                return;
+            }
+            int sourceIndex = sourceItem.Index;
+            int targetIndex = listView1.InsertionMark.Index;
+            if (targetIndex < 0)
+            {
+                targetIndex = listView1.Items.Count;
+            }
+            if (listView1.InsertionMark.AppearsAfterItem && targetIndex < listView1.Items.Count)
+            {
+                targetIndex++;
+            }
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+            if (targetIndex > listView1.Items.Count)
+            {
+                targetIndex = listView1.Items.Count;
+            }
+            if (sourceIndex != targetIndex)
+            {
+                if (!ioConfigurationEditor.TryReorderIo(
+                    IODebugMaps,
+                    true,
+                    sourceIndex,
+                    targetIndex,
+                    out IODebugMap committed,
+                    out string error))
+                {
+                    ShowIoConfigurationError(error);
+                }
+                else IODebugMaps = committed;
+            }
+            listView1.InsertionMark.Index = -1;
+            RefreshIODebugMapFrm();
+            RefreshIoDisplayAfterReorder(true);
+        }
+
+        private void listView1_DragOver(object sender, DragEventArgs e)
+        {
+            Point dropPoint = listView1.PointToClient(new Point(e.X, e.Y));
+            int targetIndex = listView1.InsertionMark.NearestIndex(dropPoint);
+            if (targetIndex < 0)
+            {
+                listView1.InsertionMark.Index = -1;
+                e.Effect = DragDropEffects.Move;
+                return;
+            }
+            Rectangle targetBounds = listView1.GetItemRect(targetIndex);
+            listView1.InsertionMark.AppearsAfterItem = dropPoint.Y > targetBounds.Top + (targetBounds.Height / 2);
+            listView1.InsertionMark.Index = targetIndex;
+            e.Effect = DragDropEffects.Move;
+        }
+        private void listView1_DragLeave(object sender, EventArgs e)
+        {
+            listView1.InsertionMark.Index = -1;
+        }
+        private ListViewItem sourceItem2;
+        private void listView2_DragDrop(object sender, DragEventArgs e)
+        {
+            if (sourceItem2 == null)
+            {
+                return;
+            }
+            int sourceIndex = sourceItem2.Index;
+            int targetIndex = listView2.InsertionMark.Index;
+            if (targetIndex < 0)
+            {
+                targetIndex = listView2.Items.Count;
+            }
+            if (listView2.InsertionMark.AppearsAfterItem && targetIndex < listView2.Items.Count)
+            {
+                targetIndex++;
+            }
+            if (targetIndex < 0)
+            {
+                targetIndex = 0;
+            }
+            if (targetIndex > listView2.Items.Count)
+            {
+                targetIndex = listView2.Items.Count;
+            }
+            if (sourceIndex != targetIndex)
+            {
+                if (!ioConfigurationEditor.TryReorderIo(
+                    IODebugMaps,
+                    false,
+                    sourceIndex,
+                    targetIndex,
+                    out IODebugMap committed,
+                    out string error))
+                {
+                    ShowIoConfigurationError(error);
+                }
+                else IODebugMaps = committed;
+            }
+            listView2.InsertionMark.Index = -1;
+            RefreshIODebugMapFrm();
+            RefreshIoDisplayAfterReorder(false);
+        }
+
+        private void listView2_DragEnter(object sender, DragEventArgs e)
+        {
+            listView2.InsertionMark.Color = UiPalette.Focus;
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private void listView2_DragOver(object sender, DragEventArgs e)
+        {
+            Point dropPoint = listView2.PointToClient(new Point(e.X, e.Y));
+            int targetIndex = listView2.InsertionMark.NearestIndex(dropPoint);
+            if (targetIndex < 0)
+            {
+                listView2.InsertionMark.Index = -1;
+                e.Effect = DragDropEffects.Move;
+                return;
+            }
+            Rectangle targetBounds = listView2.GetItemRect(targetIndex);
+            listView2.InsertionMark.AppearsAfterItem = dropPoint.Y > targetBounds.Top + (targetBounds.Height / 2);
+            listView2.InsertionMark.Index = targetIndex;
+            e.Effect = DragDropEffects.Move;
+        }
+        private void listView2_DragLeave(object sender, EventArgs e)
+        {
+            listView2.InsertionMark.Index = -1;
+        }
+
+        private void listView2_ItemDrag(object sender, ItemDragEventArgs e)
+        {
+            sourceItem2 = (ListViewItem)e.Item;
+            listView2.DoDragDrop(e.Item, DragDropEffects.Move);
+        }
+
+        private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            TabPage selectedTab = tabControl1.SelectedTab;
+            if (selectedTab == tabPage1)
+            {
+                currentTabIndex = 0;
+                IoRefreshData data = BuildIoRefreshData(0);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+            if (selectedTab == tabPage2)
+            {
+                currentTabIndex = 1;
+                IoRefreshData data = BuildIoRefreshData(1);
+                if (data != null)
+                {
+                    ApplyIoRefresh(data);
+                }
+                return;
+            }
+            if (selectedTab == connectPage1 || selectedTab == connectPage2 || selectedTab == connectPage3)
+            {
+                currentTabIndex = 2;
+                if (selectedTab == connectPage2)
+                {
+                    currentConnectDisplayIndex = 1;
+                }
+                else if (selectedTab == connectPage3)
+                {
+                    currentConnectDisplayIndex = 2;
+                }
+                else
+                {
+                    currentConnectDisplayIndex = 0;
+                }
+                RefreshCurrentConnectDisplayPage();
+                return;
+            }
+            if (selectedTab == connectConfigPage1)
+            {
+                currentTabIndex = 3;
+                RunConnectConfigLayoutUpdate(() =>
+                {
+                    currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+                    MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                    BeginConnectListViewUpdate();
+                    try
+                    {
+                        listView4.ItemChecked -= listView4_ItemChecked;
+                        listView5.ItemChecked -= listView5_ItemChecked;
+                        listView6.ItemChecked -= listView6_ItemChecked;
+                        SetConnectItemm();
+                        RefreshIODebugMapFrm();
+                        RefleshConnecdt();
+                        listView4.ItemChecked += listView4_ItemChecked;
+                        listView5.ItemChecked += listView5_ItemChecked;
+                        listView6.ItemChecked += listView6_ItemChecked;
+                        RefreshConnectDisplayForCurrentConfig();
+                        UpdateConnectConfigColumnWidthsForIndex(currentConnectConfigIndex);
+                    }
+                    finally
+                    {
+                        EndConnectListViewUpdate();
+                    }
+                });
+            }
+        }
+
+
+
+        private void listView4_ItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            ListView listView = (ListView)sender;
+            if (e.Item.Checked)
+            {
+
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    listView4.ItemChecked -= listView4_ItemChecked;
+                    foreach (ListViewItem item in listView.CheckedItems)
+                    {
+                        if (item != e.Item)
+                        {
+                            item.Checked = false;
+                        }
+                        else
+                        {
+                            item.Checked = true;
+                        }
+                    }
+
+                    listView4.ItemChecked += listView4_ItemChecked;
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input1, true, e.Item.Text);
+                }
+            }
+            else
+            {
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input1, false, null);
+                }
+            }
+        }
+        private void listView5_ItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            ListView listView = (ListView)sender;
+            if (e.Item.Checked)
+            {
+
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    listView5.ItemChecked -= listView5_ItemChecked;
+                    foreach (ListViewItem item in listView.CheckedItems)
+                    {
+                        if (item != e.Item)
+                        {
+                            item.Checked = false;
+                        }
+                        else
+                        {
+                            item.Checked = true;
+                        }
+                    }
+                    listView5.ItemChecked += listView5_ItemChecked;
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input2, true, e.Item.Text);
+
+                }
+
+            }
+            else
+            {
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Input2, false, null);
+
+                }
+            }
+        }
+        private void listView6_ItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            ListView listView = (ListView)sender;
+            if (e.Item.Checked)
+            {
+
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    listView6.ItemChecked -= listView6_ItemChecked;
+                    foreach (ListViewItem item in listView.CheckedItems)
+                    {
+                        if (item != e.Item)
+                        {
+                            item.Checked = false;
+                        }
+                        else
+                        {
+                            item.Checked = true;
+                        }
+                    }
+
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Output2, true, e.Item.Text);
+                }
+            }
+            else
+            {
+                if (listView3.SelectedItems.Count != 0)
+                {
+                    ApplyConnectionEndpoint(IoDebugConnectionEndpoint.Output2, false, null);
+                }
+            }
+        }
+
+        private void ApplyConnectionEndpoint(
+            IoDebugConnectionEndpoint endpoint,
+            bool enabled,
+            string ioName)
+        {
+            IOConnect selectedConnection = GetSelectedConnect();
+            if (selectedConnection == null) return;
+            int selectedIndex = listView3.SelectedIndices.Count > 0
+                ? listView3.SelectedIndices[0]
+                : -1;
+            IO selectedIo = null;
+            if (enabled)
+            {
+                selectedIo = Workspace.IO.IOMap.FirstOrDefault()?
+                    .FirstOrDefault(io => string.Equals(io?.Name, ioName, StringComparison.Ordinal));
+                if (selectedIo == null) return;
+            }
+            if (!ioConfigurationEditor.TrySetConnectionEndpoint(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                selectedConnection,
+                endpoint,
+                selectedIo,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+            RefleshConnecdt();
+            if (selectedIndex >= 0 && selectedIndex < listView3.Items.Count)
+                listView3.Items[selectedIndex].Selected = true;
+            RefreshConnectDisplayForCurrentConfig();
+        }
+        private void listView3_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (listView3.SelectedItems.Count > 0)
+            {
+                listView4.ItemChecked -= listView4_ItemChecked;
+                listView5.ItemChecked -= listView5_ItemChecked;
+                listView6.ItemChecked -= listView6_ItemChecked;
+                IOConnect iOConnect = GetSelectedConnect();
+                if (iOConnect == null || iOConnect.Output == null || iOConnect.Output.IsRemark)
+                {
+                    foreach (ListViewItem item in listView4.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                    foreach (ListViewItem item in listView5.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                    foreach (ListViewItem item in listView6.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                    listView4.ItemChecked += listView4_ItemChecked;
+                    listView5.ItemChecked += listView5_ItemChecked;
+                    listView6.ItemChecked += listView6_ItemChecked;
+                    return;
+                }
+                if (iOConnect.Intput1.Name == "")
+                {
+                    foreach (ListViewItem item in listView4.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                }
+                else
+                {
+                    foreach (ListViewItem item in listView4.Items)
+                    {
+                        if (item.Text == iOConnect.Intput1.Name)
+                        {
+                            item.Checked = true;
+                        }
+                        else
+                        {
+                            item.Checked = false;
+                        }
+                    }
+
+                }
+                if (iOConnect.Intput2.Name == "")
+                {
+                    foreach (ListViewItem item in listView5.CheckedItems)
+                    {
+                        if (item.Text != iOConnect.Intput2.Name)
+                            item.Checked = false;
+                        else
+                            item.Checked = true;
+                    }
+                }
+                else
+                {
+                    foreach (ListViewItem item in listView5.Items)
+                    {
+                        if (item.Text == iOConnect.Intput2.Name)
+                        {
+                            item.Checked = true;
+                        }
+                        else
+                        {
+                            item.Checked = false;
+                        }
+                    }
+                }
+                listView4.ItemChecked += listView4_ItemChecked;
+                listView5.ItemChecked += listView5_ItemChecked;
+                if (iOConnect.Output2 == null || iOConnect.Output2.Name == "")
+                {
+                    foreach (ListViewItem item in listView6.CheckedItems)
+                    {
+                        item.Checked = false;
+                    }
+                }
+                else
+                {
+                    foreach (ListViewItem item in listView6.Items)
+                    {
+                        if (item.Text == iOConnect.Output2.Name)
+                        {
+                            item.Checked = true;
+                        }
+                        else
+                        {
+                            item.Checked = false;
+                        }
+                    }
+                }
+                listView6.ItemChecked += listView6_ItemChecked;
+            }
+        }
+        private IOConnect GetSelectedConnect()
+        {
+            if (listView3.SelectedItems.Count == 0)
+            {
+                return null;
+            }
+            return listView3.SelectedItems[0].Tag as IOConnect;
+        }
+        private ListViewItem sourceItem3;
+        private ListViewItem targetItem3;
+        private void listView3_DragDrop(object sender, DragEventArgs e)
+        {
+            Point dropPoint = listView3.PointToClient(new Point(e.X, e.Y));
+            ListViewItem targetItem = listView3.GetItemAt(dropPoint.X, dropPoint.Y);
+
+            if (targetItem == null)
+            {
+                return;
+            }
+
+            int sourceIndex = sourceItem3.Index;
+            int targetIndex = targetItem.Index;
+
+            if (!ioConfigurationEditor.TrySwapConnections(
+                IODebugMaps,
+                currentConnectConfigIndex,
+                sourceIndex,
+                targetIndex,
+                out IODebugMap committed,
+                out string error))
+            {
+                ShowIoConfigurationError(error);
+                return;
+            }
+            IODebugMaps = committed;
+
+            // 取消目标项的高亮显示
+            if (targetItem != null)
+            {
+                targetItem.BackColor = UiPalette.SurfaceStrong;
+            }
+            RefleshConnecdt();
+            RefreshConnectDisplayForCurrentConfig();
+        }
+
+        private void listView3_DragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private void listView3_DragOver(object sender, DragEventArgs e)
+        {
+            Point dropPoint = listView3.PointToClient(new Point(e.X, e.Y));
+            ListViewItem newTargetItem = listView3.GetItemAt(dropPoint.X, dropPoint.Y);
+
+            if (newTargetItem != null && newTargetItem != targetItem3)
+            {
+                // 取消之前目标项的高亮显示
+                if (targetItem3 != null)
+                {
+                    targetItem3.BackColor = UiPalette.SurfaceStrong;
+                }
+
+                // 设置新目标项的高亮显示
+                targetItem3 = newTargetItem;
+                targetItem3.BackColor = UiPalette.InfoSoft;
+            }
+
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private void listView3_ItemDrag(object sender, ItemDragEventArgs e)
+        {
+            sourceItem3 = (ListViewItem)e.Item;
+            listView3.DoDragDrop(e.Item, DragDropEffects.Move);
+        }
+    }
+}

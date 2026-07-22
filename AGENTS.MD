@@ -89,23 +89,25 @@
 基于 Windows Forms 的低代码自动化平台，核心模型 `Proc -> Step -> OperationType`。
 
 ## 目录结构
+- `Application/` — WinForms 进程入口；`Program.cs` 只负责启动准备并进入 `AutomationPlatformBootstrap`。
 - `Automation.Runtime.Contracts/` — `netstandard2.0` 无 UI 契约程序集，承载流程状态、终止原因、报警交互、日志和弹窗端口；不得引用 WinForms、Store、`PlatformRuntime` 或实现项目。
-- `Bridge/` — Automation Bridge，本机 Named Pipe 服务；`AutomationBridgeService.cs` 只保留组合状态，序列化按流程投影/指令投影/协议支持/值转换分域，诊断按运行/引用/审计分域。
-- `Communication/` — TCP/串口通讯枢纽 `CommunicationHub`。
-- `Engine/` — 流程引擎 `ProcessEngine`，按 `ExecuteOperation` 分发指令。
+- `Bridge/` — Automation Bridge，本机 Named Pipe 服务；Host 与预演客户端位于根目录，`Service/` 保存 `AutomationBridgeService` 职责 partial，布局规则见 `Bridge/README.md`。
+- `Communication/` — TCP/串口通讯枢纽 `CommunicationHub` 与共享模型；当前保持扁平，边界见 `Communication/README.md`。
+- `Engine/` — 流程内核，按 `Models/Definitions/Compilation/Editing/Validation/Execution/Extensibility` 组织；目录职责和放置规则见 `Engine/README.md`。
 - `McpServer/` — 独立进程，把 Bridge 透传为 MCP Streamable HTTP 服务。
-- `MotionControl/` — 运动控制（雷赛 LTDMC/LeiSei3000）。
+- `MotionControl/` — 运动控制；统一运行能力位于 `Core/`，雷赛 LTDMC/LeiSei3000 适配位于 `Drivers/`，边界见 `MotionControl/README.md`。
 - `Hmi/` — 平台仓库保留的 HMI 调试界面源码；`Automation.exe` 根据 `AppConfig.StartupView` 选择启动该 HMI 或平台编辑器。
 - `../DeviceProject/Hmi/` — 与平台并列的独立设备 HMI 工程源码；`FrmHmiMain` 由 `MachineApp.exe` 启动，只能通过 `AutomationPlatformHost` 的公开 SDK 访问平台能力。
-- `Engine/CustomFunc.cs` — 平台内部的自定义函数注册与执行容器，AI 不得直接修改；平台内置 HMI 与独立设备 HMI 的业务函数分别写入各自的 `Hmi/CustomFunctions.cs`，并统一通过 `IAutomationPlatform.RegisterCustomFunction` 注册。
+- `Engine/Extensibility/CustomFunc.cs` — 平台内部的自定义函数注册与执行容器，AI 不得直接修改；平台内置 HMI 与独立设备 HMI 的业务函数分别写入各自的 `Hmi/CustomFunctions.cs`，并统一通过 `IAutomationPlatform.RegisterCustomFunction` 注册。两个宿主都从自身源码生成 `obj/EmbeddedSources/` 中的隐藏构建快照；源码不得同时作为可见 `Compile` 与 `EmbeddedResource` 项重复显示。
 - `PLC/` — PLC 通讯（S7/ModbusTcp）。
-- `Runtime/` — `AutomationPlatformHost`、`AppConfigStorage`、`GooseConfigStorage`、`AutomationMcpServerManager`、共享的幂等关闭链 `PlatformShutdownCoordinator`。
-- `Runtime/PlatformRuntimeComposer.cs` — 无 WinForms 依赖的设备、EngineContext、流程引擎和手动运动服务组合入口。
-- `UI/` — WinForms 流程交互适配器和编辑器通用 UI 基础设施；`IoDebugMonitorService` / `IoDebugConfigurationEditorService`、`VariableEditorService` 和 `ProcessEditorSelectionState` 分别承担 IO 监视/配置、变量规则/提交和流程编辑共享选择。
-- `Stores/` — 各类配置 Store 与 `LocalFileLogger`。
-- `FrmAiAssistant.cs` — AI 助手前台组合；Web 模板、渲染和对话框分别位于对应 partial，会话与单轮执行由 `AiConversationCoordinator` 统一管理，预演状态由 `AiPreviewConfirmationCoordinator` 管理。
-- `GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；AI 执行日志统一落 `D:\AutomationLogs\AIExecution\`。
-- `FrmMain.cs` / `FrmMain.Navigation.cs` / `FrmMain.Lifecycle.cs` / `FrmProc.cs` / `FrmDataGrid.cs` / `FrmInspector.cs` — 可隐藏的平台编辑器与流程编辑链；Inspector 具体控件按 `Inspector/` 下职责文件组织。
+- `Runtime/` — 平台实例组合与协调，按 `Hosting/Lifecycle/Configuration/Editing/Process/Diagnostics/Ai/Motion/Infrastructure` 组织；目录职责和放置规则见 `Runtime/README.md`。
+- `Runtime/Hosting/PlatformRuntimeComposer.cs` — 无 WinForms 依赖的设备、EngineContext、流程引擎和手动运动服务组合入口。
+- `Editor/` — 平台 WinForms 编辑器，按 `Shell/Process/Variables/Io/Motion/Communication/Data/Diagnostics/Ai/Common` 功能目录组织；各目录入口、状态边界和放置规则见 `Editor/README.md`。
+- `Models/Operations/` — Engine、Bridge 与 Editor 共同使用的流程指令模型和编辑元数据；不是纯 Engine 实现。
+- `Stores/` — 持久化按 `Infrastructure/Process/Data/Variables/Devices` 事实域组织；具体入口和放置规则见 `Stores/README.md`。
+- `Editor/Ai/FrmAiAssistant.cs` — AI 助手前台组合；Web 模板、渲染和对话框分别位于对应 partial，会话与单轮执行由 `AiConversationCoordinator` 统一管理，预演状态由 `AiPreviewConfirmationCoordinator` 管理。
+- `Editor/Ai/GooseAcpClient.cs` — 隐藏启动 `goose acp`，JSON-RPC over stdio 通信；AI 执行日志统一落 `D:\AutomationLogs\AIExecution\`。
+- `Editor/Shell/FrmMain.cs` / `FrmMain.Navigation.cs` / `FrmMain.Lifecycle.cs` 与 `Editor/Process/FrmProc.cs` / `FrmDataGrid.cs` / `FrmInspector.cs` — 可隐藏的平台编辑器与流程编辑链；Inspector 具体控件位于 `Editor/Process/Inspector/`。
 
 ## 启动模式
 - `Automation.exe` 无参数时根据 `AppConfig.StartupView` 启动平台编辑器 `FrmMain` 或平台内置 HMI，用于平台开发、配置与调试；其他参数一律拒绝。

@@ -1,4 +1,7 @@
 using Newtonsoft.Json;
+// 模块：Bridge / 宿主。
+// 职责范围：管理 Named Pipe 监听、连接生命周期和请求分发。
+
 using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
