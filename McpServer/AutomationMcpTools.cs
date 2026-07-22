@@ -66,7 +66,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
-            "提交一个已由前台确认的冻结V2预演，只接收previewId。平台在事务内校验版本并保存，正式提交要求所有流程为Stopped；成功结果以configurationSaved=true确认已保存，并通过createdObjects、affectedProcesses和variableResolutions返回稳定身份与变量处理事实。")]
+            "提交一个已由前台确认的冻结V2预演，只接收previewId。平台在事务内校验版本并保存，正式提交要求所有流程处于非活动状态（Ready或Stopped）；成功结果以configurationSaved=true确认已保存，并通过createdObjects、affectedProcesses和variableResolutions返回稳定身份与变量处理事实。")]
         public static async Task<string> ApplyChangeSet(
             [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
         {
@@ -301,7 +301,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_communication"), Description(
-            "按精确名称读取一个 TCP 或串口通讯对象的配置和当前状态。已知通讯名时直接调用，不需要先列出全部通讯；同名跨类型时再指定kind。")]
+            "按精确名称读取一个 TCP 或串口通讯对象的配置和当前状态。TCP返回本地/远端端点、自动重连配置及启动与连接状态；已知通讯名时直接调用，不需要先列出全部通讯；同名跨类型时再指定kind。")]
         public static async Task<string> GetCommunication(
             [Description("通讯对象精确名称")] string name,
             [Description("可选 tcp 或 serial；名称唯一时省略")] string? kind = null,
@@ -431,7 +431,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_snapshot"), Description(
-            "读取运行快照（流程状态/当前位置/报警/安全锁定）。"
+            "读取运行快照（流程状态/当前位置/报警/安全锁定/本次runId/父runId/最新CT探针样本）。"
             + "procIndex 为空时分页返回流程快照，默认50条、最多100条；使用nextOffset继续。用于了解当前运行状态。")]
         public static async Task<string> GetSnapshot(
             [Description("流程索引；为空时分页返回项目快照")] int? procIndex = null,
@@ -449,7 +449,7 @@ namespace Automation.McpServer
             + "需要等待状态变化时一次调用本工具即可；到达 Alarming 或超时后可按需读取诊断信息。")]
         public static async Task<string> WaitForProcState(
             [Description("流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
-            [Description("目标状态，默认 Stopped/Alarming；可选 Stopped/Running/Paused/Alarming/Stopping")] string[]? states = null,
+            [Description("目标状态，默认 Ready/Stopped/Alarming；可选 Ready/Stopped/Running/Paused/SingleStep/Alarming/Pausing/Stopping")] string[]? states = null,
             [Description("等待超时100..60000ms，默认30000ms")] int? timeoutMs = null)
         {
             return await ExecuteAsync(
@@ -459,10 +459,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "run_proc_test"), Description(
-            "仅用于用户本轮明确要求测试或试运行的场景；只要求创建或修改配置时，以预演和validate_proc作为完成证据。独立执行一次有边界的流程测试：直接传入Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
+            "仅用于用户本轮明确要求测试或试运行的场景；只要求创建或修改配置时，以预演和validate_proc作为完成证据。独立执行一次有边界的流程测试：直接传入Ready或Stopped流程，本工具负责启动、观察和安全停止；已经运行的流程不会被接管。观察窗口500..15000ms，自然结束则直接返回。"
             + "返回真实terminationReason、outcome、是否观察到运行、位置变化、是否由测试器停止及本轮runtimeEvidence黑匣子时间线，由调用方结合用户目标判断结果。本次测试结果不授权再次启动；start_proc只用于用户明确要求持续运行的场景。")]
         public static async Task<string> RunProcTest(
-            [Description("处于Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
+            [Description("处于Ready或Stopped的流程索引；优先使用 apply_change_set.affectedProcesses 返回值")] int procIndex,
             [Description("观察窗口500..15000ms，默认5000ms")] int? durationMs = null)
         {
             return await ExecuteAsync(
@@ -552,7 +552,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "start_proc"), Description(
-            "启动流程并让它按自身生命周期持续运行。不需要配置预演，要求流程处于Stopped且通过运行就绪闸门；用于用户明确要求启动或持续运行的场景。"
+            "启动流程并让它按自身生命周期持续运行。不需要配置预演，要求流程处于Ready或Stopped且通过运行就绪闸门；用于用户明确要求启动或持续运行的场景。"
             + "创建、修改后的有边界试运行、观察后停止和终止原因验证由run_proc_test一次完成。")]
         public static async Task<string> StartProc(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
@@ -564,7 +564,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "stop_proc"), Description(
-            "按用户运行控制意图停止一个非Stopped流程，直接发送命令且无需配置预演。配置提交遇到运行中流程时由操作员决定是否停止。")]
+            "按用户运行控制意图停止一个活动流程，直接发送命令且无需配置预演。配置提交遇到运行中流程时由操作员决定是否停止。")]
         public static async Task<string> StopProc(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex)
         {
@@ -890,7 +890,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_communication_configuration"), Description(
-            "预演TCP与串口的完整目标配置，两份配置同一事务保存；仅完全权限开放。")]
+            "预演TCP与串口的完整目标配置。TCP本地端点表示绑定或监听，远端端点表示连接目标或Server会话筛选条件；两份配置同一事务保存，仅完全权限开放。")]
         public static async Task<string> PreviewCommunicationConfiguration(
             [Description("TCP和串口配置")] CommunicationMigrationDefinition definition)
         {

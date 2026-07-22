@@ -51,7 +51,7 @@ namespace Automation
         private int lastHighlightedRow = -1;
         private int lastHighlightedProc = -1;
         private int lastHighlightedStep = -1;
-        private ProcRunState lastHighlightedState = ProcRunState.Stopped;
+        private ProcRunState lastHighlightedState = ProcRunState.Ready;
         private bool lastHighlightedBreakpoint;
         private bool lastHighlightActive = false;
         private bool singleStepFollowPending;
@@ -900,7 +900,7 @@ namespace Automation
                     return;
                 }
 
-                if (Workspace.Main.WindowState == FormWindowState.Minimized || !Workspace.Main.ContainsFocus)
+                if (Workspace.Main.WindowState == FormWindowState.Minimized)
                 {
                     ClearLastHighlight();
                     return;
@@ -924,7 +924,7 @@ namespace Automation
                     return;
                 }
 
-                if (snapshot == null || snapshot.ProcIndex != selectedProc || snapshot.State == ProcRunState.Stopped)
+                if (snapshot == null || snapshot.ProcIndex != selectedProc || snapshot.State.IsInactive())
                 {
                     ClearLastHighlight();
                     return;
@@ -1021,7 +1021,7 @@ namespace Automation
             lastHighlightedRow = -1;
             lastHighlightedProc = -1;
             lastHighlightedStep = -1;
-            lastHighlightedState = ProcRunState.Stopped;
+            lastHighlightedState = ProcRunState.Ready;
             lastHighlightedBreakpoint = false;
             dataGridView1.ClearRuntimeState();
         }
@@ -1469,30 +1469,31 @@ namespace Automation
                 MessageBox.Show("请先选择需要设为启动点的指令。");
                 return;
             }
-            ProcRunState startState = ProcRunState.SingleStep;
-            EngineSnapshot startSnapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(Workspace.ProcessSelection.ProcIndex);
-            if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)
+            int procIndex = Workspace.ProcessSelection.ProcIndex;
+            if (!Workspace.Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string stateError))
             {
-                startState = ProcRunState.Paused;
+                Workspace.Info?.PrintInfo($"设置启动点失败：{stateError}", FrmInfo.Level.Error);
+                return;
             }
 
-            if (Workspace.ProcessSelection.ProcIndex >= 0)
-            {
-                Workspace.Runtime.ProcessEngine.Stop(Workspace.ProcessSelection.ProcIndex);
-            }
-
-            Workspace.Runtime.ProcessEngine.StartProcAt(
+            const ProcRunState startState = ProcRunState.SingleStep;
+            bool started = Workspace.Runtime.ProcessEngine.StartProcAt(
                 null,
-                Workspace.ProcessSelection.ProcIndex,
+                procIndex,
                 Workspace.ProcessSelection.StepIndex,
                 iSelectedRow,
                 startState);
+            if (!started)
+            {
+                Workspace.Info?.PrintInfo("设置启动点失败，请查看流程运行日志。", FrmInfo.Level.Error);
+                return;
+            }
 
             Invoke(new Action(() =>
             {
                 Workspace.ToolBar.SetPauseButtonAction(true);
-                Workspace.ToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
-                Workspace.ToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
+                Workspace.ToolBar.btnPause.Enabled = true;
+                Workspace.ToolBar.SingleRun.Enabled = true;
             }));
         }
 

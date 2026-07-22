@@ -39,13 +39,16 @@ namespace Automation
         public static readonly Color SelectionText = Color.FromArgb(22, 76, 112);
         public static readonly Color Focus = Color.FromArgb(43, 126, 201);
 
-        public static readonly Color Navigation = Color.FromArgb(27, 43, 59);
-        public static readonly Color NavigationHover = Color.FromArgb(34, 55, 73);
-        public static readonly Color NavigationActive = Color.FromArgb(36, 59, 78);
-        public static readonly Color NavigationBorder = Color.FromArgb(49, 75, 91);
+        public static readonly Color Navigation = Color.FromArgb(24, 39, 52);
+        public static readonly Color NavigationHover = Color.FromArgb(29, 49, 65);
+        public static readonly Color NavigationActive = Color.FromArgb(31, 53, 71);
+        public static readonly Color NavigationActiveHighlight = Color.FromArgb(37, 67, 88);
+        public static readonly Color NavigationBorder = Color.FromArgb(48, 71, 87);
         public static readonly Color NavigationText = Color.FromArgb(221, 233, 239);
-        public static readonly Color NavigationTextMuted = Color.FromArgb(168, 188, 199);
-        public static readonly Color NavigationAccent = Color.FromArgb(10, 132, 255);
+        public static readonly Color NavigationTextMuted = Color.FromArgb(193, 208, 217);
+        public static readonly Color NavigationIcon = Color.FromArgb(184, 201, 211);
+        public static readonly Color NavigationIconAccent = Color.FromArgb(75, 153, 211);
+        public static readonly Color NavigationAccent = Color.FromArgb(74, 164, 235);
 
         public static readonly Color Success = Color.FromArgb(37, 122, 85);
         public static readonly Color SuccessHover = Color.FromArgb(31, 104, 72);

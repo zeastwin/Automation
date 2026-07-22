@@ -161,7 +161,7 @@ try {
         throw "The process-state breakpoint did not observe the transition."
     }
     if ($stateRule.LastHit.TriggerOperationId -ne $operation.Id -or
-        $stateRule.LastHit.PreviousState -ne [Automation.ProcRunState]::Stopped -or
+        $stateRule.LastHit.PreviousState -ne [Automation.ProcRunState]::Ready -or
         $stateRule.LastHit.CurrentState -ne [Automation.ProcRunState]::Running) {
         throw "The process-state breakpoint captured incorrect location or state facts."
     }

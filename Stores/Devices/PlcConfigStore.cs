@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Automation
@@ -49,12 +50,17 @@ namespace Automation
                 }
 
                 JsonSerializerSettings settings = CreateJsonSettings();
-                PlcConfiguration loaded = JsonConvert.DeserializeObject<PlcConfiguration>(
-                    File.ReadAllText(path), settings);
+                string json = File.ReadAllText(path);
+                PlcConfiguration loaded = JsonConvert.DeserializeObject<PlcConfiguration>(json, settings);
                 if (!Validate(loaded, valueStore, out error))
                 {
                     SetFault(error);
                     return false;
+                }
+                if (RequiresDefaultPersistence(json))
+                {
+                    string normalized = JsonConvert.SerializeObject(loaded, Formatting.Indented, settings);
+                    WriteAtomic(path, normalized);
                 }
                 lock (syncRoot)
                 {
@@ -119,12 +125,13 @@ namespace Automation
             }
 
             var deviceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var physicalEndpoints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var localWriters = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int deviceIndex = 0; deviceIndex < candidate.Devices.Count; deviceIndex++)
             {
                 PlcDeviceConfig device = candidate.Devices[deviceIndex];
                 string prefix = $"PLC设备第{deviceIndex + 1}项";
-                if (!ValidateDevice(device, prefix, deviceNames, valueStore, out error)) return false;
+                if (!ValidateDevice(device, prefix, deviceNames, physicalEndpoints, valueStore, out error)) return false;
 
                 var plcWriteRanges = new List<Tuple<int, int, PlcArea, string>>();
                 for (int mapIndex = 0; mapIndex < device.Mappings.Count; mapIndex++)
@@ -168,7 +175,7 @@ namespace Automation
         }
 
         private static bool ValidateDevice(PlcDeviceConfig device, string prefix, HashSet<string> names,
-            ValueConfigStore valueStore, out string error)
+            Dictionary<string, string> physicalEndpoints, ValueConfigStore valueStore, out string error)
         {
             error = null;
             if (device == null) { error = prefix + "为空。"; return false; }
@@ -180,6 +187,14 @@ namespace Automation
             if (device.Port < 1 || device.Port > 65535) { error = prefix + "端口超出范围。"; return false; }
             if (device.UnitId < 0 || device.UnitId > 255) { error = prefix + "站号超出范围。"; return false; }
             if (device.ConnectTimeoutMs < 100 || device.ConnectTimeoutMs > 60000) { error = prefix + "连接超时必须为100..60000ms。"; return false; }
+            if (device.ReceiveTimeoutMs < 100 || device.ReceiveTimeoutMs > 60000) { error = prefix + "接收超时必须为100..60000ms。"; return false; }
+            string endpoint = $"{ip}:{device.Port}/{device.UnitId}";
+            if (physicalEndpoints.TryGetValue(endpoint, out string existingDevice))
+            {
+                error = $"PLC物理端点重复:{existingDevice}、{device.Name}指向{endpoint}";
+                return false;
+            }
+            physicalEndpoints.Add(endpoint, device.Name);
             if (device.ScanIntervalMs < 50 || device.ScanIntervalMs > 60000) { error = prefix + "扫描周期必须为50..60000ms。"; return false; }
             if (!new[] { "ABCD", "BADC", "CDAB", "DCBA" }.Contains(device.DataFormat, StringComparer.Ordinal))
             { error = prefix + "字节序无效。"; return false; }
@@ -280,6 +295,18 @@ namespace Automation
             };
             settings.Converters.Add(new StringEnumConverter());
             return settings;
+        }
+
+        private static bool RequiresDefaultPersistence(string json)
+        {
+            JObject root = JObject.Parse(json);
+            JToken devicesToken = root.Properties()
+                .FirstOrDefault(property => string.Equals(
+                    property.Name, "devices", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (!(devicesToken is JArray devices)) return false;
+            return devices.OfType<JObject>().Any(device =>
+                !device.Properties().Any(property => string.Equals(
+                    property.Name, "receiveTimeoutMs", StringComparison.OrdinalIgnoreCase)));
         }
 
         private static void WriteAtomic(string path, string content)

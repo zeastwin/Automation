@@ -26,7 +26,8 @@ namespace Automation.DeviceSdk
         Running = 3,
         Alarming = 4,
         Pausing = 5,
-        Stopping = 6
+        Stopping = 6,
+        Ready = 7
     }
 
     /// <summary>一次只读变量快照；后续变化通过 <see cref="IValueStore.Changed"/> 获取。</summary>

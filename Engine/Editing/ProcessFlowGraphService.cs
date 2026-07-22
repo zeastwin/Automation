@@ -54,7 +54,7 @@ namespace Automation
                     Summary = $"{proc?.steps?.Count ?? 0} 个步骤",
                     ProcIndex = procIndex,
                     ProcId = procId,
-                    RuntimeState = runtime?.State.ToString() ?? ProcRunState.Stopped.ToString(),
+                    RuntimeState = runtime?.State.ToString() ?? ProcRunState.Ready.ToString(),
                     ReadinessStatus = readiness?.ReadinessStatus ?? string.Empty,
                     AutoStart = proc?.head?.AutoStart == true,
                     Disabled = proc?.head?.Disable == true,
@@ -93,7 +93,7 @@ namespace Automation
                             AddProjectReference(graph, nameMap, dynamicNodes, invalidNodes,
                                 sourceNodeId, sourceIndex, operation, itemIndex++,
                                 item?.ProcName, item?.ProcValue,
-                                "processWait", "等待" + (item?.TargetState ?? "目标状态"), projectOperation.Disabled);
+                            "processWait", "等待" + (item?.TargetState ?? "目标状态"), projectOperation.Disabled);
                         }
                     }
                 }

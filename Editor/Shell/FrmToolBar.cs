@@ -546,8 +546,14 @@ namespace Automation
                 if (Workspace.Proc.SelectedStepNum != -1 && snapshot != null
                     && snapshot.State == ProcRunState.SingleStep)
                 {
-                    Workspace.Runtime.ProcessEngine.Step(procIndex);
-                    Workspace.DataGrid.RequestSingleStepFollow(procIndex);
+                    if (Workspace.Runtime.ProcessEngine.Step(procIndex))
+                    {
+                        Workspace.DataGrid.RequestSingleStepFollow(procIndex);
+                    }
+                    else if (Workspace.Info != null && !Workspace.Info.IsDisposed)
+                    {
+                        Workspace.Info.PrintInfo("单步命令未被接受，请等待当前位置更新后重试。", FrmInfo.Level.Error);
+                    }
                 }
             }
                 

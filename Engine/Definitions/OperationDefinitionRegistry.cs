@@ -34,6 +34,7 @@ namespace Automation
             () => new IoLogicGoto(),
             () => new ProcOps(),
             () => new WaitProc(),
+            () => new CycleTimeProbe(),
             () => new Goto(),
             () => new ParamGoto(),
             () => new Delay(),

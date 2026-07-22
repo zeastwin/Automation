@@ -1147,6 +1147,8 @@ namespace Automation
             public int UnitId { get => device.UnitId; set => device.UnitId = value; }
             [Category("网络"), DisplayName("连接超时(ms)")]
             public int ConnectTimeoutMs { get => device.ConnectTimeoutMs; set => device.ConnectTimeoutMs = value; }
+            [Category("网络"), DisplayName("接收超时(ms)"), Description("单次PLC请求等待响应的最长时间；超时会停止当前设备映射并按配置重连。")]
+            public int ReceiveTimeoutMs { get => device.ReceiveTimeoutMs; set => device.ReceiveTimeoutMs = value; }
             [Category("网络"), DisplayName("自动连接"), Description("开启后平台启动自动连接，断线后自动重连；关闭后只能通过重新初始化手动连接。")]
             public bool AutoConnect { get => device.AutoConnect; set => device.AutoConnect = value; }
             [Category("映射"), DisplayName("扫描周期(ms)")]

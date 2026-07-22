@@ -7,3 +7,4 @@ artifacts
 /.agents/skills/automation-process-authoring/
 
 nul
+.codex-build/

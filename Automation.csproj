@@ -403,7 +403,9 @@
     <Compile Include="Engine\Execution\ProcessEngine.Models.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.Comm.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.CommunicationRetry.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.Custom.cs" />
+    <Compile Include="Engine\Execution\ProcessEngine.Operations.Diagnostics.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.DataStruct.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.Io.cs" />
     <Compile Include="Engine\Execution\ProcessEngine.Operations.Motion.cs" />
@@ -436,6 +438,9 @@
     </Compile>
     <Compile Include="Hmi\HmiCapacityPage.Designer.cs">
       <DependentUpon>HmiCapacityPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\ClockControl.cs">
+      <SubType>Component</SubType>
     </Compile>
     <Compile Include="Hmi\HmiDebugPage.cs">
       <SubType>Form</SubType>

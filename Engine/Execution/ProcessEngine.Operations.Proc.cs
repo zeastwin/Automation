@@ -64,9 +64,9 @@ namespace Automation
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     ProcRunState targetState = GetProcState(index);
-                    if (targetState != ProcRunState.Stopped)
+                    if (!targetState.IsInactive())
                     {
-                        MarkAlarm(evt, $"流程未停止:{proc?.head?.Name}");
+                        MarkAlarm(evt, $"流程尚未结束:{proc?.head?.Name}，当前状态:{targetState}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     if (!StartProcAuto(proc, index))
@@ -84,9 +84,9 @@ namespace Automation
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     ProcRunState targetState = GetProcState(index);
-                    if (targetState == ProcRunState.Stopped)
+                    if (targetState.IsInactive())
                     {
-                        MarkAlarm(evt, $"流程已停止:{proc?.head?.Name}");
+                        MarkAlarm(evt, $"流程未在运行:{proc?.head?.Name}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
                     Stop(index);
@@ -155,21 +155,17 @@ namespace Automation
                         MarkAlarm(evt, "流程索引无效");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    if (procParam.TargetState == "运行")
+                    ProcRunState actualState = GetProcState(index);
+                    bool matched = procParam.TargetState == "运行"
+                        ? actualState == ProcRunState.Running
+                        : procParam.TargetState == "就绪"
+                            ? actualState == ProcRunState.Ready
+                            : procParam.TargetState == "停止"
+                                && actualState == ProcRunState.Stopped;
+                    if (!matched)
                     {
-                        if (GetProcState(index) == ProcRunState.Stopped)
-                        {
-                            isWaitOff = false;
-                            break;
-                        }
-                    }
-                    else if (procParam.TargetState == "停止")
-                    {
-                        if (GetProcState(index) != ProcRunState.Stopped)
-                        {
-                            isWaitOff = false;
-                            break;
-                        }
+                        isWaitOff = false;
+                        break;
                     }
                 }
                 if (isWaitOff)

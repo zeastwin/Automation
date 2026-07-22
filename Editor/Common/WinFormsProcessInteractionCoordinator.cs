@@ -337,7 +337,7 @@ namespace Automation
 
         private void HandleSnapshotChanged(EngineSnapshot snapshot)
         {
-            if (snapshot?.State == ProcRunState.Stopped)
+            if (snapshot != null && snapshot.State.IsInactive())
             {
                 CloseProcess(snapshot.ProcIndex);
             }

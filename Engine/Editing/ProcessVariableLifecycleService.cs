@@ -52,6 +52,26 @@ namespace Automation
             return names.Count;
         }
 
+        public static int ConvertOwnedVariablesToPublic(
+            IDictionary<string, DicValue> variables, IEnumerable<Guid> ownerProcIds)
+        {
+            if (variables == null) return 0;
+            var owners = new HashSet<Guid>((ownerProcIds ?? Enumerable.Empty<Guid>())
+                .Where(id => id != Guid.Empty));
+            List<DicValue> ownedVariables = variables.Values
+                .Where(value => value != null
+                    && ValueConfigStore.IsProcessValue(value)
+                    && value.OwnerProcId.HasValue
+                    && owners.Contains(value.OwnerProcId.Value))
+                .ToList();
+            foreach (DicValue variable in ownedVariables)
+            {
+                variable.Scope = VariableScopeContract.Public;
+                variable.OwnerProcId = null;
+            }
+            return ownedVariables.Count;
+        }
+
         public static ProcessVariableCopyResult CopyPrivateVariables(
             Guid sourceProcId,
             Guid targetProcId,

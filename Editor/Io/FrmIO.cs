@@ -38,6 +38,18 @@ namespace Automation
         private long lastIoMonitorErrorUtcTicks;
         private long lastIoMonitorSnapshotUtcTicks;
         private bool ioMonitorStaleShown;
+        private int displayedCardIndex = -1;
+
+        private sealed class IoGridViewState
+        {
+            public int CardIndex { get; set; }
+            public int RowIndex { get; set; }
+            public int ColumnIndex { get; set; }
+            public int FirstDisplayedRowIndex { get; set; }
+            public int ItemIndex { get; set; }
+            public string IOIndex { get; set; }
+            public string IOType { get; set; }
+        }
 
         private sealed class IoMonitorItem
         {
@@ -136,6 +148,8 @@ namespace Automation
             {
                 dgvIO.Rows.Clear();
             }
+            displayedCardIndex = -1;
+            iSelectedIORow = -1;
         }
 
         public void WriteIODgv(int inputCount, int outputCount, List<IO> cacheIOs)
@@ -160,6 +174,10 @@ namespace Automation
                 return;
             }
 
+            int cardIndex = Workspace.Card.TryGetSelectedCardIndex(out int selectedCardIndex)
+                ? selectedCardIndex
+                : -1;
+            IoGridViewState viewState = CaptureIoGridViewState(cardIndex);
             dgvIO.SuspendLayout();
             try
             {
@@ -206,6 +224,85 @@ namespace Automation
             {
                 dgvIO.ResumeLayout();
             }
+            displayedCardIndex = cardIndex;
+            if (!RestoreIoGridViewState(viewState, cacheIOs))
+            {
+                iSelectedIORow = dgvIO.CurrentCell?.RowIndex ?? -1;
+            }
+        }
+
+        private IoGridViewState CaptureIoGridViewState(int cardIndex)
+        {
+            if (cardIndex < 0 || displayedCardIndex != cardIndex || dgvIO.Rows.Count == 0)
+            {
+                return null;
+            }
+            int rowIndex = iSelectedIORow;
+            if (rowIndex < 0 || rowIndex >= dgvIO.Rows.Count)
+            {
+                rowIndex = dgvIO.CurrentCell?.RowIndex ?? -1;
+            }
+            if (rowIndex < 0 || rowIndex >= dgvIO.Rows.Count)
+            {
+                return null;
+            }
+
+            DataGridViewRow row = dgvIO.Rows[rowIndex];
+            bool hasItemIndex = int.TryParse(Convert.ToString(row.Cells[0].Value), out int itemIndex);
+            return new IoGridViewState
+            {
+                CardIndex = cardIndex,
+                RowIndex = rowIndex,
+                ColumnIndex = dgvIO.CurrentCell?.ColumnIndex ?? 0,
+                FirstDisplayedRowIndex = dgvIO.FirstDisplayedScrollingRowIndex,
+                ItemIndex = hasItemIndex ? itemIndex : -1,
+                IOIndex = Convert.ToString(row.Cells[5].Value),
+                IOType = Convert.ToString(row.Cells[6].Value)
+            };
+        }
+
+        private bool RestoreIoGridViewState(IoGridViewState viewState, IReadOnlyList<IO> cacheIOs)
+        {
+            if (viewState == null || viewState.CardIndex != displayedCardIndex
+                || cacheIOs == null || dgvIO.Rows.Count == 0)
+            {
+                return false;
+            }
+            int rowIndex = -1;
+            for (int index = 0; index < cacheIOs.Count; index++)
+            {
+                IO item = cacheIOs[index];
+                if (viewState.ItemIndex >= 0
+                    && item != null
+                    && item.Index == viewState.ItemIndex
+                    && string.Equals(item.IOIndex, viewState.IOIndex, StringComparison.Ordinal)
+                    && string.Equals(item.IOType, viewState.IOType, StringComparison.Ordinal))
+                {
+                    rowIndex = index;
+                    break;
+                }
+            }
+            if (rowIndex < 0 && viewState.RowIndex >= 0 && viewState.RowIndex < dgvIO.Rows.Count)
+            {
+                rowIndex = viewState.RowIndex;
+            }
+            if (rowIndex < 0 || rowIndex >= dgvIO.Rows.Count)
+            {
+                return false;
+            }
+
+            int firstDisplayedRowIndex = Math.Min(
+                Math.Max(0, viewState.FirstDisplayedRowIndex),
+                dgvIO.Rows.Count - 1);
+            dgvIO.FirstDisplayedScrollingRowIndex = firstDisplayedRowIndex;
+            int columnIndex = Math.Min(
+                Math.Max(0, viewState.ColumnIndex),
+                dgvIO.Columns.Count - 1);
+            dgvIO.ClearSelection();
+            dgvIO.CurrentCell = dgvIO.Rows[rowIndex].Cells[columnIndex];
+            dgvIO.Rows[rowIndex].Selected = true;
+            iSelectedIORow = rowIndex;
+            return true;
         }
         private void dgvIO_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {

@@ -669,7 +669,7 @@ namespace Automation.McpServer
                 ["preview_plc_configuration"] = new[]
                     { "definition", "devices", "mappings", "direction", "variableNames" },
                 ["preview_communication_configuration"] = new[]
-                    { "definition", "tcp", "serial", "frameMode", "encodingName" }
+                    { "definition", "tcp", "serial", "localAddress", "localPort", "remoteAddress", "remotePort", "autoReconnect", "frameMode", "encodingName" }
             };
             foreach (KeyValuePair<string, string[]> contract in migrationSchemaTerms)
             {

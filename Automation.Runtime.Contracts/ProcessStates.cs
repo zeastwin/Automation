@@ -13,7 +13,18 @@ namespace Automation
         Running = 3,
         Alarming = 4,
         Pausing = 5,
-        Stopping = 6
+        Stopping = 6,
+        Ready = 7
+    }
+
+    /// <summary>流程状态机的公共判定，避免各层把“就绪”和“停止”重新合并成同一显示状态。</summary>
+    public static class ProcRunStateExtensions
+    {
+        /// <summary>就绪和停止都没有活动执行实例，可以编辑或再次启动。</summary>
+        public static bool IsInactive(this ProcRunState state)
+        {
+            return state == ProcRunState.Ready || state == ProcRunState.Stopped;
+        }
     }
 
     /// <summary>流程实例结束原因，用于运行摘要和故障复盘，不代替当前运行状态。</summary>

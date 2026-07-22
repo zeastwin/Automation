@@ -154,7 +154,7 @@ namespace Automation
             for (int index = 0; index < runtime.Stores.Processes.Items.Count; index++)
             {
                 EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(index);
-                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                if (snapshot != null && !snapshot.State.IsInactive())
                 {
                     error = $"流程[{runtime.Stores.Processes.Items[index]?.head?.Name ?? index.ToString()}]仍在运行，标准测试准备未修改配置。";
                     return false;

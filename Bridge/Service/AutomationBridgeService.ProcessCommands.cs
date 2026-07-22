@@ -123,22 +123,22 @@ namespace Automation.Bridge
             string action = ReadRequiredString(request, "action");
             Proc proc = GetProcByIndex(procIndex);
             EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
-            ProcRunState currentState = snapshot?.State ?? ProcRunState.Stopped;
+            ProcRunState currentState = snapshot?.State ?? ProcRunState.Ready;
 
             switch (action)
             {
                 case "start":
-                    if (currentState != ProcRunState.Stopped)
+                    if (!currentState.IsInactive())
                     {
-                        return BridgeError(409, "PROC_NOT_STOPPED",
+                        return BridgeError(409, "PROC_NOT_INACTIVE",
                             $"流程 {procIndex} 尚未结束，当前状态为 {currentState}。请排查流程未结束原因后再启动。");
                     }
                     if (!runtime.ProcessEngine.StartProc(proc, procIndex))
                     {
                         string startError;
-                        if (!runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError))
+                        if (!runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string inactiveError))
                         {
-                            startError = stoppedError;
+                            startError = inactiveError;
                         }
                         else
                         {
@@ -150,7 +150,7 @@ namespace Automation.Bridge
                     }
                     break;
                 case "stop":
-                    if (currentState == ProcRunState.Stopped)
+                    if (currentState.IsInactive())
                     {
                         return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行。");
                     }
@@ -192,7 +192,7 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", "timeoutMs 必须在 100..60000 之间。");
             }
-            JArray statesToken = ReadOptionalArray(request, "states") ?? new JArray("Stopped", "Alarming");
+            JArray statesToken = ReadOptionalArray(request, "states") ?? new JArray("Ready", "Stopped", "Alarming");
             if (statesToken.Count < 1 || statesToken.Count > 4)
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", "states 必须包含 1..4 个目标状态。");
@@ -204,7 +204,7 @@ namespace Automation.Bridge
                     || !Enum.TryParse(stateToken.Value<string>(), false, out ProcRunState state))
                 {
                     throw new BridgeRequestException(400, "INVALID_ARGUMENT",
-                        $"不支持的流程状态：{stateToken}. 可选 Stopped/Running/Paused/Alarming/Stopping。");
+                        $"不支持的流程状态：{stateToken}. 可选 Ready/Stopped/Running/Paused/SingleStep/Alarming/Pausing/Stopping。");
                 }
                 targetStates.Add(state);
             }
@@ -271,7 +271,7 @@ namespace Automation.Bridge
                 EnsureRuntimeReady();
                 Proc proc = GetProcByIndex(procIndex);
                 EngineSnapshot before = runtime.ProcessEngine.GetSnapshot(procIndex);
-                if (before != null && before.State != ProcRunState.Stopped)
+                if (before != null && !before.State.IsInactive())
                 {
                     throw new BridgeRequestException(409, "PROC_ALREADY_RUNNING",
                         $"流程 {procIndex} 已处于 {before.State}，测试运行不会接管已有运行实例。");
@@ -321,7 +321,7 @@ namespace Automation.Bridge
                             requestedReason = ProcTerminationReason.Alarm;
                             break;
                         }
-                        if (snapshot.State == ProcRunState.Stopped)
+                        if (snapshot.State.IsInactive())
                         {
                             break;
                         }
@@ -334,7 +334,7 @@ namespace Automation.Bridge
                 ExecuteOnUiThread(() =>
                 {
                     EngineSnapshot current = runtime.ProcessEngine?.GetSnapshot(procIndex);
-                    if (current != null && current.ProcId == procId && current.State != ProcRunState.Stopped)
+                    if (current != null && current.ProcId == procId && !current.State.IsInactive())
                     {
                         runtime.ProcessEngine.Stop(procIndex, requestedReason);
                         stoppedByTestRunner = true;
@@ -347,7 +347,7 @@ namespace Automation.Bridge
             do
             {
                 snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
-                if (snapshot != null && snapshot.State == ProcRunState.Stopped)
+                if (snapshot != null && snapshot.State.IsInactive())
                 {
                     break;
                 }
@@ -355,7 +355,7 @@ namespace Automation.Bridge
             }
             while (DateTime.UtcNow < stopDeadline);
 
-            if (snapshot == null || snapshot.State != ProcRunState.Stopped)
+            if (snapshot == null || !snapshot.State.IsInactive())
             {
                 throw new BridgeRequestException(500, "TEST_RUN_STOP_TIMEOUT",
                     $"流程 {procIndex} 测试窗口结束后未能在 3 秒内停止，已保持安全停止请求，请人工检查设备与流程状态。");
@@ -398,24 +398,24 @@ namespace Automation.Bridge
             };
         }
 
-        private void EnsureAllProcsStoppedForAiStructureCommit(string actionName)
+        private void EnsureAllProcsInactiveForAiStructureCommit(string actionName)
         {
             int procCount = runtime.Stores.Processes?.Items?.Count ?? 0;
             for (int procIndex = 0; procIndex < procCount; procIndex++)
             {
                 EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
-                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                if (snapshot != null && !snapshot.State.IsInactive())
                 {
                     throw new BridgeRequestException(
                         409,
-                        "PROC_STRUCTURE_NOT_STOPPED",
+                        "PROC_STRUCTURE_NOT_INACTIVE",
                         $"流程 {procIndex} 当前为 {snapshot.State}，{actionName}尚未执行。",
                         new JObject
                         {
                             ["blockingProcIndex"] = procIndex,
                             ["currentState"] = snapshot.State.ToString(),
                             ["retryableNow"] = false,
-                            ["retryableWhen"] = "all_processes_stopped",
+                            ["retryableWhen"] = "all_processes_inactive",
                             ["sideEffects"] = "none"
                         }.ToString(Formatting.None));
                 }

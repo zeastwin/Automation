@@ -26,10 +26,10 @@ namespace Automation
 
         public InspectorValueCell()
         {
-            BackColor = UiPalette.Surface;
+            BackColor = UiPalette.BrandSoft;
             Cursor = Cursors.Default;
-            Font = InspectorFonts.Regular9;
-            ForeColor = UiPalette.TextPrimary;
+            Font = InspectorFonts.Bold9;
+            ForeColor = UiPalette.SelectionText;
             SetStyle(
                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
@@ -152,8 +152,8 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             Color background = pointerDown
-                ? UiPalette.SurfacePressed
-                : pointerOver ? UiPalette.SurfaceHover : UiPalette.Surface;
+                ? UiPalette.Selection
+                : pointerOver ? UiPalette.BrandSoftHover : UiPalette.BrandSoft;
             e.Graphics.Clear(background);
 
             int arrowWidth = ShowDropDownArrow ? 26 : 0;
@@ -244,9 +244,9 @@ namespace Automation
         {
             AutoSize = false;
             BorderStyle = BorderStyle.None;
-            BackColor = UiPalette.Input;
-            ForeColor = UiPalette.TextPrimary;
-            Font = InspectorFonts.Regular9;
+            BackColor = UiPalette.BrandSoft;
+            ForeColor = UiPalette.SelectionText;
+            Font = InspectorFonts.Bold9;
             Multiline = true;
             AcceptsReturn = false;
             WordWrap = false;
@@ -279,21 +279,21 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = UiPalette.InputFocused;
+            BackColor = UiPalette.Selection;
             Invalidate();
         }
 
         protected override void OnLeave(EventArgs e)
         {
-            BackColor = ReadOnly ? UiPalette.SurfaceSubtle : UiPalette.Input;
+            BackColor = UiPalette.BrandSoft;
             base.OnLeave(e);
             Invalidate();
         }
 
         protected override void OnReadOnlyChanged(EventArgs e)
         {
-            BackColor = ReadOnly ? UiPalette.SurfaceSubtle : UiPalette.Input;
-            ForeColor = ReadOnly ? UiPalette.TextSecondary : UiPalette.TextPrimary;
+            BackColor = UiPalette.BrandSoft;
+            ForeColor = UiPalette.SelectionText;
             base.OnReadOnlyChanged(e);
             Invalidate();
         }

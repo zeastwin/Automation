@@ -8,6 +8,7 @@ namespace Automation
 {
     internal enum ProcTreeIconKind
     {
+        Ready,
         Stopped,
         Running,
         Paused,
@@ -43,6 +44,9 @@ namespace Automation
                 graphics.ScaleTransform(scale, scale);
                 switch (kind)
                 {
+                    case ProcTreeIconKind.Ready:
+                        DrawReady(graphics);
+                        break;
                     case ProcTreeIconKind.Stopped:
                         DrawStopped(graphics);
                         break;
@@ -106,6 +110,20 @@ namespace Automation
             {
                 graphics.DrawEllipse(pen, 3, 3, 14, 14);
                 graphics.DrawRectangle(pen, 7, 7, 6, 6);
+            }
+        }
+
+        private static void DrawReady(Graphics graphics)
+        {
+            using (Pen pen = CreatePen(UiPalette.Success, 1.8F))
+            {
+                graphics.DrawEllipse(pen, 3, 3, 14, 14);
+                graphics.DrawLines(pen, new[]
+                {
+                    new PointF(6, 10),
+                    new PointF(9, 13),
+                    new PointF(14.5F, 7)
+                });
             }
         }
 

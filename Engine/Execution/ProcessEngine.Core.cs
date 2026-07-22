@@ -44,9 +44,13 @@ namespace Automation
         private static readonly double stopwatchTickToMilliseconds = 1000.0 / Stopwatch.Frequency;
         private const int CooperativeCheckInterval = 1024;
         private const double CooperativeTimeSliceMilliseconds = 5.0;
+        private const int PerformanceHeartbeatMilliseconds = 500;
         private int snapshotThrottleMilliseconds = 50;
         private readonly ConcurrentDictionary<int, EngineSnapshot> pendingSnapshots = new ConcurrentDictionary<int, EngineSnapshot>();
+        private readonly ConcurrentDictionary<int, ProcAgent> activeAgents = new ConcurrentDictionary<int, ProcAgent>();
         private readonly ConcurrentDictionary<int, PendingProcUpdate> pendingProcUpdates = new ConcurrentDictionary<int, PendingProcUpdate>();
+        private readonly ConcurrentDictionary<string, CycleTimeProbeSample> latestCycleTimeSamples =
+            new ConcurrentDictionary<string, CycleTimeProbeSample>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<int, long> publishedProcRevisions = new ConcurrentDictionary<int, long>();
         private readonly ConcurrentDictionary<int, long> appliedProcRevisions = new ConcurrentDictionary<int, long>();
         private long nextProcRevision;
@@ -58,20 +62,24 @@ namespace Automation
         private readonly Dictionary<long, object> motionResourceOwners = new Dictionary<long, object>();
         private readonly Dictionary<long, object> coordinateResourceOwners = new Dictionary<long, object>();
         private System.Threading.Timer snapshotTimer;
+        private System.Threading.Timer performanceHeartbeatTimer;
+        private int snapshotRefreshRunning;
         private int snapshotFlushRunning;
+        private int performanceHeartbeatRunning;
         private int disposed;
         private IDataBreakpointRuntimeSink dataBreakpointSink;
         public EngineContext Context { get; }
         public IAlarmHandler AlarmHandler { get; set; }
         public ILogger Logger { get; set; }
         public event Action<EngineSnapshot> SnapshotChanged;
+        public event Action<CycleTimeProbeSample> CycleTimeMeasured;
         internal IDataBreakpointRuntimeSink DataBreakpointSink
         {
             get => Volatile.Read(ref dataBreakpointSink);
             set => Volatile.Write(ref dataBreakpointSink, value);
         }
         internal event Action<OperationFailureEntry> OperationFailed;
-        internal event Action<int, Guid> ProcessStarted;
+        internal event Action<ProcessRunStartedSnapshot> ProcessStarted;
         internal event Action<ProcessRunAuditSnapshot> ProcessCompleted;
         public int SnapshotThrottleMilliseconds
         {
@@ -100,6 +108,9 @@ namespace Automation
                 EnsureCapacity(Context.Procs.Count - 1);
             }
             UpdateSnapshotTimer();
+            performanceHeartbeatTimer = new System.Threading.Timer(
+                _ => PublishPerformanceHeartbeats(), null,
+                PerformanceHeartbeatMilliseconds, PerformanceHeartbeatMilliseconds);
         }
         public EngineSnapshot GetSnapshot(int procIndex)
         {
@@ -126,7 +137,7 @@ namespace Automation
                 if (currentId != Guid.Empty && snapshot.ProcId != currentId)
                 {
                     long resetTicks = Stopwatch.GetTimestamp();
-                    snapshot = new EngineSnapshot(procIndex, currentId, currentName, ProcRunState.Stopped, -1, -1, false, null, DateTime.Now, resetTicks,
+                    snapshot = new EngineSnapshot(procIndex, currentId, currentName, ProcRunState.Ready, -1, -1, false, null, DateTime.Now, resetTicks,
                         GetPublishedRevision(procIndex), GetAppliedRevision(procIndex));
                     if (procIndex < snapshots.Length)
                     {
@@ -145,7 +156,7 @@ namespace Automation
                 procId = proc?.head?.Id ?? Guid.Empty;
             }
             long nowTicks = Stopwatch.GetTimestamp();
-            snapshot = new EngineSnapshot(procIndex, procId, procName, ProcRunState.Stopped, -1, -1, false, null, DateTime.Now, nowTicks,
+            snapshot = new EngineSnapshot(procIndex, procId, procName, ProcRunState.Ready, -1, -1, false, null, DateTime.Now, nowTicks,
                 GetPublishedRevision(procIndex), GetAppliedRevision(procIndex));
             if (procIndex < snapshots.Length)
             {
@@ -202,7 +213,7 @@ namespace Automation
                     return false;
                 }
                 EngineSnapshot currentSnapshot = GetSnapshot(procIndex);
-                ProcRunState state = currentSnapshot?.State ?? ProcRunState.Stopped;
+                ProcRunState state = currentSnapshot?.State ?? ProcRunState.Ready;
                 long revision = Interlocked.Increment(ref nextProcRevision);
                 IList<Proc> current = Context.Procs;
                 int newCount = Math.Max(procIndex + 1, current?.Count ?? 0);
@@ -215,13 +226,13 @@ namespace Automation
                 Context.Procs = next;
                 publishedProcRevisions[procIndex] = revision;
                 var update = new PendingProcUpdate(proc, revision);
-                if (state == ProcRunState.Stopped)
+                if (state.IsInactive())
                 {
-                    // 停止态可立即采用新定义；运行态绝不能替换 ProcAgent 正在执行的对象图。
+                    // 非活动终态可立即采用新定义；运行态绝不能替换 ProcAgent 正在执行的对象图。
                     pendingProcUpdates.TryRemove(procIndex, out _);
                     appliedProcRevisions[procIndex] = revision;
                     Guid procId = proc.head?.Id ?? Guid.Empty;
-                    UpdateSnapshot(procIndex, procId, proc.head?.Name, ProcRunState.Stopped, -1, -1, false, null);
+                    UpdateSnapshot(procIndex, procId, proc.head?.Name, state, -1, -1, false, null);
                     return true;
                 }
                 // 运行中的发布只登记待应用版本，当前实例结束后再切换；两个 revision 可用于定位“保存了但未生效”。
@@ -310,12 +321,47 @@ namespace Automation
         private ProcRunState GetProcState(int procIndex)
         {
             EngineSnapshot snapshot = GetSnapshot(procIndex);
-            return snapshot?.State ?? ProcRunState.Stopped;
+            return snapshot?.State ?? ProcRunState.Ready;
         }
         internal TimeSpan StopJoinTimeout => stopJoinTimeout;
+        internal int ActiveAgentCount => activeAgents.Count;
+
+        public IReadOnlyList<CycleTimeProbeSample> GetLatestCycleTimeSamples(Guid? procId = null)
+        {
+            return latestCycleTimeSamples.Values
+                .Where(sample => sample != null && (!procId.HasValue || sample.ProcId == procId.Value))
+                .OrderBy(sample => sample.ProcIndex)
+                .ThenBy(sample => sample.TaskKey, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        internal void PublishCycleTimeSample(CycleTimeProbeSample sample)
+        {
+            if (sample == null || sample.ProcId == Guid.Empty || string.IsNullOrWhiteSpace(sample.TaskKey))
+            {
+                return;
+            }
+            latestCycleTimeSamples[sample.ProcId.ToString("N") + ":" + sample.TaskKey] = sample;
+            try
+            {
+                CycleTimeMeasured?.Invoke(sample);
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"CT探针事件处理失败:{ex.Message}", LogLevel.Error);
+            }
+        }
         internal void UpdateSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
             bool isBreakpoint, string alarmMessage,
             ProcTerminationReason terminationReason = ProcTerminationReason.None)
+        {
+            UpdateSnapshotForRun(procIndex, procId, procName, state, stepIndex, opIndex,
+                isBreakpoint, alarmMessage, terminationReason, Guid.Empty);
+        }
+
+        private void UpdateSnapshotForRun(int procIndex, Guid procId, string procName, ProcRunState state,
+            int stepIndex, int opIndex, bool isBreakpoint, string alarmMessage,
+            ProcTerminationReason terminationReason, Guid runId)
         {
             EnsureCapacity(procIndex);
             EngineSnapshot previous = Volatile.Read(ref snapshots[procIndex]);
@@ -323,7 +369,8 @@ namespace Automation
             long publishedRevision = GetPublishedRevision(procIndex);
             long appliedRevision = GetAppliedRevision(procIndex);
             EngineSnapshot snapshot = new EngineSnapshot(procIndex, procId, procName, state, stepIndex, opIndex,
-                isBreakpoint, alarmMessage, DateTime.Now, nowTicks, publishedRevision, appliedRevision, terminationReason);
+                isBreakpoint, alarmMessage, DateTime.Now, nowTicks, publishedRevision, appliedRevision,
+                terminationReason, runId);
             ProcAgent performanceAgent = procIndex >= 0 && procIndex < agents.Length ? agents[procIndex] : null;
             snapshot.Performance = performanceAgent?.GetCurrentPerformanceSnapshot()
                 ?? new ProcessPerformanceSnapshot
@@ -348,8 +395,46 @@ namespace Automation
             {
                 return;
             }
-            UpdateSnapshot(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum, handle.opsNum,
-                handle.isBreakpoint, handle.alarmMsg, handle.TerminationReason);
+            long positionRevision = handle.CapturePositionRevision();
+            UpdateSnapshotForRun(handle.procNum, handle.procId, handle.procName, handle.State, handle.stepNum, handle.opsNum,
+                handle.isBreakpoint, handle.alarmMsg, handle.TerminationReason,
+                handle.RunId);
+            // 若位置在快照读取期间再次变化，新 revision 会保留下来并在下一次批量刷新时发布。
+            handle.MarkPositionSnapshotPublished(positionRevision);
+        }
+
+        internal void MarkHandlePositionChanged(ProcHandle handle)
+        {
+            if (handle == null)
+            {
+                return;
+            }
+            handle.MarkPositionChanged();
+            if (snapshotThrottleMilliseconds <= 0 && handle.HasUnpublishedPosition)
+            {
+                PublishHandleSnapshot(handle);
+            }
+        }
+
+        internal void ActivateAgent(int procIndex, ProcAgent agent)
+        {
+            if (procIndex >= 0 && agent != null && Volatile.Read(ref disposed) == 0)
+            {
+                activeAgents[procIndex] = agent;
+            }
+        }
+
+        internal void DeactivateAgent(int procIndex, ProcAgent agent)
+        {
+            if (procIndex < 0 || agent == null)
+            {
+                return;
+            }
+            if (activeAgents.TryGetValue(procIndex, out ProcAgent current)
+                && ReferenceEquals(current, agent))
+            {
+                activeAgents.TryRemove(procIndex, out _);
+            }
         }
 
         private long GetPublishedRevision(int procIndex)
@@ -369,8 +454,9 @@ namespace Automation
             {
                 return;
             }
-            UpdateSnapshot(procIndex, snapshot.ProcId, snapshot.ProcName, snapshot.State, snapshot.StepIndex,
-                snapshot.OpIndex, snapshot.IsBreakpoint, snapshot.AlarmMessage, snapshot.TerminationReason);
+            UpdateSnapshotForRun(procIndex, snapshot.ProcId, snapshot.ProcName, snapshot.State, snapshot.StepIndex,
+                snapshot.OpIndex, snapshot.IsBreakpoint, snapshot.AlarmMessage, snapshot.TerminationReason,
+                snapshot.RunId);
         }
         private void UpdateSnapshotTimer()
         {
@@ -395,11 +481,12 @@ namespace Automation
             {
                 return;
             }
-            pendingSnapshots[snapshot.ProcIndex] = snapshot;
             if (snapshotThrottleMilliseconds <= 0)
             {
                 RaiseSnapshotChanged(snapshot);
+                return;
             }
+            pendingSnapshots[snapshot.ProcIndex] = snapshot;
         }
         private void FlushPendingSnapshots()
         {
@@ -666,13 +753,13 @@ namespace Automation
             return StartProcAt(proc, procIndex, 0, 0, ProcRunState.Running);
         }
 
-        internal void RaiseProcessCompleted(ProcHandle handle, Guid procId)
+        internal void RaiseProcessCompleted(ProcHandle handle)
         {
             try
             {
                 if (handle?.RunMetrics != null)
                 {
-                    ProcessCompleted?.Invoke(handle.RunMetrics.CreateSnapshot(handle.procNum, procId));
+                    ProcessCompleted?.Invoke(handle.RunMetrics.CreateSnapshot(handle));
                 }
             }
             catch (Exception ex)
@@ -681,11 +768,15 @@ namespace Automation
             }
         }
 
-        internal void RaiseProcessStarted(int procIndex, Guid procId)
+        internal void RaiseProcessStarted(ProcHandle handle)
         {
             try
             {
-                ProcessStarted?.Invoke(procIndex, procId);
+                if (handle != null)
+                {
+                    ProcessStarted?.Invoke(new ProcessRunStartedSnapshot(
+                        handle.procNum, handle.procId, handle.RunId));
+                }
             }
             catch (Exception ex)
             {
@@ -707,7 +798,7 @@ namespace Automation
                 Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
                 return false;
             }
-            if (!TryValidateProcessStopped(procIndex, out string stateError))
+            if (!TryValidateProcessInactive(procIndex, out string stateError))
             {
                 // 重复启动是异常请求：保留当前实例并返回失败，不得先强制结束再重启。
                 Logger?.Log($"启动流程失败:{stateError}", LogLevel.Error);
@@ -749,8 +840,8 @@ namespace Automation
                 Logger?.Log($"启动流程失败:{bindError}", LogLevel.Error);
                 return false;
             }
-            EngineCommand command = EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState);
-            return EnqueueCommand(procIndex, command);
+            return EnqueueCommand(procIndex,
+                EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState));
         }
         public void Pause(int procIndex)
         {
@@ -799,9 +890,9 @@ namespace Automation
         {
             EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
         }
-        public void Step(int procIndex)
+        public bool Step(int procIndex)
         {
-            EnqueueCommand(procIndex, EngineCommand.Step(procIndex));
+            return EnqueueCommand(procIndex, EngineCommand.Step(procIndex));
         }
         public bool RunSingleOpOnce(Proc proc, int procIndex, int stepIndex, int opIndex)
         {
@@ -819,7 +910,7 @@ namespace Automation
                 Logger?.Log("单步执行指令失败：流程为空。", LogLevel.Error);
                 return false;
             }
-            if (!TryValidateProcessStopped(procIndex, out string stateError))
+            if (!TryValidateProcessInactive(procIndex, out string stateError))
             {
                 Logger?.Log($"单次执行指令失败:{stateError}", LogLevel.Error);
                 return false;
@@ -915,20 +1006,43 @@ namespace Automation
 
         private void RefreshAndFlushSnapshots()
         {
-            if (Volatile.Read(ref disposed) != 0)
+            if (Volatile.Read(ref disposed) != 0
+                || Interlocked.Exchange(ref snapshotRefreshRunning, 1) == 1)
             {
                 return;
             }
-            long nowTicks = Stopwatch.GetTimestamp();
-            int refreshMilliseconds = Math.Max(1, snapshotThrottleMilliseconds);
-            long refreshTicks = Math.Max(1L,
-                (long)(refreshMilliseconds / 1000.0 * Stopwatch.Frequency));
-            ProcAgent[] currentAgents = agents;
-            for (int i = 0; i < currentAgents.Length; i++)
+            try
             {
-                currentAgents[i]?.PublishProgressSnapshotIfDue(nowTicks, refreshTicks);
+                foreach (ProcAgent agent in activeAgents.Values)
+                {
+                    agent?.PublishPositionSnapshotIfDirty();
+                }
+                FlushPendingSnapshots();
             }
-            FlushPendingSnapshots();
+            finally
+            {
+                Interlocked.Exchange(ref snapshotRefreshRunning, 0);
+            }
+        }
+
+        private void PublishPerformanceHeartbeats()
+        {
+            if (Volatile.Read(ref disposed) != 0
+                || Interlocked.Exchange(ref performanceHeartbeatRunning, 1) == 1)
+            {
+                return;
+            }
+            try
+            {
+                foreach (ProcAgent agent in activeAgents.Values)
+                {
+                    agent?.PublishPerformanceSnapshot();
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref performanceHeartbeatRunning, 0);
+            }
         }
 
         [ThreadStatic]
@@ -1198,11 +1312,11 @@ namespace Automation
             return true;
         }
 
-        public bool TryValidateProcessStopped(int procIndex, out string error)
+        public bool TryValidateProcessInactive(int procIndex, out string error)
         {
             EngineSnapshot snapshot = GetSnapshot(procIndex);
-            ProcRunState state = snapshot?.State ?? ProcRunState.Stopped;
-            if (state == ProcRunState.Stopped)
+            ProcRunState state = snapshot?.State ?? ProcRunState.Ready;
+            if (state.IsInactive())
             {
                 error = null;
                 return true;
@@ -1327,7 +1441,7 @@ namespace Automation
                 Logger?.Log($"流程已禁用，禁止运行：{name}", LogLevel.Normal);
                 return;
             }
-            if (evt.State == ProcRunState.Stopped)
+            if (evt.State.IsInactive())
             {
                 evt.State = ProcRunState.Running;
                 control.SetRunning();
@@ -1364,11 +1478,11 @@ namespace Automation
                 Step currentStep = currentProc.steps[evt.stepNum];
                 if (currentStep != null && currentStep.Disable)
                 {
-                    evt.opsNum = -1;
                     if (evt.stepNum >= currentProc.steps.Count - 1)
                     {
                         break;
                     }
+                    evt.opsNum = 0;
                     evt.stepNum++;
                     continue;
                 }
@@ -1531,6 +1645,8 @@ namespace Automation
                         evt.opsNum++;
                         continue;
                     }
+                    // 执行热路径只更新位置 revision；快照对象和外部通知由定时批量发布负责。
+                    MarkHandlePositionChanged(evt);
                     if (operation.IsBreakpoint)
                     {
                         control.SetPaused();
@@ -1554,6 +1670,9 @@ namespace Automation
                     bool singleStepExecution = evt.State == ProcRunState.SingleStep;
                     if (singleStepExecution)
                     {
+                        // SingleStep 快照始终表示下一条尚未执行的有效指令。
+                        // 位置推进、跨步骤和禁用项跳过完成后，只在真正等待单步信号的位置发布停留态。
+                        PublishHandleSnapshot(evt);
                         control.WaitForStep();
                         // WaitForStep 返回后需重新检查状态：用户可能在等待期间点击"继续"，
                         // ResumeInternal 已将状态改为 Running，此时不应再切回 SingleStep。
@@ -1606,7 +1725,6 @@ namespace Automation
                             if (singleStepExecution && evt.State == ProcRunState.Running)
                             {
                                 evt.State = ProcRunState.SingleStep;
-                                PublishHandleSnapshot(evt);
                             }
                             return true;
                         }
@@ -1629,7 +1747,6 @@ namespace Automation
                             if (singleStepExecution && evt.State == ProcRunState.Running)
                             {
                                 evt.State = ProcRunState.SingleStep;
-                                PublishHandleSnapshot(evt);
                             }
                             return true;
                         }
@@ -1645,7 +1762,6 @@ namespace Automation
                     if (singleStepExecution && evt.State == ProcRunState.Running)
                     {
                         evt.State = ProcRunState.SingleStep;
-                        PublishHandleSnapshot(evt);
                     }
                     evt.opsNum++;
                 }
@@ -1955,6 +2071,9 @@ namespace Automation
                 snapshotTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 snapshotTimer?.Dispose();
                 snapshotTimer = null;
+                performanceHeartbeatTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                performanceHeartbeatTimer?.Dispose();
+                performanceHeartbeatTimer = null;
             }
             ProcAgent[] agentsToDispose;
             lock (agentLock)
@@ -1969,6 +2088,8 @@ namespace Automation
                 Parallel.ForEach(agentsToDispose.Where(agent => agent != null), agent => agent.Dispose());
             }
             pendingSnapshots.Clear();
+            activeAgents.Clear();
+            latestCycleTimeSamples.Clear();
             pendingProcUpdates.Clear();
             publishedProcRevisions.Clear();
             appliedProcRevisions.Clear();
@@ -2087,22 +2208,30 @@ namespace Automation
             }
         }
 
-        public void PublishProgressSnapshotIfDue(long nowTicks, long intervalTicks)
+        public void PublishPositionSnapshotIfDirty()
         {
             ProcHandle handle;
             lock (sync)
             {
                 handle = current?.Handle;
-                if (handle == null || handle.State != ProcRunState.Running)
+                if (handle == null || !handle.HasUnpublishedPosition)
                 {
                     return;
                 }
-                long previousTicks = handle.LastProgressSnapshotTimestamp;
-                if (previousTicks != 0 && nowTicks - previousTicks < intervalTicks)
+            }
+            engine.PublishHandleSnapshot(handle);
+        }
+
+        public void PublishPerformanceSnapshot()
+        {
+            ProcHandle handle;
+            lock (sync)
+            {
+                handle = current?.Handle;
+                if (handle == null || handle.State.IsInactive())
                 {
                     return;
                 }
-                handle.LastProgressSnapshotTimestamp = nowTicks;
             }
             engine.PublishHandleSnapshot(handle);
         }
@@ -2194,8 +2323,7 @@ namespace Automation
                     ResumeInternal();
                     return true;
                 case EngineCommandType.Step:
-                    StepInternal();
-                    return true;
+                    return StepInternal();
                 case EngineCommandType.Stop:
                     RequestStop();
                     return true;
@@ -2256,6 +2384,7 @@ namespace Automation
                 opsNum = command.OpIndex,
                 procName = proc.head?.Name,
                 procId = proc.head?.Id ?? Guid.Empty,
+                RunId = Guid.NewGuid(),
                 Proc = proc,
                 IsSingleOperation = command.Type == EngineCommandType.RunSingleOpOnce,
                 Control = control,
@@ -2265,6 +2394,7 @@ namespace Automation
                 AppliedRevision = engine.GetSnapshot(procIndex)?.AppliedRevision ?? 0,
                 CooperativeSliceStartTimestamp = Stopwatch.GetTimestamp()
             };
+            handle.InitializePositionTracking();
             handle.State = command.StartState;
             handle.isBreakpoint = false;
             if (handle.State == ProcRunState.Running || handle.State == ProcRunState.SingleStep)
@@ -2276,7 +2406,7 @@ namespace Automation
                 control.SetPaused();
             }
 
-            Thread execThread = new Thread(() => RunWorker(proc, handle, control))
+            Thread execThread = new Thread(() => RunWorkerCore(proc, handle, control))
             {
                 IsBackground = true
             };
@@ -2288,10 +2418,38 @@ namespace Automation
                     Thread = execThread
                 };
             }
+            engine.ActivateAgent(procIndex, this);
             engine.PublishHandleSnapshot(handle);
-            // 先发布 Running 再启动工作线程，避免极短流程先发布 Stopped，随后又被启动线程回写为 Running。
-            engine.RaiseProcessStarted(handle.procNum, handle.procId);
-            execThread.Start();
+            // 先发布 Running 再启动工作线程，避免极短流程先发布 Ready，随后又被启动线程回写为 Running。
+            engine.RaiseProcessStarted(handle);
+            try
+            {
+                execThread.Start();
+            }
+            catch (Exception ex)
+            {
+                string message = $"流程执行线程启动失败:{ex.Message}";
+                handle.alarmMsg = message;
+                handle.TerminationReason = ProcTerminationReason.Alarm;
+                handle.State = ProcRunState.Stopped;
+                lock (engine.procPublishLock)
+                {
+                    engine.PublishHandleSnapshot(handle);
+                }
+                engine.RaiseProcessCompleted(handle);
+                engine.DeactivateAgent(procIndex, this);
+                lock (sync)
+                {
+                    if (current != null && ReferenceEquals(current.Thread, execThread))
+                    {
+                        current = null;
+                    }
+                }
+                waiter.Dispose();
+                control.Dispose();
+                engine.Logger?.Log(message, LogLevel.Error);
+                return false;
+            }
             if (command.Type == EngineCommandType.RunSingleOpOnce)
             {
                 control.RequestStep();
@@ -2357,7 +2515,7 @@ namespace Automation
             engine.PublishHandleSnapshot(handle);
         }
 
-        private void StepInternal()
+        private bool StepInternal()
         {
             ProcHandle handle;
             ProcessControl control;
@@ -2368,17 +2526,32 @@ namespace Automation
             }
             if (handle == null || control == null)
             {
-                return;
+                return false;
             }
             if (handle.State != ProcRunState.Paused && handle.State != ProcRunState.SingleStep)
             {
-                return;
+                return false;
             }
+            ProcRunState previousState = handle.State;
+            bool previousBreakpoint = handle.isBreakpoint;
+            bool previousPauseBySignal = handle.PauseBySignal;
             handle.State = ProcRunState.SingleStep;
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
-            control.RequestStep();
+            control.SetRunning();
+            if (!control.RequestStep())
+            {
+                handle.State = previousState;
+                handle.isBreakpoint = previousBreakpoint;
+                handle.PauseBySignal = previousPauseBySignal;
+                if (previousState == ProcRunState.Paused)
+                {
+                    control.SetPaused();
+                }
+                return false;
+            }
             engine.PublishHandleSnapshot(handle);
+            return true;
         }
 
         private void StopCurrent(bool raiseSnapshot, ProcTerminationReason reason = ProcTerminationReason.StopRequested)
@@ -2412,6 +2585,11 @@ namespace Automation
         }
 
         private void RunWorker(Proc proc, ProcHandle runHandle, ProcessControl runControl)
+        {
+            RunWorkerCore(proc, runHandle, runControl);
+        }
+
+        private void RunWorkerCore(Proc proc, ProcHandle runHandle, ProcessControl runControl)
         {
             try
             {
@@ -2458,15 +2636,19 @@ namespace Automation
                             ? ProcTerminationReason.StopRequested
                             : ProcTerminationReason.Completed);
                 }
-                Guid completedProcId = runHandle.procId;
                 lock (engine.procPublishLock)
                 {
                     engine.ApplyPendingUpdateAfterStop(runHandle);
-                    runHandle.State = ProcRunState.Stopped;
+                    runHandle.State = runHandle.TerminationReason == ProcTerminationReason.Completed
+                        ? ProcRunState.Ready
+                        : ProcRunState.Stopped;
                     runHandle.isBreakpoint = false;
                     engine.PublishHandleSnapshot(runHandle);
                 }
-                engine.RaiseProcessCompleted(runHandle, completedProcId);
+                engine.RaiseProcessCompleted(runHandle);
+                // 先移出活动集合，再清空执行上下文；新一轮启动必须在 current 清空后才能进入，
+                // 避免旧运行实例的收尾把刚启动的新实例从活动集合误删。
+                engine.DeactivateAgent(procIndex, this);
                 lock (sync)
                 {
                     if (current != null && ReferenceEquals(current.Thread, Thread.CurrentThread))
@@ -2556,28 +2738,24 @@ namespace Automation
             }
         }
 
-        public void RequestStep()
+        public bool RequestStep()
         {
             if (Volatile.Read(ref disposed) == 1)
             {
-                return;
-            }
-            try
-            {
-                runGate.Set();
-            }
-            catch (ObjectDisposedException)
-            {
+                return false;
             }
             try
             {
                 stepGate.Release();
+                return true;
             }
             catch (SemaphoreFullException)
             {
+                return false;
             }
             catch (ObjectDisposedException)
             {
+                return false;
             }
         }
 

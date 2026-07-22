@@ -121,11 +121,12 @@ stateDiagram-v2
 | 工具是否存在及所属 Profile | `McpServer/McpToolProfile.cs` |
 | MCP 参数入口 | `Automation.Protocol` DTO、`AutomationMcpTools` 签名和生成 Schema |
 | 原生指令类型与字段 | `OperationDefinitionRegistry`、`StructuredOperationCompiler` |
-| 原生运行行为和字段联动 | `OperationBehaviorCatalog`、`ProcessEngine.Operations.*` |
+| 原生运行行为、通信重试和接收结果判定 | `OperationBehaviorCatalog`、`ProcessEngine.Operations.*` |
 | 语义 kind、Schema 和编译结果 | `SemanticOperationKinds`、`AiOperationCompilerRegistry` 及对应编译器 |
 | 资源配置 | 对应 Store；Bridge/MCP 只做候选和详情投影 |
 | 配置可保存性 | `AiChangeSetCompiler`、`ProcessDefinitionService` |
 | 流程可运行性 | `ProcessReadinessService` 和实际启动闸门 |
+| 运行实例、终态与 CT 样本 | `EngineSnapshot.RunId/State/TerminationReason`、`ProcessEngine.GetLatestCycleTimeSamples`、运行黑匣子 |
 | 预演、确认、哈希和提交状态 | `AutomationBridgeService` 的结构化响应 |
 | 已提交对象身份 | `createdObjects/affectedProcesses` 返回的稳定 ID |
 

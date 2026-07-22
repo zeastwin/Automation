@@ -28,14 +28,14 @@ namespace Automation
             engine.ProcessCompleted += HandleProcessCompleted;
         }
 
-        private void HandleProcessStarted(int procIndex, Guid procId)
+        private void HandleProcessStarted(ProcessRunStartedSnapshot started)
         {
             if (Volatile.Read(ref disposed) != 0)
             {
                 return;
             }
-            RunKey key = new RunKey(procId, procIndex);
-            var run = new RunAggregate(procIndex, procId);
+            RunKey key = new RunKey(started.ProcId, started.ProcIndex);
+            var run = new RunAggregate(started.ProcIndex, started.ProcId, started.RunId);
             if (runs.TryRemove(key, out RunAggregate previous))
             {
                 StructuredAuditLogger.Write("ProcessExecution",
@@ -54,7 +54,8 @@ namespace Automation
             RunKey key = new RunKey(entry.ProcId, entry.ProcIndex);
             if (!runs.TryGetValue(key, out RunAggregate run))
             {
-                run = runs.GetOrAdd(key, _ => new RunAggregate(entry.ProcIndex, entry.ProcId));
+                run = runs.GetOrAdd(key, _ => new RunAggregate(
+                    entry.ProcIndex, entry.ProcId, Guid.Empty));
             }
             if (run.TryMarkFailureEmitted())
             {
@@ -71,7 +72,7 @@ namespace Automation
             RunKey key = new RunKey(metrics.ProcId, metrics.ProcIndex);
             if (!runs.TryRemove(key, out RunAggregate run))
             {
-                run = new RunAggregate(metrics.ProcIndex, metrics.ProcId);
+                run = new RunAggregate(metrics.ProcIndex, metrics.ProcId, metrics.RunId);
             }
             EngineSnapshot snapshot = engine.GetSnapshot(metrics.ProcIndex);
             StructuredAuditLogger.Write("ProcessExecution", run.BuildSummary(
@@ -131,11 +132,11 @@ namespace Automation
             private readonly DateTime startedUtc = DateTime.UtcNow;
             private int failureEmitted;
 
-            public RunAggregate(int procIndex, Guid procId)
+            public RunAggregate(int procIndex, Guid procId, Guid runId)
             {
                 ProcIndex = procIndex;
                 ProcId = procId;
-                RunId = Guid.NewGuid().ToString("N");
+                RunId = (runId == Guid.Empty ? Guid.NewGuid() : runId).ToString("N");
             }
 
             public int ProcIndex { get; }
@@ -208,6 +209,7 @@ namespace Automation
                     ["errorMessage"] = errorMessage ?? string.Empty,
                     ["operationCount"] = metrics.HasValue ? (JToken)operationCount : JValue.CreateNull(),
                     ["failedCount"] = metrics.HasValue ? (JToken)metrics.Value.FailedCount : JValue.CreateNull(),
+                    ["retryCount"] = metrics.HasValue ? (JToken)metrics.Value.RetryCount : JValue.CreateNull(),
                     ["operationDurationSampleCount"] = durationSampleCount,
                     ["operationDurationSamplingInterval"] = metrics?.DurationSamplingInterval ?? ProcessRunMetrics.DurationSamplingInterval,
                     ["averageOperationMicroseconds"] = durationSampleCount <= 0

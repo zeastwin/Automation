@@ -60,6 +60,7 @@ namespace Automation
             engine.ProcessStarted += HandleProcessStarted;
             engine.OperationFailed += HandleOperationFailed;
             engine.ProcessCompleted += HandleProcessCompleted;
+            engine.CycleTimeMeasured += HandleCycleTimeMeasured;
             valueStore.ValueChanged += HandleValueChanged;
         }
 
@@ -219,19 +220,41 @@ namespace Automation
             });
         }
 
-        private void HandleProcessStarted(int procIndex, Guid procId)
+        private void HandleProcessStarted(ProcessRunStartedSnapshot started)
         {
             lock (syncRoot)
             {
-                currentIncidents.Remove(procId);
-                lastPositions.Remove(procId);
+                currentIncidents.Remove(started.ProcId);
+                lastPositions.Remove(started.ProcId);
             }
             AddEvent(new RuntimeBlackBoxEvent
             {
                 EventName = "process.started",
-                ProcIndex = procIndex,
-                ProcId = procId,
-                Outcome = "started"
+                ProcIndex = started.ProcIndex,
+                ProcId = started.ProcId,
+                Outcome = "started",
+                RunId = started.RunId,
+                Message = $"runId={started.RunId:D}"
+            });
+        }
+
+        private void HandleCycleTimeMeasured(CycleTimeProbeSample sample)
+        {
+            if (sample == null) return;
+            AddEvent(new RuntimeBlackBoxEvent
+            {
+                EventName = "process.ct.measured",
+                ProcIndex = sample.ProcIndex,
+                ProcId = sample.ProcId,
+                RunId = sample.RunId,
+                Source = NormalizeText(sample.TaskKey),
+                ResourceName = NormalizeText(sample.SegmentName),
+                Outcome = "measured",
+                SegmentIndex = sample.SegmentIndex,
+                CycleStarted = sample.CycleStarted,
+                SegmentMilliseconds = sample.SegmentMilliseconds,
+                CycleMilliseconds = sample.CycleMilliseconds,
+                TimeUtc = sample.RecordedAtUtc
             });
         }
 
@@ -313,8 +336,9 @@ namespace Automation
                 EventName = "process.completed",
                 ProcIndex = snapshot.ProcIndex,
                 ProcId = snapshot.ProcId,
-                Outcome = "completed",
-                Message = $"operationCount={snapshot.OperationCount}, failedCount={snapshot.FailedCount}"
+                RunId = snapshot.RunId,
+                Outcome = snapshot.TerminationReason.ToString(),
+                Message = $"runId={snapshot.RunId:D}, operationCount={snapshot.OperationCount}, failedCount={snapshot.FailedCount}, retryCount={snapshot.RetryCount}"
             });
         }
 
@@ -677,6 +701,7 @@ namespace Automation
                 ["outcome"] = item.Outcome ?? string.Empty
             };
             AddText(result, "procId", item.ProcId == Guid.Empty ? null : item.ProcId.ToString("D"));
+            AddText(result, "runId", item.RunId == Guid.Empty ? null : item.RunId.ToString("D"));
             AddText(result, "procName", item.ProcName);
             AddText(result, "state", item.State);
             AddNumber(result, "stepIndex", item.StepIndex);
@@ -694,6 +719,10 @@ namespace Automation
             if (item.PublishedRevision.HasValue) result["publishedRevision"] = item.PublishedRevision.Value;
             if (item.AppliedRevision.HasValue) result["appliedRevision"] = item.AppliedRevision.Value;
             if (item.DurationMicroseconds.HasValue) result["durationMicroseconds"] = item.DurationMicroseconds.Value;
+            if (item.SegmentIndex.HasValue) result["segmentIndex"] = item.SegmentIndex.Value;
+            if (item.CycleStarted.HasValue) result["cycleStarted"] = item.CycleStarted.Value;
+            if (item.SegmentMilliseconds.HasValue) result["segmentMilliseconds"] = item.SegmentMilliseconds.Value;
+            if (item.CycleMilliseconds.HasValue) result["cycleMilliseconds"] = item.CycleMilliseconds.Value;
             return result;
         }
 
@@ -744,6 +773,7 @@ namespace Automation
             engine.ProcessStarted -= HandleProcessStarted;
             engine.OperationFailed -= HandleOperationFailed;
             engine.ProcessCompleted -= HandleProcessCompleted;
+            engine.CycleTimeMeasured -= HandleCycleTimeMeasured;
             valueStore.ValueChanged -= HandleValueChanged;
             disposeCts.Cancel();
             IncidentMarker[] pending;
@@ -772,6 +802,7 @@ namespace Automation
             public string EventName { get; set; }
             public int ProcIndex { get; set; } = -1;
             public Guid ProcId { get; set; }
+            public Guid RunId { get; set; }
             public string ProcName { get; set; }
             public string State { get; set; }
             public int? StepIndex { get; set; }
@@ -790,6 +821,10 @@ namespace Automation
             public long? PublishedRevision { get; set; }
             public long? AppliedRevision { get; set; }
             public double? DurationMicroseconds { get; set; }
+            public int? SegmentIndex { get; set; }
+            public bool? CycleStarted { get; set; }
+            public double? SegmentMilliseconds { get; set; }
+            public double? CycleMilliseconds { get; set; }
         }
 
         private sealed class IncidentMarker

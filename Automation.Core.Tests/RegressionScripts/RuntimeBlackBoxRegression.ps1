@@ -56,10 +56,10 @@ try {
 
     Assert-True ($engine.StartProc($proc, 0)) '黑匣子回归流程应能启动。'
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
-    while ([DateTime]::UtcNow -lt $deadline -and $engine.GetSnapshot(0).State -ne [Automation.ProcRunState]::Stopped) {
+    while ([DateTime]::UtcNow -lt $deadline -and $engine.GetSnapshot(0).State -ne [Automation.ProcRunState]::Ready) {
         Start-Sleep -Milliseconds 20
     }
-    Assert-True ($engine.GetSnapshot(0).State -eq [Automation.ProcRunState]::Stopped) '黑匣子回归流程未按时结束。'
+    Assert-True ($engine.GetSnapshot(0).State -eq [Automation.ProcRunState]::Ready) '黑匣子回归流程未按时自然结束。'
 
     $buildEvidence = $recorderType.GetMethod('BuildEvidencePackage')
     $evidence = $buildEvidence.Invoke($recorder, @(0))
@@ -130,10 +130,10 @@ try {
     ([IDisposable]$recorder).Dispose()
     Assert-True ($engine.StartProc($proc, 0)) '解除黑匣子订阅后流程仍应能够启动。'
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
-    while ([DateTime]::UtcNow -lt $deadline -and $engine.GetSnapshot(0).State -ne [Automation.ProcRunState]::Stopped) {
+    while ([DateTime]::UtcNow -lt $deadline -and $engine.GetSnapshot(0).State -ne [Automation.ProcRunState]::Ready) {
         Start-Sleep -Milliseconds 20
     }
-    Assert-True ($engine.GetSnapshot(0).State -eq [Automation.ProcRunState]::Stopped) '解除黑匣子订阅后的流程未按时结束。'
+    Assert-True ($engine.GetSnapshot(0).State -eq [Automation.ProcRunState]::Ready) '解除黑匣子订阅后的流程未按时自然结束。'
     Assert-True ([long]$recorderType.GetProperty('Revision').GetValue($recorder) -eq $revisionBeforeDispose) '黑匣子关闭后仍在接收运行事件。'
 }
 finally {

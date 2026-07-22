@@ -299,6 +299,7 @@ namespace Automation
                 ImageSize = new Size(20, 20),
                 TransparentColor = Color.Transparent
             };
+            AddProcStateImage("proc-ready", ProcTreeIconKind.Ready);
             AddProcStateImage("proc-stopped", ProcTreeIconKind.Stopped);
             AddProcStateImage("proc-running", ProcTreeIconKind.Running);
             AddProcStateImage("proc-paused", ProcTreeIconKind.Paused);
@@ -372,8 +373,10 @@ namespace Automation
             {
                 return "proc-empty";
             }
-            switch (snapshot?.State ?? ProcRunState.Stopped)
+            switch (snapshot?.State ?? ProcRunState.Ready)
             {
+                case ProcRunState.Ready:
+                    return "proc-ready";
                 case ProcRunState.Running:
                     return "proc-running";
                 case ProcRunState.Paused:
@@ -386,6 +389,8 @@ namespace Automation
                     return "proc-pausing";
                 case ProcRunState.Stopping:
                     return "proc-stopping";
+                case ProcRunState.Stopped:
+                    return "proc-stopped";
                 default:
                     return "proc-stopped";
             }
@@ -398,7 +403,7 @@ namespace Automation
             {
                 return empty ? "step-empty-disabled" : "disabled";
             }
-            if (snapshot == null || snapshot.State == ProcRunState.Stopped || snapshot.StepIndex != stepIndex)
+            if (snapshot == null || snapshot.State.IsInactive() || snapshot.StepIndex != stepIndex)
             {
                 return empty ? "step-empty" : "step";
             }
@@ -679,7 +684,7 @@ namespace Automation
                 for (int i = 0; i < runtimeCount; i++)
                 {
                     EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(i);
-                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                    if (snapshot != null && !snapshot.State.IsInactive())
                     {
                         allStopped = false;
                         break;
@@ -1141,17 +1146,18 @@ namespace Automation
                     .ToList() ?? new List<DicValue>();
                 string ownedVariableText = ownedVariables.Count == 0
                     ? string.Empty
-                    : $"\r\n同时删除{ownedVariables.Count}个私有变量："
-                        + string.Join("、", ownedVariables.Select(value => value.Name));
-                bool confirmed = false;
-                new Message(Workspace.Runtime,
+                    : $"\r\n\r\n该流程拥有{ownedVariables.Count}个私有变量：\r\n"
+                        + string.Join("、", ownedVariables.Select(value => value.Name))
+                        + "\r\n\r\n取消勾选时，这些变量将保留并转为公共变量。";
+                bool confirmed = Message.ShowConfirmationWithOption(
+                    Workspace.Runtime,
                     "删除流程",
                     $"确定删除流程【{procName}】？{ownedVariableText}",
-                    () => confirmed = true,
-                    null,
+                    $"删除该流程拥有的私有变量（{ownedVariables.Count}个）",
+                    true,
                     "删除",
                     "取消",
-                    true);
+                    out bool deleteOwnedVariables);
                 if (!confirmed)
                 {
                     return;
@@ -1164,10 +1170,21 @@ namespace Automation
                 Guid deletedProcId = draftProcesses[procIndex]?.head?.Id ?? Guid.Empty;
                 draftProcesses.RemoveAt(procIndex);
                 Dictionary<string, DicValue> draftVariables = Workspace.Runtime.Stores.Values.BuildSaveData();
-                ProcessVariableLifecycleService.RemoveOwnedVariables(
-                    draftVariables, new[] { deletedProcId });
+                if (deleteOwnedVariables)
+                {
+                    ProcessVariableLifecycleService.RemoveOwnedVariables(
+                        draftVariables, new[] { deletedProcId });
+                }
+                else
+                {
+                    ProcessVariableLifecycleService.ConvertOwnedVariablesToPublic(
+                        draftVariables, new[] { deletedProcId });
+                }
+                string historyDescription = deleteOwnedVariables
+                    ? "删除流程并删除私有变量"
+                    : "删除流程并将私有变量转为公共变量";
                 if (!Workspace.Runtime.ProcessVariableConfiguration.TryCommit(
-                    draftProcesses, draftVariables, "删除流程", out string deleteError))
+                    draftProcesses, draftVariables, historyDescription, out string deleteError))
                 {
                     MessageBox.Show(deleteError, "删除流程失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
@@ -1482,7 +1499,7 @@ namespace Automation
                     return;
                 }
                 int procIndex = SelectedProcNum;
-                if (!Workspace.Runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stateError))
+                if (!Workspace.Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string stateError))
                 {
                     MessageBox.Show(stateError, "流程尚未结束", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
@@ -1500,9 +1517,9 @@ namespace Automation
                         {
                             return;
                         }
-                        string error = Workspace.Runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError)
+                        string error = Workspace.Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string inactiveError)
                             ? "流程启动请求未被内核接受，请查看流程日志。"
-                            : stoppedError;
+                            : inactiveError;
                         MessageBox.Show(error, "流程启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     },
                     () => { },
@@ -1871,7 +1888,7 @@ namespace Automation
                 return;
             }
             EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
-            if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+            if (snapshot != null && !snapshot.State.IsInactive())
             {
                 MessageBox.Show("流程运行中禁止禁用或启用。");
                 return;

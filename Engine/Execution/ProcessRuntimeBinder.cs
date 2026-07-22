@@ -171,6 +171,11 @@ namespace Automation
         public ValueRef Output { get; set; }
     }
 
+    internal sealed class CommunicationResponseRuntimeBinding
+    {
+        public ValueRef[] Sources { get; set; } = Array.Empty<ValueRef>();
+    }
+
     internal static class ProcessRuntimeBinder
     {
         public static bool TryBind(
@@ -231,10 +236,45 @@ namespace Automation
                     return TryBindGetValue(procId, valueStore, getValue, out error);
                 case ModifyValue modifyValue:
                     return TryBindModifyValue(procId, valueStore, modifyValue, out error);
+                case ResponseCommunicationOperationType communication:
+                    return TryBindCommunicationResponse(procId, valueStore, communication, out error);
                 default:
                     operation.RuntimeBinding = null;
                     return true;
             }
+        }
+
+        private static bool TryBindCommunicationResponse(
+            Guid procId,
+            ValueConfigStore valueStore,
+            ResponseCommunicationOperationType operation,
+            out string error)
+        {
+            error = null;
+            if (operation.RetryCount <= 0 || !operation.ShouldEvaluateResponseConditions)
+            {
+                operation.RuntimeBinding = new CommunicationResponseRuntimeBinding();
+                return true;
+            }
+            int count = operation.ResponseConditions?.Count ?? 0;
+            var sources = new ValueRef[count];
+            for (int index = 0; index < count; index++)
+            {
+                CommunicationResponseCondition condition = operation.ResponseConditions[index];
+                if (condition == null
+                    || !ValueRef.TryCreate(null, null, condition.SourceVariableName, null,
+                        false, "通信结果判定变量", out sources[index], out error)
+                    || !sources[index].TryBindStatic(
+                        valueStore, procId, "通信结果判定变量", out sources[index], out error))
+                {
+                    return false;
+                }
+            }
+            operation.RuntimeBinding = new CommunicationResponseRuntimeBinding
+            {
+                Sources = sources
+            };
+            return true;
         }
 
         private static bool TryBindGoto(

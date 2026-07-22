@@ -34,9 +34,10 @@ namespace Automation
                     batch.DataType, evt.procId, out List<string> variableNames, out error)) return FailPlc(evt, error);
                 request.VariableNames = variableNames.ToList();
                 if (!Context.PlcRuntime.TryRead(operation.DeviceName, request, out object[] values, out error))
-                    return FailPlc(evt, $"PLC读取失败:{error}");
+                    return FailPlc(evt, $"PLC读取失败:{error}", true);
                 if (!SetReadVariables(batch.DataType, variableNames, values, evt.procId,
-                    evt.GetOperationSource(), out error)) return FailPlc(evt, error);
+                    evt.GetOperationSource(), out error, out bool responseInvalid))
+                    return FailPlc(evt, error, responseInvalid);
                 return true;
             }
 
@@ -51,7 +52,7 @@ namespace Automation
             if (!TryGetBatchWriteValues(writeBatch, evt.procId, out object[] writeValues, out writeError))
                 return FailPlc(evt, writeError);
             if (!Context.PlcRuntime.TryWrite(operation.DeviceName, writeRequest, writeValues, out writeError))
-                return FailPlc(evt, $"PLC写入失败:{writeError}");
+                return FailPlc(evt, $"PLC写入失败:{writeError}", true);
             return true;
         }
 
@@ -108,15 +109,16 @@ namespace Automation
 
             if (!Context.PlcRuntime.TryReadBatch(operation.DeviceName, requests,
                 out IReadOnlyDictionary<string, object[]> results, out string batchError))
-                return FailPlc(evt, $"PLC按项读取失败:{batchError}");
+                return FailPlc(evt, $"PLC按项读取失败:{batchError}", true);
 
             for (int i = 0; i < requests.Count; i++)
             {
                 if (!results.TryGetValue(requests[i].Id, out object[] values) || values == null || values.Length != 1)
-                    return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。");
+                    return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。", true);
                 if (!SetReadVariables(operation.ReadItems[i].DataType,
                     new[] { variableNames[i] }, values, evt.procId,
-                    evt.GetOperationSource(), out string error)) return FailPlc(evt, error);
+                    evt.GetOperationSource(), out string error, out bool responseInvalid))
+                    return FailPlc(evt, error, responseInvalid);
             }
             return true;
         }
@@ -140,7 +142,7 @@ namespace Automation
                     return FailPlc(evt, $"PLC写入项{index + 1}:{error}");
                 if (!Context.PlcRuntime.TryWrite(operation.DeviceName, request,
                     new[] { value }, out error))
-                    return FailPlc(evt, $"PLC写入项{index + 1}失败:{error}");
+                    return FailPlc(evt, $"PLC写入项{index + 1}失败:{error}", true);
             }
             return true;
         }
@@ -257,26 +259,60 @@ namespace Automation
         }
 
         private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<string> variableNames,
-            IReadOnlyList<object> values, Guid procId, string source, out string error)
+            IReadOnlyList<object> values, Guid procId, string source, out string error,
+            out bool responseInvalid)
         {
             error = null;
+            responseInvalid = false;
             if (values == null || values.Count != variableNames.Count)
-            { error = "PLC返回数量与变量数量不一致。"; return false; }
+            {
+                error = "PLC返回数量与变量数量不一致。";
+                responseInvalid = true;
+                return false;
+            }
+            var normalizedValues = new List<object>(values.Count);
             for (int i = 0; i < values.Count; i++)
             {
-                object value = dataType == PlcDataType.String
-                    ? (object)(values[i]?.ToString() ?? string.Empty)
-                    : dataType == PlcDataType.Boolean
-                        ? ((bool)values[i] ? 1d : 0d)
-                        : Convert.ToDouble(values[i], CultureInfo.InvariantCulture);
-                if (!Context.ValueStore.SetValueByNameForProcess(variableNames[i], value, procId, source))
-                { error = $"PLC读取结果写入变量失败:{variableNames[i]}"; return false; }
+                try
+                {
+                    normalizedValues.Add(dataType == PlcDataType.String
+                        ? (object)(values[i]?.ToString() ?? string.Empty)
+                        : dataType == PlcDataType.Boolean
+                            ? ((bool)values[i] ? 1d : 0d)
+                            : Convert.ToDouble(values[i], CultureInfo.InvariantCulture));
+                }
+                catch (Exception ex) when (ex is FormatException
+                    || ex is InvalidCastException || ex is OverflowException)
+                {
+                    error = $"PLC返回值{i + 1}无法转换为{dataType}:{ex.Message}";
+                    responseInvalid = true;
+                    return false;
+                }
+            }
+            var previousValues = new List<KeyValuePair<DicValue, string>>(values.Count);
+            for (int i = 0; i < normalizedValues.Count; i++)
+            {
+                DicValue target = Context.ValueStore.GetValueByNameForProcess(variableNames[i], procId);
+                previousValues.Add(new KeyValuePair<DicValue, string>(target, target.Value));
+                if (Context.ValueStore.SetValueByNameForProcess(
+                    variableNames[i], normalizedValues[i], procId, source)) continue;
+                foreach (KeyValuePair<DicValue, string> previous in previousValues)
+                {
+                    Context.ValueStore.SetValueByIndexForProcess(
+                        previous.Key.Index, previous.Value, procId, source + ":PLC读取回滚");
+                }
+                error = $"PLC读取结果写入变量失败:{variableNames[i]}";
+                return false;
             }
             return true;
         }
 
-        private bool FailPlc(ProcHandle evt, string message)
+        private bool FailPlc(ProcHandle evt, string message, bool retryable = false)
         {
+            if (retryable)
+            {
+                throw CreateRetryableCommunicationException(evt, message);
+            }
             MarkAlarm(evt, message);
             return false;
         }

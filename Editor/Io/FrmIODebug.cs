@@ -16,6 +16,8 @@ namespace Automation
     {
         public IODebugMap IODebugMaps = new IODebugMap();
         private readonly Font font = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
+        private readonly WorkspaceWindowButton workspaceWindowButton;
+        private readonly Panel ioUnavailablePanel;
         public List<Control> buttonsIn = new List<Control>();
         public List<Control> buttonsOut = new List<Control>();
         public List<ConnectButton> btnCon = new List<ConnectButton>();
@@ -56,15 +58,29 @@ namespace Automation
         private TabPage connectPage3;
         private TabPage connectConfigPage1;
         private TabControl connectConfigTabControl;
+        private TabPage inputDisplayConfigTabPage;
+        private TabPage outputDisplayConfigTabPage;
         private TabPage connectConfigTabPage1;
         private TabPage connectConfigTabPage2;
         private TabPage connectConfigTabPage3;
+        private readonly Dictionary<TabPage, Button> connectConfigNavigationButtons = new Dictionary<TabPage, Button>();
         private int currentConnectDisplayIndex = 0;
         private int currentConnectConfigIndex = 0;
 
         public FrmIODebug()
         {
             InitializeComponent();
+            workspaceWindowButton = new WorkspaceWindowButton
+            {
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(Math.Max(4, ClientSize.Width - 46), 4)
+            };
+            workspaceWindowButton.Click += (sender, args) => Workspace.Main.ToggleWorkspacePageWindow(this);
+            Controls.Add(workspaceWindowButton);
+            workspaceWindowButton.BringToFront();
+            ioUnavailablePanel = CreateIoUnavailablePanel();
+            Controls.Add(ioUnavailablePanel);
+            ioUnavailablePanel.SendToBack();
             this.DoubleBuffered = true;
             this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
             this.UpdateStyles();
@@ -147,9 +163,20 @@ namespace Automation
                 else if (control is TabControl tabs)
                 {
                     tabs.Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134);
-                    tabs.SizeMode = TabSizeMode.Fixed;
-                    tabs.ItemSize = new Size(112, 30);
-                    tabs.Padding = new Point(14, 5);
+                    if (ReferenceEquals(tabs, connectConfigTabControl))
+                    {
+                        tabs.Appearance = TabAppearance.FlatButtons;
+                        tabs.SizeMode = TabSizeMode.Fixed;
+                        tabs.ItemSize = new Size(0, 1);
+                        tabs.Padding = Point.Empty;
+                        tabs.TabStop = false;
+                    }
+                    else
+                    {
+                        tabs.SizeMode = TabSizeMode.Fixed;
+                        tabs.ItemSize = new Size(112, 30);
+                        tabs.Padding = new Point(14, 5);
+                    }
                     foreach (TabPage page in tabs.TabPages)
                     {
                         page.BackColor = UiPalette.Background;
@@ -166,6 +193,201 @@ namespace Automation
                 menu.ShowImageMargin = false;
                 menu.Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134);
             }
+        }
+
+        private Panel CreateIoUnavailablePanel()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Background,
+                Visible = false
+            };
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Background,
+                ColumnCount = 1,
+                RowCount = 5,
+                Padding = new Padding(40)
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            content.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            content.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+
+            var title = new Label
+            {
+                AutoSize = true,
+                Anchor = AnchorStyles.None,
+                Font = new Font("微软雅黑", 15F, FontStyle.Bold, GraphicsUnit.Point, 134),
+                ForeColor = UiPalette.TextPrimary,
+                Text = "尚未配置 I/O 轴卡",
+                Margin = new Padding(0, 0, 0, 10)
+            };
+            var description = new Label
+            {
+                AutoSize = true,
+                Anchor = AnchorStyles.None,
+                Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                ForeColor = UiPalette.TextSecondary,
+                Text = "请先完成控制卡与 I/O 配置，配置可用后即可查看和调试实时状态。",
+                Margin = new Padding(0, 0, 0, 20)
+            };
+            var configureButton = new Button
+            {
+                Anchor = AnchorStyles.None,
+                BackColor = UiPalette.Brand,
+                ForeColor = UiPalette.TextInverse,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("微软雅黑", 10F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                Size = new Size(150, 40),
+                Text = "前往 I/O 配置",
+                UseVisualStyleBackColor = false
+            };
+            configureButton.FlatAppearance.BorderSize = 0;
+            configureButton.Click += (sender, args) => Workspace.Menu.ShowIoConfigurationWorkspace();
+
+            content.Controls.Add(title, 0, 1);
+            content.Controls.Add(description, 0, 2);
+            content.Controls.Add(configureButton, 0, 3);
+            panel.Controls.Add(content);
+            return panel;
+        }
+
+        private bool UpdateIoUnavailableState()
+        {
+            bool unavailable = Workspace.IO?.IOMap?.FirstOrDefault() == null;
+            TabPage targetPage = tabControl1.SelectedTab;
+            if (unavailable && targetPage != null)
+            {
+                if (ioUnavailablePanel.Parent != targetPage)
+                {
+                    targetPage.Controls.Add(ioUnavailablePanel);
+                }
+                ioUnavailablePanel.Visible = true;
+                ioUnavailablePanel.BringToFront();
+            }
+            else
+            {
+                ioUnavailablePanel.Visible = false;
+            }
+            return unavailable;
+        }
+
+        private void ConfigureIoDisplayConfigPage(
+            TabPage page,
+            ListView listView,
+            string title,
+            string description,
+            EventHandler configureHandler,
+            EventHandler remarkHandler)
+        {
+            page.Controls.Clear();
+            page.Padding = new Padding(12);
+            page.BackColor = UiPalette.Background;
+            page.UseVisualStyleBackColor = false;
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Background,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 62F));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+            var header = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.SurfaceStrong,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(12, 8, 8, 8),
+                Margin = new Padding(0, 0, 0, 8)
+            };
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220F));
+
+            var textPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.SurfaceStrong,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            textPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            textPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+            textPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            var titleLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("微软雅黑", 10.5F, FontStyle.Bold, GraphicsUnit.Point, 134),
+                ForeColor = UiPalette.TextPrimary,
+                Margin = Padding.Empty,
+                Text = title,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            var descriptionLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                ForeColor = UiPalette.TextSecondary,
+                Margin = Padding.Empty,
+                Text = description,
+                TextAlign = ContentAlignment.TopLeft
+            };
+            textPanel.Controls.Add(titleLabel, 0, 0);
+            textPanel.Controls.Add(descriptionLabel, 0, 1);
+
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.SurfaceStrong,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0, 3, 0, 0)
+            };
+            Button configureButton = CreateIoConfigActionButton("选择显示项", true, configureHandler);
+            Button remarkButton = CreateIoConfigActionButton("添加备注", false, remarkHandler);
+            actions.Controls.Add(configureButton);
+            actions.Controls.Add(remarkButton);
+
+            listView.Dock = DockStyle.Fill;
+            listView.Margin = Padding.Empty;
+            listView.Resize += (sender, args) => UpdateConnectListViewColumnWidth(listView);
+            header.Controls.Add(textPanel, 0, 0);
+            header.Controls.Add(actions, 1, 0);
+            layout.Controls.Add(header, 0, 0);
+            layout.Controls.Add(listView, 0, 1);
+            page.Controls.Add(layout);
+        }
+
+        private static Button CreateIoConfigActionButton(string text, bool primary, EventHandler clickHandler)
+        {
+            var button = new Button
+            {
+                BackColor = primary ? UiPalette.Brand : UiPalette.SurfaceSubtle,
+                ForeColor = primary ? UiPalette.TextInverse : UiPalette.TextPrimary,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("微软雅黑", 9F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                Margin = new Padding(6, 0, 0, 0),
+                Size = new Size(98, 34),
+                Text = text,
+                UseVisualStyleBackColor = false
+            };
+            button.FlatAppearance.BorderColor = primary ? UiPalette.Brand : UiPalette.Stroke;
+            button.FlatAppearance.BorderSize = primary ? 0 : 1;
+            button.Click += clickHandler;
+            return button;
         }
 
         private static IEnumerable<Control> EnumerateControls(Control parent)
@@ -229,6 +451,10 @@ namespace Automation
         {
             UpdateRefreshEnabled();
             RelayoutIoButtonsIfNeeded();
+            if (Visible && ioMonitorService != null)
+            {
+                UpdateIoUnavailableState();
+            }
         }
 
         private void FrmIODebug_Resize(object sender, EventArgs e)
@@ -257,27 +483,143 @@ namespace Automation
             connectConfigTabControl.Name = "connectConfigTabControl";
             connectConfigTabControl.Dock = DockStyle.Fill;
 
+            inputDisplayConfigTabPage = new TabPage("输入显示");
+            outputDisplayConfigTabPage = new TabPage("输出显示");
             connectConfigTabPage1 = new TabPage("关联配置1");
             connectConfigTabPage2 = new TabPage("关联配置2");
             connectConfigTabPage3 = new TabPage("关联配置3");
+            inputDisplayConfigTabPage.UseVisualStyleBackColor = true;
+            outputDisplayConfigTabPage.UseVisualStyleBackColor = true;
             connectConfigTabPage1.UseVisualStyleBackColor = true;
             connectConfigTabPage2.UseVisualStyleBackColor = true;
             connectConfigTabPage3.UseVisualStyleBackColor = true;
 
+            connectConfigTabControl.Controls.Add(inputDisplayConfigTabPage);
+            connectConfigTabControl.Controls.Add(outputDisplayConfigTabPage);
             connectConfigTabControl.Controls.Add(connectConfigTabPage1);
             connectConfigTabControl.Controls.Add(connectConfigTabPage2);
             connectConfigTabControl.Controls.Add(connectConfigTabPage3);
             connectConfigTabControl.SelectedIndex = 0;
 
-            tabPage4.Controls.Add(connectConfigTabControl);
-            tabPage4.Controls.SetChildIndex(connectConfigTabControl, 0);
-            connectConfigTabControl.BringToFront();
+            TableLayoutPanel configWorkspace = new TableLayoutPanel
+            {
+                Name = "connectConfigWorkspace",
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Background,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(12)
+            };
+            configWorkspace.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 152F));
+            configWorkspace.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            configWorkspace.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+            Panel navigationPanel = CreateConnectConfigNavigationPanel();
+            navigationPanel.Margin = Padding.Empty;
+            connectConfigTabControl.Margin = new Padding(12, 0, 0, 0);
+            configWorkspace.Controls.Add(navigationPanel, 0, 0);
+            configWorkspace.Controls.Add(connectConfigTabControl, 1, 0);
+
+            tabPage4.Controls.Add(configWorkspace);
+            tabPage4.Controls.SetChildIndex(configWorkspace, 0);
+            configWorkspace.BringToFront();
 
             InitializeConnectConfigListViews();
-            MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab ?? connectConfigTabPage1);
-            currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
+            ConfigureIoDisplayConfigPage(
+                inputDisplayConfigTabPage,
+                listView1,
+                "通用输入显示",
+                "选择调试页要显示的输入，并可通过拖动调整顺序。",
+                InputConfigItem_Click,
+                InputRemarkItem_Click);
+            ConfigureIoDisplayConfigPage(
+                outputDisplayConfigTabPage,
+                listView2,
+                "通用输出显示",
+                "选择调试页要显示的输出，并可通过拖动调整顺序。",
+                OutputConfigItem_Click,
+                OutputRemarkItem_Click);
+            MoveConnectConfigViewsTo(connectConfigTabPage1);
+            currentConnectConfigIndex = 0;
             connectConfigTabControl.SelectedIndexChanged += ConnectConfigTabControl_SelectedIndexChanged;
             connectConfigTabControl.Resize += ConnectConfigTabControl_Resize;
+            UpdateConnectConfigNavigationStyle();
+        }
+
+        private Panel CreateConnectConfigNavigationPanel()
+        {
+            Panel navigationPanel = new Panel
+            {
+                Name = "connectConfigNavigationPanel",
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.SurfaceSubtle,
+                Padding = new Padding(8, 12, 8, 8)
+            };
+            Label titleLabel = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 34,
+                Text = "配置项目",
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0),
+                Font = new Font("微软雅黑", 10F, FontStyle.Bold, GraphicsUnit.Point, 134),
+                ForeColor = UiPalette.TextSecondary
+            };
+            FlowLayoutPanel navigationItems = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoScroll = true,
+                BackColor = UiPalette.SurfaceSubtle,
+                Padding = new Padding(0, 4, 0, 0)
+            };
+            navigationPanel.Controls.Add(navigationItems);
+            navigationPanel.Controls.Add(titleLabel);
+
+            AddConnectConfigNavigationButton(navigationItems, inputDisplayConfigTabPage);
+            AddConnectConfigNavigationButton(navigationItems, outputDisplayConfigTabPage);
+            AddConnectConfigNavigationButton(navigationItems, connectConfigTabPage1);
+            AddConnectConfigNavigationButton(navigationItems, connectConfigTabPage2);
+            AddConnectConfigNavigationButton(navigationItems, connectConfigTabPage3);
+            return navigationPanel;
+        }
+
+        private void AddConnectConfigNavigationButton(FlowLayoutPanel navigationItems, TabPage targetPage)
+        {
+            Button navigationButton = new Button
+            {
+                Width = 136,
+                Height = 40,
+                Margin = new Padding(0, 0, 0, 6),
+                Padding = new Padding(12, 0, 8, 0),
+                Text = targetPage.Text,
+                TextAlign = ContentAlignment.MiddleLeft,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("微软雅黑", 9.5F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                Cursor = Cursors.Hand
+            };
+            navigationButton.FlatAppearance.BorderSize = 0;
+            navigationButton.Click += (sender, args) =>
+            {
+                connectConfigTabControl.SelectedTab = targetPage;
+                UpdateConnectConfigNavigationStyle();
+            };
+            connectConfigNavigationButtons[targetPage] = navigationButton;
+            navigationItems.Controls.Add(navigationButton);
+        }
+
+        private void UpdateConnectConfigNavigationStyle()
+        {
+            TabPage selectedPage = connectConfigTabControl?.SelectedTab;
+            foreach (KeyValuePair<TabPage, Button> item in connectConfigNavigationButtons)
+            {
+                bool selected = item.Key == selectedPage;
+                item.Value.BackColor = selected ? UiPalette.Selection : UiPalette.SurfaceSubtle;
+                item.Value.ForeColor = selected ? UiPalette.SelectionText : UiPalette.TextPrimary;
+                item.Value.FlatAppearance.MouseOverBackColor = selected ? UiPalette.Selection : UiPalette.SurfaceHover;
+                item.Value.FlatAppearance.MouseDownBackColor = selected ? UiPalette.Selection : UiPalette.SurfacePressed;
+            }
         }
 
         private void InitializeConnectConfigListViews()
@@ -437,7 +779,21 @@ namespace Automation
 
         private void ConnectConfigTabControl_Resize(object sender, EventArgs e)
         {
-            int pageIndex = currentConnectConfigIndex;
+            TabPage selectedPage = connectConfigTabControl.SelectedTab;
+            if (selectedPage == inputDisplayConfigTabPage)
+            {
+                UpdateConnectListViewColumnWidth(listView1);
+                return;
+            }
+            if (selectedPage == outputDisplayConfigTabPage)
+            {
+                UpdateConnectListViewColumnWidth(listView2);
+                return;
+            }
+            if (!TryGetConnectConfigIndex(selectedPage, out int pageIndex))
+            {
+                return;
+            }
             connectConfigAutoSizeEnabled[pageIndex] = true;
             if (!IsHandleCreated || IsDisposed || Disposing)
             {
@@ -623,10 +979,34 @@ namespace Automation
 
         private void ConnectConfigTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
+            UpdateConnectConfigNavigationStyle();
+            TabPage selectedPage = connectConfigTabControl.SelectedTab;
+            if (selectedPage == inputDisplayConfigTabPage)
+            {
+                RefreshIODebugMapFrm();
+                UpdateConnectListViewColumnWidth(listView1);
+                UpdateIoUnavailableState();
+                return;
+            }
+            if (selectedPage == outputDisplayConfigTabPage)
+            {
+                RefreshIODebugMapFrm();
+                UpdateConnectListViewColumnWidth(listView2);
+                UpdateIoUnavailableState();
+                return;
+            }
+            if (!TryGetConnectConfigIndex(selectedPage, out int pageIndex))
+            {
+                return;
+            }
             RunConnectConfigLayoutUpdate(() =>
             {
-                currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
-                MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                currentConnectConfigIndex = pageIndex;
+                MoveConnectConfigViewsTo(selectedPage);
+                if (UpdateIoUnavailableState())
+                {
+                    return;
+                }
                 BeginConnectListViewUpdate();
                 try
                 {
@@ -650,23 +1030,35 @@ namespace Automation
 
         private void MoveConnectConfigViewsTo(TabPage targetPage)
         {
-            if (targetPage == null)
+            if (!TryGetConnectConfigIndex(targetPage, out int index))
             {
                 return;
-            }
-            int index = 0;
-            if (targetPage == connectConfigTabPage2)
-            {
-                index = 1;
-            }
-            else if (targetPage == connectConfigTabPage3)
-            {
-                index = 2;
             }
             listView3 = connectListView3[index];
             listView4 = connectListView4[index];
             listView5 = connectListView5[index];
             listView6 = connectListView6[index];
+        }
+
+        private bool TryGetConnectConfigIndex(TabPage page, out int index)
+        {
+            if (page == connectConfigTabPage1)
+            {
+                index = 0;
+                return true;
+            }
+            if (page == connectConfigTabPage2)
+            {
+                index = 1;
+                return true;
+            }
+            if (page == connectConfigTabPage3)
+            {
+                index = 2;
+                return true;
+            }
+            index = -1;
+            return false;
         }
 
         private void RunConnectConfigLayoutUpdate(Action updateAction)
@@ -1173,7 +1565,7 @@ namespace Automation
 
             if (cacheIOs == null)
             {
-                MessageBox.Show("轴卡未配置");
+                UpdateIoUnavailableState();
                 return;
             }
 
@@ -1258,8 +1650,20 @@ namespace Automation
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
-                Hide();
+                if (TopLevel)
+                {
+                    Workspace.Main.ReattachWorkspacePageAfterClose(this);
+                }
+                else
+                {
+                    Hide();
+                }
             }
+        }
+
+        internal void SetWorkspaceDetached(bool detached)
+        {
+            workspaceWindowButton.SetDetached(detached);
         }
         private void FrmIODebug_Load(object sender, EventArgs e)
         {
@@ -1267,8 +1671,14 @@ namespace Automation
             {
                 ConnectTemp[i] = new Connect();
             }
-            currentTabIndex = tabControl1.SelectedIndex;
+            tabControl1.SelectedTab = tabPage1;
+            connectConfigTabControl.SelectedTab = inputDisplayConfigTabPage;
+            currentTabIndex = 0;
             RefreshIODebugMapFrm();
+            if (UpdateIoUnavailableState())
+            {
+                return;
+            }
             IoRefreshData data = BuildIoRefreshData(0);
             if (data != null)
             {
@@ -1913,10 +2323,9 @@ namespace Automation
 
                 }
             }
-            // }
-
-
-
+            UpdateConnectListViewColumnWidth(listView1);
+            UpdateConnectListViewColumnWidth(listView2);
+            UpdateIoUnavailableState();
         }
         private void RefreshIoDisplayAfterReorder(bool isInput)
         {
@@ -1993,7 +2402,12 @@ namespace Automation
             List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             if (cacheIOs == null)
             {
-                MessageBox.Show("轴卡未配置");
+                UpdateIoUnavailableState();
+                MessageBox.Show(
+                    "尚未配置 I/O 轴卡，请先完成控制卡与 I/O 配置。",
+                    "IO调试",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 return;
             }
             List<string> allNames = new List<string>();
@@ -2051,7 +2465,12 @@ namespace Automation
             List<IO> cacheIOs = Workspace.IO.IOMap.FirstOrDefault();
             if (cacheIOs == null)
             {
-                MessageBox.Show("轴卡未配置");
+                UpdateIoUnavailableState();
+                MessageBox.Show(
+                    "尚未配置 I/O 轴卡，请先完成控制卡与 I/O 配置。",
+                    "IO调试",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 return;
             }
             List<string> allNames = new List<string>();
@@ -2417,6 +2836,10 @@ namespace Automation
             if (selectedTab == tabPage1)
             {
                 currentTabIndex = 0;
+                if (UpdateIoUnavailableState())
+                {
+                    return;
+                }
                 IoRefreshData data = BuildIoRefreshData(0);
                 if (data != null)
                 {
@@ -2427,6 +2850,10 @@ namespace Automation
             if (selectedTab == tabPage2)
             {
                 currentTabIndex = 1;
+                if (UpdateIoUnavailableState())
+                {
+                    return;
+                }
                 IoRefreshData data = BuildIoRefreshData(1);
                 if (data != null)
                 {
@@ -2449,16 +2876,40 @@ namespace Automation
                 {
                     currentConnectDisplayIndex = 0;
                 }
+                if (UpdateIoUnavailableState())
+                {
+                    return;
+                }
                 RefreshCurrentConnectDisplayPage();
                 return;
             }
             if (selectedTab == connectConfigPage1)
             {
                 currentTabIndex = 3;
+                RefreshIODebugMapFrm();
+                if (UpdateIoUnavailableState())
+                {
+                    return;
+                }
+                TabPage selectedConfigPage = connectConfigTabControl.SelectedTab;
+                if (selectedConfigPage == inputDisplayConfigTabPage)
+                {
+                    UpdateConnectListViewColumnWidth(listView1);
+                    return;
+                }
+                if (selectedConfigPage == outputDisplayConfigTabPage)
+                {
+                    UpdateConnectListViewColumnWidth(listView2);
+                    return;
+                }
+                if (!TryGetConnectConfigIndex(selectedConfigPage, out int pageIndex))
+                {
+                    return;
+                }
                 RunConnectConfigLayoutUpdate(() =>
                 {
-                    currentConnectConfigIndex = connectConfigTabControl.SelectedIndex;
-                    MoveConnectConfigViewsTo(connectConfigTabControl.SelectedTab);
+                    currentConnectConfigIndex = pageIndex;
+                    MoveConnectConfigViewsTo(selectedConfigPage);
                     BeginConnectListViewUpdate();
                     try
                     {
@@ -2466,7 +2917,6 @@ namespace Automation
                         listView5.ItemChecked -= listView5_ItemChecked;
                         listView6.ItemChecked -= listView6_ItemChecked;
                         SetConnectItemm();
-                        RefreshIODebugMapFrm();
                         RefleshConnecdt();
                         listView4.ItemChecked += listView4_ItemChecked;
                         listView5.ItemChecked += listView5_ItemChecked;

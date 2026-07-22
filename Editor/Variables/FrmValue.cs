@@ -370,6 +370,7 @@ namespace Automation
         private readonly TextBox txtVariableSearch;
         private readonly Label lblEmptyState;
         private readonly ToolTip uiToolTip;
+        private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
         private readonly Timer runtimeValueRefreshTimer;
         private readonly Font scopeGroupFont;
@@ -422,6 +423,8 @@ namespace Automation
         public FrmValue()
         {
             InitializeComponent();
+            workspaceWindowButton = new WorkspaceWindowButton();
+            workspaceWindowButton.Click += (sender, args) => Workspace.Main.ToggleWorkspacePageWindow(this);
             for (int i = 0; i < displayRowByVariableSlot.Length; i++)
             {
                 displayRowByVariableSlot[i] = -1;
@@ -615,12 +618,22 @@ namespace Automation
             searchPanel.Controls.Add(searchField);
             searchPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8, BackColor = UiPalette.Surface });
             searchPanel.Controls.Add(btnSearch);
+            var windowButtonHost = new Panel
+            {
+                Dock = DockStyle.Right,
+                Width = 50,
+                Padding = new Padding(8, 4, 4, 6),
+                BackColor = UiPalette.Surface
+            };
+            workspaceWindowButton.Dock = DockStyle.Fill;
+            windowButtonHost.Controls.Add(workspaceWindowButton);
             panel1.Controls.Add(actions);
             panel1.Controls.Add(searchPanel);
+            panel1.Controls.Add(windowButtonHost);
 
             panelCommon.Controls.Clear();
-            panelCommon.Width = 272;
-            panelCommon.Padding = new Padding(8, 0, 8, 8);
+            panelCommon.Width = 216;
+            panelCommon.Padding = new Padding(6, 0, 6, 8);
             panelCommon.BackColor = UiPalette.SurfaceSubtle;
 
             panelCommon.Controls.Add(scopeTree);
@@ -668,15 +681,44 @@ namespace Automation
             Text = "变量管理";
 
             index.HeaderText = "槽位";
-            index.Width = 72;
-            name.Width = 190;
-            type.Width = 96;
-            value.Width = 160;
-            scopeColumn.Width = 170;
-            scopeColumn.DisplayIndex = 4;
-            Note.DisplayIndex = 5;
-            Note.MinimumWidth = 160;
+            index.MinimumWidth = 48;
+            index.Width = 54;
+            index.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+
+            name.MinimumWidth = 160;
+            name.FillWeight = 24F;
+            name.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            name.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+            value.MinimumWidth = 220;
+            value.FillWeight = 36F;
+            value.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            value.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+            Note.MinimumWidth = 120;
+            Note.FillWeight = 16F;
             Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            Note.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+            type.MinimumWidth = 64;
+            type.Width = 72;
+            type.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+
+            scopeColumn.MinimumWidth = 160;
+            scopeColumn.FillWeight = 24F;
+            scopeColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            scopeColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+
+            index.DisplayIndex = 0;
+            name.DisplayIndex = 1;
+            value.DisplayIndex = 2;
+            Note.DisplayIndex = 3;
+            type.DisplayIndex = 4;
+            scopeColumn.DisplayIndex = 5;
+            foreach (DataGridViewColumn column in dgvValue.Columns)
+            {
+                column.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            }
 
             uiToolTip.SetToolTip(txtVariableSearch, "跨作用域搜索名称、槽位、类型、备注或所属流程");
             uiToolTip.SetToolTip(btnMonitorAdd, "把所选变量加入运行值监控");
@@ -768,7 +810,11 @@ namespace Automation
             grid.DefaultCellStyle.SelectionForeColor = UiPalette.SelectionText;
             if (grid.Columns.Contains("Note"))
             {
-                grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+                grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            }
+            if (grid.Columns.Contains("variableScope"))
+            {
+                grid.Columns["variableScope"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             }
         }
 
@@ -857,8 +903,20 @@ namespace Automation
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
-                Hide();
+                if (TopLevel)
+                {
+                    Workspace.Main.ReattachWorkspacePageAfterClose(this);
+                }
+                else
+                {
+                    Hide();
+                }
             }
+        }
+
+        internal void SetWorkspaceDetached(bool detached)
+        {
+            workspaceWindowButton.SetDetached(detached);
         }
 
         private void FrmValue_Disposed(object sender, EventArgs e)
@@ -1863,7 +1921,7 @@ namespace Automation
             {
                 return;
             }
-            int targetLeftWidth = (int)(splitContainerMain.Width * 0.80);
+            int targetLeftWidth = (int)(splitContainerMain.Width * 0.75);
             int minLeftWidth = splitContainerMain.Panel1MinSize;
             int maxLeftWidth = splitContainerMain.Width - splitContainerMain.Panel2MinSize - splitContainerMain.SplitterWidth;
             if (targetLeftWidth < minLeftWidth)

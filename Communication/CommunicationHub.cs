@@ -29,6 +29,16 @@ namespace Automation
         Error
     }
 
+    public enum TcpConnectionState
+    {
+        Stopped,
+        Listening,
+        Connecting,
+        Connected,
+        Reconnecting,
+        Faulted
+    }
+
     public sealed class CommLogEventArgs : EventArgs
     {
         public CommLogEventArgs(
@@ -104,20 +114,28 @@ namespace Automation
 
     public sealed class TcpStatus
     {
-        public static readonly TcpStatus Empty = new TcpStatus(false, false, 0, 0);
+        public static readonly TcpStatus Empty = new TcpStatus(
+            false, false, false, 0, 0, TcpConnectionState.Stopped, string.Empty);
 
-        public TcpStatus(bool isServer, bool isRunning, int clientCount, long droppedFrames)
+        public TcpStatus(bool isServer, bool isStarted, bool isConnected, int clientCount,
+            long droppedFrames, TcpConnectionState connectionState, string lastError)
         {
             IsServer = isServer;
-            IsRunning = isRunning;
+            IsStarted = isStarted;
+            IsConnected = isConnected;
             ClientCount = clientCount;
             DroppedFrames = droppedFrames;
+            ConnectionState = connectionState;
+            LastError = lastError ?? string.Empty;
         }
 
         public bool IsServer { get; }
-        public bool IsRunning { get; }
+        public bool IsStarted { get; }
+        public bool IsConnected { get; }
         public int ClientCount { get; }
         public long DroppedFrames { get; }
+        public TcpConnectionState ConnectionState { get; }
+        public string LastError { get; }
     }
 
     public sealed class SerialStatus
@@ -174,10 +192,16 @@ namespace Automation
     {
         public string Name { get; set; }
         public bool IsServer { get; set; }
-        public IPAddress Address { get; set; }
-        public int Port { get; set; }
+        public IPAddress LocalAddress { get; set; }
+        public int LocalPort { get; set; }
+        public IPAddress RemoteAddress { get; set; }
+        public bool AcceptAnyRemoteAddress { get; set; }
+        public int RemotePort { get; set; }
+        public bool AutoReconnect { get; set; }
         public int ConnectTimeoutMs { get; set; }
         public CommFrameSettings FrameSettings { get; set; }
+
+        public string ListenerKey => $"{LocalAddress}:{LocalPort}";
     }
 
     internal sealed class ParsedSerialInfo
@@ -514,6 +538,213 @@ namespace Automation
         }
     }
 
+    internal sealed class TcpServerListener
+    {
+        private readonly object sync = new object();
+        private readonly SemaphoreSlim lifecycleGate = new SemaphoreSlim(1, 1);
+        private readonly IPAddress address;
+        private readonly int port;
+        private readonly Action<CommLogEventArgs> log;
+        private readonly List<TcpChannel> channels = new List<TcpChannel>();
+        private TcpListener listener;
+        private CancellationTokenSource cts;
+        private Task acceptTask;
+        private bool isRunning;
+
+        public TcpServerListener(IPAddress address, int port, Action<CommLogEventArgs> log)
+        {
+            this.address = address;
+            this.port = port;
+            this.log = log;
+        }
+
+        public async Task RegisterAsync(TcpChannel channel, CancellationToken cancellationToken)
+        {
+            if (channel == null) throw new ArgumentNullException(nameof(channel));
+            await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (sync)
+                {
+                    if (!channels.Contains(channel)) channels.Add(channel);
+                }
+                if (isRunning) return;
+
+                var source = new CancellationTokenSource();
+                var candidate = new TcpListener(address, port);
+                try
+                {
+                    candidate.Start();
+                }
+                catch
+                {
+                    lock (sync) channels.Remove(channel);
+                    source.Dispose();
+                    throw;
+                }
+
+                listener = candidate;
+                cts = source;
+                isRunning = true;
+                acceptTask = AcceptLoopAsync(candidate, source.Token);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+
+        public async Task UnregisterAsync(TcpChannel channel)
+        {
+            Task taskToWait = null;
+            CancellationTokenSource sourceToDispose = null;
+            await lifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                bool empty;
+                lock (sync)
+                {
+                    channels.Remove(channel);
+                    empty = channels.Count == 0;
+                }
+                if (!empty || !isRunning) return;
+
+                isRunning = false;
+                sourceToDispose = cts;
+                cts = null;
+                sourceToDispose?.Cancel();
+                try { listener?.Stop(); } catch { }
+                listener = null;
+                taskToWait = acceptTask;
+                acceptTask = null;
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+
+            await WaitBackgroundTaskAsync(taskToWait).ConfigureAwait(false);
+            sourceToDispose?.Dispose();
+        }
+
+        public async Task StopAsync()
+        {
+            Task taskToWait;
+            CancellationTokenSource sourceToDispose;
+            await lifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                isRunning = false;
+                sourceToDispose = cts;
+                cts = null;
+                sourceToDispose?.Cancel();
+                try { listener?.Stop(); } catch { }
+                listener = null;
+                taskToWait = acceptTask;
+                acceptTask = null;
+                lock (sync) channels.Clear();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+
+            await WaitBackgroundTaskAsync(taskToWait).ConfigureAwait(false);
+            sourceToDispose?.Dispose();
+        }
+
+        private async Task AcceptLoopAsync(TcpListener activeListener, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                TcpClient accepted;
+                try
+                {
+                    accepted = await activeListener.AcceptTcpClientAsync().ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch (SocketException) when (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    if (!token.IsCancellationRequested)
+                    {
+                        await HandleFaultedListenerAsync(activeListener, ex).ConfigureAwait(false);
+                    }
+                    break;
+                }
+
+                IPEndPoint remoteEndPoint = accepted.Client.RemoteEndPoint as IPEndPoint;
+                TcpChannel target = SelectTarget(remoteEndPoint);
+                if (target == null || !target.TryAttachAcceptedClient(accepted, remoteEndPoint))
+                {
+                    string remote = remoteEndPoint?.ToString() ?? "未知端点";
+                    log?.Invoke(new CommLogEventArgs(CommChannelKind.TcpServer, CommDirection.Error,
+                        $"{address}:{port}", $"拒绝未匹配或无空闲逻辑通道的客户端:{remote}", null, remote, null));
+                    TcpChannel.SafeCloseClient(accepted);
+                }
+            }
+        }
+
+        private async Task HandleFaultedListenerAsync(TcpListener activeListener, Exception exception)
+        {
+            CancellationTokenSource sourceToDispose = null;
+            TcpChannel[] affectedChannels = Array.Empty<TcpChannel>();
+            await lifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!ReferenceEquals(listener, activeListener)) return;
+                isRunning = false;
+                sourceToDispose = cts;
+                cts = null;
+                sourceToDispose?.Cancel();
+                try { activeListener.Stop(); } catch { }
+                listener = null;
+                acceptTask = null;
+                lock (sync) affectedChannels = channels.ToArray();
+                foreach (TcpChannel channel in affectedChannels) channel.HandleListenerFault(exception);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+            sourceToDispose?.Dispose();
+            log?.Invoke(new CommLogEventArgs(CommChannelKind.TcpServer, CommDirection.Error,
+                $"{address}:{port}", $"TCP服务监听异常:{exception.Message}", null, null, exception));
+        }
+
+        private TcpChannel SelectTarget(IPEndPoint remoteEndPoint)
+        {
+            if (remoteEndPoint == null) return null;
+            TcpChannel[] snapshot;
+            lock (sync) snapshot = channels.ToArray();
+            return snapshot
+                .Where(channel => channel.CanAcceptRemote(remoteEndPoint))
+                .OrderByDescending(channel => channel.GetRemoteMatchSpecificity(remoteEndPoint))
+                .ThenBy(channel => channel.Name, StringComparer.Ordinal)
+                .FirstOrDefault();
+        }
+
+        private static async Task WaitBackgroundTaskAsync(Task task)
+        {
+            if (task == null) return;
+            Task completed = await Task.WhenAny(task, Task.Delay(1000)).ConfigureAwait(false);
+            if (ReferenceEquals(completed, task))
+            {
+                try { await task.ConfigureAwait(false); } catch { }
+                return;
+            }
+            _ = task.ContinueWith(completedTask => _ = completedTask.Exception,
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        }
+    }
+
     internal sealed class TcpChannel
     {
         private const int MaxFrameBytes = 1024 * 1024;
@@ -523,15 +754,19 @@ namespace Automation
         private readonly Func<bool> loggingEnabled;
         private readonly ReceiveDispatcher dispatcher;
         private readonly SemaphoreSlim sendGate = new SemaphoreSlim(1, 1);
+        private readonly object stateLock = new object();
         private readonly object clientLock = new object();
         private readonly List<TcpClient> clients = new List<TcpClient>();
         private readonly ConcurrentDictionary<TcpClient, Task> readTasks = new ConcurrentDictionary<TcpClient, Task>();
 
         private CancellationTokenSource cts;
         private TcpClient client;
-        private TcpListener listener;
-        private Task acceptTask;
-        private volatile bool isRunning;
+        private Task clientWorkerTask;
+        private TcpServerListener serverListener;
+        private bool isStarted;
+        private bool isConnected;
+        private TcpConnectionState connectionState = TcpConnectionState.Stopped;
+        private string lastError = string.Empty;
 
         public TcpChannel(ParsedSocketInfo info, Action<CommLogEventArgs> log, Func<bool> loggingEnabled,
             Action<CommFramesDroppedEventArgs> framesDropped, int pendingLimit)
@@ -543,7 +778,11 @@ namespace Automation
                 count => framesDropped?.Invoke(new CommFramesDroppedEventArgs(Kind, info.Name, count)));
         }
 
-        public bool IsRunning => isRunning;
+        public string Name => info.Name;
+        public bool IsStarted
+        {
+            get { lock (stateLock) return isStarted; }
+        }
         public bool IsServer => info.IsServer;
         public CommChannelKind Kind => IsServer ? CommChannelKind.TcpServer : CommChannelKind.TcpClient;
         public Encoding Encoding => info.FrameSettings.Encoding;
@@ -552,15 +791,15 @@ namespace Automation
 
         public bool Matches(ParsedSocketInfo target)
         {
-            if (target == null)
-            {
-                return false;
-            }
-
+            if (target == null) return false;
             return string.Equals(info.Name, target.Name, StringComparison.Ordinal)
                 && info.IsServer == target.IsServer
-                && Equals(info.Address, target.Address)
-                && info.Port == target.Port
+                && Equals(info.LocalAddress, target.LocalAddress)
+                && info.LocalPort == target.LocalPort
+                && Equals(info.RemoteAddress, target.RemoteAddress)
+                && info.AcceptAnyRemoteAddress == target.AcceptAnyRemoteAddress
+                && info.RemotePort == target.RemotePort
+                && info.AutoReconnect == target.AutoReconnect
                 && info.ConnectTimeoutMs == target.ConnectTimeoutMs
                 && info.FrameSettings.Mode == target.FrameSettings.Mode
                 && string.Equals(info.FrameSettings.Encoding.WebName, target.FrameSettings.Encoding.WebName, StringComparison.OrdinalIgnoreCase)
@@ -569,74 +808,67 @@ namespace Automation
 
         public TcpStatus GetStatus()
         {
-            int clientCount = 0;
-            if (IsServer)
+            int clientCount;
+            lock (clientLock)
             {
-                lock (clientLock)
-                {
-                    clientCount = clients.Count;
-                }
+                clientCount = IsServer ? clients.Count : (client == null ? 0 : 1);
             }
-            else
+            lock (stateLock)
             {
-                clientCount = isRunning ? 1 : 0;
+                return new TcpStatus(IsServer, isStarted, isConnected, clientCount,
+                    dispatcher.DroppedFrames, connectionState, lastError);
             }
-
-            return new TcpStatus(IsServer, isRunning, clientCount, dispatcher.DroppedFrames);
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken, TcpServerListener sharedListener)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (isRunning)
-            {
-                return;
-            }
+            if (IsStarted) return;
 
-            cts = new CancellationTokenSource();
+            var source = new CancellationTokenSource();
+            cts = source;
             if (IsServer)
             {
-                listener = new TcpListener(info.Address, info.Port);
-                listener.Start();
-                isRunning = true;
-                acceptTask = AcceptLoopAsync(cts.Token);
-                return;
-            }
-
-            client = new TcpClient();
-            using (CancellationTokenSource connectCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken))
-            try
-            {
-                Task connectTask = client.ConnectAsync(info.Address, info.Port);
-                Task timeoutTask = Task.Delay(info.ConnectTimeoutMs, connectCts.Token);
-                Task completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
-                if (!ReferenceEquals(completed, connectTask))
+                if (sharedListener == null) throw new InvalidOperationException("TCP服务端缺少共享监听器");
+                SetState(true, false, TcpConnectionState.Listening, string.Empty);
+                serverListener = sharedListener;
+                try
                 {
-                    _ = connectTask.ContinueWith(task => _ = task.Exception,
-                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-                    if (connectCts.IsCancellationRequested)
-                    {
-                        SafeCloseClient(client);
-                        client = null;
-                        throw new OperationCanceledException("TCP连接已取消", connectCts.Token);
-                    }
-
-                    SafeCloseClient(client);
-                    client = null;
-                    throw new TimeoutException($"{info.Name}连接超时");
+                    await sharedListener.RegisterAsync(this, cancellationToken).ConfigureAwait(false);
+                    return;
                 }
+                catch
+                {
+                    serverListener = null;
+                    cts = null;
+                    source.Dispose();
+                    SetState(false, false, TcpConnectionState.Faulted, "TCP服务监听启动失败");
+                    throw;
+                }
+            }
 
-                await connectTask.ConfigureAwait(false);
-                connectCts.Cancel();
-            }
-            catch
+            SetState(true, false, TcpConnectionState.Connecting, string.Empty);
+            var firstAttempt = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            clientWorkerTask = RunClientLoopAsync(source.Token, firstAttempt);
+            using (cancellationToken.Register(() => firstAttempt.TrySetCanceled()))
             {
-                SafeCloseClient(client);
-                client = null;
-                throw;
+                bool connected;
+                try
+                {
+                    connected = await firstAttempt.Task.ConfigureAwait(false);
+                }
+                catch
+                {
+                    await StopAsync().ConfigureAwait(false);
+                    throw;
+                }
+                if (!connected && !info.AutoReconnect)
+                {
+                    string error = GetStatus().LastError;
+                    await StopAsync().ConfigureAwait(false);
+                    throw new InvalidOperationException(error);
+                }
             }
-            isRunning = true;
-            TrackReadTask(client, ReadLoopAsync(client, cts.Token));
         }
 
         public async Task StopAsync()
@@ -645,92 +877,48 @@ namespace Automation
             cts = null;
             currentCts?.Cancel();
 
-            if (IsServer)
+            TcpServerListener currentListener = serverListener;
+            serverListener = null;
+            if (currentListener != null)
             {
-                try
-                {
-                    listener?.Stop();
-                }
-                catch
-                {
-                }
-
-                lock (clientLock)
-                {
-                    foreach (TcpClient tcpClient in clients.ToList())
-                    {
-                        SafeCloseClient(tcpClient);
-                    }
-                    clients.Clear();
-                }
+                await currentListener.UnregisterAsync(this).ConfigureAwait(false);
             }
-            else
+
+            List<TcpClient> clientsToClose;
+            lock (clientLock)
             {
-                SafeCloseClient(client);
+                clientsToClose = clients.ToList();
+                clients.Clear();
+                if (client != null && !clientsToClose.Contains(client)) clientsToClose.Add(client);
                 client = null;
             }
+            foreach (TcpClient target in clientsToClose) SafeCloseClient(target);
 
-            isRunning = false;
             dispatcher.Close("TCP通道已关闭");
-            currentCts?.Dispose();
             List<Task> backgroundTasks = readTasks.Values.ToList();
-            if (acceptTask != null)
-            {
-                backgroundTasks.Add(acceptTask);
-            }
-            if (backgroundTasks.Count > 0)
-            {
-                Task allTasks = Task.WhenAll(backgroundTasks);
-                Task completed = await Task.WhenAny(allTasks, Task.Delay(1000)).ConfigureAwait(false);
-                if (ReferenceEquals(completed, allTasks))
-                {
-                    await allTasks.ConfigureAwait(false);
-                }
-                else
-                {
-                    _ = allTasks.ContinueWith(task => _ = task.Exception,
-                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-                }
-            }
-            acceptTask = null;
+            if (clientWorkerTask != null) backgroundTasks.Add(clientWorkerTask);
+            await WaitBackgroundTasksAsync(backgroundTasks).ConfigureAwait(false);
+            clientWorkerTask = null;
+            currentCts?.Dispose();
+            SetState(false, false, TcpConnectionState.Stopped, string.Empty);
         }
 
         public async Task SendAsync(byte[] payload, bool appendDelimiter, CancellationToken cancellationToken)
         {
-            if (payload == null)
-            {
-                throw new ArgumentNullException(nameof(payload));
-            }
-
-            if (!isRunning)
-            {
-                throw new InvalidOperationException("TCP未连接");
-            }
+            if (payload == null) throw new ArgumentNullException(nameof(payload));
+            if (!GetStatus().IsConnected) throw new InvalidOperationException("TCP未连接");
 
             byte[] packet = appendDelimiter ? AppendDelimiter(payload) : payload;
-
             await sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (!isRunning)
-                {
-                    throw new InvalidOperationException("TCP未连接");
-                }
-
                 if (IsServer)
                 {
                     List<TcpClient> targetClients;
-                    lock (clientLock)
-                    {
-                        targetClients = clients.ToList();
-                    }
+                    lock (clientLock) targetClients = clients.ToList();
+                    if (targetClients.Count == 0) throw new InvalidOperationException("TCP服务端无在线客户端");
 
-                    if (targetClients.Count == 0)
-                    {
-                        throw new InvalidOperationException("TCP服务端无在线客户端");
-                    }
-
-                    List<TcpClient> brokenClients = null;
+                    var brokenClients = new List<TcpClient>();
                     int sendCount = 0;
                     foreach (TcpClient tcpClient in targetClients)
                     {
@@ -740,42 +928,36 @@ namespace Automation
                             await stream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
                             sendCount++;
                         }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
                         catch
                         {
-                            if (brokenClients == null)
-                            {
-                                brokenClients = new List<TcpClient>();
-                            }
                             brokenClients.Add(tcpClient);
                         }
                     }
-
-                    if (brokenClients != null)
-                    {
-                        lock (clientLock)
-                        {
-                            foreach (TcpClient broken in brokenClients)
-                            {
-                                clients.Remove(broken);
-                                SafeCloseClient(broken);
-                            }
-                        }
-                    }
-
-                    if (sendCount == 0)
-                    {
-                        throw new InvalidOperationException("TCP服务端发送失败：无可用客户端");
-                    }
+                    RemoveAndCloseClients(brokenClients);
+                    if (sendCount == 0) throw new InvalidOperationException("TCP服务端发送失败：无可用客户端");
+                    return;
                 }
-                else
-                {
-                    if (client == null)
-                    {
-                        throw new InvalidOperationException("TCP客户端未初始化");
-                    }
 
-                    NetworkStream stream = client.GetStream();
-                    await stream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                TcpClient targetClient;
+                lock (clientLock) targetClient = client;
+                if (targetClient == null) throw new InvalidOperationException("TCP客户端未连接");
+                try
+                {
+                    NetworkStream clientStream = targetClient.GetStream();
+                    await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    RemoveAndCloseClients(new[] { targetClient });
+                    throw;
                 }
             }
             finally
@@ -817,49 +999,156 @@ namespace Automation
             return result;
         }
 
-        private async Task AcceptLoopAsync(CancellationToken token)
+        public string GetRemoteEndPointForLog()
         {
-            while (!token.IsCancellationRequested)
+            lock (clientLock)
             {
-                TcpClient accepted = null;
-                try
+                if (IsServer && clients.Count != 1) return null;
+                TcpClient target = IsServer ? clients.FirstOrDefault() : client;
+                try { return target?.Client?.RemoteEndPoint?.ToString(); } catch { return null; }
+            }
+        }
+
+        public bool CanAcceptRemote(IPEndPoint remoteEndPoint)
+        {
+            if (!IsServer || remoteEndPoint == null || !IsStarted || !MatchesRemote(remoteEndPoint)) return false;
+            if (info.AcceptAnyRemoteAddress) return true;
+            lock (clientLock) return clients.Count == 0;
+        }
+
+        public int GetRemoteMatchSpecificity(IPEndPoint remoteEndPoint)
+        {
+            if (!MatchesRemote(remoteEndPoint)) return -1;
+            int score = info.AcceptAnyRemoteAddress ? 0 : 2;
+            if (info.RemotePort > 0) score++;
+            return score;
+        }
+
+        public bool TryAttachAcceptedClient(TcpClient accepted, IPEndPoint remoteEndPoint)
+        {
+            if (accepted == null || !CanAcceptRemote(remoteEndPoint)) return false;
+            lock (clientLock)
+            {
+                if (!info.AcceptAnyRemoteAddress && clients.Count > 0) return false;
+                clients.Add(accepted);
+            }
+            SetState(true, true, TcpConnectionState.Connected, string.Empty);
+            TrackReadTask(accepted, ReadLoopAsync(accepted, cts?.Token ?? CancellationToken.None));
+            return true;
+        }
+
+        public void HandleListenerFault(Exception exception)
+        {
+            RemoveAndCloseClients(GetClientSnapshot());
+            dispatcher.Close("TCP服务监听异常");
+            SetState(false, false, TcpConnectionState.Faulted, exception?.Message ?? "TCP服务监听异常");
+        }
+
+        private bool MatchesRemote(IPEndPoint remoteEndPoint)
+        {
+            if (remoteEndPoint == null) return false;
+            bool addressMatches = info.AcceptAnyRemoteAddress || Equals(info.RemoteAddress, remoteEndPoint.Address);
+            return addressMatches && (info.RemotePort == 0 || info.RemotePort == remoteEndPoint.Port);
+        }
+
+        private async Task RunClientLoopAsync(CancellationToken token, TaskCompletionSource<bool> firstAttempt)
+        {
+            int failedAttempts = 0;
+            try
+            {
+                while (!token.IsCancellationRequested)
                 {
-                    accepted = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                }
-                catch (ObjectDisposedException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    if (!token.IsCancellationRequested)
+                    SetState(true, false,
+                        failedAttempts == 0 ? TcpConnectionState.Connecting : TcpConnectionState.Reconnecting,
+                        failedAttempts == 0 ? string.Empty : GetStatus().LastError);
+                    TcpClient connectedClient;
+                    try
                     {
-                        log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, info.Name, ex.Message, null, null, ex));
-                        isRunning = false;
-                        dispatcher.Close("TCP服务监听异常");
-                        lock (clientLock)
-                        {
-                            foreach (TcpClient connectedClient in clients.ToList())
-                            {
-                                SafeCloseClient(connectedClient);
-                            }
-                            clients.Clear();
-                        }
+                        connectedClient = await ConnectClientAsync(token).ConfigureAwait(false);
                     }
-                    break;
-                }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        failedAttempts++;
+                        string message = $"TCP连接失败:{info.Name} {ex.GetBaseException().Message}";
+                        SetState(info.AutoReconnect, false,
+                            info.AutoReconnect ? TcpConnectionState.Reconnecting : TcpConnectionState.Faulted,
+                            message);
+                        log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, info.Name, message,
+                            null, $"{info.RemoteAddress}:{info.RemotePort}", ex));
+                        firstAttempt.TrySetResult(false);
+                        if (!info.AutoReconnect) return;
+                        await Task.Delay(GetReconnectDelayMs(failedAttempts), token).ConfigureAwait(false);
+                        continue;
+                    }
 
-                if (accepted == null)
+                    lock (clientLock)
+                    {
+                        client = connectedClient;
+                        clients.Clear();
+                        clients.Add(connectedClient);
+                    }
+                    failedAttempts = 0;
+                    SetState(true, true, TcpConnectionState.Connected, string.Empty);
+                    firstAttempt.TrySetResult(true);
+                    await ReadLoopAsync(connectedClient, token).ConfigureAwait(false);
+                    if (token.IsCancellationRequested) break;
+
+                    string disconnected = $"TCP连接已断开:{info.Name}";
+                    if (!info.AutoReconnect)
+                    {
+                        SetState(false, false, TcpConnectionState.Faulted, disconnected);
+                        return;
+                    }
+                    failedAttempts = 1;
+                    SetState(true, false, TcpConnectionState.Reconnecting, disconnected);
+                    await Task.Delay(GetReconnectDelayMs(failedAttempts), token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                firstAttempt.TrySetCanceled();
+                if (token.IsCancellationRequested)
                 {
-                    continue;
+                    SetState(false, false, TcpConnectionState.Stopped, string.Empty);
                 }
+            }
+        }
 
-                lock (clientLock)
+        private async Task<TcpClient> ConnectClientAsync(CancellationToken token)
+        {
+            var candidate = new TcpClient(AddressFamily.InterNetwork);
+            try
+            {
+                if (info.LocalPort > 0)
                 {
-                    clients.Add(accepted);
+                    candidate.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 }
-
-                TrackReadTask(accepted, ReadLoopAsync(accepted, token));
+                candidate.Client.Bind(new IPEndPoint(info.LocalAddress, info.LocalPort));
+                Task connectTask = candidate.ConnectAsync(info.RemoteAddress, info.RemotePort);
+                Task timeoutTask = Task.Delay(info.ConnectTimeoutMs, token);
+                Task completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
+                if (!ReferenceEquals(completed, connectTask))
+                {
+                    SafeCloseClient(candidate);
+                    _ = connectTask.ContinueWith(task => _ = task.Exception,
+                        CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                    token.ThrowIfCancellationRequested();
+                    throw new TimeoutException($"{info.Name}连接超时");
+                }
+                await connectTask.ConfigureAwait(false);
+                return candidate;
+            }
+            catch
+            {
+                SafeCloseClient(candidate);
+                throw;
             }
         }
 
@@ -892,6 +1181,7 @@ namespace Automation
             }
             catch
             {
+                RemoveAndCloseClients(new[] { targetClient });
                 return;
             }
 
@@ -946,18 +1236,77 @@ namespace Automation
                 }
             }
 
+            RemoveAndCloseClients(new[] { targetClient });
+        }
+
+        private List<TcpClient> GetClientSnapshot()
+        {
+            lock (clientLock) return clients.ToList();
+        }
+
+        private void RemoveAndCloseClients(IEnumerable<TcpClient> targets)
+        {
+            if (targets == null) return;
+            List<TcpClient> snapshot = targets.Where(item => item != null).Distinct().ToList();
             lock (clientLock)
             {
-                clients.Remove(targetClient);
+                foreach (TcpClient target in snapshot)
+                {
+                    clients.Remove(target);
+                    if (ReferenceEquals(client, target)) client = null;
+                }
             }
-
-            SafeCloseClient(targetClient);
-
-            if (!IsServer)
+            foreach (TcpClient target in snapshot) SafeCloseClient(target);
+            int remaining;
+            lock (clientLock) remaining = clients.Count;
+            bool started = IsStarted;
+            if (IsServer)
             {
-                isRunning = false;
-                dispatcher.Close("TCP连接已断开");
+                SetState(started, remaining > 0,
+                    !started ? TcpConnectionState.Stopped
+                    : remaining > 0 ? TcpConnectionState.Connected : TcpConnectionState.Listening,
+                    string.Empty);
+                return;
             }
+
+            SetState(started, false,
+                !started ? TcpConnectionState.Stopped
+                : info.AutoReconnect ? TcpConnectionState.Reconnecting : TcpConnectionState.Faulted,
+                started ? $"TCP连接已断开:{info.Name}" : string.Empty);
+        }
+
+        private void SetState(bool started, bool connected, TcpConnectionState state, string error)
+        {
+            lock (stateLock)
+            {
+                isStarted = started;
+                isConnected = connected;
+                connectionState = state;
+                lastError = error ?? string.Empty;
+            }
+        }
+
+        private static int GetReconnectDelayMs(int failedAttempts)
+        {
+            if (failedAttempts <= 1) return 1000;
+            if (failedAttempts == 2) return 2000;
+            if (failedAttempts == 3) return 5000;
+            if (failedAttempts == 4) return 10000;
+            return 30000;
+        }
+
+        private static async Task WaitBackgroundTasksAsync(IReadOnlyCollection<Task> tasks)
+        {
+            if (tasks == null || tasks.Count == 0) return;
+            Task allTasks = Task.WhenAll(tasks);
+            Task completed = await Task.WhenAny(allTasks, Task.Delay(1000)).ConfigureAwait(false);
+            if (ReferenceEquals(completed, allTasks))
+            {
+                try { await allTasks.ConfigureAwait(false); } catch { }
+                return;
+            }
+            _ = allTasks.ContinueWith(task => _ = task.Exception,
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
         }
 
         private static bool AreSameDelimiter(byte[] left, byte[] right)
@@ -973,7 +1322,7 @@ namespace Automation
             return left.SequenceEqual(right);
         }
 
-        private static void SafeCloseClient(TcpClient tcpClient)
+        internal static void SafeCloseClient(TcpClient tcpClient)
         {
             if (tcpClient == null)
             {
@@ -1293,6 +1642,8 @@ namespace Automation
         private readonly ConcurrentDictionary<string, SemaphoreSlim> lifecycleGates =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, TcpChannel> tcpChannels = new ConcurrentDictionary<string, TcpChannel>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, TcpServerListener> tcpServerListeners =
+            new ConcurrentDictionary<string, TcpServerListener>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, SerialPortChannel> serialChannels = new ConcurrentDictionary<string, SerialPortChannel>(StringComparer.OrdinalIgnoreCase);
         private int disposed;
 
@@ -1312,7 +1663,7 @@ namespace Automation
 
                 if (tcpChannels.TryGetValue(parsed.Name, out TcpChannel existing))
                 {
-                    if (existing.Matches(parsed) && existing.IsRunning)
+                    if (existing.Matches(parsed) && existing.IsStarted)
                     {
                         return;
                     }
@@ -1326,7 +1677,13 @@ namespace Automation
 
                 try
                 {
-                    await channel.StartAsync(cancellationToken).ConfigureAwait(false);
+                    TcpServerListener sharedListener = null;
+                    if (parsed.IsServer)
+                    {
+                        sharedListener = tcpServerListeners.GetOrAdd(parsed.ListenerKey,
+                            _ => new TcpServerListener(parsed.LocalAddress, parsed.LocalPort, RaiseLog));
+                    }
+                    await channel.StartAsync(cancellationToken, sharedListener).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1387,17 +1744,12 @@ namespace Automation
         public bool IsTcpActive(string name)
         {
             TcpStatus status = GetTcpStatus(name);
-            if (!status.IsRunning)
+            if (!status.IsStarted || !status.IsConnected)
             {
                 return false;
             }
 
-            if (!status.IsServer)
-            {
-                return true;
-            }
-
-            return status.ClientCount > 0;
+            return !status.IsServer || status.ClientCount > 0;
         }
 
         public async Task<bool> SendTcpAsync(string name, string message, bool convertHex, CancellationToken cancellationToken = default)
@@ -1438,7 +1790,8 @@ namespace Automation
                 {
                     string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
                     string hex = BytesToHex(payload);
-                    RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, text, hex, null, null));
+                    RaiseLog(new CommLogEventArgs(channel.Kind, CommDirection.Send, name, text, hex,
+                        channel.GetRemoteEndPointForLog(), null));
                 }
                 return true;
             }
@@ -1908,6 +2261,9 @@ namespace Automation
             Task[] tcpStops = tcpChannels.Values.Select(channel => channel.StopAsync()).ToArray();
             Task.WhenAll(tcpStops).GetAwaiter().GetResult();
             tcpChannels.Clear();
+            Task[] listenerStops = tcpServerListeners.Values.Select(listener => listener.StopAsync()).ToArray();
+            Task.WhenAll(listenerStops).GetAwaiter().GetResult();
+            tcpServerListeners.Clear();
 
             Task[] serialStops = serialChannels.Values.Select(channel => channel.StopAsync()).ToArray();
             Task.WhenAll(serialStops).GetAwaiter().GetResult();
@@ -2123,13 +2479,36 @@ namespace Automation
             {
                 throw new InvalidOperationException($"TCP类型无效:{info.Name}-{info.Type}");
             }
-            if (string.IsNullOrWhiteSpace(info.Address) || !IPAddress.TryParse(info.Address, out IPAddress address))
+            if (string.IsNullOrWhiteSpace(info.LocalAddress)
+                || !IPAddress.TryParse(info.LocalAddress, out IPAddress localAddress))
             {
-                throw new InvalidOperationException($"TCP地址无效:{info.Name}-{info.Address}");
+                throw new InvalidOperationException($"TCP本地地址无效:{info.Name}-{info.LocalAddress}");
             }
-            if (info.Port <= 0 || info.Port > 65535)
+            if (localAddress.AddressFamily != AddressFamily.InterNetwork)
             {
-                throw new InvalidOperationException($"TCP端口无效:{info.Name}-{info.Port}");
+                throw new InvalidOperationException($"TCP本地地址仅支持IPv4:{info.Name}-{info.LocalAddress}");
+            }
+            if (info.LocalPort < 0 || info.LocalPort > 65535 || (isServer && info.LocalPort == 0))
+            {
+                throw new InvalidOperationException($"TCP本地端口无效:{info.Name}-{info.LocalPort}");
+            }
+
+            bool acceptAnyRemoteAddress = isServer
+                && string.Equals(info.RemoteAddress, "*", StringComparison.Ordinal);
+            IPAddress remoteAddress = null;
+            if (!acceptAnyRemoteAddress
+                && (string.IsNullOrWhiteSpace(info.RemoteAddress)
+                    || !IPAddress.TryParse(info.RemoteAddress, out remoteAddress)))
+            {
+                throw new InvalidOperationException($"TCP远端地址无效:{info.Name}-{info.RemoteAddress}");
+            }
+            if (remoteAddress != null && remoteAddress.AddressFamily != AddressFamily.InterNetwork)
+            {
+                throw new InvalidOperationException($"TCP远端地址仅支持IPv4:{info.Name}-{info.RemoteAddress}");
+            }
+            if (info.RemotePort < 0 || info.RemotePort > 65535 || (!isServer && info.RemotePort == 0))
+            {
+                throw new InvalidOperationException($"TCP远端端口无效:{info.Name}-{info.RemotePort}");
             }
 
             int timeout = connectTimeoutMs > 0 ? connectTimeoutMs : info.ConnectTimeoutMs;
@@ -2144,8 +2523,12 @@ namespace Automation
             {
                 Name = info.Name,
                 IsServer = isServer,
-                Address = address,
-                Port = info.Port,
+                LocalAddress = localAddress,
+                LocalPort = info.LocalPort,
+                RemoteAddress = remoteAddress,
+                AcceptAnyRemoteAddress = acceptAnyRemoteAddress,
+                RemotePort = info.RemotePort,
+                AutoReconnect = !isServer && info.AutoReconnect,
                 ConnectTimeoutMs = timeout,
                 FrameSettings = frameSettings
             };

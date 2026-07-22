@@ -65,6 +65,7 @@ namespace Automation
                 client = new ModbusTcpNet(config.IpAddress, config.Port, (byte)config.UnitId)
                 {
                     ConnectTimeOut = config.ConnectTimeoutMs,
+                    ReceiveTimeOut = config.ReceiveTimeoutMs,
                     AddressStartWithZero = config.AddressStartWithZero,
                     IsStringReverse = config.IsStringReverse,
                     DataFormat = ParseDataFormat(config.DataFormat)

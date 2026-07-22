@@ -46,7 +46,7 @@ namespace Automation
             options.AddRange(processes.Select(proc => new VariableScopeOption
             {
                 Key = BuildScopeOptionKey(VariableScopeContract.Process, proc.head.Id),
-                Text = $"流程私有 · {proc.head.Name}",
+                Text = proc.head.Name ?? proc.head.Id.ToString("D"),
                 Scope = VariableScopeContract.Process,
                 OwnerProcId = proc.head.Id
             }));
@@ -94,7 +94,7 @@ namespace Automation
             if (string.Equals(value.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
             {
                 string ownerName = ResolveOwnerProcessName(value.OwnerProcId, processNames);
-                return string.IsNullOrWhiteSpace(ownerName) ? "流程私有" : $"流程私有 · {ownerName}";
+                return string.IsNullOrWhiteSpace(ownerName) ? "所属流程缺失" : ownerName;
             }
             return string.Equals(value.Scope, VariableScopeContract.System, StringComparison.Ordinal)
                 ? "系统"

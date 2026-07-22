@@ -89,7 +89,7 @@ namespace Automation
                 for (int index = 0; index < processCount; index++)
                 {
                     EngineSnapshot snapshot = engine.GetSnapshot(index);
-                    if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                    if (snapshot != null && !snapshot.State.IsInactive())
                     {
                         allStopped = false;
                         break;

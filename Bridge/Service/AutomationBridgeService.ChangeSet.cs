@@ -157,8 +157,13 @@ namespace Automation.Bridge
                 EnsureOnlyProperties(value, "changeSet.actions[].position",
                     "beforeId", "beforeKey", "afterId", "afterKey"));
             ValidateOptionalObject(action["process"], "changeSet.actions[].process", value =>
+            {
                 EnsureOnlyProperties(value, "changeSet.actions[].process",
-                    "key", "name", "autoStart", "disable"));
+                    "key", "name", "autoStart", "disable", "parameters");
+                ValidateObjectArray(value["parameters"], "changeSet.actions[].process.parameters", parameter =>
+                    EnsureOnlyProperties(parameter, "changeSet.actions[].process.parameters[]",
+                        "name", "direction", "type", "variableName", "required", "defaultValue"));
+            });
             ValidateOptionalObject(action["step"], "changeSet.actions[].step", value =>
                 EnsureOnlyProperties(value, "changeSet.actions[].step", "key", "name", "disable"));
             ValidateOptionalObject(action["operation"], "changeSet.actions[].operation",
@@ -717,7 +722,7 @@ namespace Automation.Bridge
         private void CommitChangeSet(AiChangeSetCompileResult draft)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("提交语义变更集");
+            EnsureAllProcsInactiveForAiStructureCommit("提交语义变更集");
             if (runtime.Maintenance.Active)
             {
                 throw new BridgeRequestException(423, "CONFIG_MAINTENANCE_ACTIVE",

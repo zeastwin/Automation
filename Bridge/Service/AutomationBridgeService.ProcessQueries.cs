@@ -54,7 +54,8 @@ namespace Automation.Bridge
                     ["name"] = proc?.head?.Name ?? string.Empty,
                     ["autoStart"] = proc?.head?.AutoStart ?? false,
                     ["disable"] = proc?.head?.Disable ?? false,
-                    ["state"] = snapshot?.State.ToString() ?? ProcRunState.Stopped.ToString(),
+                    ["state"] = snapshot?.State.ToString() ?? ProcRunState.Ready.ToString(),
+                    ["runId"] = snapshot?.RunId == Guid.Empty ? string.Empty : snapshot?.RunId.ToString("D"),
                     ["stepCount"] = proc?.steps?.Count ?? 0
                 };
 

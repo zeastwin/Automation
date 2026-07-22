@@ -53,9 +53,9 @@ namespace Automation
             for (int i = 0; i < runtime.Stores.Processes.Items.Count; i++)
             {
                 EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(i);
-                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
+                if (snapshot != null && !snapshot.State.IsInactive())
                 {
-                    Warn("流程列表的新增、删除、复制或重排会改变procIndex，仅允许在全部流程Stopped后操作。流程内部的参数和步骤/指令编辑不受此门禁影响。",
+                    Warn("流程列表的新增、删除、复制或重排会改变procIndex，仅允许在全部流程处于就绪或停止后操作。流程内部的参数和步骤/指令编辑不受此门禁影响。",
                         "流程结构不可编辑");
                     return false;
                 }

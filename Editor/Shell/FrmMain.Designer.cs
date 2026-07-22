@@ -45,7 +45,7 @@ namespace Automation
             this.MenuPanel.Dock = System.Windows.Forms.DockStyle.Top;
             this.MenuPanel.Location = new System.Drawing.Point(0, 0);
             this.MenuPanel.Name = "MenuPanel";
-            this.MenuPanel.Size = new System.Drawing.Size(1584, 83);
+            this.MenuPanel.Size = new System.Drawing.Size(1584, 96);
             this.MenuPanel.TabIndex = 0;
             // 
             // state_panel
@@ -64,9 +64,9 @@ namespace Automation
             this.main_panel.Controls.Add(this.treeView_panel);
             this.main_panel.Controls.Add(this.ToolBar_panel);
             this.main_panel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.main_panel.Location = new System.Drawing.Point(0, 83);
+            this.main_panel.Location = new System.Drawing.Point(0, 96);
             this.main_panel.Name = "main_panel";
-            this.main_panel.Size = new System.Drawing.Size(1584, 815);
+            this.main_panel.Size = new System.Drawing.Size(1584, 802);
             this.main_panel.TabIndex = 3;
             // 
             // DataGrid_panel
@@ -74,13 +74,13 @@ namespace Automation
             this.DataGrid_panel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.DataGrid_panel.Location = new System.Drawing.Point(235, 43);
             this.DataGrid_panel.Name = "DataGrid_panel";
-            this.DataGrid_panel.Size = new System.Drawing.Size(1011, 504);
+            this.DataGrid_panel.Size = new System.Drawing.Size(1011, 491);
             this.DataGrid_panel.TabIndex = 9;
             // 
             // panel_Info
             // 
             this.panel_Info.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.panel_Info.Location = new System.Drawing.Point(235, 547);
+            this.panel_Info.Location = new System.Drawing.Point(235, 534);
             this.panel_Info.Margin = new System.Windows.Forms.Padding(0);
             this.panel_Info.Name = "panel_Info";
             this.panel_Info.Size = new System.Drawing.Size(1011, 268);
@@ -91,7 +91,7 @@ namespace Automation
             this.inspector_panel.Dock = System.Windows.Forms.DockStyle.Right;
             this.inspector_panel.Location = new System.Drawing.Point(1224, 43);
             this.inspector_panel.Name = "inspector_panel";
-            this.inspector_panel.Size = new System.Drawing.Size(360, 772);
+            this.inspector_panel.Size = new System.Drawing.Size(360, 759);
             this.inspector_panel.TabIndex = 6;
             // 
             // treeView_panel
@@ -99,7 +99,7 @@ namespace Automation
             this.treeView_panel.Dock = System.Windows.Forms.DockStyle.Left;
             this.treeView_panel.Location = new System.Drawing.Point(0, 43);
             this.treeView_panel.Name = "treeView_panel";
-            this.treeView_panel.Size = new System.Drawing.Size(235, 772);
+            this.treeView_panel.Size = new System.Drawing.Size(235, 759);
             this.treeView_panel.TabIndex = 4;
             // 
             // ToolBar_panel

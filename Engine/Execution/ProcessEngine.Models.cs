@@ -24,7 +24,7 @@ namespace Automation
 {
     public class ProcHandle
     {
-        private int state = (int)ProcRunState.Stopped;
+        private int state = (int)ProcRunState.Ready;
         private int breakpointFlag;
         private int gotoFlag;
         private int pauseBySignalFlag;
@@ -38,7 +38,9 @@ namespace Automation
         private int cachedSourceStep = int.MinValue;
         private int cachedSourceOperation = int.MinValue;
         private string cachedOperationSource;
-        private long lastProgressSnapshotTimestamp;
+        private long observedPosition = long.MinValue;
+        private long positionRevision;
+        private long publishedPositionRevision;
 
         public int procNum;
         public int stepNum
@@ -54,6 +56,7 @@ namespace Automation
 
         public string procName;
         public Guid procId;
+        public Guid RunId { get; internal set; }
 
         // 工作线程和命令线程共享的唯一逻辑状态；对外读取统一使用 EngineSnapshot。
         public ProcRunState State
@@ -61,7 +64,7 @@ namespace Automation
             get => (ProcRunState)Volatile.Read(ref state);
             internal set
             {
-                if (value < ProcRunState.Stopped || value > ProcRunState.Stopping)
+                if (value < ProcRunState.Stopped || value > ProcRunState.Ready)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value));
                 }
@@ -127,10 +130,53 @@ namespace Automation
 
         internal ProcessRunMetrics RunMetrics { get; set; }
 
-        internal long LastProgressSnapshotTimestamp
+        internal Dictionary<string, CycleTimeProbeState> CycleTimeProbes { get; } =
+            new Dictionary<string, CycleTimeProbeState>(StringComparer.Ordinal);
+
+        internal void InitializePositionTracking()
         {
-            get => Interlocked.Read(ref lastProgressSnapshotTimestamp);
-            set => Interlocked.Exchange(ref lastProgressSnapshotTimestamp, value);
+            Interlocked.Exchange(ref observedPosition, PackPosition(stepNum, opsNum));
+            Interlocked.Exchange(ref positionRevision, 0);
+            Interlocked.Exchange(ref publishedPositionRevision, 0);
+        }
+
+        internal void MarkPositionChanged()
+        {
+            long current = PackPosition(stepNum, opsNum);
+            long previous = Interlocked.Exchange(ref observedPosition, current);
+            if (previous != current)
+            {
+                Interlocked.Increment(ref positionRevision);
+            }
+        }
+
+        internal bool HasUnpublishedPosition =>
+            Interlocked.Read(ref positionRevision) != Interlocked.Read(ref publishedPositionRevision);
+
+        internal long CapturePositionRevision()
+        {
+            return Interlocked.Read(ref positionRevision);
+        }
+
+        internal void MarkPositionSnapshotPublished(long revision)
+        {
+            while (true)
+            {
+                long previous = Interlocked.Read(ref publishedPositionRevision);
+                if (previous >= revision)
+                {
+                    return;
+                }
+                if (Interlocked.CompareExchange(ref publishedPositionRevision, revision, previous) == previous)
+                {
+                    return;
+                }
+            }
+        }
+
+        private static long PackPosition(int stepIndex, int operationIndex)
+        {
+            return ((long)stepIndex << 32) | (uint)operationIndex;
         }
 
         internal HighResolutionWaiter Waiter { get; set; }
@@ -158,6 +204,7 @@ namespace Automation
         private long durationSampleCount;
         private long totalSampledOperationTicks;
         private long maxSampledOperationTicks;
+        private long retryCount;
         private int durationSequence;
 
         public bool ShouldMeasureDuration()
@@ -185,44 +232,97 @@ namespace Automation
             }
         }
 
-        public ProcessRunAuditSnapshot CreateSnapshot(int procIndex, Guid procId)
+        public void RecordRetry()
+        {
+            retryCount++;
+        }
+
+        public ProcessRunAuditSnapshot CreateSnapshot(ProcHandle handle)
         {
             return new ProcessRunAuditSnapshot(
-                procIndex,
-                procId,
+                handle?.procNum ?? -1,
+                handle?.procId ?? Guid.Empty,
+                handle?.RunId ?? Guid.Empty,
                 operationCount,
                 failedCount,
+                retryCount,
                 durationSampleCount,
                 totalSampledOperationTicks,
                 maxSampledOperationTicks,
-                DurationSamplingInterval);
+                DurationSamplingInterval,
+                handle?.TerminationReason ?? ProcTerminationReason.None,
+                handle?.alarmMsg);
         }
     }
 
     internal readonly struct ProcessRunAuditSnapshot
     {
-        public ProcessRunAuditSnapshot(int procIndex, Guid procId, long operationCount, long failedCount,
+        public ProcessRunAuditSnapshot(int procIndex, Guid procId, Guid runId,
+            long operationCount, long failedCount, long retryCount,
             long durationSampleCount, long totalSampledOperationTicks, long maxSampledOperationTicks,
-            int durationSamplingInterval)
+            int durationSamplingInterval, ProcTerminationReason terminationReason, string alarmMessage)
         {
             ProcIndex = procIndex;
             ProcId = procId;
+            RunId = runId;
             OperationCount = operationCount;
             FailedCount = failedCount;
+            RetryCount = retryCount;
             DurationSampleCount = durationSampleCount;
             TotalSampledOperationTicks = totalSampledOperationTicks;
             MaxSampledOperationTicks = maxSampledOperationTicks;
             DurationSamplingInterval = durationSamplingInterval;
+            TerminationReason = terminationReason;
+            AlarmMessage = alarmMessage;
         }
 
         public int ProcIndex { get; }
         public Guid ProcId { get; }
+        public Guid RunId { get; }
         public long OperationCount { get; }
         public long FailedCount { get; }
+        public long RetryCount { get; }
         public long DurationSampleCount { get; }
         public long TotalSampledOperationTicks { get; }
         public long MaxSampledOperationTicks { get; }
         public int DurationSamplingInterval { get; }
+        public ProcTerminationReason TerminationReason { get; }
+        public string AlarmMessage { get; }
+    }
+
+    internal readonly struct ProcessRunStartedSnapshot
+    {
+        public ProcessRunStartedSnapshot(int procIndex, Guid procId, Guid runId)
+        {
+            ProcIndex = procIndex;
+            ProcId = procId;
+            RunId = runId;
+        }
+
+        public int ProcIndex { get; }
+        public Guid ProcId { get; }
+        public Guid RunId { get; }
+    }
+
+    internal sealed class CycleTimeProbeState
+    {
+        public long CycleStartedTicks { get; set; }
+        public long LastProbeTicks { get; set; }
+        public int SegmentIndex { get; set; }
+    }
+
+    public sealed class CycleTimeProbeSample
+    {
+        public Guid RunId { get; internal set; }
+        public Guid ProcId { get; internal set; }
+        public int ProcIndex { get; internal set; }
+        public string TaskKey { get; internal set; }
+        public string SegmentName { get; internal set; }
+        public int SegmentIndex { get; internal set; }
+        public bool CycleStarted { get; internal set; }
+        public double SegmentMilliseconds { get; internal set; }
+        public double CycleMilliseconds { get; internal set; }
+        public DateTime RecordedAtUtc { get; internal set; }
     }
 
     internal readonly struct OperationFailureEntry
@@ -333,13 +433,15 @@ namespace Automation
             bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks,
             long publishedRevision = 0, long appliedRevision = 0)
             : this(procIndex, procId, procName, state, stepIndex, opIndex, isBreakpoint, alarmMessage,
-                updateTime, updateTicks, publishedRevision, appliedRevision, ProcTerminationReason.None)
+                updateTime, updateTicks, publishedRevision, appliedRevision, ProcTerminationReason.None,
+                Guid.Empty)
         {
         }
 
         public EngineSnapshot(int procIndex, Guid procId, string procName, ProcRunState state, int stepIndex, int opIndex,
             bool isBreakpoint, string alarmMessage, DateTime updateTime, long updateTicks,
-            long publishedRevision, long appliedRevision, ProcTerminationReason terminationReason)
+            long publishedRevision, long appliedRevision, ProcTerminationReason terminationReason,
+            Guid runId = default(Guid))
         {
             ProcIndex = procIndex;
             ProcId = procId;
@@ -354,6 +456,7 @@ namespace Automation
             PublishedRevision = publishedRevision;
             AppliedRevision = appliedRevision;
             TerminationReason = terminationReason;
+            RunId = runId;
         }
 
         public int ProcIndex { get; }
@@ -370,6 +473,7 @@ namespace Automation
         public long PublishedRevision { get; }
         public long AppliedRevision { get; }
         public ProcTerminationReason TerminationReason { get; }
+        public Guid RunId { get; }
         public ProcessPerformanceSnapshot Performance { get; internal set; }
     }
 

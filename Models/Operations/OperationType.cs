@@ -345,6 +345,98 @@ namespace Automation
         }
 
     }
+
+    [Serializable]
+    public abstract class CommunicationOperationType : OperationType
+    {
+        [DisplayName("重试次数"), Category("失败重试"), Description("通信失败后的额外重试次数；0表示只执行一次，并跳过接收结果判定。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
+        [NumericRange(0, 10)]
+        public int RetryCount { get; set; }
+
+        [DisplayName("重试间隔(ms)"), Category("失败重试"), Description("每次失败后到下一次通信之间的固定等待时间，不使用退避。"), ReadOnly(false)]
+        [NumericRange(0, 60000)]
+        public int RetryIntervalMs { get; set; }
+    }
+
+    [Serializable]
+    public abstract class ResponseCommunicationOperationType : CommunicationOperationType, IPropertyVisibilityProvider
+    {
+        protected ResponseCommunicationOperationType()
+        {
+            ParamListConverter<CommunicationResponseCondition>.Name = "结果判定";
+            ResponseConditions = new CustomList<CommunicationResponseCondition>();
+        }
+
+        [DisplayName("结果判定"), Category("接收结果判定"), Description("仅重试次数大于0时执行；支持变量值、文本和JSON字段判定，失败后按固定间隔重试通信。"), ReadOnly(false)]
+        [InlineList("结果判定", "接收结果判定", MaxItems = 20)]
+        [TypeConverter(typeof(ParamListConverter<CommunicationResponseCondition>))]
+        public CustomList<CommunicationResponseCondition> ResponseConditions { get; set; }
+
+        public virtual bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            return propertyName != nameof(ResponseConditions) || RetryCount > 0;
+        }
+
+        public virtual bool ShouldSerializeResponseConditions() => RetryCount > 0;
+
+        internal virtual bool ShouldEvaluateResponseConditions => true;
+    }
+
+    [TypeConverter(typeof(SerializableExpandableObjectConverter))]
+    [Serializable]
+    public sealed class CommunicationResponseCondition : IPropertyVisibilityProvider
+    {
+        private string judgeMode = "非空";
+
+        [DisplayName("来源变量"), Category("判定"), Description("接收结果或PLC读取结果所在变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string SourceVariableName { get; set; }
+
+        [DisplayName("JSON字段路径"), Category("判定"), Description("可选，按点分隔的精确字段路径，例如 data.code；为空时判断整个变量值。"), ReadOnly(false)]
+        public string JsonFieldPath { get; set; }
+
+        [DisplayName("判断模式"), Category("判定"), Description("支持非空、字段存在、文本相等/包含和数值区间判断。"), ReadOnly(false), RefreshProperties(RefreshProperties.All), TypeConverter(typeof(CommunicationResponseJudgeModeItem))]
+        public string JudgeMode
+        {
+            get => judgeMode;
+            set => judgeMode = value;
+        }
+
+        [DisplayName("上限"), Category("判定"), Description("数值区间判断的上限。"), ReadOnly(false)]
+        public double Up { get; set; }
+
+        [DisplayName("下限"), Category("判定"), Description("数值边界或区间下限。"), ReadOnly(false)]
+        public double Down { get; set; }
+
+        [DisplayName("期望文本"), Category("判定"), Description("文本相等或包含模式下的期望内容。"), ReadOnly(false)]
+        public string ExpectedText { get; set; }
+
+        [DisplayName("包含边界"), Category("判定"), Description("数值判断时是否包含等号。"), ReadOnly(false)]
+        public bool IncludeBoundary { get; set; }
+
+        [DisplayName("运算符"), Category("判定"), Description("与上一条条件使用“且”或“或”组合；第一条忽略此字段。"), ReadOnly(false), TypeConverter(typeof(Operator))]
+        public string Operator { get; set; } = "且";
+
+        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            bool numeric = judgeMode == "值在区间左" || judgeMode == "值在区间右"
+                || judgeMode == "值在区间内";
+            bool text = judgeMode == "等于特征字符" || judgeMode == "包含特征字符";
+            switch (propertyName)
+            {
+                case nameof(Up):
+                    return judgeMode == "值在区间内";
+                case nameof(Down):
+                case nameof(IncludeBoundary):
+                    return numeric;
+                case nameof(ExpectedText):
+                    return text;
+                default:
+                    return defaultVisibility;
+            }
+        }
+
+        public override string ToString() => string.Empty;
+    }
     [Serializable]
     public class CallCustomFunc : OperationType
     {
@@ -527,6 +619,29 @@ namespace Automation
         public CustomList<ProcParam> Params { get; set; }
 
     }
+    [Serializable]
+    public class CycleTimeProbe : OperationType
+    {
+        public CycleTimeProbe()
+        {
+            OperaType = "CT探针";
+        }
+
+        [DisplayName("任务标识"), Category("计时"), Description("同一流程运行内一组探针共享的稳定标识。"), ReadOnly(false)]
+        public string TaskKey { get; set; }
+
+        [DisplayName("分段名称"), Category("计时"), Description("当前探针代表的业务阶段名称。"), ReadOnly(false)]
+        public string SegmentName { get; set; }
+
+        [DisplayName("计时起点"), Category("计时"), Description("为 true 时重置本任务并开始一个新周期。"), ReadOnly(false)]
+        public bool StartNewCycle { get; set; }
+
+        [DisplayName("分段耗时变量"), Category("结果"), Description("可选 double 变量，写入距上一个探针的毫秒数。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string SegmentMillisecondsVariableName { get; set; }
+
+        [DisplayName("累计耗时变量"), Category("结果"), Description("可选 double 变量，写入距计时起点的累计毫秒数。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string CycleMillisecondsVariableName { get; set; }
+    }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
     public class ProcParam
@@ -536,7 +651,7 @@ namespace Automation
         [DisplayName("流程变量"), Category("参数"), Description("流程名来源变量；用于运行时动态选择目标流程。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ProcValue { get; set; }
 
-        [DisplayName("操作类型"), Category("参数"), Description("目标状态类型（如运行/停止）；用于流程协同判定。"), ReadOnly(false), TypeConverter(typeof(ProcItemOps))]
+        [DisplayName("操作类型"), Category("参数"), Description("运行表示启动目标流程；停止表示停止目标流程。"), ReadOnly(false), TypeConverter(typeof(ProcItemOps))]
         public string TargetState { get; set; }
 
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
@@ -587,7 +702,7 @@ namespace Automation
         [DisplayName("流程变量"), Category("参数"), Description("流程名来源变量；用于运行时动态选择目标流程。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ProcValue { get; set; }
 
-        [DisplayName("操作类型"), Category("参数"), Description("目标状态类型（如运行/停止）；用于流程协同判定。"), ReadOnly(false), TypeConverter(typeof(ProcItemOps))]
+        [DisplayName("等待状态"), Category("参数"), Description("运行表示流程正在执行；就绪表示自然完成；停止表示收到停止请求或异常结束。"), ReadOnly(false), TypeConverter(typeof(ProcWaitStateItem))]
         public string TargetState { get; set; }
 
         public override string ToString()
@@ -1277,6 +1392,15 @@ namespace Automation
                 new SetDataStructItemParam()
             };
         }
+        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用结构体名称、数据项名称和字段名称；关闭时继续使用原索引。"), ReadOnly(false)]
+        public bool UseNameAddressing { get; set; }
+
+        [DisplayName("结构体名称"), Category("参数"), Description("按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string StructName { get; set; }
+
+        [DisplayName("数据项名称"), Category("参数"), Description("按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        public string ItemName { get; set; }
+
         [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
         public int StructIndex { get; set; }
@@ -1300,6 +1424,9 @@ namespace Automation
         [NumericRange(0)]
         public int FieldIndex { get; set; }
 
+        [DisplayName("字段名称"), Category("参数"), Description("按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        public string FieldName { get; set; }
+
         [DisplayName("值"), Category("参数"), Description("固定值内容。"), ReadOnly(false)]
         public string Value { get; set; }
 
@@ -1320,6 +1447,15 @@ namespace Automation
                 new GetDataStructItemParam()
             };
         }
+        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用结构体名称、数据项名称和字段名称；关闭时继续使用原索引。"), ReadOnly(false)]
+        public bool UseNameAddressing { get; set; }
+
+        [DisplayName("结构体名称"), Category("参数"), Description("按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string StructName { get; set; }
+
+        [DisplayName("数据项名称"), Category("参数"), Description("按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        public string ItemName { get; set; }
+
         [DisplayName("是否获取所有项"), Category("参数"), Description("启用后按数量连续读取多个数据项。"), ReadOnly(false)]
         public bool IsAllItem { get; set; }
 
@@ -1350,6 +1486,9 @@ namespace Automation
         [NumericRange(0)]
         public int FieldIndex { get; set; }
 
+        [DisplayName("字段名称"), Category("参数"), Description("按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        public string FieldName { get; set; }
+
         [DisplayName("结果变量索引"), Category("参数"), Description("当前结构体字段直接写入的目标变量索引。"), ReadOnly(false)]
         public string OutputValueIndex { get; set; }
 
@@ -1373,6 +1512,24 @@ namespace Automation
                 new CopyDataStructItemParam()
             };
         }
+        [DisplayName("源按名称寻址"), Category("参数"), Description("启用后源严格使用结构体名称、数据项名称和字段名称；关闭时继续使用源索引。"), ReadOnly(false)]
+        public bool UseSourceNameAddressing { get; set; }
+
+        [DisplayName("源结构体名称"), Category("参数"), Description("源按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string SourceStructName { get; set; }
+
+        [DisplayName("源数据项名称"), Category("参数"), Description("源按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        public string SourceItemName { get; set; }
+
+        [DisplayName("目标按名称寻址"), Category("参数"), Description("启用后目标严格使用结构体名称、数据项名称和字段名称；关闭时继续使用目标索引。"), ReadOnly(false)]
+        public bool UseTargetNameAddressing { get; set; }
+
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string TargetStructName { get; set; }
+
+        [DisplayName("目标数据项名称"), Category("参数"), Description("目标按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        public string TargetItemName { get; set; }
+
         [DisplayName("是否复制所有项"), Category("参数"), Description("启用后从起始项开始按数量连续复制。"), ReadOnly(false)]
         public bool IsAllValue { get; set; }
 
@@ -1408,9 +1565,15 @@ namespace Automation
         [NumericRange(0)]
         public int SourceFieldIndex { get; set; }
 
+        [DisplayName("源字段名称"), Category("参数"), Description("源按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        public string SourceFieldName { get; set; }
+
         [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
         public int TargetFieldIndex { get; set; }
+
+        [DisplayName("目标字段名称"), Category("参数"), Description("目标按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        public string TargetFieldName { get; set; }
 
         public override string ToString()
         {
@@ -1429,6 +1592,12 @@ namespace Automation
                 new InsertDataStructItemParam()
             };
         }
+
+        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。插入位置始终使用数据项索引。"), ReadOnly(false)]
+        public bool UseStructNameAddressing { get; set; }
+
+        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string TargetStructName { get; set; }
 
         [DisplayName("数据项名称"), Category("参数"), Description("插入后新数据项的名称。"), ReadOnly(false)]
         public string ItemName { get; set; }
@@ -1474,6 +1643,15 @@ namespace Automation
             OperaType = "删除结构体数据项";
         }
 
+        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称和数据项名称；关闭时继续使用原索引。"), ReadOnly(false)]
+        public bool UseNameAddressing { get; set; }
+
+        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string TargetStructName { get; set; }
+
+        [DisplayName("目标数据项名称"), Category("参数"), Description("按名称寻址时使用的目标数据项精确名称。"), ReadOnly(false)]
+        public string TargetItemName { get; set; }
+
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
         public int TargetStructIndex { get; set; }
@@ -1490,6 +1668,12 @@ namespace Automation
         {
             OperaType = "查找结构体数据项";
         }
+
+        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。"), ReadOnly(false)]
+        public bool UseStructNameAddressing { get; set; }
+
+        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string TargetStructName { get; set; }
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
@@ -1516,6 +1700,12 @@ namespace Automation
         {
             OperaType = "获取结构体数量";
         }
+
+        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。"), ReadOnly(false)]
+        public bool UseStructNameAddressing { get; set; }
+
+        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        public string TargetStructName { get; set; }
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
@@ -1554,11 +1744,11 @@ namespace Automation
     [Serializable]
     public class TcpOpsParam
     {
-        [DisplayName("对象名称"), Category("参数"), Description("通讯对象名称；运行时按名称定位TCP/串口通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        [DisplayName("对象名称"), Category("参数"), Description("TCP逻辑通道精确名称；Server通道可按远端条件绑定独立会话。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
 
         public string Name { get; set; }
 
-        [DisplayName("操作"), Category("参数"), Description("连接操作类型（启动/断开），用于控制通道生命周期。"), ReadOnly(false), TypeConverter(typeof(CommunicationOps))]
+        [DisplayName("操作"), Category("参数"), Description("启动只建立通道生命周期：Server进入监听，Client进入连接或自动重连；断开会停止通道。"), ReadOnly(false), TypeConverter(typeof(CommunicationOps))]
 
         public string Ops { get; set; }
         public override string ToString()
@@ -1595,7 +1785,7 @@ namespace Automation
             TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
-        [DisplayName("对象名称"), Category("参数"), Description("通讯对象名称；运行时按名称定位TCP/串口通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        [DisplayName("对象名称"), Category("参数"), Description("TCP逻辑通道精确名称；等待真实活动连接，监听中、连接中和重连中均不算成功。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
 
         public string Name { get; set; }
 
@@ -1610,7 +1800,7 @@ namespace Automation
     }
 
     [Serializable]
-    public class SendTcpMsg : OperationType
+    public class SendTcpMsg : CommunicationOperationType
     {
         public SendTcpMsg()
         {
@@ -1618,7 +1808,7 @@ namespace Automation
             TimeoutMs = 3000;
         }
 
-        [DisplayName("通讯对象"), Category("参数"), Description("TCP通讯对象名称；用于绑定具体发送通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        [DisplayName("通讯对象"), Category("参数"), Description("TCP逻辑通道精确名称；Server具体远端通道定向发送，通配通道可能向多个会话广播。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
         public string ConnectionName { get; set; }
 
         [DisplayName("发送信息"), Category("参数"), Description("发送内容来源变量；运行时读取变量值并下发。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1635,7 +1825,7 @@ namespace Automation
 
 
     [Serializable]
-    public class ReceiveTcpMsg : OperationType
+    public class ReceiveTcpMsg : ResponseCommunicationOperationType
     {
         public ReceiveTcpMsg()
         {
@@ -1643,7 +1833,7 @@ namespace Automation
             TimeoutMs = TimeoutSetting.DefaultTimeoutMs;
         }
 
-        [DisplayName("通讯对象"), Category("参数"), Description("TCP通讯对象名称；用于绑定具体接收通道。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
+        [DisplayName("通讯对象"), Category("参数"), Description("TCP逻辑通道精确名称；Server只接收被路由到该通道的会话消息。"), ReadOnly(false), TypeConverter(typeof(TcpItem))]
         public string ConnectionName { get; set; }
 
         [DisplayName("接收信息"), Category("参数"), Description("接收结果保存变量；收到数据后写入该变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1739,7 +1929,7 @@ namespace Automation
     }
 
     [Serializable]
-    public class SendSerialPortMsg : OperationType
+    public class SendSerialPortMsg : CommunicationOperationType
     {
         public SendSerialPortMsg()
         {
@@ -1764,7 +1954,7 @@ namespace Automation
 
 
     [Serializable]
-    public class ReceiveSerialPortMsg : OperationType
+    public class ReceiveSerialPortMsg : ResponseCommunicationOperationType
     {
         public ReceiveSerialPortMsg()
         {
@@ -1789,7 +1979,7 @@ namespace Automation
     }
 
     [Serializable]
-    public class SendReceiveCommMsg : OperationType
+    public class SendReceiveCommMsg : ResponseCommunicationOperationType
     {
         public SendReceiveCommMsg()
         {
@@ -1801,7 +1991,7 @@ namespace Automation
         [DisplayName("通讯类型"), Category("参数"), Description("通讯类型（TCP/串口）选择，决定通讯对象可选范围。"), ReadOnly(false), TypeConverter(typeof(CommType))]
         public string CommType { get; set; }
 
-        [DisplayName("通讯对象"), Category("参数"), Description("通讯对象名称；用于绑定具体发送/接收通道。"), ReadOnly(false), TypeConverter(typeof(CommItem))]
+        [DisplayName("通讯对象"), Category("参数"), Description("通讯对象精确名称；TCP Server请求响应要求该逻辑通道恰好一个在线会话。"), ReadOnly(false), TypeConverter(typeof(CommItem))]
         public string ConnectionName { get; set; }
 
         [DisplayName("发送信息"), Category("参数"), Description("发送内容来源变量；运行时读取变量值并下发。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1822,7 +2012,7 @@ namespace Automation
     }
 
     [Serializable]
-    public class PlcReadWrite : OperationType, IPropertyVisibilityProvider
+    public class PlcReadWrite : ResponseCommunicationOperationType
     {
         public const int CurrentModelVersion = 2;
         private PlcAccessAction action;
@@ -1891,8 +2081,12 @@ namespace Automation
         [TypeConverter(typeof(PlcWriteBatchConverter))]
         public PlcWriteBatch WriteBatch { get; set; }
 
-        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
         {
+            if (propertyName == nameof(ResponseConditions))
+            {
+                return RetryCount > 0 && action == PlcAccessAction.Read;
+            }
             bool read = action == PlcAccessAction.Read;
             bool items = mode == PlcAccessMode.Items;
             switch (propertyName)
@@ -1909,6 +2103,13 @@ namespace Automation
                     return defaultVisibility;
             }
         }
+
+        public override bool ShouldSerializeResponseConditions()
+        {
+            return base.ShouldSerializeResponseConditions() && action == PlcAccessAction.Read;
+        }
+
+        internal override bool ShouldEvaluateResponseConditions => action == PlcAccessAction.Read;
 
         public bool ShouldSerializeReadItems() => action == PlcAccessAction.Read && mode == PlcAccessMode.Items;
         public bool ShouldSerializeReadBatch() => action == PlcAccessAction.Read && mode == PlcAccessMode.ContinuousBatch;

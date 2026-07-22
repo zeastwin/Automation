@@ -69,7 +69,12 @@ namespace Automation
             visited.Add(value);
             foreach (PropertyDescriptor property in TypeDescriptor.GetProperties(value).Cast<PropertyDescriptor>())
             {
-                if (property == null || !property.IsBrowsable)
+                bool browsable = property?.IsBrowsable == true;
+                if (property != null && value is IPropertyVisibilityProvider visibilityProvider)
+                {
+                    browsable = visibilityProvider.IsPropertyVisible(property.Name, browsable);
+                }
+                if (property == null || !browsable)
                 {
                     continue;
                 }

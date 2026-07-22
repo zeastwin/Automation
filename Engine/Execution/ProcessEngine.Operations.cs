@@ -37,165 +37,23 @@ namespace Automation
                 ? evt.RunMetrics.ShouldMeasureDuration()
                 : analyzePerformance;
             long traceStarted = durationMeasured ? Stopwatch.GetTimestamp() : 0;
+            bool result = false;
             try
             {
-                if ((operation is HomeRun || operation is StationRunPos
-                        || operation is TrayRunPos || operation is StationRunRel)
-                    && !TryValidateMotionResetGate(out string motionGateError))
+                if (typedOperation is CommunicationOperationType communicationOperation)
                 {
-                    MarkAlarm(evt, motionGateError);
-                    return false;
+                    return ExecuteCommunicationOperation(evt, communicationOperation);
                 }
-                switch (operation)
+                try
                 {
-                    case CallCustomFunc customFunc:
-                        return RunCustomFunc(evt, customFunc);
-
-                    case IoOperate ioOperate:
-                        return RunIoOperate(evt, ioOperate);
-
-                    case IoCheck ioCheck:
-                        return RunIoCheck(evt, ioCheck);
-
-                    case IoGroup ioGroup:
-                        return RunIoGroup(evt, ioGroup);
-
-                    case IoLogicGoto ioLogicGoto:
-                        return RunIoLogicGoto(evt, ioLogicGoto);
-
-                    case ProcOps procOps:
-                        return RunProcOps(evt, procOps);
-
-                    case WaitProc waitProc:
-                        return RunWaitProc(evt, waitProc);
-
-                    case Goto gotoOperation:
-                        return RunGoto(evt, gotoOperation);
-
-                    case ParamGoto paramGoto:
-                        return RunParamGoto(evt, paramGoto);
-
-                    case SetDataStructItem setDataStructItem:
-                        return RunSetDataStructItem(evt, setDataStructItem);
-
-                    case Delay delay:
-                        return RunDelay(evt, delay);
-
-                    case EndProcess _:
-                        evt.CompletionRequested = true;
-                        return true;
-
-                    case PopupDialog popupDialog:
-                        return RunPopupDialog(evt, popupDialog);
-
-                    case GetDataStructItem getDataStructItem:
-                        return RunGetDataStructItem(evt, getDataStructItem);
-
-                    case CopyDataStructItem copyDataStructItem:
-                        return RunCopyDataStructItem(evt, copyDataStructItem);
-
-                    case InsertDataStructItem insertDataStructItem:
-                        return RunInsertDataStructItem(evt, insertDataStructItem);
-
-                    case DelDataStructItem delDataStructItem:
-                        return RunDelDataStructItem(evt, delDataStructItem);
-
-                    case FindDataStructItem findDataStructItem:
-                        return RunFindDataStructItem(evt, findDataStructItem);
-
-                    case GetDataStructCount getDataStructCount:
-                        return RunGetDataStructCount(evt, getDataStructCount);
-
-                    case GetValue getValue:
-                        return RunGetValue(evt, getValue);
-
-                    case ModifyValue modifyValue:
-                        return RunModifyValue(evt, modifyValue);
-
-                    case StringFormat stringFormat:
-                        return RunStringFormat(evt, stringFormat);
-
-                    case Split split:
-                        return RunSplit(evt, split);
-
-                    case Replace replace:
-                        return RunReplace(evt, replace);
-
-                    case TcpOps tcpOps:
-                        return RunTcpOps(evt, tcpOps);
-
-                    case WaitTcp waitTcp:
-                        return RunWaitTcp(evt, waitTcp);
-
-                    case SendTcpMsg sendTcpMsg:
-                        return RunSendTcpMsg(evt, sendTcpMsg);
-
-                    case ReceiveTcpMsg receoveTcpMsg:
-                        return RunReceiveTcpMsg(evt, receoveTcpMsg);
-
-                    case SendSerialPortMsg sendSerialPortMsg:
-                        return RunSendSerialPortMsg(evt, sendSerialPortMsg);
-
-                    case ReceiveSerialPortMsg receoveSerialPortMsg:
-                        return RunReceiveSerialPortMsg(evt, receoveSerialPortMsg);
-
-                    case SendReceiveCommMsg sendReceoveCommMsg:
-                        return RunSendReceiveCommMsg(evt, sendReceoveCommMsg);
-
-                    case PlcReadWrite plcReadWrite:
-                        return RunPlcReadWrite(evt, plcReadWrite);
-
-                    case PlcMappingControl plcMappingControl:
-                        return RunPlcMappingControl(evt, plcMappingControl);
-
-                    case SerialPortOps serialPortOps:
-                        return RunSerialPortOps(evt, serialPortOps);
-
-                    case WaitSerialPort waitSerialPort:
-                        return RunWaitSerialPort(evt, waitSerialPort);
-
-                    case CreateTray createTray:
-                        return RunCreateTray(evt, createTray);
-
-                    case TrayRunPos trayRunPos:
-                        return RunTrayRunPos(evt, trayRunPos);
-
-                    case HomeRun homeRun:
-                        return RunHomeRun(evt, homeRun);
-
-                    case StationRunPos stationRunPos:
-                        return RunStationRunPos(evt, stationRunPos);
-
-                    case ModifyStationPos modifyStationPos:
-                        return RunModifyStationPos(evt, modifyStationPos);
-
-                    case GetStationPos getStationPos:
-                        return RunGetStationPos(evt, getStationPos);
-
-                    case StationRunRel stationRunRel:
-                        return RunStationRunRel(evt, stationRunRel);
-
-                    case SetStationVel setStationVel:
-                        return RunSetStationVel(evt, setStationVel);
-
-                    case StationStop stationStop:
-                        return RunStationStop(evt, stationStop);
-
-                    case WaitStationStop waitStationStop:
-                        return RunWaitStationStop(evt, waitStationStop);
-
-                    default:
-                        {
-                            string message = $"操作类型不支持:{operation.GetType().Name}";
-                            MarkAlarm(evt, message);
-                            return false;
-                        }
+                    result = ExecuteOperationOnce(evt, operation);
                 }
-            }
-            catch (Exception ex)
-            {
-                MarkAlarm(evt, ex.Message);
-                return false;
+                catch (Exception ex)
+                {
+                    MarkAlarm(evt, ex.Message);
+                    result = false;
+                }
+                return result;
             }
             finally
             {
@@ -222,6 +80,163 @@ namespace Automation
                         elapsedTicks,
                         durationMeasured));
                 }
+            }
+        }
+
+        private bool ExecuteOperationOnce(ProcHandle evt, object operation)
+        {
+            if ((operation is HomeRun || operation is StationRunPos
+                    || operation is TrayRunPos || operation is StationRunRel)
+                && !TryValidateMotionResetGate(out string motionGateError))
+            {
+                MarkAlarm(evt, motionGateError);
+                return false;
+            }
+            switch (operation)
+            {
+                case CallCustomFunc customFunc:
+                    return RunCustomFunc(evt, customFunc);
+
+                case IoOperate ioOperate:
+                    return RunIoOperate(evt, ioOperate);
+
+                case IoCheck ioCheck:
+                    return RunIoCheck(evt, ioCheck);
+
+                case IoGroup ioGroup:
+                    return RunIoGroup(evt, ioGroup);
+
+                case IoLogicGoto ioLogicGoto:
+                    return RunIoLogicGoto(evt, ioLogicGoto);
+
+                case ProcOps procOps:
+                    return RunProcOps(evt, procOps);
+
+                case WaitProc waitProc:
+                    return RunWaitProc(evt, waitProc);
+
+                case CycleTimeProbe cycleTimeProbe:
+                    return RunCycleTimeProbe(evt, cycleTimeProbe);
+
+                case Goto gotoOperation:
+                    return RunGoto(evt, gotoOperation);
+
+                case ParamGoto paramGoto:
+                    return RunParamGoto(evt, paramGoto);
+
+                case SetDataStructItem setDataStructItem:
+                    return RunSetDataStructItem(evt, setDataStructItem);
+
+                case Delay delay:
+                    return RunDelay(evt, delay);
+
+                case EndProcess _:
+                    evt.CompletionRequested = true;
+                    return true;
+
+                case PopupDialog popupDialog:
+                    return RunPopupDialog(evt, popupDialog);
+
+                case GetDataStructItem getDataStructItem:
+                    return RunGetDataStructItem(evt, getDataStructItem);
+
+                case CopyDataStructItem copyDataStructItem:
+                    return RunCopyDataStructItem(evt, copyDataStructItem);
+
+                case InsertDataStructItem insertDataStructItem:
+                    return RunInsertDataStructItem(evt, insertDataStructItem);
+
+                case DelDataStructItem delDataStructItem:
+                    return RunDelDataStructItem(evt, delDataStructItem);
+
+                case FindDataStructItem findDataStructItem:
+                    return RunFindDataStructItem(evt, findDataStructItem);
+
+                case GetDataStructCount getDataStructCount:
+                    return RunGetDataStructCount(evt, getDataStructCount);
+
+                case GetValue getValue:
+                    return RunGetValue(evt, getValue);
+
+                case ModifyValue modifyValue:
+                    return RunModifyValue(evt, modifyValue);
+
+                case StringFormat stringFormat:
+                    return RunStringFormat(evt, stringFormat);
+
+                case Split split:
+                    return RunSplit(evt, split);
+
+                case Replace replace:
+                    return RunReplace(evt, replace);
+
+                case TcpOps tcpOps:
+                    return RunTcpOps(evt, tcpOps);
+
+                case WaitTcp waitTcp:
+                    return RunWaitTcp(evt, waitTcp);
+
+                case SendTcpMsg sendTcpMsg:
+                    return RunSendTcpMsg(evt, sendTcpMsg);
+
+                case ReceiveTcpMsg receoveTcpMsg:
+                    return RunReceiveTcpMsg(evt, receoveTcpMsg);
+
+                case SendSerialPortMsg sendSerialPortMsg:
+                    return RunSendSerialPortMsg(evt, sendSerialPortMsg);
+
+                case ReceiveSerialPortMsg receoveSerialPortMsg:
+                    return RunReceiveSerialPortMsg(evt, receoveSerialPortMsg);
+
+                case SendReceiveCommMsg sendReceoveCommMsg:
+                    return RunSendReceiveCommMsg(evt, sendReceoveCommMsg);
+
+                case PlcReadWrite plcReadWrite:
+                    return RunPlcReadWrite(evt, plcReadWrite);
+
+                case PlcMappingControl plcMappingControl:
+                    return RunPlcMappingControl(evt, plcMappingControl);
+
+                case SerialPortOps serialPortOps:
+                    return RunSerialPortOps(evt, serialPortOps);
+
+                case WaitSerialPort waitSerialPort:
+                    return RunWaitSerialPort(evt, waitSerialPort);
+
+                case CreateTray createTray:
+                    return RunCreateTray(evt, createTray);
+
+                case TrayRunPos trayRunPos:
+                    return RunTrayRunPos(evt, trayRunPos);
+
+                case HomeRun homeRun:
+                    return RunHomeRun(evt, homeRun);
+
+                case StationRunPos stationRunPos:
+                    return RunStationRunPos(evt, stationRunPos);
+
+                case ModifyStationPos modifyStationPos:
+                    return RunModifyStationPos(evt, modifyStationPos);
+
+                case GetStationPos getStationPos:
+                    return RunGetStationPos(evt, getStationPos);
+
+                case StationRunRel stationRunRel:
+                    return RunStationRunRel(evt, stationRunRel);
+
+                case SetStationVel setStationVel:
+                    return RunSetStationVel(evt, setStationVel);
+
+                case StationStop stationStop:
+                    return RunStationStop(evt, stationStop);
+
+                case WaitStationStop waitStationStop:
+                    return RunWaitStationStop(evt, waitStationStop);
+
+                default:
+                    string message = $"操作类型不支持:{operation.GetType().Name}";
+                    MarkAlarm(evt, message);
+                    return false;
             }
         }
 

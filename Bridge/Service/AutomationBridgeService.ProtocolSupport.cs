@@ -23,20 +23,22 @@ namespace Automation.Bridge
 {
     internal sealed partial class AutomationBridgeService
     {
-        private static JObject BuildEngineSnapshot(EngineSnapshot snapshot, int procIndex)
+        private JObject BuildEngineSnapshot(EngineSnapshot snapshot, int procIndex)
         {
             if (snapshot == null)
             {
                 return new JObject
                 {
                     ["procIndex"] = procIndex,
-                    ["state"] = ProcRunState.Stopped.ToString(),
+                    ["runId"] = string.Empty,
+                    ["state"] = ProcRunState.Ready.ToString(),
                     ["stepIndex"] = -1,
                     ["opIndex"] = -1,
                     ["isBreakpoint"] = false,
                     ["isAlarm"] = false,
                     ["alarmMessage"] = string.Empty,
                     ["terminationReason"] = ProcTerminationReason.None.ToString(),
+                    ["cycleTimeSamples"] = new JArray(),
                     ["performance"] = JValue.CreateNull(),
                     ["updateTime"] = JValue.CreateNull()
                 };
@@ -47,6 +49,7 @@ namespace Automation.Bridge
                 ["procIndex"] = snapshot.ProcIndex,
                 ["procId"] = snapshot.ProcId.ToString("D"),
                 ["procName"] = snapshot.ProcName ?? string.Empty,
+                ["runId"] = snapshot.RunId == Guid.Empty ? string.Empty : snapshot.RunId.ToString("D"),
                 ["state"] = snapshot.State.ToString(),
                 ["stepIndex"] = snapshot.StepIndex,
                 ["opIndex"] = snapshot.OpIndex,
@@ -56,6 +59,7 @@ namespace Automation.Bridge
                 ["terminationReason"] = snapshot.TerminationReason.ToString(),
                 ["updateTime"] = snapshot.UpdateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
                 ["updateTicks"] = snapshot.UpdateTicks,
+                ["cycleTimeSamples"] = BuildCycleTimeSamples(snapshot.ProcId),
                 ["performance"] = snapshot.Performance == null
                     ? JValue.CreateNull()
                     : new JObject
@@ -71,6 +75,23 @@ namespace Automation.Bridge
                         ["abnormalCpuLoopDetected"] = snapshot.Performance.AbnormalCpuLoopDetected
                     }
             };
+        }
+
+        private JArray BuildCycleTimeSamples(Guid procId)
+        {
+            return new JArray((runtime.ProcessEngine?.GetLatestCycleTimeSamples(procId)
+                ?? Array.Empty<CycleTimeProbeSample>())
+                .Select(sample => new JObject
+                {
+                    ["runId"] = sample.RunId == Guid.Empty ? string.Empty : sample.RunId.ToString("D"),
+                    ["taskKey"] = sample.TaskKey ?? string.Empty,
+                    ["segmentName"] = sample.SegmentName ?? string.Empty,
+                    ["segmentIndex"] = sample.SegmentIndex,
+                    ["cycleStarted"] = sample.CycleStarted,
+                    ["segmentMilliseconds"] = sample.SegmentMilliseconds,
+                    ["cycleMilliseconds"] = sample.CycleMilliseconds,
+                    ["recordedAtUtc"] = sample.RecordedAtUtc.ToString("O", CultureInfo.InvariantCulture)
+                }));
         }
 
         private static void AddFinding(JArray findings, string severity, string code, string message)

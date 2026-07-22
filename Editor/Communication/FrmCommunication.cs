@@ -250,12 +250,17 @@ namespace Automation
 
                 if (string.Equals(info.Type, "Client", StringComparison.Ordinal))
                 {
+                    string clientState = status.ConnectionState == TcpConnectionState.Connected ? "已连接"
+                        : status.ConnectionState == TcpConnectionState.Connecting ? "连接中"
+                        : status.ConnectionState == TcpConnectionState.Reconnecting ? "重连中"
+                        : status.ConnectionState == TcpConnectionState.Faulted ? "故障"
+                        : "未启动";
                     SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName,
-                        (status.IsRunning ? "已连接" : "未连接") + droppedSuffix);
+                        clientState + droppedSuffix);
                     continue;
                 }
 
-                if (status.IsRunning)
+                if (status.IsStarted)
                 {
                     SetRowCellValue(dataGridView1.Rows[i], TcpStateColumnName,
                         (status.ClientCount > 0 ? $"已连接({status.ClientCount})" : "已启动") + droppedSuffix);
@@ -561,8 +566,11 @@ namespace Automation
             row.Cells[0].Value = info.ID;
             row.Cells[1].Value = info.Name;
             row.Cells[2].Value = info.Type;
-            row.Cells[3].Value = info.Address;
-            row.Cells[4].Value = info.Port;
+            row.Cells[3].Value = info.LocalAddress;
+            row.Cells[4].Value = info.LocalPort;
+            row.Cells[5].Value = info.RemoteAddress;
+            row.Cells[6].Value = info.RemotePort;
+            row.Cells[7].Value = info.AutoReconnect;
             SetRowCellValue(row, TcpDelimiterColumnName, ToUiDelimiterSelection(info.FrameMode, info.FrameDelimiter, "Raw"));
         }
 
@@ -590,11 +598,14 @@ namespace Automation
             string name = BuildUniqueName(socketInfos.Select(item => item?.Name), "Tcp");
             SocketInfo socketInfo = new SocketInfo
             {
-                Address = "127.0.0.1",
                 ID = id,
                 Name = name,
-                Port = 5000,
                 Type = "Client",
+                LocalAddress = "0.0.0.0",
+                LocalPort = 0,
+                RemoteAddress = "127.0.0.1",
+                RemotePort = 5000,
+                AutoReconnect = true,
                 FrameMode = "Raw",
                 FrameDelimiter = "\\n",
                 EncodingName = "UTF-8",
@@ -675,6 +686,8 @@ namespace Automation
                 return;
             }
 
+            SocketInfo previous = socketInfos[e.RowIndex];
+            ApplySocketTypeDefaultsToRow(e.RowIndex, previous);
             if (!TryBuildSocketInfoFromRow(e.RowIndex, out SocketInfo parsed, out string error))
             {
                 MessageBox.Show(error, "TCP配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -689,7 +702,6 @@ namespace Automation
                 return;
             }
 
-            SocketInfo previous = socketInfos[e.RowIndex];
             if (previous != null && !string.Equals(previous.Name, parsed.Name, StringComparison.OrdinalIgnoreCase)
                 && TryFindCommunicationReference(previous.Name, true, out string reference))
             {
@@ -698,7 +710,7 @@ namespace Automation
                 ApplySocketInfoToRow(e.RowIndex, previous);
                 return;
             }
-            if (previous != null && Workspace.Runtime.Communication?.GetTcpStatus(previous.Name).IsRunning == true)
+            if (previous != null && Workspace.Runtime.Communication?.GetTcpStatus(previous.Name).IsStarted == true)
             {
                 try
                 {
@@ -753,18 +765,52 @@ namespace Automation
                 return false;
             }
 
-            string address = Convert.ToString(row.Cells[3].Value);
-            if (string.IsNullOrWhiteSpace(address) || !IPAddress.TryParse(address, out _))
+            string localAddress = Convert.ToString(row.Cells[3].Value);
+            if (string.IsNullOrWhiteSpace(localAddress)
+                || !IPAddress.TryParse(localAddress, out IPAddress parsedLocalAddress)
+                || parsedLocalAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             {
-                error = "TCP地址无效。";
+                error = "TCP本地IP无效，仅支持IPv4。";
                 return false;
             }
 
-            if (!int.TryParse(Convert.ToString(row.Cells[4].Value), out int port) || port <= 0 || port > 65535)
+            if (!int.TryParse(Convert.ToString(row.Cells[4].Value), out int localPort)
+                || localPort < 0 || localPort > 65535
+                || (string.Equals(type, "Server", StringComparison.Ordinal) && localPort == 0))
             {
-                error = "TCP端口无效，必须在1-65535之间。";
+                error = string.Equals(type, "Server", StringComparison.Ordinal)
+                    ? "TCP服务端本地端口必须在1-65535之间。"
+                    : "TCP客户端本地端口必须在0-65535之间，0表示由系统分配。";
                 return false;
             }
+
+            string remoteAddress = Convert.ToString(row.Cells[5].Value);
+            bool allowAnyRemote = string.Equals(type, "Server", StringComparison.Ordinal)
+                && string.Equals(remoteAddress, "*", StringComparison.Ordinal);
+            if (!allowAnyRemote
+                && (string.IsNullOrWhiteSpace(remoteAddress)
+                    || !IPAddress.TryParse(remoteAddress, out IPAddress parsedRemoteAddress)
+                    || parsedRemoteAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork))
+            {
+                error = string.Equals(type, "Server", StringComparison.Ordinal)
+                    ? "TCP服务端远端IP必须为明确IPv4地址或*。"
+                    : "TCP客户端远端IP无效，仅支持IPv4。";
+                return false;
+            }
+
+            if (!int.TryParse(Convert.ToString(row.Cells[6].Value), out int remotePort)
+                || remotePort < 0 || remotePort > 65535
+                || (string.Equals(type, "Client", StringComparison.Ordinal) && remotePort == 0))
+            {
+                error = string.Equals(type, "Server", StringComparison.Ordinal)
+                    ? "TCP服务端远端端口必须在0-65535之间，0表示任意源端口。"
+                    : "TCP客户端远端端口必须在1-65535之间。";
+                return false;
+            }
+
+            bool autoReconnect = string.Equals(type, "Client", StringComparison.Ordinal)
+                && row.Cells[7].Value is bool reconnectEnabled
+                && reconnectEnabled;
 
             string delimiterSelection = GetCellValue(row, TcpDelimiterColumnName);
             if (!TryParseUiDelimiterSelection(delimiterSelection, out string frameMode, out string frameDelimiter))
@@ -779,14 +825,44 @@ namespace Automation
                 ID = id,
                 Name = name,
                 Type = type,
-                Address = address,
-                Port = port,
+                LocalAddress = localAddress,
+                LocalPort = localPort,
+                RemoteAddress = remoteAddress,
+                RemotePort = remotePort,
+                AutoReconnect = autoReconnect,
                 FrameMode = frameMode,
                 FrameDelimiter = frameDelimiter,
                 EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName,
                 ConnectTimeoutMs = current.ConnectTimeoutMs > 0 ? current.ConnectTimeoutMs : 5000
             };
             return true;
+        }
+
+        private void ApplySocketTypeDefaultsToRow(int rowIndex, SocketInfo previous)
+        {
+            if (previous == null || rowIndex < 0 || rowIndex >= dataGridView1.Rows.Count) return;
+            DataGridViewRow row = dataGridView1.Rows[rowIndex];
+            string type = Convert.ToString(row.Cells[2].Value);
+            if (string.Equals(type, previous.Type, StringComparison.Ordinal)) return;
+
+            if (string.Equals(type, "Server", StringComparison.Ordinal))
+            {
+                row.Cells[3].Value = "0.0.0.0";
+                row.Cells[4].Value = previous.RemotePort > 0 ? previous.RemotePort : 5000;
+                row.Cells[5].Value = "*";
+                row.Cells[6].Value = 0;
+                row.Cells[7].Value = false;
+                return;
+            }
+
+            if (string.Equals(type, "Client", StringComparison.Ordinal))
+            {
+                row.Cells[3].Value = "0.0.0.0";
+                row.Cells[4].Value = 0;
+                row.Cells[5].Value = previous.LocalAddress == "0.0.0.0" ? "127.0.0.1" : previous.LocalAddress;
+                row.Cells[6].Value = previous.LocalPort > 0 ? previous.LocalPort : 5000;
+                row.Cells[7].Value = true;
+            }
         }
 
         private bool HasDuplicateSocketName(string name, int skipIndex)
@@ -983,22 +1059,21 @@ namespace Automation
 
             DataGridViewRow row = dataGridView1.Rows[iSelectedSocketRow];
             string channelType = Convert.ToString(row.Cells[2].Value);
-            string state = GetCellValue(row, TcpStateColumnName);
+            string channelName = Convert.ToString(row.Cells[1].Value);
+            TcpStatus status = Workspace.Runtime.Communication?.GetTcpStatus(channelName) ?? TcpStatus.Empty;
             if (string.Equals(channelType, "Client", StringComparison.Ordinal))
             {
                 contextMenuStrip1.Items[2].Text = "连接";
-                bool connected = !string.IsNullOrEmpty(state) && state.StartsWith("已连接", StringComparison.Ordinal);
-                contextMenuStrip1.Items[2].Enabled = !connected;
-                contextMenuStrip1.Items[3].Enabled = connected;
+                contextMenuStrip1.Items[2].Enabled = !status.IsStarted;
+                contextMenuStrip1.Items[3].Enabled = status.IsStarted;
                 return;
             }
 
             if (string.Equals(channelType, "Server", StringComparison.Ordinal))
             {
                 contextMenuStrip1.Items[2].Text = "启动服务";
-                bool running = string.Equals(state, "已启动", StringComparison.Ordinal) || (!string.IsNullOrEmpty(state) && state.StartsWith("已连接", StringComparison.Ordinal));
-                contextMenuStrip1.Items[2].Enabled = !running;
-                contextMenuStrip1.Items[3].Enabled = running;
+                contextMenuStrip1.Items[2].Enabled = !status.IsStarted;
+                contextMenuStrip1.Items[3].Enabled = status.IsStarted;
             }
         }
 

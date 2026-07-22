@@ -1036,6 +1036,8 @@ namespace Automation
         {
             switch (state)
             {
+                case ProcRunState.Ready:
+                    return "就绪";
                 case ProcRunState.Stopped:
                     return "停止";
                 case ProcRunState.Paused:
@@ -1069,6 +1071,8 @@ namespace Automation
                     return UiPalette.Danger;
                 case ProcRunState.Stopping:
                     return UiPalette.Danger;
+                case ProcRunState.Ready:
+                    return UiPalette.Success;
                 case ProcRunState.Stopped:
                     return UiPalette.TextMuted;
                 default:
@@ -1090,6 +1094,8 @@ namespace Automation
                     return UiPalette.DangerSoft;
                 case ProcRunState.Stopping:
                     return UiPalette.DangerSoft;
+                case ProcRunState.Ready:
+                    return UiPalette.SuccessSoft;
                 case ProcRunState.Stopped:
                     return UiPalette.DisabledSoft;
                 default:

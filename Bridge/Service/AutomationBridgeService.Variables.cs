@@ -252,7 +252,7 @@ namespace Automation.Bridge
         private JObject HandleDeleteVariable(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("删除变量");
+            EnsureAllProcsInactiveForAiStructureCommit("删除变量");
             ValueConfigStore store = runtime.Stores.Values;
             if (store == null)
             {
@@ -288,7 +288,7 @@ namespace Automation.Bridge
         private JObject HandleAddVariable(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("新增变量");
+            EnsureAllProcsInactiveForAiStructureCommit("新增变量");
             ValueConfigStore store = runtime.Stores.Values;
             if (store == null)
             {
@@ -417,7 +417,7 @@ namespace Automation.Bridge
         private JObject HandleUpdateVariable(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("修改变量配置");
+            EnsureAllProcsInactiveForAiStructureCommit("修改变量配置");
             ValueConfigStore store = runtime.Stores.Values;
             if (store == null)
             {

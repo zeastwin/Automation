@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -14,6 +15,12 @@ namespace Automation
     public partial class FrmDataStruct : Form
     {
         private const int TextPreviewLength = 30;
+        private const int TvmSetExtendedStyle = 0x112C;
+        private const int TvsExDoubleBuffer = 0x0004;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(
+            IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
 
         private enum DataStructNodeType
         {
@@ -30,6 +37,20 @@ namespace Automation
             public int StructIndex { get; set; } = -1;
             public int ItemIndex { get; set; } = -1;
             public int FieldIndex { get; set; } = -1;
+            public string FieldName { get; set; } = string.Empty;
+            public string DisplayValue { get; set; } = string.Empty;
+            public string EditValue { get; set; } = string.Empty;
+            public DataStructValueType FieldType { get; set; } = DataStructValueType.Text;
+            public int FieldNameColumnWidth { get; set; } = 80;
+        }
+
+        private struct FieldNodeLayout
+        {
+            public Rectangle RowBounds { get; set; }
+            public Rectangle IndexBounds { get; set; }
+            public Rectangle NameBounds { get; set; }
+            public Rectangle ValueBounds { get; set; }
+            public Rectangle ValueTextBounds { get; set; }
         }
 
         private class DataStructClipboard
@@ -43,22 +64,62 @@ namespace Automation
         }
 
         private DataStructClipboard clipboard;
+        private readonly TextBox inlineValueEditor;
+        private TreeNode inlineValueNode;
+        private bool inlineValueEditEnding;
 
         public FrmDataStruct()
         {
             InitializeComponent();
             treeView1.HideSelection = false;
             treeView1.ShowNodeToolTips = true;
+            treeView1.BackColor = UiPalette.SurfaceStrong;
+            treeView1.ForeColor = UiPalette.TextPrimary;
+            treeView1.DrawMode = TreeViewDrawMode.OwnerDrawText;
+            treeView1.DrawNode += treeView1_DrawNode;
+            treeView1.MouseWheel += treeView1_MouseWheel;
+            treeView1.HandleCreated += treeView1_HandleCreated;
+            EnableTreeViewDoubleBuffer();
+            inlineValueEditor = new TextBox
+            {
+                AutoSize = false,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = treeView1.Font,
+                Visible = false
+            };
+            inlineValueEditor.KeyDown += inlineValueEditor_KeyDown;
+            inlineValueEditor.LostFocus += inlineValueEditor_LostFocus;
+            treeView1.Controls.Add(inlineValueEditor);
             AddCommonMenuItems(contextMenuRoot);
             AddCommonMenuItems(contextMenuStruct);
             AddCommonMenuItems(contextMenuItem);
             AddCommonMenuItems(contextMenuField);
         }
 
+        private void treeView1_HandleCreated(object sender, EventArgs e)
+        {
+            EnableTreeViewDoubleBuffer();
+        }
+
+        private void EnableTreeViewDoubleBuffer()
+        {
+            if (!treeView1.IsHandleCreated)
+            {
+                return;
+            }
+            SendMessage(treeView1.Handle, TvmSetExtendedStyle,
+                new IntPtr(TvsExDoubleBuffer), new IntPtr(TvsExDoubleBuffer));
+        }
+
         private void FrmDataStruct_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing)
             {
+                if (!EndInlineValueEdit(true))
+                {
+                    e.Cancel = true;
+                    return;
+                }
                 e.Cancel = true;
                 Hide();
             }
@@ -81,21 +142,30 @@ namespace Automation
 
         private void ReloadTree()
         {
-            treeView1.BeginUpdate();
-            treeView1.Nodes.Clear();
-
-            List<DataStruct> snapshot = Workspace.Runtime.Stores.DataStructures.GetSnapshot();
-            if (snapshot != null)
+            if (!EndInlineValueEdit(true))
             {
-                for (int i = 0; i < snapshot.Count; i++)
+                return;
+            }
+            treeView1.BeginUpdate();
+            try
+            {
+                treeView1.Nodes.Clear();
+
+                List<DataStruct> snapshot = Workspace.Runtime.Stores.DataStructures.GetSnapshot();
+                if (snapshot != null)
                 {
-                    DataStruct dataStruct = snapshot[i];
-                    TreeNode structNode = BuildStructNode(i, dataStruct);
-                    treeView1.Nodes.Add(structNode);
+                    for (int i = 0; i < snapshot.Count; i++)
+                    {
+                        DataStruct dataStruct = snapshot[i];
+                        TreeNode structNode = BuildStructNode(i, dataStruct);
+                        treeView1.Nodes.Add(structNode);
+                    }
                 }
             }
-
-            treeView1.EndUpdate();
+            finally
+            {
+                treeView1.EndUpdate();
+            }
         }
 
         private void AddCommonMenuItems(ContextMenuStrip menu)
@@ -151,7 +221,9 @@ namespace Automation
                 {
                     NodeType = DataStructNodeType.Item,
                     StructIndex = structIndex,
-                    ItemIndex = itemIndex
+                    ItemIndex = itemIndex,
+                    FieldNameColumnWidth = CalculateFieldNameColumnWidth(
+                        item?.FieldNames?.Values)
                 }
             };
 
@@ -185,6 +257,189 @@ namespace Automation
         private static string BuildFieldNodeText(int fieldIndex, string fieldName, string value)
         {
             return $"{fieldIndex}:{fieldName}    {value}";
+        }
+
+        private int CalculateFieldNameColumnWidth(IEnumerable<string> fieldNames)
+        {
+            int width = 0;
+            if (fieldNames != null)
+            {
+                foreach (string fieldName in fieldNames)
+                {
+                    width = Math.Max(width,
+                        TextRenderer.MeasureText(fieldName ?? string.Empty, treeView1.Font).Width);
+                }
+            }
+            return Math.Min(210, Math.Max(80, width + 10));
+        }
+
+        private bool RefreshItemFieldNameColumnWidth(TreeNode itemNode)
+        {
+            DataStructNodeTag itemTag = itemNode?.Tag as DataStructNodeTag;
+            if (itemTag == null || itemTag.NodeType != DataStructNodeType.Item)
+            {
+                return false;
+            }
+            int nextWidth = CalculateFieldNameColumnWidth(
+                itemNode.Nodes.Cast<TreeNode>()
+                    .Select(node => node.Tag as DataStructNodeTag)
+                    .Where(tag => tag != null && tag.NodeType == DataStructNodeType.Field)
+                    .Select(tag => tag.FieldName));
+            if (itemTag.FieldNameColumnWidth == nextWidth)
+            {
+                return false;
+            }
+            itemTag.FieldNameColumnWidth = nextWidth;
+            InvalidateItemFieldRows(itemNode);
+            return true;
+        }
+
+        private static void InvalidateItemFieldRows(TreeNode itemNode)
+        {
+            TreeView treeView = itemNode?.TreeView;
+            if (treeView == null || !itemNode.IsExpanded)
+            {
+                return;
+            }
+            Rectangle invalidBounds = Rectangle.Empty;
+            foreach (TreeNode node in itemNode.Nodes)
+            {
+                DataStructNodeTag tag = node.Tag as DataStructNodeTag;
+                if (tag == null || tag.NodeType != DataStructNodeType.Field || !node.IsVisible)
+                {
+                    continue;
+                }
+                Rectangle rowBounds = node.Bounds;
+                rowBounds.Width = Math.Max(0, treeView.ClientSize.Width - rowBounds.X);
+                invalidBounds = invalidBounds.IsEmpty
+                    ? rowBounds
+                    : Rectangle.Union(invalidBounds, rowBounds);
+            }
+            if (!invalidBounds.IsEmpty)
+            {
+                treeView.Invalidate(invalidBounds);
+            }
+        }
+
+        private static void InvalidateFieldRow(TreeNode fieldNode)
+        {
+            TreeView treeView = fieldNode?.TreeView;
+            if (treeView == null || !fieldNode.IsVisible)
+            {
+                return;
+            }
+            Rectangle rowBounds = fieldNode.Bounds;
+            rowBounds.Width = Math.Max(0, treeView.ClientSize.Width - rowBounds.X);
+            treeView.Invalidate(rowBounds);
+        }
+
+        private bool TryGetFieldNodeLayout(TreeNode fieldNode, Rectangle nodeBounds,
+            out FieldNodeLayout layout)
+        {
+            layout = default;
+            Rectangle rowBounds = new Rectangle(
+                nodeBounds.X,
+                nodeBounds.Y,
+                Math.Max(0, treeView1.ClientSize.Width - nodeBounds.X),
+                nodeBounds.Height);
+            if (rowBounds.Width <= 6)
+            {
+                return false;
+            }
+
+            int right = rowBounds.Right - 4;
+            int x = rowBounds.X + 2;
+            int indexWidth = Math.Min(54, Math.Max(28,
+                TextRenderer.MeasureText("999:", treeView1.Font).Width + 2));
+            int indexActualWidth = Math.Max(0, Math.Min(indexWidth, right - x));
+            var indexBounds = new Rectangle(x, rowBounds.Y, indexActualWidth, rowBounds.Height);
+            x += indexWidth;
+
+            int availableWidth = right - x;
+            if (availableWidth <= 0)
+            {
+                return false;
+            }
+            DataStructNodeTag itemTag = fieldNode?.Parent?.Tag as DataStructNodeTag;
+            int preferredNameWidth = itemTag?.FieldNameColumnWidth ?? 80;
+            int nameWidth = Math.Min(preferredNameWidth,
+                Math.Max(80, availableWidth - 104));
+            nameWidth = Math.Min(nameWidth, availableWidth);
+            var nameBounds = new Rectangle(x, rowBounds.Y, nameWidth, rowBounds.Height);
+            x += nameWidth + 8;
+
+            int valueWidth = Math.Max(0, right - x);
+            var valueBounds = new Rectangle(x, rowBounds.Y + 1, valueWidth,
+                Math.Max(1, rowBounds.Height - 2));
+            var valueTextBounds = new Rectangle(valueBounds.X + 7, valueBounds.Y,
+                Math.Max(0, valueBounds.Width - 12), valueBounds.Height);
+            layout = new FieldNodeLayout
+            {
+                RowBounds = rowBounds,
+                IndexBounds = indexBounds,
+                NameBounds = nameBounds,
+                ValueBounds = valueBounds,
+                ValueTextBounds = valueTextBounds
+            };
+            return true;
+        }
+
+        private void treeView1_DrawNode(object sender, DrawTreeNodeEventArgs e)
+        {
+            DataStructNodeTag tag = e.Node?.Tag as DataStructNodeTag;
+            if (tag == null || tag.NodeType != DataStructNodeType.Field)
+            {
+                e.DrawDefault = true;
+                return;
+            }
+
+            if (!TryGetFieldNodeLayout(e.Node, e.Bounds, out FieldNodeLayout layout))
+            {
+                return;
+            }
+
+            bool selected = (e.State & TreeNodeStates.Selected) == TreeNodeStates.Selected;
+            Color rowBackColor = selected ? UiPalette.Selection : treeView1.BackColor;
+            using (var rowBrush = new SolidBrush(rowBackColor))
+            {
+                e.Graphics.FillRectangle(rowBrush, layout.RowBounds);
+            }
+
+            const TextFormatFlags flags = TextFormatFlags.NoPadding
+                | TextFormatFlags.NoPrefix
+                | TextFormatFlags.SingleLine
+                | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.EndEllipsis;
+            string indexText = $"{tag.FieldIndex}:";
+            TextRenderer.DrawText(e.Graphics, indexText, treeView1.Font, layout.IndexBounds,
+                selected ? UiPalette.SelectionText : UiPalette.TextMuted, flags);
+            TextRenderer.DrawText(e.Graphics, tag.FieldName ?? string.Empty, treeView1.Font,
+                layout.NameBounds, UiPalette.TextPrimary, flags);
+
+            if (layout.ValueBounds.Width > 20)
+            {
+                Color valueColor = tag.FieldType == DataStructValueType.Number
+                    ? UiPalette.Success
+                    : UiPalette.Brand;
+                Color valueBackColor = tag.FieldType == DataStructValueType.Number
+                    ? UiPalette.SuccessSoft
+                    : UiPalette.BrandSoft;
+                using (var valueBrush = new SolidBrush(valueBackColor))
+                {
+                    e.Graphics.FillRectangle(valueBrush, layout.ValueBounds);
+                }
+                if (layout.ValueTextBounds.Width > 0)
+                {
+                    TextRenderer.DrawText(e.Graphics, tag.DisplayValue ?? string.Empty,
+                        treeView1.Font, layout.ValueTextBounds, valueColor, flags);
+                }
+            }
+
+            if (selected && treeView1.Focused)
+            {
+                ControlPaint.DrawFocusRectangle(e.Graphics, layout.RowBounds,
+                    UiPalette.SelectionText, rowBackColor);
+            }
         }
 
         private void treeView1_MouseDown(object sender, MouseEventArgs e)
@@ -231,12 +486,174 @@ namespace Automation
 
         private void treeView1_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
-            DataStructNodeTag tag = e.Node.Tag as DataStructNodeTag;
-            if (tag == null || tag.NodeType != DataStructNodeType.Field)
+            if (e.Node == null)
             {
                 return;
             }
-            OpenFieldEditor(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, e.Node);
+            treeView1.SelectedNode = e.Node;
+            DataStructNodeTag tag = e.Node.Tag as DataStructNodeTag;
+            if (tag == null)
+            {
+                return;
+            }
+            TreeNode nodeToExpand = null;
+            if (tag.NodeType == DataStructNodeType.Struct
+                || tag.NodeType == DataStructNodeType.Item)
+            {
+                nodeToExpand = e.Node;
+            }
+            else if (tag.NodeType == DataStructNodeType.Field)
+            {
+                if (!TryGetFieldNodeLayout(e.Node, e.Node.Bounds, out FieldNodeLayout layout))
+                {
+                    return;
+                }
+                if (layout.ValueBounds.Contains(e.Location))
+                {
+                    BeginInlineValueEdit(e.Node, tag, layout);
+                }
+                else if (layout.NameBounds.Contains(e.Location))
+                {
+                    OpenFieldEditor(tag.StructIndex, tag.ItemIndex, tag.FieldIndex, e.Node);
+                }
+                return;
+            }
+            if (nodeToExpand != null)
+            {
+                // 等系统默认双击动作结束后再展开，保证双击不会把已展开节点折叠。
+                TreeNode capturedNode = nodeToExpand;
+                BeginInvoke((Action)(() =>
+                {
+                    if (!IsDisposed && !Disposing && capturedNode.TreeView == treeView1)
+                    {
+                        capturedNode.Expand();
+                    }
+                }));
+            }
+        }
+
+        private void BeginInlineValueEdit(TreeNode fieldNode, DataStructNodeTag tag,
+            FieldNodeLayout layout)
+        {
+            if (fieldNode == null || tag == null || layout.ValueBounds.Width <= 20)
+            {
+                return;
+            }
+            if (!EndInlineValueEdit(true))
+            {
+                return;
+            }
+            if (!UpdateFieldNodeFromStore(fieldNode,
+                    tag.StructIndex, tag.ItemIndex, tag.FieldIndex))
+            {
+                MessageBox.Show("字段不存在");
+                return;
+            }
+            tag = fieldNode.Tag as DataStructNodeTag;
+            if (tag == null
+                || !TryGetFieldNodeLayout(fieldNode, fieldNode.Bounds, out layout))
+            {
+                return;
+            }
+
+            inlineValueNode = fieldNode;
+            inlineValueEditor.Bounds = new Rectangle(
+                layout.ValueBounds.X,
+                layout.ValueBounds.Y,
+                Math.Max(40, layout.ValueBounds.Width),
+                Math.Max(treeView1.Font.Height + 4, layout.ValueBounds.Height));
+            inlineValueEditor.ForeColor = tag.FieldType == DataStructValueType.Number
+                ? UiPalette.Success
+                : UiPalette.Brand;
+            inlineValueEditor.BackColor = tag.FieldType == DataStructValueType.Number
+                ? UiPalette.SuccessSoft
+                : UiPalette.BrandSoft;
+            inlineValueEditor.Text = tag.EditValue ?? string.Empty;
+            inlineValueEditor.Visible = true;
+            inlineValueEditor.BringToFront();
+            inlineValueEditor.Focus();
+            inlineValueEditor.SelectAll();
+        }
+
+        private bool EndInlineValueEdit(bool commit)
+        {
+            if (inlineValueEditor == null || !inlineValueEditor.Visible || inlineValueEditEnding)
+            {
+                return true;
+            }
+
+            inlineValueEditEnding = true;
+            try
+            {
+                TreeNode fieldNode = inlineValueNode;
+                DataStructNodeTag tag = fieldNode?.Tag as DataStructNodeTag;
+                if (!commit || tag == null || tag.NodeType != DataStructNodeType.Field)
+                {
+                    inlineValueEditor.Visible = false;
+                    inlineValueNode = null;
+                    return true;
+                }
+
+                string value = inlineValueEditor.Text ?? string.Empty;
+                if (!Workspace.Runtime.Stores.DataStructures.SetFieldValue(
+                        tag.StructIndex, tag.ItemIndex, tag.FieldIndex,
+                        tag.FieldType, value, out string error))
+                {
+                    MessageBox.Show(error, "字段值无效", MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    BeginInvoke((Action)(() =>
+                    {
+                        if (!IsDisposed && !Disposing && inlineValueEditor.Visible)
+                        {
+                            inlineValueEditor.Focus();
+                            inlineValueEditor.SelectAll();
+                        }
+                    }));
+                    return false;
+                }
+
+                inlineValueEditor.Visible = false;
+                inlineValueNode = null;
+                UpdateFieldNodeFromStore(fieldNode,
+                    tag.StructIndex, tag.ItemIndex, tag.FieldIndex);
+                if (!Workspace.Runtime.Stores.DataStructures.Save(
+                        Workspace.Runtime.Paths.ConfigPath))
+                {
+                    MessageBox.Show("字段值已经写入内存，但保存到磁盘失败；平台已进入安全锁定状态。",
+                        "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return false;
+                }
+                return true;
+            }
+            finally
+            {
+                inlineValueEditEnding = false;
+            }
+        }
+
+        private void inlineValueEditor_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                EndInlineValueEdit(true);
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                e.SuppressKeyPress = true;
+                EndInlineValueEdit(false);
+                treeView1.Focus();
+            }
+        }
+
+        private void inlineValueEditor_LostFocus(object sender, EventArgs e)
+        {
+            EndInlineValueEdit(true);
+        }
+
+        private void treeView1_MouseWheel(object sender, MouseEventArgs e)
+        {
+            EndInlineValueEdit(true);
         }
 
         private void treeView1_BeforeExpand(object sender, TreeViewCancelEventArgs e)
@@ -274,12 +691,28 @@ namespace Automation
 
         private void menuExpandAll_Click(object sender, EventArgs e)
         {
-            treeView1.ExpandAll();
+            treeView1.BeginUpdate();
+            try
+            {
+                treeView1.ExpandAll();
+            }
+            finally
+            {
+                treeView1.EndUpdate();
+            }
         }
 
         private void menuCollapseAll_Click(object sender, EventArgs e)
         {
-            treeView1.CollapseAll();
+            treeView1.BeginUpdate();
+            try
+            {
+                treeView1.CollapseAll();
+            }
+            finally
+            {
+                treeView1.EndUpdate();
+            }
         }
 
         private void menuCopy_Click(object sender, EventArgs e)
@@ -467,7 +900,7 @@ namespace Automation
                 string valueText = clipboard.FieldValue == null ? string.Empty : clipboard.FieldValue.ToString();
                 if (clipboard.FieldType == DataStructValueType.Number && clipboard.FieldValue is double numberValue)
                 {
-                    valueText = numberValue.ToString("0.######", CultureInfo.CurrentCulture);
+                    valueText = numberValue.ToString("G17", CultureInfo.InvariantCulture);
                 }
                 if (clipboard.FieldType == DataStructValueType.Number && string.IsNullOrWhiteSpace(valueText))
                 {
@@ -777,6 +1210,7 @@ namespace Automation
             if (itemNode != null)
             {
                 itemNode.Nodes.Remove(fieldNode);
+                RefreshItemFieldNameColumnWidth(itemNode);
                 if (itemNode.Nodes.Count == 0)
                 {
                     itemNode.Collapse();
@@ -796,7 +1230,7 @@ namespace Automation
             {
                 if (fieldValue is double numberValue)
                 {
-                    valueText = numberValue.ToString("0.######", CultureInfo.CurrentCulture);
+                    valueText = numberValue.ToString("G17", CultureInfo.InvariantCulture);
                 }
                 else
                 {
@@ -840,7 +1274,8 @@ namespace Automation
             fieldIndexes.Sort();
             foreach (int fieldIndex in fieldIndexes)
             {
-                if (!TryGetFieldSnapshot(structIndex, itemIndex, fieldIndex, out string fieldName, out DataStructValueType fieldType, out object fieldValue))
+                if (!TryGetFieldSnapshotFromItem(item, fieldIndex,
+                        out string fieldName, out DataStructValueType fieldType, out object fieldValue))
                 {
                     continue;
                 }
@@ -879,6 +1314,7 @@ namespace Automation
                 }
             }
             itemNode.Nodes.Insert(insertIndex, fieldNode);
+            RefreshItemFieldNameColumnWidth(itemNode);
             itemNode.Expand();
         }
 
@@ -895,16 +1331,32 @@ namespace Automation
         private void UpdateFieldNode(TreeNode fieldNode, int structIndex, int itemIndex, int fieldIndex, string fieldName, DataStructValueType fieldType, object fieldValue)
         {
             string displayValue = FormatFieldValue(fieldType, fieldValue, out string toolTip);
-            fieldNode.Text = BuildFieldNodeText(fieldIndex, fieldName, displayValue);
-            fieldNode.ToolTipText = toolTip;
+            string editValue = FormatFieldEditValue(fieldType, fieldValue);
+            string visibleValue = string.IsNullOrEmpty(displayValue) ? "（空）" : displayValue;
+            fieldNode.Text = BuildFieldNodeText(fieldIndex, fieldName, visibleValue);
+            string fullValue = string.IsNullOrEmpty(toolTip) ? visibleValue : toolTip;
+            fieldNode.ToolTipText = $"名称: {fieldName}\r\n类型: {(fieldType == DataStructValueType.Number ? "数值" : "文本")}\r\n值: {fullValue}";
             fieldNode.Tag = new DataStructNodeTag
             {
                 NodeType = DataStructNodeType.Field,
                 StructIndex = structIndex,
                 ItemIndex = itemIndex,
-                FieldIndex = fieldIndex
+                FieldIndex = fieldIndex,
+                FieldName = fieldName ?? string.Empty,
+                DisplayValue = visibleValue,
+                EditValue = editValue,
+                FieldType = fieldType
             };
-            fieldNode.ForeColor = fieldType == DataStructValueType.Text ? UiPalette.Brand : UiPalette.Success;
+            fieldNode.ForeColor = UiPalette.TextPrimary;
+            bool columnWidthChanged = false;
+            if (fieldNode.Parent != null)
+            {
+                columnWidthChanged = RefreshItemFieldNameColumnWidth(fieldNode.Parent);
+            }
+            if (!columnWidthChanged)
+            {
+                InvalidateFieldRow(fieldNode);
+            }
         }
 
         private TreeNode BuildFieldNode(int structIndex, int itemIndex, int fieldIndex, string fieldName, DataStructValueType fieldType, object fieldValue)
@@ -940,6 +1392,19 @@ namespace Automation
                 return str.Substring(0, TextPreviewLength) + "...";
             }
             return str;
+        }
+
+        private static string FormatFieldEditValue(DataStructValueType type, object value)
+        {
+            if (value == null)
+            {
+                return string.Empty;
+            }
+            if (type == DataStructValueType.Number && value is double number)
+            {
+                return number.ToString("G17", CultureInfo.InvariantCulture);
+            }
+            return value.ToString();
         }
 
         private static List<int> GetFieldIndexes(DataStructItem item)
@@ -1103,7 +1568,7 @@ namespace Automation
                 {
                     if (sourceItem.num != null && sourceItem.num.TryGetValue(fieldIndex, out double number))
                     {
-                        valueText = number.ToString("0.######", CultureInfo.CurrentCulture);
+                        valueText = number.ToString("G17", CultureInfo.InvariantCulture);
                     }
                     if (string.IsNullOrWhiteSpace(valueText))
                     {
@@ -1144,11 +1609,23 @@ namespace Automation
             {
                 return false;
             }
-            if (!item.FieldNames.TryGetValue(fieldIndex, out fieldName))
+            return TryGetFieldSnapshotFromItem(item, fieldIndex,
+                out fieldName, out fieldType, out fieldValue);
+        }
+
+        private static bool TryGetFieldSnapshotFromItem(DataStructItem item, int fieldIndex,
+            out string fieldName, out DataStructValueType fieldType, out object fieldValue)
+        {
+            fieldName = string.Empty;
+            fieldType = DataStructValueType.Text;
+            fieldValue = null;
+            if (item?.FieldNames == null
+                || !item.FieldNames.TryGetValue(fieldIndex, out fieldName))
             {
                 return false;
             }
-            if (!item.FieldTypes.TryGetValue(fieldIndex, out fieldType))
+            if (item.FieldTypes == null
+                || !item.FieldTypes.TryGetValue(fieldIndex, out fieldType))
             {
                 return false;
             }

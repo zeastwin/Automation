@@ -48,6 +48,71 @@ namespace Automation
             }
             Invalidate(true);
         }
+
+        public bool ReleasePage(Control page)
+        {
+            if (page == null)
+            {
+                return false;
+            }
+            bool wasActive = ReferenceEquals(activePage, page);
+            if (wasActive)
+            {
+                activePage = null;
+            }
+            Controls.Remove(page);
+            return wasActive;
+        }
+    }
+
+    /// <summary>
+    /// 工作区页面右上角的窗口切换按钮，仅显示图标并通过提示说明当前动作。
+    /// </summary>
+    internal sealed class WorkspaceWindowButton : Button
+    {
+        private readonly ToolTip toolTip = new ToolTip();
+        private Image ownedImage;
+
+        public WorkspaceWindowButton()
+        {
+            Size = new Size(38, 36);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 1;
+            FlatAppearance.BorderColor = UiPalette.Stroke;
+            FlatAppearance.MouseOverBackColor = UiPalette.SurfaceHover;
+            FlatAppearance.MouseDownBackColor = UiPalette.SurfacePressed;
+            BackColor = UiPalette.SurfaceStrong;
+            Cursor = Cursors.Hand;
+            ImageAlign = ContentAlignment.MiddleCenter;
+            Text = string.Empty;
+            TabStop = true;
+            SetDetached(false);
+        }
+
+        public void SetDetached(bool detached)
+        {
+            Image previous = ownedImage;
+            ownedImage = UiIconFactory.Create(
+                detached ? UiIconKind.DockBack : UiIconKind.PopOut,
+                UiPalette.TextSecondary,
+                20);
+            Image = ownedImage;
+            previous?.Dispose();
+            string action = detached ? "嵌回主界面" : "弹出窗口";
+            AccessibleName = action;
+            toolTip.SetToolTip(this, action);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                toolTip.Dispose();
+                ownedImage?.Dispose();
+                ownedImage = null;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     public sealed class FrmInfoLogger : ILogger
@@ -70,4 +135,3 @@ namespace Automation
         }
     }
 }
-

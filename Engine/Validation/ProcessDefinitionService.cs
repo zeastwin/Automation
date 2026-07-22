@@ -4,6 +4,7 @@ using System;
 // 边界说明：本服务判断结构和可保存性；缺少运行资源等启动条件交给 ProcessReadinessService。
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -280,10 +281,219 @@ namespace Automation
             var errors = new List<string>();
             ValidateCommunicationOperation(operation, errors, location, validationContext);
             ValidatePlcOperation(operation, errors, location, validationContext);
+            ValidateDataStructOperation(operation, errors, location, validationContext);
             ValidateCoordinatedStationMotion(operation, errors, location, validationContext);
             ValidateIoOutputOperation(operation, errors, location, validationContext);
             ValidateIoLogicGoto(operation, errors, location, validationContext);
             return errors;
+        }
+
+        private static void ValidateDataStructOperation(OperationType operation,
+            List<string> errors, string location,
+            ProcessDefinitionValidationContext validationContext)
+        {
+            DataStructStore store = validationContext?.Runtime?.Stores.DataStructures;
+            if (operation == null || operation.Disable || store == null)
+            {
+                return;
+            }
+
+            bool ResolveStruct(bool useName, int index, string name,
+                string role, out int resolvedIndex)
+            {
+                if (store.TryResolveStructIndex(
+                        useName, index, name, out resolvedIndex, out string error))
+                {
+                    return true;
+                }
+                errors.Add($"{location} 的{role}{error}。");
+                return false;
+            }
+
+            bool ResolveItem(int structIndex, bool useName, int index, string name,
+                string role, out int resolvedIndex)
+            {
+                if (store.TryResolveItemIndex(
+                        structIndex, useName, index, name, out resolvedIndex, out string error))
+                {
+                    return true;
+                }
+                errors.Add($"{location} 的{role}{error}。");
+                return false;
+            }
+
+            void ResolveField(int structIndex, int itemIndex, bool useName,
+                int index, string name, string role)
+            {
+                if (!store.TryResolveFieldIndex(
+                        structIndex, itemIndex, useName, index, name, out _, out string error))
+                {
+                    errors.Add($"{location} 的{role}{error}。");
+                }
+            }
+
+            if (operation is SetDataStructItem set)
+            {
+                if (!ResolveStruct(set.UseNameAddressing, set.StructIndex,
+                        set.StructName, "目标", out int structIndex)
+                    || !ResolveItem(structIndex, set.UseNameAddressing,
+                        set.ItemIndex, set.ItemName, "目标", out int itemIndex))
+                {
+                    return;
+                }
+                if (set.Params == null)
+                {
+                    errors.Add($"{location} 的数据结构设置参数为空。");
+                    return;
+                }
+                for (int i = 0; i < set.Params.Count; i++)
+                {
+                    SetDataStructItemParam parameter = set.Params[i];
+                    if (parameter == null)
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 为空。");
+                        continue;
+                    }
+                    ResolveField(structIndex, itemIndex, set.UseNameAddressing,
+                        parameter.FieldIndex, parameter.FieldName, $"Params[{i}] ");
+                }
+                return;
+            }
+
+            if (operation is GetDataStructItem get)
+            {
+                if (!ResolveStruct(get.UseNameAddressing, get.StructIndex,
+                        get.StructName, "目标", out int structIndex)
+                    || !ResolveItem(structIndex, get.UseNameAddressing,
+                        get.ItemIndex, get.ItemName, "目标", out int itemIndex))
+                {
+                    return;
+                }
+                if (get.IsAllItem)
+                {
+                    return;
+                }
+                if (get.Params == null)
+                {
+                    errors.Add($"{location} 的数据结构读取参数为空。");
+                    return;
+                }
+                for (int i = 0; i < get.Params.Count; i++)
+                {
+                    GetDataStructItemParam parameter = get.Params[i];
+                    if (parameter == null)
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 为空。");
+                        continue;
+                    }
+                    ResolveField(structIndex, itemIndex, get.UseNameAddressing,
+                        parameter.FieldIndex, parameter.FieldName, $"Params[{i}] ");
+                }
+                return;
+            }
+
+            if (operation is CopyDataStructItem copy)
+            {
+                if (!ResolveStruct(copy.UseSourceNameAddressing,
+                        copy.SourceStructIndex, copy.SourceStructName,
+                        "源", out int sourceStructIndex)
+                    || !ResolveItem(sourceStructIndex, copy.UseSourceNameAddressing,
+                        copy.SourceItemIndex, copy.SourceItemName,
+                        "源", out int sourceItemIndex)
+                    || !ResolveStruct(copy.UseTargetNameAddressing,
+                        copy.TargetStructIndex, copy.TargetStructName,
+                        "目标", out int targetStructIndex)
+                    || !ResolveItem(targetStructIndex, copy.UseTargetNameAddressing,
+                        copy.TargetItemIndex, copy.TargetItemName,
+                        "目标", out int targetItemIndex))
+                {
+                    return;
+                }
+                if (copy.IsAllValue)
+                {
+                    return;
+                }
+                if (copy.Params == null)
+                {
+                    errors.Add($"{location} 的数据结构复制参数为空。");
+                    return;
+                }
+                for (int i = 0; i < copy.Params.Count; i++)
+                {
+                    CopyDataStructItemParam parameter = copy.Params[i];
+                    if (parameter == null)
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 为空。");
+                        continue;
+                    }
+                    ResolveField(sourceStructIndex, sourceItemIndex,
+                        copy.UseSourceNameAddressing,
+                        parameter.SourceFieldIndex, parameter.SourceFieldName,
+                        $"Params[{i}] 源");
+                    ResolveField(targetStructIndex, targetItemIndex,
+                        copy.UseTargetNameAddressing,
+                        parameter.TargetFieldIndex, parameter.TargetFieldName,
+                        $"Params[{i}] 目标");
+                }
+                return;
+            }
+
+            if (operation is InsertDataStructItem insert)
+            {
+                if (!ResolveStruct(insert.UseStructNameAddressing,
+                        insert.TargetStructIndex, insert.TargetStructName,
+                        "目标", out int structIndex))
+                {
+                    return;
+                }
+                int itemCount = store.GetItemCount(structIndex);
+                if (insert.TargetItemIndex < 0 || insert.TargetItemIndex > itemCount)
+                {
+                    errors.Add($"{location} 的插入位置超出范围0..{itemCount}：{insert.TargetItemIndex}。");
+                }
+                return;
+            }
+
+            if (operation is DelDataStructItem delete)
+            {
+                if (ResolveStruct(delete.UseNameAddressing,
+                        delete.TargetStructIndex, delete.TargetStructName,
+                        "目标", out int structIndex))
+                {
+                    ResolveItem(structIndex, delete.UseNameAddressing,
+                        delete.TargetItemIndex, delete.TargetItemName,
+                        "目标", out _);
+                }
+                return;
+            }
+
+            if (operation is FindDataStructItem find)
+            {
+                ResolveStruct(find.UseStructNameAddressing,
+                    find.TargetStructIndex, find.TargetStructName,
+                    "目标", out _);
+                if (!string.Equals(find.Type, "名称等于key", StringComparison.Ordinal)
+                    && !string.Equals(find.Type, "字符串等于key", StringComparison.Ordinal)
+                    && !string.Equals(find.Type, "数值等于key", StringComparison.Ordinal))
+                {
+                    errors.Add($"{location} 的数据结构查找类型无效：{find.Type}。");
+                }
+                if (string.Equals(find.Type, "数值等于key", StringComparison.Ordinal)
+                    && (!double.TryParse(find.Key, NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out double number)
+                        || double.IsNaN(number) || double.IsInfinity(number)))
+                {
+                    errors.Add($"{location} 的数据结构数值查找关键字无效：{find.Key}。");
+                }
+                return;
+            }
+
+            if (operation is GetDataStructCount count)
+            {
+                ResolveStruct(count.UseStructNameAddressing,
+                    count.TargetStructIndex, count.TargetStructName,
+                    "目标", out _);
+            }
         }
 
         private static void ValidateIoLogicGoto(

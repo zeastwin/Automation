@@ -47,6 +47,147 @@ namespace Automation.Core.Tests
             }
         }
 
+        [TestMethod]
+        public void Step_WhenOperationCompletes_ParksAtNextUnexecutedOperation()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("顺序执行",
+                        new Delay { Id = Guid.NewGuid(), Name = "第一条", DelayMs = 0 },
+                        new Delay { Id = Guid.NewGuid(), Name = "第二条", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProcAt(process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForPosition(engine, ProcRunState.SingleStep, 0, 0, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.Step(0));
+
+                    WaitForPosition(engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void Step_WhenFollowingPositionsAreDisabled_ParksAtNextEnabledOperationAcrossSteps()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Step disabledStep = CreateStep("禁用步骤",
+                    new Delay { Id = Guid.NewGuid(), Name = "不会执行", DelayMs = 0 });
+                disabledStep.Disable = true;
+                Proc process = CreateProcess(
+                    CreateStep("第一步",
+                        new Delay { Id = Guid.NewGuid(), Name = "当前指令", DelayMs = 0 }),
+                    disabledStep,
+                    CreateStep("第三步",
+                        new Delay { Id = Guid.NewGuid(), Name = "禁用指令", DelayMs = 0, Disable = true },
+                        new Delay { Id = Guid.NewGuid(), Name = "下一条有效指令", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProcAt(process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForPosition(engine, ProcRunState.SingleStep, 0, 0, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.Step(0));
+
+                    WaitForPosition(engine, ProcRunState.SingleStep, 2, 1, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void Step_WhenGotoTargetsDisabledOperation_ParksAtNextEnabledTarget()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("跳转",
+                        new Goto
+                        {
+                            Id = Guid.NewGuid(),
+                            Name = "跳转到第二步",
+                            DefaultGoto = "0-1-0"
+                        }),
+                    CreateStep("目标步骤",
+                        new Delay { Id = Guid.NewGuid(), Name = "禁用目标", DelayMs = 0, Disable = true },
+                        new Delay { Id = Guid.NewGuid(), Name = "下一条有效指令", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProcAt(process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForPosition(engine, ProcRunState.SingleStep, 0, 0, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.Step(0));
+
+                    WaitForPosition(engine, ProcRunState.SingleStep, 1, 1, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void RequestStep_WhenSignalIsPending_ReturnsFalseInsteadOfSilentlyDroppingCommand()
+        {
+            using (var control = new ProcessControl())
+            {
+                Assert.IsTrue(control.RequestStep());
+                Assert.IsFalse(control.RequestStep());
+
+                control.WaitForStep();
+
+                Assert.IsTrue(control.RequestStep());
+            }
+        }
+
+        private static ProcessEngine CreateEngine(PlatformRuntime runtime, Proc process)
+        {
+            return new ProcessEngine(new EngineContext
+            {
+                Procs = new List<Proc> { process },
+                Maintenance = runtime.Maintenance,
+                Safety = runtime.Safety,
+                Readiness = runtime.Readiness,
+                Paths = runtime.Paths
+            });
+        }
+
+        private static Proc CreateProcess(params Step[] steps)
+        {
+            var process = new Proc
+            {
+                head = new ProcHead { Name = "单步位置回归流程" }
+            };
+            process.steps.AddRange(steps);
+            return process;
+        }
+
+        private static Step CreateStep(string name, params OperationType[] operations)
+        {
+            var step = new Step
+            {
+                Id = Guid.NewGuid(),
+                Name = name
+            };
+            step.Ops.AddRange(operations);
+            return step;
+        }
+
         private static void WaitForState(
             ProcessEngine engine,
             ProcRunState expectedState,
@@ -62,6 +203,31 @@ namespace Automation.Core.Tests
                 Thread.Sleep(20);
             }
             Assert.Fail($"等待流程状态超时：{expectedState}；当前状态：{engine.GetSnapshot(0).State}。");
+        }
+
+        private static void WaitForPosition(
+            ProcessEngine engine,
+            ProcRunState expectedState,
+            int expectedStepIndex,
+            int expectedOperationIndex,
+            TimeSpan timeout)
+        {
+            DateTime deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                EngineSnapshot snapshot = engine.GetSnapshot(0);
+                if (snapshot.State == expectedState
+                    && snapshot.StepIndex == expectedStepIndex
+                    && snapshot.OpIndex == expectedOperationIndex)
+                {
+                    return;
+                }
+                Thread.Sleep(10);
+            }
+            EngineSnapshot current = engine.GetSnapshot(0);
+            Assert.Fail(
+                $"等待单步位置超时：{expectedState} {expectedStepIndex}-{expectedOperationIndex}；" +
+                $"当前位置：{current.State} {current.StepIndex}-{current.OpIndex}。");
         }
     }
 }

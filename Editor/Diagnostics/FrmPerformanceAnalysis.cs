@@ -138,7 +138,7 @@ namespace Automation
                     totalRate += rate;
                     totalCpu += cpu;
                     totalOperations += performance?.OperationCount ?? 0;
-                    if (snapshot.State != ProcRunState.Stopped) runningCount++;
+                    if (!snapshot.State.IsInactive()) runningCount++;
                     if (abnormal) abnormalCount++;
                     processes.Add(new JObject
                     {
@@ -223,6 +223,7 @@ namespace Automation
                 case ProcRunState.Pausing: return "暂停中";
                 case ProcRunState.SingleStep: return "单步";
                 case ProcRunState.Alarming: return "报警";
+                case ProcRunState.Ready: return "就绪";
                 default: return "已停止";
             }
         }

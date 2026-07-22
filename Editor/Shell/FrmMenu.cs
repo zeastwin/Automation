@@ -12,9 +12,10 @@ namespace Automation
     public partial class FrmMenu : Form
     {
         private const int DefaultMenuButtonWidth = 143;
-        private const int MenuIconSize = 48;
-        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Regular);
-        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
+        private const int MenuIconSize = 50;
+        private const int MenuGroupGap = 14;
+        private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 12F, FontStyle.Regular);
+        private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Regular);
         private readonly Button version_Page = new Button();
         private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
@@ -24,6 +25,8 @@ namespace Automation
         private bool aiAssistantActive;
         private bool runtimeDiagnosticsButtonVisible;
 
+        private const int IoDebugPageIndex = 2;
+        private const int VariablePageIndex = 3;
         private const int CommunicationPageIndex = 7;
         private const int PlcPageIndex = 8;
         private const int VersionPageIndex = 9;
@@ -94,11 +97,12 @@ namespace Automation
 
             panel1.BackColor = UiPalette.Navigation;
             Io_Page.Text = "I/O 调试";
+            aiAssistant_Page.Text = "AI 助手";
             foreach (Button button in GetMenuButtons())
             {
                 string label = button.Text;
                 button.BackColor = UiPalette.Navigation;
-                button.ForeColor = UiPalette.NavigationText;
+                button.ForeColor = UiPalette.NavigationTextMuted;
                 button.FlatStyle = FlatStyle.Flat;
                 button.FlatAppearance.BorderSize = 0;
                 button.FlatAppearance.MouseOverBackColor = UiPalette.Navigation;
@@ -126,7 +130,7 @@ namespace Automation
             if (activeMenuButton != null)
             {
                 activeMenuButton.BackColor = UiPalette.Navigation;
-                activeMenuButton.ForeColor = UiPalette.NavigationText;
+                activeMenuButton.ForeColor = UiPalette.NavigationTextMuted;
                 SetMenuIcon(activeMenuButton, false);
                 activeMenuButton.Invalidate();
             }
@@ -168,6 +172,17 @@ namespace Automation
 
             string label = button.Tag as string ?? string.Empty;
             menuIconImages.TryGetValue(button, out Image icon);
+            if (button == activeMenuButton && button.ClientSize.Width > 0 && button.ClientSize.Height > 0)
+            {
+                using (LinearGradientBrush activeBackground = new LinearGradientBrush(
+                    button.ClientRectangle,
+                    UiPalette.NavigationActiveHighlight,
+                    UiPalette.NavigationActive,
+                    LinearGradientMode.Vertical))
+                {
+                    e.Graphics.FillRectangle(activeBackground, button.ClientRectangle);
+                }
+            }
             TextFormatFlags textFlags = TextFormatFlags.SingleLine
                 | TextFormatFlags.HorizontalCenter
                 | TextFormatFlags.VerticalCenter
@@ -177,9 +192,9 @@ namespace Automation
             int iconSize = icon == null
                 ? 0
                 : Math.Min(icon.Width, Math.Max(20, Math.Min(button.ClientSize.Width - 24, button.ClientSize.Height - textHeight - 12)));
-            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 3;
+            int gap = icon == null || string.IsNullOrEmpty(label) ? 0 : 6;
             int contentHeight = iconSize + gap + textHeight;
-            int contentTop = Math.Max(0, (button.ClientSize.Height - 2 - contentHeight) / 2) + button.Padding.Top;
+            int contentTop = Math.Max(0, (button.ClientSize.Height - 3 - contentHeight) / 2) + button.Padding.Top;
             int iconLeft = Math.Max(0, (button.ClientSize.Width - iconSize) / 2);
             if (icon != null)
             {
@@ -215,9 +230,9 @@ namespace Automation
                     e.Graphics.FillRectangle(
                         brush,
                         0,
-                        button.ClientSize.Height - 2,
+                        button.ClientSize.Height - 3,
                         button.ClientSize.Width,
-                        2);
+                        3);
                 }
             }
         }
@@ -231,6 +246,7 @@ namespace Automation
                 button.Dock = DockStyle.None;
             }
             panel1.AutoScroll = false;
+            panel1.Paint += MenuPanel_Paint;
             panel1.Resize += (sender, args) => AdjustMenuButtons();
             Shown += (sender, args) => AdjustMenuButtons();
             AdjustMenuButtons();
@@ -246,8 +262,8 @@ namespace Automation
                 Io_Page,
                 communication_Page,
                 Plc_Page,
-                valueDebug_Page,
                 Card_Page,
+                valueDebug_Page,
                 version_Page,
                 aiAssistant_Page,
                 runtimeDiagnostics_Page
@@ -274,31 +290,67 @@ namespace Automation
             }
 
             int availableWidth = Math.Max(0, panel1.ClientSize.Width);
+            int groupGapCount = 0;
+            for (int i = 1; i < buttons.Length; i++)
+            {
+                if (StartsNewMenuGroup(buttons[i]))
+                {
+                    groupGapCount++;
+                }
+            }
+            int buttonAreaWidth = Math.Max(buttons.Length, availableWidth - groupGapCount * MenuGroupGap);
             int targetWidth = availableWidth > 0
-                ? Math.Max(1, availableWidth / buttons.Length)
+                ? Math.Max(1, buttonAreaWidth / buttons.Length)
                 : DefaultMenuButtonWidth;
             Font buttonFont = targetWidth >= 110 ? normalMenuButtonFont : compactMenuButtonFont;
             int targetHeight = Math.Max(1, panel1.ClientSize.Height);
+            int widthRemainder = Math.Max(0, buttonAreaWidth - targetWidth * buttons.Length);
+            int left = 0;
 
             for (int i = 0; i < buttons.Length; i++)
             {
-                int left = i * targetWidth;
-                int width = i == buttons.Length - 1
-                    ? Math.Max(1, availableWidth - left)
-                    : targetWidth;
+                if (i > 0 && StartsNewMenuGroup(buttons[i]))
+                {
+                    left += MenuGroupGap;
+                }
+                int width = targetWidth + (i < widthRemainder ? 1 : 0);
                 buttons[i].Font = buttonFont;
                 buttons[i].SetBounds(left, 0, width, targetHeight);
+                left += width;
+            }
+            panel1.Invalidate();
+        }
+
+        private bool StartsNewMenuGroup(Button button)
+        {
+            return button == Io_Page || button == valueDebug_Page;
+        }
+
+        private void MenuPanel_Paint(object sender, PaintEventArgs e)
+        {
+            using (Pen dividerPen = new Pen(UiPalette.NavigationBorder, 1F))
+            {
+                foreach (Button groupStart in new[] { Io_Page, valueDebug_Page })
+                {
+                    if (!groupStart.Visible || groupStart.Left <= 0)
+                    {
+                        continue;
+                    }
+                    int dividerX = groupStart.Left - MenuGroupGap / 2;
+                    e.Graphics.DrawLine(dividerPen, dividerX, 18, dividerX, Math.Max(18, panel1.ClientSize.Height - 18));
+                }
             }
         }
 
         private void value_Page_Click(object sender, EventArgs e)
         {
+            ShowVariableWorkspace();
+        }
+
+        private void ShowVariableWorkspace()
+        {
             Workspace.Value.FreshFrmValue();
-           // Workspace.Value.Owner = this;
-            Workspace.Value.StartPosition = FormStartPosition.CenterScreen;
-            Workspace.Value.Show();
-            Workspace.Value.BringToFront();
-            Workspace.Value.WindowState = FormWindowState.Normal;
+            ShowEmbeddedMainPage(Workspace.Value, value_Page, VariablePageIndex);
         }
 
         private void aiAssistant_Page_Click(object sender, EventArgs e)
@@ -359,6 +411,11 @@ namespace Automation
 
         private void Card_Page_Click(object sender, EventArgs e)
         {
+            ShowIoConfigurationWorkspace();
+        }
+
+        internal void ShowIoConfigurationWorkspace()
+        {
             if (Workspace.CurrentPage != 5)
             {
                 Workspace.CurrentPage = 5;
@@ -405,6 +462,11 @@ namespace Automation
 
 
         private void process_Page_Click(object sender, EventArgs e)
+        {
+            ShowProcessWorkspace();
+        }
+
+        internal void ShowProcessWorkspace()
         {
             if (Workspace.CurrentPage != 0)
             {
@@ -498,15 +560,12 @@ namespace Automation
 
         private void Io_Page_Click(object sender, EventArgs e)
         {
-            if (Workspace.CurrentPage != 2)
-            {
-                Workspace.IODebug.StartPosition = FormStartPosition.CenterScreen;
-                Workspace.IODebug.Show();
-                Workspace.IODebug.BringToFront();
-                Workspace.IODebug.WindowState = FormWindowState.Normal;
+            ShowIoDebugWorkspace();
+        }
 
-
-            }
+        private void ShowIoDebugWorkspace()
+        {
+            ShowEmbeddedMainPage(Workspace.IODebug, Io_Page, IoDebugPageIndex);
         }
 
         private void valueDebug_Page_Click(object sender, EventArgs e)
@@ -531,9 +590,28 @@ namespace Automation
             ShowEmbeddedMainPage(Workspace.GetOrCreatePlc(), Plc_Page, PlcPageIndex);
         }
 
+        internal void ShowDetachableWorkspacePage(Form page)
+        {
+            if (ReferenceEquals(page, Workspace.Value))
+            {
+                ShowVariableWorkspace();
+                return;
+            }
+            if (ReferenceEquals(page, Workspace.IODebug))
+            {
+                ShowIoDebugWorkspace();
+                return;
+            }
+            throw new ArgumentException("页面不支持弹出窗口。", nameof(page));
+        }
+
         private void ShowEmbeddedMainPage(Form page, Button menuButton, int pageIndex)
         {
             if (page == null || page.IsDisposed)
+            {
+                return;
+            }
+            if (Workspace.Main.TryActivateDetachedWorkspacePage(page))
             {
                 return;
             }

@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 7;
+        public const int ContractVersion = 11;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -225,22 +225,33 @@ namespace Automation
                 case "流程操作":
                     contract = CreateContract(
                         "按顺序启动或停止一个或多个目标流程。",
-                        new[] { "每项从 ProcName 或 ProcValue 解析目标流程", "value=运行时启动已停止流程，value=停止时停止运行中流程", "执行该项操作后等待配置延时" },
+                        new[] { "每项从 ProcName 或 ProcValue 解析目标流程", "value=运行时启动非活动流程，value=停止时停止活动流程", "执行该项操作后等待配置延时" },
                         true);
                     AddRequiredField(contract, "Params", "流程操作集合；每项明确目标来源、运行或停止动作及后延时");
-                    contract["constraints"] = new JArray("ProcName 与 ProcValue 表达同一个目标来源，运行时名称优先", "当前流程不能启动自身", "启动目标必须处于 Stopped，停止目标必须处于非 Stopped");
+                    contract["constraints"] = new JArray("ProcName 与 ProcValue 表达同一个目标来源，运行时名称优先", "当前流程不能启动自身", "启动目标必须处于 Ready 或 Stopped，停止目标必须处于活动状态");
                     contract["failureModes"] = new JArray("目标流程不存在或状态不允许时报警", "启动流程失败或延时变量无效时报警");
                     break;
 
                 case "等待流程状态":
                     contract = CreateContract(
-                        "在统一超时边界内等待多个流程全部达到运行或停止状态。",
+                        "在统一超时边界内等待多个流程全部达到运行、就绪或停止状态。",
                         new[] { "解析 Timeout", "逐项从 ProcName 或 ProcValue 解析目标流程", "循环检查所有目标状态", "全部满足后执行统一后延时" },
                         true);
                     AddRequiredField(contract, "Params", "待等待流程条件集合");
                     AddRequiredField(contract, "Timeout", "固定超时或超时变量；解析结果必须大于0毫秒");
-                    contract["constraints"] = new JArray("所有 Params 条件同时满足才完成", "value 仅表达运行或停止状态", "固定后延时小于等于0时可从 DelayAfterVariableName 读取");
+                    contract["constraints"] = new JArray("所有 Params 条件同时满足才完成", "value 严格表达运行、就绪或停止状态；就绪只表示自然完成，停止表示停止请求或异常结束", "固定后延时小于等于0时可从 DelayAfterVariableName 读取");
                     contract["failureModes"] = new JArray("目标流程不存在、超时配置无效或等待超时时报警");
+                    break;
+
+                case "CT探针":
+                    contract = CreateContract(
+                        "在显式业务位置记录分段CT和自周期起点以来的累计CT。",
+                        new[] { "按当前流程runId与TaskKey定位计时任务", "StartNewCycle=true时用单调时钟重置周期", "后续探针计算距上一探针和周期起点的耗时", "按需写入double结果变量", "同步发布内存事件并更新最新样本" },
+                        true);
+                    AddRequiredField(contract, "TaskKey", "同一流程运行内计时任务的稳定标识");
+                    AddRequiredField(contract, "SegmentName", "当前业务分段名称");
+                    contract["constraints"] = new JArray("每个TaskKey必须先执行StartNewCycle=true的探针", "结果变量可省略；配置时必须是当前流程可访问的double变量", "使用Stopwatch单调时钟，不依赖系统时间调整", "探针不在执行热路径同步写文件");
+                    contract["failureModes"] = new JArray("任务标识或分段名称为空时报警", "未先开始周期时报警", "结果变量不存在、类型不符或写入失败时报警");
                     break;
 
                 case "延时":
@@ -319,7 +330,7 @@ namespace Automation
                         "显示交互弹框，根据按钮结果跳转。",
                         new[] { "根据 InfoType 解析提示内容", "按 PopupType 显示一至三个按钮", "所选按钮的 PopupGoto 非空时跳转，为空时顺序执行下一条" },
                         true);
-                    contract["controlFlow"]["description"] = "按钮对应的 PopupGoto 非空时显式跳转；为空时顺序执行下一条。位于流程末尾时会自然结束并进入 Stopped。";
+                    contract["controlFlow"]["description"] = "按钮对应的 PopupGoto 非空时显式跳转；为空时顺序执行下一条。位于流程末尾时会自然结束并进入 Ready。";
                     AddConditionalGoto(contract, "PopupGoto1", "PopupType", new[] { "弹是", "弹是与否", "弹是与否与取消" }, "按钮1可选跳转目标；为空时顺序执行下一条");
                     AddConditionalGoto(contract, "PopupGoto2", "PopupType", new[] { "弹是与否", "弹是与否与取消" }, "按钮2可选跳转目标；为空时顺序执行下一条");
                     AddConditionalGoto(contract, "PopupGoto3", "PopupType", new[] { "弹是与否与取消" }, "按钮3可选跳转目标；为空时顺序执行下一条");
@@ -332,45 +343,62 @@ namespace Automation
                 case "设置结构体数据项":
                     contract = CreateContract(
                         "把 Params 中的固定值写入指定结构体项的指定字段。",
-                        new[] { "校验 StructIndex 和 ItemIndex 为非负强类型索引", "逐项校验 FieldIndex", "按字段索引写入固定 Value" },
+                        new[] { "UseNameAddressing=false 时严格按 StructIndex/ItemIndex/FieldIndex 寻址", "UseNameAddressing=true 时严格按 StructName/ItemName/FieldName 寻址", "全部字段解析和校验成功后一次提交固定 Value" },
                         true);
-                    AddRequiredField(contract, "StructIndex", "目标结构体非负索引");
-                    AddRequiredField(contract, "ItemIndex", "目标结构项非负索引");
+                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
+                    AddConditionalField(contract, "StructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "ItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
+                    AddConditionalField(contract, "StructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
+                    AddConditionalField(contract, "ItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     AddRequiredField(contract, "Params", "字段索引与固定值集合");
-                    contract["failureModes"] = new JArray("任一索引为负数或越界时报警", "结构体字段写入失败时报警");
+                    contract["constraints"] = new JArray("名称模式下每个 Params 项必须填写 FieldName；索引模式下使用 FieldIndex", "名称解析失败不回退索引", "任一字段失败时目标项不产生部分写入");
+                    contract["failureModes"] = new JArray("任一索引或名称无效时报警", "结构体字段写入失败时报警");
                     break;
 
                 case "获取结构体数据项":
                     contract = CreateContract(
                         "读取指定结构体项的字段，并批量写入连续变量或按映射写入变量。",
-                        new[] { "校验 StructIndex 和 ItemIndex 为非负强类型索引", "IsAllItem=true 时从 FirstResultVariableName 开始写入全部字段", "否则按 Params 的 FieldIndex 与结果变量引用逐项写入" },
+                        new[] { "根据 UseNameAddressing 严格选择索引或名称寻址", "IsAllItem=true 时按真实字段索引排序读取并从 FirstResultVariableName 连续写入", "否则按 Params 的字段索引或名称与结果变量引用逐项写入" },
                         true);
-                    AddRequiredField(contract, "StructIndex", "目标结构体非负索引");
-                    AddRequiredField(contract, "ItemIndex", "目标结构项非负索引");
+                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
+                    AddConditionalField(contract, "StructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "ItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
+                    AddConditionalField(contract, "StructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
+                    AddConditionalField(contract, "ItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     AddConditionalField(contract, "FirstResultVariableName", "IsAllItem", new[] { "True" }, "批量结果的首个变量");
                     AddConditionalField(contract, "Params", "IsAllItem", new[] { "False" }, "字段索引到目标变量的映射集合");
+                    contract["constraints"] = new JArray("名称模式下非批量读取的每个 Params 项必须填写 FieldName", "名称解析失败不回退索引");
                     contract["failureModes"] = new JArray("结构体或变量索引无效时报警", "字段读取或变量写入失败时报警");
                     break;
 
                 case "复制结构体数据项":
                     contract = CreateContract(
                         "在两个结构体项之间复制全部字段或明确字段映射。",
-                        new[] { "解析源和目标结构体项", "IsAllValue=true 时复制完整项数据", "否则按 Params 把源字段值及类型写入目标字段" },
+                        new[] { "源和目标分别根据 UseSourceNameAddressing/UseTargetNameAddressing 选择索引或名称寻址", "IsAllValue=true 时复制完整项数据", "否则解析全部 Params 后一次写入目标字段" },
                         true);
-                    AddRequiredField(contract, "SourceStructIndex", "源结构体非负索引");
-                    AddRequiredField(contract, "SourceItemIndex", "源结构项非负索引");
-                    AddRequiredField(contract, "TargetStructIndex", "目标结构体非负索引");
-                    AddRequiredField(contract, "TargetItemIndex", "目标结构项非负索引");
+                    AddRequiredField(contract, "UseSourceNameAddressing", "源false按索引寻址，true按精确名称寻址");
+                    AddRequiredField(contract, "UseTargetNameAddressing", "目标false按索引寻址，true按精确名称寻址");
+                    AddConditionalField(contract, "SourceStructIndex", "UseSourceNameAddressing", new[] { "False" }, "源结构体非负索引");
+                    AddConditionalField(contract, "SourceItemIndex", "UseSourceNameAddressing", new[] { "False" }, "源结构项非负索引");
+                    AddConditionalField(contract, "SourceStructName", "UseSourceNameAddressing", new[] { "True" }, "源结构体精确名称");
+                    AddConditionalField(contract, "SourceItemName", "UseSourceNameAddressing", new[] { "True" }, "源数据项精确名称");
+                    AddConditionalField(contract, "TargetStructIndex", "UseTargetNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "TargetItemIndex", "UseTargetNameAddressing", new[] { "False" }, "目标结构项非负索引");
+                    AddConditionalField(contract, "TargetStructName", "UseTargetNameAddressing", new[] { "True" }, "目标结构体精确名称");
+                    AddConditionalField(contract, "TargetItemName", "UseTargetNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     AddConditionalField(contract, "Params", "IsAllValue", new[] { "False" }, "源字段到目标字段的映射集合");
+                    contract["constraints"] = new JArray("名称模式下 Params 使用对应的 SourceFieldName/TargetFieldName", "名称解析失败不回退索引", "任一映射失败时目标项不产生部分写入");
                     contract["failureModes"] = new JArray("任一索引或映射无效时报警", "源值为空、读取失败或目标写入失败时报警");
                     break;
 
                 case "插入结构体数据项":
                     contract = CreateContract(
                         "在指定结构体位置插入由 Params 定义的新数据项。",
-                        new[] { "按 Params 顺序创建字段", "Type=double 时从变量或固定数值取值，其他类型按文本取值", "解析目标位置并插入" },
+                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "按 Params 顺序创建字段", "Type=double/string 时从变量或固定值严格取值", "按 TargetItemIndex 指定的位置插入" },
                         true);
-                    AddRequiredField(contract, "TargetStructIndex", "目标结构体非负索引");
+                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
+                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "TargetItemIndex", "插入位置非负索引");
                     AddRequiredField(contract, "ItemName", "新数据项名称");
                     AddRequiredField(contract, "Params", "新数据项字段集合");
@@ -381,19 +409,24 @@ namespace Automation
                 case "删除结构体数据项":
                     contract = CreateContract(
                         "删除指定结构体中的一个数据项。",
-                        new[] { "校验 TargetStructIndex 和 TargetItemIndex 为非负强类型索引", "按索引删除目标项" },
+                        new[] { "根据 UseNameAddressing 严格选择索引或名称寻址", "删除解析到的目标项", "不改写任何流程中的其他索引" },
                         true);
-                    AddRequiredField(contract, "TargetStructIndex", "目标结构体非负索引");
-                    AddRequiredField(contract, "TargetItemIndex", "目标结构项非负索引");
+                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
+                    AddConditionalField(contract, "TargetStructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "TargetItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
+                    AddConditionalField(contract, "TargetStructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
+                    AddConditionalField(contract, "TargetItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     contract["failureModes"] = new JArray("索引无效、越界或删除失败时报警");
                     break;
 
                 case "查找结构体数据项":
                     contract = CreateContract(
                         "按名称、字符串值或数值在结构体中查找匹配项并保存结果。",
-                        new[] { "校验 TargetStructIndex 为非负强类型索引", "按 Type 解释 Key 并查找", "把查找结果写入 ResultVariableName" },
+                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "按 Type 严格解释 Key 并查找", "命中后把结果写入 ResultVariableName；未命中触发指令报警" },
                         true);
-                    AddRequiredField(contract, "TargetStructIndex", "目标结构体非负索引");
+                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
+                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "Type", "名称等于key、字符串等于key或数值等于key");
                     AddRequiredField(contract, "Key", "查找关键字；数值模式必须是有效数值");
                     AddRequiredField(contract, "ResultVariableName", "查找结果保存变量");
@@ -403,9 +436,11 @@ namespace Automation
                 case "获取结构体数量":
                     contract = CreateContract(
                         "读取结构体总数和指定结构体的项数并分别写入变量。",
-                        new[] { "把结构体总数写入 StructCountVariableName", "校验 TargetStructIndex 为非负强类型索引", "把目标结构体项数写入 ItemCountVariableName" },
+                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "校验两个结果变量", "写入结构体总数和目标结构体项数" },
                         true);
-                    AddRequiredField(contract, "TargetStructIndex", "目标结构体非负索引");
+                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
+                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
+                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "StructCountVariableName", "结构体总数保存变量");
                     AddRequiredField(contract, "ItemCountVariableName", "目标结构体项数保存变量");
                     contract["failureModes"] = new JArray("索引无效或任一结果变量写入失败时报警");
@@ -413,21 +448,21 @@ namespace Automation
 
                 case "网口通讯操作":
                     contract = CreateContract(
-                        "按顺序启动或断开一个或多个 TCP 通讯对象。",
-                        new[] { "逐项按 Name 读取 TCP 配置", "Ops=启动时按客户端或服务端配置启动", "Ops=断开时停止对象", "校验最终运行状态" },
+                        "按顺序启动或断开一个或多个 TCP 逻辑通道。启动建立通道生命周期，但不等同于已经建立活动连接。",
+                        new[] { "逐项按 Name 读取 TCP 配置", "Ops=启动时Server进入监听，Client进入连接或自动重连", "Ops=断开时取消监听、连接和重连", "校验最终启动状态" },
                         true);
                     AddRequiredField(contract, "Params", "TCP 对象与启动或断开动作集合");
-                    contract["constraints"] = new JArray("Name 必须是精确 TCP 配置名称", "Ops 仅允许启动或断开", "多个对象按 Params 顺序处理");
-                    contract["failureModes"] = new JArray("通讯服务、TCP 配置、动作或最终状态无效时报警");
+                    contract["constraints"] = new JArray("Name 必须是精确 TCP 配置名称", "Ops 仅允许启动或断开", "多个对象按 Params 顺序处理", "Client启用AutoReconnect时首次连接失败仍保持已启动并进入重连状态", "需要真实连接时必须继续使用等待网口连接");
+                    contract["failureModes"] = new JArray("通讯服务、TCP 配置、动作或最终启动状态无效时报警", "Client未启用AutoReconnect且首次连接失败时启动失败");
                     break;
 
                 case "等待网口连接":
                     contract = CreateContract(
                         "按顺序等待一个或多个 TCP 对象进入活动连接状态。",
-                        new[] { "逐项校验 TCP 配置", "在该项 TimeoutMs 边界内轮询活动状态", "当前项连接后继续等待下一项" },
+                        new[] { "逐项校验 TCP 配置", "在该项 TimeoutMs 边界内轮询真实连接状态", "Client连接成功或Server存在匹配远端条件的在线会话后继续等待下一项" },
                         true);
                     AddRequiredField(contract, "Params", "TCP 对象与各自超时集合");
-                    contract["constraints"] = new JArray("每项 TimeoutMs 必须大于0毫秒", "所有对象依次连接成功后指令才完成");
+                    contract["constraints"] = new JArray("每项 TimeoutMs 必须大于0毫秒", "Server仅处于监听状态不算连接成功", "Client处于连接中或重连中不算连接成功", "所有对象依次连接成功后指令才完成");
                     contract["failureModes"] = new JArray("通讯服务或配置不存在时报警", "任一对象连接超时时报警");
                     break;
 
@@ -439,6 +474,7 @@ namespace Automation
                     AddRequiredField(contract, "ConnectionName", "TCP 通讯对象精确名称");
                     AddRequiredField(contract, "Msg", "发送内容来源变量");
                     AddRequiredField(contract, "TimeoutMs", "发送超时；必须大于0毫秒");
+                    contract["constraints"] = new JArray("通道必须存在真实活动连接", "Server具体远端通道只向已路由会话发送", "Server通配通道向该通道的全部在线会话广播");
                     contract["failureModes"] = new JArray("通讯对象、变量或超时无效时报警", "发送失败或超时时报警");
                     break;
 
@@ -450,6 +486,7 @@ namespace Automation
                     AddRequiredField(contract, "ConnectionName", "TCP 通讯对象精确名称");
                     AddRequiredField(contract, "MsgSaveValue", "接收结果保存变量");
                     AddRequiredField(contract, "TimeoutMs", "接收超时；必须大于0毫秒");
+                    contract["constraints"] = new JArray("通道必须存在真实活动连接", "Server只接收被共享监听器路由到该逻辑通道的会话消息");
                     contract["failureModes"] = new JArray("TCP 未连接、接收失败或超时时报警", "结果变量写入失败时报警");
                     break;
 
@@ -504,7 +541,7 @@ namespace Automation
                     AddRequiredField(contract, "ConnectionName", "所选通讯类型下的精确对象名称");
                     AddRequiredField(contract, "SendMsg", "请求内容来源变量");
                     AddRequiredField(contract, "TimeoutMs", "请求响应超时；必须大于0毫秒");
-                    contract["constraints"] = new JArray("TCP 对象必须处于活动连接，串口必须已打开", "ReceiveSaveValue 为空时仍接收响应但不保存");
+                    contract["constraints"] = new JArray("TCP 对象必须处于活动连接，串口必须已打开", "TCP Server请求响应模式要求该逻辑通道恰好一个在线会话，不能对多客户端通配广播通道执行请求响应", "ReceiveSaveValue 为空时仍接收响应但不保存", "连接自动重连只恢复通道；仅当RetryCount大于0时，本指令才按固定RetryIntervalMs重新执行完整业务请求");
                     contract["failureModes"] = new JArray("通讯类型、对象、变量或超时无效时报警", "发送接收失败或结果保存失败时报警");
                     break;
 
@@ -619,6 +656,7 @@ namespace Automation
             }
             contract["source"] = nameof(OperationBehaviorCatalog);
             AddAlarmPolicy(contract);
+            AddCommunicationRetryPolicy(contract, operation);
             return contract;
         }
 
@@ -781,6 +819,47 @@ namespace Automation
                 ["safeDefault"] = "报警停止",
                 ["gotoScope"] = "Goto1/Goto2/Goto3 是异常处理分支，与指令自身的业务跳转字段相互独立",
                 ["missingResourceBehavior"] = "报警信息编号可以先保存；对应资源未配置时流程状态为 incomplete，启动闸门会拒绝运行"
+            };
+        }
+
+        private static void AddCommunicationRetryPolicy(JObject contract, OperationType operation)
+        {
+            if (!(operation is CommunicationOperationType communication))
+            {
+                return;
+            }
+            bool responseValidation = communication is ResponseCommunicationOperationType response
+                && response.ShouldEvaluateResponseConditions;
+            if (responseValidation)
+            {
+                ((JObject)contract["fieldRules"])[nameof(ResponseCommunicationOperationType.ResponseConditions)] =
+                    new JObject
+                    {
+                        ["enabledWhen"] = operation is PlcReadWrite
+                            ? "RetryCount > 0 && Action == Read"
+                            : "RetryCount > 0",
+                        ["ignoredWhen"] = operation is PlcReadWrite
+                            ? "RetryCount == 0 || Action == Write"
+                            : "RetryCount == 0",
+                        ["maxItems"] = 20,
+                        ["judgeModes"] = new JArray("非空", "字段存在", "等于特征字符", "包含特征字符",
+                            "值在区间左", "值在区间右", "值在区间内"),
+                        ["combination"] = "第一条作为初值，后续按Operator=且/或组合",
+                        ["jsonFieldPath"] = "可选点分隔精确路径；字段不存在、JSON无效或值不满足均属于可重试的接收结果失败"
+                    };
+            }
+            contract["communicationRetry"] = new JObject
+            {
+                ["supported"] = true,
+                ["retryCountRange"] = "0..10，表示首次通信失败后的额外重试次数",
+                ["retryIntervalMsRange"] = "0..60000，每次重试使用同一固定间隔，不退避",
+                ["retryableFailures"] = responseValidation
+                    ? new JArray("通信掉线、超时、无回应或通讯运行时异常", "已收到数据但结果判定不满足")
+                    : new JArray("通信掉线、超时、无回应或通讯运行时异常"),
+                ["responseValidation"] = responseValidation
+                    ? "仅RetryCount大于0时执行；0时跳过ResponseConditions"
+                    : "该指令没有接收结果判定",
+                ["finalFailure"] = "仅重试耗尽后的最终失败进入指令AlarmType策略"
             };
         }
 

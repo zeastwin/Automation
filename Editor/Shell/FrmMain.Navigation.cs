@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -261,9 +262,126 @@ namespace Automation
             UpdateEditorNavigationActions();
         }
 
+        internal void ToggleWorkspacePageWindow(Form page)
+        {
+            if (!IsDetachableWorkspacePage(page) || page.IsDisposed)
+            {
+                return;
+            }
+            if (page.TopLevel && page.Visible)
+            {
+                AttachWorkspacePage(page, true);
+                return;
+            }
+            DetachWorkspacePage(page);
+        }
+
+        internal void ReattachWorkspacePageAfterClose(Form page)
+        {
+            if (IsDetachableWorkspacePage(page) && page.TopLevel && !page.IsDisposed)
+            {
+                AttachWorkspacePage(page, false);
+            }
+        }
+
+        internal bool TryActivateDetachedWorkspacePage(Form page)
+        {
+            if (!IsDetachableWorkspacePage(page) || !page.TopLevel || !page.Visible || page.IsDisposed)
+            {
+                return false;
+            }
+            if (page.WindowState == FormWindowState.Minimized)
+            {
+                page.WindowState = FormWindowState.Normal;
+            }
+            page.Activate();
+            page.BringToFront();
+            return true;
+        }
+
+        private bool IsDetachableWorkspacePage(Form page)
+        {
+            return ReferenceEquals(page, frmValue) || ReferenceEquals(page, frmIODebug);
+        }
+
+        private void DetachWorkspacePage(Form page)
+        {
+            page.Hide();
+            bool wasActive = workspacePageHost.ReleasePage(page);
+            page.Dock = DockStyle.None;
+            page.TopLevel = true;
+            page.FormBorderStyle = FormBorderStyle.Sizable;
+            page.ShowIcon = true;
+            page.ShowInTaskbar = true;
+            page.MaximizeBox = true;
+            page.MinimizeBox = true;
+            page.StartPosition = FormStartPosition.Manual;
+            page.Text = ReferenceEquals(page, frmValue) ? "变量" : "I/O 调试";
+
+            Rectangle workingArea = Screen.FromControl(this).WorkingArea;
+            int maximumWidth = Math.Max(1, workingArea.Width - 80);
+            int maximumHeight = Math.Max(1, workingArea.Height - 80);
+            int preferredWidth = Math.Min(1440, workingArea.Width * 4 / 5);
+            int preferredHeight = Math.Min(810, workingArea.Height * 4 / 5);
+            int detachedWidth = Math.Min(maximumWidth, Math.Max(page.MinimumSize.Width, preferredWidth));
+            int detachedHeight = Math.Min(maximumHeight, Math.Max(page.MinimumSize.Height, preferredHeight));
+            page.Bounds = new Rectangle(
+                workingArea.Left + Math.Max(0, (workingArea.Width - detachedWidth) / 2),
+                workingArea.Top + Math.Max(0, (workingArea.Height - detachedHeight) / 2),
+                detachedWidth,
+                detachedHeight);
+            SetWorkspacePageDetachedState(page, true);
+            page.Show(this);
+            page.Activate();
+
+            if (wasActive)
+            {
+                frmMenu.ShowProcessWorkspace();
+            }
+        }
+
+        private void AttachWorkspacePage(Form page, bool activate)
+        {
+            page.Hide();
+            page.Owner = null;
+            page.WindowState = FormWindowState.Normal;
+            page.Dock = DockStyle.None;
+            page.FormBorderStyle = FormBorderStyle.None;
+            page.ShowIcon = false;
+            page.ShowInTaskbar = false;
+            page.TopLevel = false;
+            page.Dock = DockStyle.Fill;
+            if (!workspacePageHost.Controls.Contains(page))
+            {
+                workspacePageHost.Controls.Add(page);
+            }
+            page.Visible = false;
+            SetWorkspacePageDetachedState(page, false);
+            if (activate)
+            {
+                frmMenu.ShowDetachableWorkspacePage(page);
+            }
+        }
+
+        private static void SetWorkspacePageDetachedState(Form page, bool detached)
+        {
+            if (page is FrmValue valuePage)
+            {
+                valuePage.SetWorkspaceDetached(detached);
+            }
+            else if (page is FrmIODebug ioDebugPage)
+            {
+                ioDebugPage.SetWorkspaceDetached(detached);
+            }
+        }
+
         public void ShowWorkspacePage(Form page)
         {
             if (page == null || page.IsDisposed)
+            {
+                return;
+            }
+            if (TryActivateDetachedWorkspacePage(page))
             {
                 return;
             }

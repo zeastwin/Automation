@@ -202,7 +202,11 @@ namespace Automation
             automationBridgeHost = new AutomationBridgeHost(this);
 
             StartPosition = FormStartPosition.CenterScreen;
-            WindowState = FormWindowState.Maximized;
+            WindowState = FormWindowState.Normal;
+            Rectangle startupWorkingArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Size = new Size(
+                Math.Max(1, Math.Min(Width, startupWorkingArea.Width * 9 / 10)),
+                Math.Max(1, Math.Min(Height, startupWorkingArea.Height * 9 / 10)));
             previousWindowState = WindowState;
             Resize += FrmMain_Resize;
 
@@ -644,6 +648,9 @@ namespace Automation
                         case ProcRunState.Stopped:
                             nextColor = UiPalette.TextPrimary;
                             break;
+                        case ProcRunState.Ready:
+                            nextColor = UiPalette.Success;
+                            break;
                         default:
                             nextColor = UiPalette.TextPrimary;
                             break;
@@ -723,7 +730,7 @@ namespace Automation
             for (int i = 0; i < frmProc.procsList.Count; i++)
             {
                 EngineSnapshot snapshot = Runtime.ProcessEngine.GetSnapshot(i);
-                if (snapshot == null || snapshot.State != ProcRunState.Stopped)
+                if (snapshot == null || !snapshot.State.IsInactive())
                 {
                     return false;
                 }
@@ -868,26 +875,38 @@ namespace Automation
                     opName = "未命名";
                 }
 
-                ProcRunState startState = ProcRunState.SingleStep;
-                EngineSnapshot startSnapshot = Runtime.ProcessEngine.GetSnapshot(procIndex);
-                if (startSnapshot != null && startSnapshot.State == ProcRunState.Paused)
+                if (!Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string stateError))
                 {
-                    startState = ProcRunState.Paused;
+                    if (frmInfo != null && !frmInfo.IsDisposed)
+                    {
+                        frmInfo.PrintInfo($"快捷键：设置启动点失败：{stateError}", FrmInfo.Level.Error);
+                    }
+                    e.Handled = true;
+                    return;
                 }
 
-                Runtime.ProcessEngine.Stop(procIndex);
-                Runtime.ProcessEngine.StartProcAt(
+                const ProcRunState startState = ProcRunState.SingleStep;
+                bool started = Runtime.ProcessEngine.StartProcAt(
                     null,
                     procIndex,
                     stepIndex,
                     opIndex,
                     startState);
+                if (!started)
+                {
+                    if (frmInfo != null && !frmInfo.IsDisposed)
+                    {
+                        frmInfo.PrintInfo("快捷键：设置启动点失败，请查看流程运行日志。", FrmInfo.Level.Error);
+                    }
+                    e.Handled = true;
+                    return;
+                }
 
                 if (frmToolBar != null && !frmToolBar.IsDisposed)
                 {
                     frmToolBar.SetPauseButtonAction(true);
-                    frmToolBar.btnPause.Enabled = startState != ProcRunState.Paused;
-                    frmToolBar.SingleRun.Enabled = startState == ProcRunState.SingleStep;
+                    frmToolBar.btnPause.Enabled = true;
+                    frmToolBar.SingleRun.Enabled = true;
                 }
 
                 if (frmInfo != null && !frmInfo.IsDisposed)

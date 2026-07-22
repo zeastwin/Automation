@@ -189,8 +189,11 @@ namespace Automation.Bridge
                         Id = item?.ID ?? 0,
                         Name = item?.Name ?? string.Empty,
                         Type = item?.Type ?? string.Empty,
-                        Port = item?.Port ?? 0,
-                        Address = item?.Address ?? string.Empty,
+                        LocalAddress = item?.LocalAddress ?? string.Empty,
+                        LocalPort = item?.LocalPort ?? 0,
+                        RemoteAddress = item?.RemoteAddress ?? string.Empty,
+                        RemotePort = item?.RemotePort ?? 0,
+                        AutoReconnect = item?.AutoReconnect ?? false,
                         FrameMode = item?.FrameMode ?? string.Empty,
                         FrameDelimiter = item?.FrameDelimiter ?? string.Empty,
                         EncodingName = item?.EncodingName ?? string.Empty,
@@ -348,7 +351,7 @@ namespace Automation.Bridge
                 }
                 draft = record.MigrationConfigurationPreview;
             }
-            EnsureAllProcsStoppedForAiStructureCommit("提交迁移平台配置");
+            EnsureAllProcsInactiveForAiStructureCommit("提交迁移平台配置");
             if (!string.Equals(draft.BaseStateHash, ComputeMigrationStateHash(draft.Kind), StringComparison.Ordinal))
             {
                 throw new BridgeRequestException(409, "PREVIEW_BASE_CHANGED",
@@ -757,8 +760,11 @@ namespace Automation.Bridge
                 ID = item.Id,
                 Name = item.Name ?? string.Empty,
                 Type = item.Type ?? string.Empty,
-                Port = item.Port,
-                Address = item.Address ?? string.Empty,
+                LocalAddress = item.LocalAddress ?? string.Empty,
+                LocalPort = item.LocalPort,
+                RemoteAddress = item.RemoteAddress ?? string.Empty,
+                RemotePort = item.RemotePort,
+                AutoReconnect = item.AutoReconnect,
                 FrameMode = item.FrameMode ?? string.Empty,
                 FrameDelimiter = item.FrameDelimiter ?? string.Empty,
                 EncodingName = item.EncodingName ?? string.Empty,

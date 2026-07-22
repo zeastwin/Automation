@@ -73,8 +73,8 @@ namespace Automation
             Color background = !Enabled
                 ? UiPalette.SurfaceSubtle
                 : pointerDown
-                    ? UiPalette.SurfacePressed
-                    : (pointerOver ? UiPalette.SurfaceHover : UiPalette.Input);
+                    ? UiPalette.Selection
+                    : (pointerOver ? UiPalette.BrandSoftHover : UiPalette.BrandSoft);
             e.Graphics.Clear(background);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var pen = new Pen(
@@ -127,7 +127,7 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.Clear(Parent?.BackColor ?? UiPalette.Surface);
+            e.Graphics.Clear(UiPalette.BrandSoft);
             var track = new Rectangle(2, Math.Max(2, (Height - 18) / 2), 32, 18);
             Color trackColor;
             if (!Enabled)

@@ -78,8 +78,11 @@
             this.id = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.name = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.type = new System.Windows.Forms.DataGridViewComboBoxColumn();
-            this.ip = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.port = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.localIp = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.localPort = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.remoteIp = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.remotePort = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.autoReconnect = new System.Windows.Forms.DataGridViewCheckBoxColumn();
             this.tcpFrameDelimiter = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this.state = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.dataGridViewTextBoxColumn1 = new System.Windows.Forms.DataGridViewTextBoxColumn();
@@ -139,8 +142,11 @@
             this.id,
             this.name,
             this.type,
-            this.ip,
-            this.port,
+            this.localIp,
+            this.localPort,
+            this.remoteIp,
+            this.remotePort,
+            this.autoReconnect,
             this.tcpFrameDelimiter,
             this.state});
             this.dataGridView1.ContextMenuStrip = this.contextMenuStrip1;
@@ -444,27 +450,51 @@
             "Server"});
             this.type.MinimumWidth = 6;
             this.type.Name = "type";
-            // 
-            // ip
-            // 
+            //
+            // localIp
+            //
             dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.ip.DefaultCellStyle = dataGridViewCellStyle4;
-            this.ip.FillWeight = 86.33793F;
-            this.ip.HeaderText = "IP";
-            this.ip.MinimumWidth = 6;
-            this.ip.Name = "ip";
-            this.ip.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
-            // 
-            // port
-            // 
-            this.port.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+            this.localIp.DefaultCellStyle = dataGridViewCellStyle4;
+            this.localIp.FillWeight = 58F;
+            this.localIp.HeaderText = "本地IP";
+            this.localIp.MinimumWidth = 6;
+            this.localIp.Name = "localIp";
+            this.localIp.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            //
+            // localPort
+            //
+            this.localPort.DefaultCellStyle = dataGridViewCellStyle4;
+            this.localPort.FillWeight = 30F;
+            this.localPort.HeaderText = "本地端口";
+            this.localPort.MinimumWidth = 6;
+            this.localPort.Name = "localPort";
+            this.localPort.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            //
+            // remoteIp
+            //
+            this.remoteIp.DefaultCellStyle = dataGridViewCellStyle4;
+            this.remoteIp.FillWeight = 58F;
+            this.remoteIp.HeaderText = "远端IP";
+            this.remoteIp.MinimumWidth = 6;
+            this.remoteIp.Name = "remoteIp";
+            this.remoteIp.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            //
+            // remotePort
+            //
+            this.remotePort.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
             dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            this.port.DefaultCellStyle = dataGridViewCellStyle5;
-            this.port.FillWeight = 30F;
-            this.port.HeaderText = "端口";
-            this.port.MinimumWidth = 6;
-            this.port.Name = "port";
-            this.port.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.remotePort.DefaultCellStyle = dataGridViewCellStyle5;
+            this.remotePort.FillWeight = 30F;
+            this.remotePort.HeaderText = "远端端口";
+            this.remotePort.MinimumWidth = 6;
+            this.remotePort.Name = "remotePort";
+            this.remotePort.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            //
+            // autoReconnect
+            //
+            this.autoReconnect.FillWeight = 32F;
+            this.autoReconnect.HeaderText = "自动重连";
+            this.autoReconnect.Name = "autoReconnect";
             //
             // tcpFrameDelimiter
             //
@@ -687,8 +717,11 @@
         private System.Windows.Forms.DataGridViewTextBoxColumn id;
         private System.Windows.Forms.DataGridViewTextBoxColumn name;
         private System.Windows.Forms.DataGridViewComboBoxColumn type;
-        private System.Windows.Forms.DataGridViewTextBoxColumn ip;
-        private System.Windows.Forms.DataGridViewTextBoxColumn port;
+        private System.Windows.Forms.DataGridViewTextBoxColumn localIp;
+        private System.Windows.Forms.DataGridViewTextBoxColumn localPort;
+        private System.Windows.Forms.DataGridViewTextBoxColumn remoteIp;
+        private System.Windows.Forms.DataGridViewTextBoxColumn remotePort;
+        private System.Windows.Forms.DataGridViewCheckBoxColumn autoReconnect;
         private System.Windows.Forms.DataGridViewComboBoxColumn tcpFrameDelimiter;
         private System.Windows.Forms.DataGridViewTextBoxColumn state;
         private System.Windows.Forms.DataGridViewTextBoxColumn dataGridViewTextBoxColumn1;

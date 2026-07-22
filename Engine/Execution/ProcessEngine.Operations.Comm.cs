@@ -42,7 +42,7 @@ namespace Automation
                     Context.Comm.StartTcpAsync(socketInfo, 0, evt.CancellationToken).GetAwaiter().GetResult();
                     TcpStatus status = Context.Comm.GetTcpStatus(op.Name);
                     bool isServer = string.Equals(socketInfo.Type, "Server", StringComparison.Ordinal);
-                    bool started = isServer ? status.IsServer && status.IsRunning : !status.IsServer && status.IsRunning;
+                    bool started = isServer ? status.IsServer && status.IsStarted : !status.IsServer && status.IsStarted;
                     if (!started)
                     {
                         MarkAlarm(evt, $"TCP启动失败:{op.Name}");
@@ -55,7 +55,7 @@ namespace Automation
                 {
                     Context.Comm.StopTcpAsync(op.Name).GetAwaiter().GetResult();
                     TcpStatus status = Context.Comm.GetTcpStatus(op.Name);
-                    if (status.IsRunning)
+                    if (status.IsStarted)
                     {
                         MarkAlarm(evt, $"TCP断开失败:{op.Name}");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -151,8 +151,9 @@ namespace Automation
             using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
             {
                 timeoutCts.CancelAfter(sendTcpMsg.TimeoutMs);
-                success = Context.Comm.SendTcpAsync(sendTcpMsg.ConnectionName, sendValue, sendTcpMsg.UseHexEncoding, timeoutCts.Token)
-                    .GetAwaiter().GetResult();
+                success = ExecuteRetryableCommunicationCall(evt, "TCP发送异常",
+                    () => Context.Comm.SendTcpAsync(sendTcpMsg.ConnectionName, sendValue,
+                        sendTcpMsg.UseHexEncoding, timeoutCts.Token).GetAwaiter().GetResult());
                 timedOut = timeoutCts.IsCancellationRequested && !evt.CancellationToken.IsCancellationRequested;
             }
             if (!success)
@@ -161,8 +162,8 @@ namespace Automation
                 {
                     return true;
                 }
-                MarkAlarm(evt, timedOut ? $"TCP发送超时:{sendTcpMsg.ConnectionName}" : $"TCP发送失败:{sendTcpMsg.ConnectionName}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(evt,
+                    timedOut ? $"TCP发送超时:{sendTcpMsg.ConnectionName}" : $"TCP发送失败:{sendTcpMsg.ConnectionName}");
             }
             return true;
         }
@@ -181,8 +182,8 @@ namespace Automation
             }
             if (!Context.Comm.IsTcpActive(receoveTcpMsg.ConnectionName))
             {
-                MarkAlarm(evt, $"TCP未连接:{receoveTcpMsg.ConnectionName}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(
+                    evt, $"TCP未连接:{receoveTcpMsg.ConnectionName}");
             }
             if (receoveTcpMsg.TimeoutMs <= 0)
             {
@@ -190,7 +191,9 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            CommReceiveResult receiveResult = Context.Comm.ReceiveTcpAsync(receoveTcpMsg.ConnectionName, receoveTcpMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult();
+            CommReceiveResult receiveResult = ExecuteRetryableCommunicationCall(evt, "TCP接收异常",
+                () => Context.Comm.ReceiveTcpAsync(receoveTcpMsg.ConnectionName,
+                    receoveTcpMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult());
             if (!receiveResult.Success)
             {
                 if (evt.CancellationToken.IsCancellationRequested)
@@ -201,8 +204,7 @@ namespace Automation
                 string error = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage)
                     ? $"TCP接收失败:{receoveTcpMsg.ConnectionName}"
                     : $"TCP接收失败:{receoveTcpMsg.ConnectionName}，{receiveResult.ErrorMessage}";
-                MarkAlarm(evt, error);
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(evt, error);
             }
 
             string msg = receoveTcpMsg.UseHexEncoding ? receiveResult.MessageHex : receiveResult.MessageText;
@@ -245,8 +247,9 @@ namespace Automation
             using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(evt.CancellationToken))
             {
                 timeoutCts.CancelAfter(sendSerialPortMsg.TimeoutMs);
-                success = Context.Comm.SendSerialAsync(sendSerialPortMsg.ConnectionName, sendValue, sendSerialPortMsg.UseHexEncoding, timeoutCts.Token)
-                    .GetAwaiter().GetResult();
+                success = ExecuteRetryableCommunicationCall(evt, "串口发送异常",
+                    () => Context.Comm.SendSerialAsync(sendSerialPortMsg.ConnectionName, sendValue,
+                        sendSerialPortMsg.UseHexEncoding, timeoutCts.Token).GetAwaiter().GetResult());
                 timedOut = timeoutCts.IsCancellationRequested && !evt.CancellationToken.IsCancellationRequested;
             }
             if (!success)
@@ -255,8 +258,8 @@ namespace Automation
                 {
                     return true;
                 }
-                MarkAlarm(evt, timedOut ? $"串口发送超时:{sendSerialPortMsg.ConnectionName}" : $"串口发送失败:{sendSerialPortMsg.ConnectionName}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(evt,
+                    timedOut ? $"串口发送超时:{sendSerialPortMsg.ConnectionName}" : $"串口发送失败:{sendSerialPortMsg.ConnectionName}");
             }
             return true;
         }
@@ -275,8 +278,8 @@ namespace Automation
             }
             if (!Context.Comm.IsSerialOpen(receoveSerialPortMsg.ConnectionName))
             {
-                MarkAlarm(evt, $"串口未打开:{receoveSerialPortMsg.ConnectionName}");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(
+                    evt, $"串口未打开:{receoveSerialPortMsg.ConnectionName}");
             }
             if (receoveSerialPortMsg.TimeoutMs <= 0)
             {
@@ -284,7 +287,9 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            CommReceiveResult receiveResult = Context.Comm.ReceiveSerialAsync(receoveSerialPortMsg.ConnectionName, receoveSerialPortMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult();
+            CommReceiveResult receiveResult = ExecuteRetryableCommunicationCall(evt, "串口接收异常",
+                () => Context.Comm.ReceiveSerialAsync(receoveSerialPortMsg.ConnectionName,
+                    receoveSerialPortMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult());
             if (!receiveResult.Success)
             {
                 if (evt.CancellationToken.IsCancellationRequested)
@@ -295,8 +300,7 @@ namespace Automation
                 string error = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage)
                     ? $"串口接收失败:{receoveSerialPortMsg.ConnectionName}"
                     : $"串口接收失败:{receoveSerialPortMsg.ConnectionName}，{receiveResult.ErrorMessage}";
-                MarkAlarm(evt, error);
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                throw CreateRetryableCommunicationException(evt, error);
             }
 
             string msg = receoveSerialPortMsg.UseHexEncoding ? receiveResult.MessageHex : receiveResult.MessageText;
@@ -339,13 +343,14 @@ namespace Automation
             {
                 if (!Context.Comm.IsTcpActive(sendReceoveCommMsg.ConnectionName))
                 {
-                    MarkAlarm(evt, $"TCP未连接:{sendReceoveCommMsg.ConnectionName}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                    throw CreateRetryableCommunicationException(
+                        evt, $"TCP未连接:{sendReceoveCommMsg.ConnectionName}");
                 }
 
-                CommReceiveResult receiveResult = Context.Comm.SendReceiveTcpAsync(
-                    sendReceoveCommMsg.ConnectionName, sendValue, sendReceoveCommMsg.SendConvert,
-                    sendReceoveCommMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult();
+                CommReceiveResult receiveResult = ExecuteRetryableCommunicationCall(evt, "TCP请求异常",
+                    () => Context.Comm.SendReceiveTcpAsync(
+                        sendReceoveCommMsg.ConnectionName, sendValue, sendReceoveCommMsg.SendConvert,
+                        sendReceoveCommMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult());
                 if (!receiveResult.Success)
                 {
                     if (evt.CancellationToken.IsCancellationRequested)
@@ -353,8 +358,8 @@ namespace Automation
                         return true;
                     }
                     string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
-                    MarkAlarm(evt, $"TCP请求失败:{sendReceoveCommMsg.ConnectionName}，{receiveError}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                    throw CreateRetryableCommunicationException(
+                        evt, $"TCP请求失败:{sendReceoveCommMsg.ConnectionName}，{receiveError}");
                 }
 
                 string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;
@@ -375,13 +380,14 @@ namespace Automation
             {
                 if (!Context.Comm.IsSerialOpen(sendReceoveCommMsg.ConnectionName))
                 {
-                    MarkAlarm(evt, $"串口未打开:{sendReceoveCommMsg.ConnectionName}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                    throw CreateRetryableCommunicationException(
+                        evt, $"串口未打开:{sendReceoveCommMsg.ConnectionName}");
                 }
 
-                CommReceiveResult receiveResult = Context.Comm.SendReceiveSerialAsync(
-                    sendReceoveCommMsg.ConnectionName, sendValue, sendReceoveCommMsg.SendConvert,
-                    sendReceoveCommMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult();
+                CommReceiveResult receiveResult = ExecuteRetryableCommunicationCall(evt, "串口请求异常",
+                    () => Context.Comm.SendReceiveSerialAsync(
+                        sendReceoveCommMsg.ConnectionName, sendValue, sendReceoveCommMsg.SendConvert,
+                        sendReceoveCommMsg.TimeoutMs, evt.CancellationToken).GetAwaiter().GetResult());
                 if (!receiveResult.Success)
                 {
                     if (evt.CancellationToken.IsCancellationRequested)
@@ -389,8 +395,8 @@ namespace Automation
                         return true;
                     }
                     string receiveError = string.IsNullOrWhiteSpace(receiveResult.ErrorMessage) ? "未知错误" : receiveResult.ErrorMessage;
-                    MarkAlarm(evt, $"串口请求失败:{sendReceoveCommMsg.ConnectionName}，{receiveError}");
-                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                    throw CreateRetryableCommunicationException(
+                        evt, $"串口请求失败:{sendReceoveCommMsg.ConnectionName}，{receiveError}");
                 }
 
                 string msg = sendReceoveCommMsg.ReceiveConvert ? receiveResult.MessageHex : receiveResult.MessageText;

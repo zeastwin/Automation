@@ -44,7 +44,7 @@ namespace Automation
         private IList operationSource;
         private bool noteColumnVisible = true;
         private int runtimeIndex = -1;
-        private ProcRunState runtimeState = ProcRunState.Stopped;
+        private ProcRunState runtimeState = ProcRunState.Ready;
         private bool runtimeBreakpoint;
         private readonly List<JumpLink> jumpLinks = new List<JumpLink>();
         private Proc flowProc;
@@ -207,7 +207,7 @@ namespace Automation
                 rowBackColors.Clear();
                 allRowsBackColor = Color.Empty;
                 runtimeIndex = -1;
-                runtimeState = ProcRunState.Stopped;
+                runtimeState = ProcRunState.Ready;
                 runtimeBreakpoint = false;
                 bindingSource = nextBindingSource;
                 if (bindingSource != null)
@@ -493,7 +493,7 @@ namespace Automation
         {
             int previous = runtimeIndex;
             runtimeIndex = -1;
-            runtimeState = ProcRunState.Stopped;
+            runtimeState = ProcRunState.Ready;
             runtimeBreakpoint = false;
             InvalidateRow(previous);
         }

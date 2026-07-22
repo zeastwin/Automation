@@ -253,6 +253,24 @@ namespace Automation
             }
         }
 
+        public class ProcWaitStateItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>() { "运行", "就绪", "停止" });
+            }
+        }
+
         public class CommunicationOps : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
@@ -455,6 +473,27 @@ namespace Automation
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
                 return false;
+            }
+        }
+        public class CommunicationResponseJudgeModeItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>()
+                {
+                    "非空", "字段存在", "等于特征字符", "包含特征字符",
+                    "值在区间左", "值在区间右", "值在区间内"
+                });
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
             }
         }
         public class Operator : StringConverter

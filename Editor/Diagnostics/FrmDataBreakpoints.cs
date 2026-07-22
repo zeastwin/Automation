@@ -329,7 +329,8 @@ namespace Automation
                     new StateOption { State = ProcRunState.SingleStep, Text = "单步 SingleStep" },
                     new StateOption { State = ProcRunState.Alarming, Text = "报警 Alarming" },
                     new StateOption { State = ProcRunState.Stopping, Text = "停止中 Stopping" },
-                    new StateOption { State = ProcRunState.Stopped, Text = "已停止 Stopped" }
+                    new StateOption { State = ProcRunState.Stopped, Text = "已停止 Stopped" },
+                    new StateOption { State = ProcRunState.Ready, Text = "就绪 Ready" }
                 });
                 targetStateCombo.SelectedIndex = 0;
             }

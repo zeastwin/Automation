@@ -15,6 +15,20 @@ namespace Automation
         Text
     }
 
+    public sealed class DataStructFieldValueUpdate
+    {
+        public int FieldIndex { get; set; }
+        public string Value { get; set; }
+        public DataStructValueType? ExpectedType { get; set; }
+    }
+
+    public sealed class DataStructFieldValueSnapshot
+    {
+        public int FieldIndex { get; set; }
+        public object Value { get; set; }
+        public DataStructValueType ValueType { get; set; }
+    }
+
     public class DataStructStore
     {
         private readonly PlatformRuntime runtime;
@@ -355,6 +369,11 @@ namespace Automation
                     error = "字段索引重复";
                     return false;
                 }
+                if (double.IsNaN(kvp.Value) || double.IsInfinity(kvp.Value))
+                {
+                    error = "数值字段必须是有限数";
+                    return false;
+                }
             }
 
             return true;
@@ -476,6 +495,150 @@ namespace Automation
                 }
             }
             return false;
+        }
+
+        public bool TryResolveStructIndex(bool useName, int configuredIndex, string configuredName,
+            out int resolvedIndex, out string error)
+        {
+            resolvedIndex = -1;
+            error = string.Empty;
+            if (!useName)
+            {
+                DataStructItem[][] snapshot = runtimeItems;
+                if (configuredIndex < 0 || configuredIndex >= snapshot.Length)
+                {
+                    error = $"结构体索引无效:{configuredIndex}";
+                    return false;
+                }
+                resolvedIndex = configuredIndex;
+                return true;
+            }
+
+            lock (dataLock)
+            {
+                if (string.IsNullOrWhiteSpace(configuredName))
+                {
+                    error = "结构体名称不能为空";
+                    return false;
+                }
+                for (int i = 0; i < dataStructs.Count; i++)
+                {
+                    if (string.Equals(dataStructs[i]?.Name, configuredName, StringComparison.Ordinal))
+                    {
+                        resolvedIndex = i;
+                        return true;
+                    }
+                }
+                error = $"结构体不存在:{configuredName}";
+                return false;
+            }
+        }
+
+        public bool TryResolveItemIndex(int structIndex, bool useName, int configuredIndex,
+            string configuredName, out int resolvedIndex, out string error)
+        {
+            resolvedIndex = -1;
+            error = string.Empty;
+            if (!useName)
+            {
+                DataStructItem[][] snapshot = runtimeItems;
+                if (structIndex < 0 || structIndex >= snapshot.Length)
+                {
+                    error = $"结构体索引无效:{structIndex}";
+                    return false;
+                }
+                DataStructItem[] items = snapshot[structIndex];
+                if (items == null || configuredIndex < 0 || configuredIndex >= items.Length)
+                {
+                    error = $"数据项索引无效:{configuredIndex}";
+                    return false;
+                }
+                resolvedIndex = configuredIndex;
+                return true;
+            }
+
+            lock (dataLock)
+            {
+                if (structIndex < 0 || structIndex >= dataStructs.Count)
+                {
+                    error = $"结构体索引无效:{structIndex}";
+                    return false;
+                }
+                DataStruct dataStruct = dataStructs[structIndex];
+                NormalizeStruct(dataStruct);
+                if (string.IsNullOrWhiteSpace(configuredName))
+                {
+                    error = "数据项名称不能为空";
+                    return false;
+                }
+                for (int i = 0; i < dataStruct.dataStructItems.Count; i++)
+                {
+                    if (string.Equals(dataStruct.dataStructItems[i]?.Name, configuredName, StringComparison.Ordinal))
+                    {
+                        resolvedIndex = i;
+                        return true;
+                    }
+                }
+                error = $"数据项不存在:{configuredName}";
+                return false;
+            }
+        }
+
+        public bool TryResolveFieldIndex(int structIndex, int itemIndex, bool useName,
+            int configuredIndex, string configuredName, out int resolvedIndex, out string error)
+        {
+            resolvedIndex = -1;
+            error = string.Empty;
+            if (!useName)
+            {
+                if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem runtimeItem))
+                {
+                    error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                    return false;
+                }
+                lock (runtimeItem.SyncRoot)
+                {
+                    if (!runtimeItem.FieldNames.ContainsKey(configuredIndex)
+                        || !runtimeItem.FieldTypes.ContainsKey(configuredIndex))
+                    {
+                        error = $"字段索引无效:{configuredIndex}";
+                        return false;
+                    }
+                    resolvedIndex = configuredIndex;
+                    return true;
+                }
+            }
+
+            lock (dataLock)
+            {
+                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
+                {
+                    error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                    return false;
+                }
+                NormalizeItem(item);
+                lock (item.SyncRoot)
+                {
+                    if (string.IsNullOrWhiteSpace(configuredName))
+                    {
+                        error = "字段名称不能为空";
+                        return false;
+                    }
+                    List<int> matches = item.FieldNames
+                        .Where(pair => string.Equals(pair.Value, configuredName, StringComparison.Ordinal))
+                        .Select(pair => pair.Key)
+                        .ToList();
+                    if (matches.Count == 1)
+                    {
+                        resolvedIndex = matches[0];
+                        return true;
+                    }
+                    error = matches.Count == 0
+                        ? $"字段不存在:{configuredName}"
+                        : $"字段名称重复，无法按名称寻址:{configuredName}";
+                    return false;
+                }
+            }
         }
 
         public bool AddStruct(string name, out string error)
@@ -720,7 +883,8 @@ namespace Automation
 
                     if (fieldType == DataStructValueType.Number)
                     {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                            || double.IsNaN(number) || double.IsInfinity(number))
                         {
                             error = "数值格式错误";
                             return false;
@@ -801,7 +965,7 @@ namespace Automation
                     {
                         if (item.num.TryGetValue(fieldIndex, out double number))
                         {
-                            item.str[fieldIndex] = number.ToString("0.######");
+                            item.str[fieldIndex] = number.ToString("G17", CultureInfo.InvariantCulture);
                             item.num.Remove(fieldIndex);
                         }
                     }
@@ -861,11 +1025,73 @@ namespace Automation
 
                     if (type == DataStructValueType.Number)
                     {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                            || double.IsNaN(number) || double.IsInfinity(number))
                         {
                             error = "数值格式错误";
                             return false;
                         }
+                        item.num[fieldIndex] = number;
+                        item.str.Remove(fieldIndex);
+                    }
+                    else
+                    {
+                        item.str[fieldIndex] = value;
+                        item.num.Remove(fieldIndex);
+                    }
+                }
+                MarkChangedNoLock();
+                MarkStructChangedNoLock(structIndex);
+                return true;
+            }
+        }
+
+        public bool TryUpdateField(int structIndex, int itemIndex, int fieldIndex,
+            string fieldName, DataStructValueType type, string value, out string error)
+        {
+            error = string.Empty;
+            fieldName = fieldName?.Trim();
+            if (string.IsNullOrWhiteSpace(fieldName))
+            {
+                error = "字段名称不能为空";
+                return false;
+            }
+            if (value == null)
+            {
+                error = "字段值不能为空";
+                return false;
+            }
+
+            double number = 0;
+            if (type == DataStructValueType.Number
+                && (!double.TryParse(value, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out number)
+                    || double.IsNaN(number) || double.IsInfinity(number)))
+            {
+                error = "数值格式错误";
+                return false;
+            }
+
+            lock (dataLock)
+            {
+                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
+                {
+                    error = "数据项不存在";
+                    return false;
+                }
+                NormalizeItem(item);
+                lock (item.SyncRoot)
+                {
+                    if (!item.FieldNames.ContainsKey(fieldIndex)
+                        || !item.FieldTypes.ContainsKey(fieldIndex))
+                    {
+                        error = "字段不存在";
+                        return false;
+                    }
+                    item.FieldNames[fieldIndex] = fieldName;
+                    item.FieldTypes[fieldIndex] = type;
+                    if (type == DataStructValueType.Number)
+                    {
                         item.num[fieldIndex] = number;
                         item.str.Remove(fieldIndex);
                     }
@@ -939,6 +1165,10 @@ namespace Automation
                     {
                         return false;
                     }
+                    if (double.IsNaN(number) || double.IsInfinity(number))
+                    {
+                        return false;
+                    }
                     item.num[ValueIndex] = number;
                     item.str.Remove(ValueIndex);
                 }
@@ -947,6 +1177,141 @@ namespace Automation
                     item.str[ValueIndex] = value;
                     item.num.Remove(ValueIndex);
                 }
+                return true;
+            }
+        }
+
+        public bool TrySetItemValuesByIndex(int structIndex, int itemIndex,
+            IReadOnlyList<DataStructFieldValueUpdate> updates, out string error)
+        {
+            error = string.Empty;
+            if (updates == null)
+            {
+                error = "字段更新集合为空";
+                return false;
+            }
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
+            {
+                error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                return false;
+            }
+
+            lock (item.SyncRoot)
+            {
+                var unique = new HashSet<int>();
+                var numbers = new Dictionary<int, double>();
+                var texts = new Dictionary<int, string>();
+                foreach (DataStructFieldValueUpdate update in updates)
+                {
+                    if (update == null)
+                    {
+                        error = "字段更新项为空";
+                        return false;
+                    }
+                    if (!unique.Add(update.FieldIndex))
+                    {
+                        error = $"字段索引重复:{update.FieldIndex}";
+                        return false;
+                    }
+                    if (update.Value == null
+                        || !item.FieldNames.ContainsKey(update.FieldIndex)
+                        || !item.FieldTypes.TryGetValue(update.FieldIndex, out DataStructValueType type))
+                    {
+                        error = $"字段不存在或值为空:{update.FieldIndex}";
+                        return false;
+                    }
+                    if (update.ExpectedType.HasValue && update.ExpectedType.Value != type)
+                    {
+                        error = $"字段类型不一致:{update.FieldIndex}";
+                        return false;
+                    }
+                    if (type == DataStructValueType.Number)
+                    {
+                        if (!double.TryParse(update.Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out double number)
+                            || double.IsNaN(number) || double.IsInfinity(number))
+                        {
+                            error = $"字段数值格式错误:{update.FieldIndex}";
+                            return false;
+                        }
+                        numbers[update.FieldIndex] = number;
+                    }
+                    else
+                    {
+                        texts[update.FieldIndex] = update.Value;
+                    }
+                }
+
+                foreach (KeyValuePair<int, double> number in numbers)
+                {
+                    item.num[number.Key] = number.Value;
+                    item.str.Remove(number.Key);
+                }
+                foreach (KeyValuePair<int, string> text in texts)
+                {
+                    item.str[text.Key] = text.Value;
+                    item.num.Remove(text.Key);
+                }
+                return true;
+            }
+        }
+
+        public bool TryGetItemValuesByIndex(int structIndex, int itemIndex,
+            IReadOnlyList<int> fieldIndexes,
+            out List<DataStructFieldValueSnapshot> snapshots, out string error)
+        {
+            snapshots = null;
+            error = string.Empty;
+            if (fieldIndexes == null)
+            {
+                error = "字段索引集合为空";
+                return false;
+            }
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
+            {
+                error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                return false;
+            }
+
+            lock (item.SyncRoot)
+            {
+                var result = new List<DataStructFieldValueSnapshot>(fieldIndexes.Count);
+                foreach (int fieldIndex in fieldIndexes)
+                {
+                    if (!item.FieldNames.ContainsKey(fieldIndex)
+                        || !item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType type))
+                    {
+                        error = $"字段不存在:{fieldIndex}";
+                        return false;
+                    }
+
+                    object value;
+                    if (type == DataStructValueType.Number)
+                    {
+                        if (!item.num.TryGetValue(fieldIndex, out double number))
+                        {
+                            error = $"数值字段没有值:{fieldIndex}";
+                            return false;
+                        }
+                        value = number;
+                    }
+                    else
+                    {
+                        if (!item.str.TryGetValue(fieldIndex, out string text))
+                        {
+                            error = $"文本字段没有值:{fieldIndex}";
+                            return false;
+                        }
+                        value = text;
+                    }
+                    result.Add(new DataStructFieldValueSnapshot
+                    {
+                        FieldIndex = fieldIndex,
+                        Value = value,
+                        ValueType = type
+                    });
+                }
+                snapshots = result;
                 return true;
             }
         }
@@ -1162,7 +1527,6 @@ namespace Automation
                 {
                     return false;
                 }
-                bool found = false;
                 foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
                 {
                     if (item == null)
@@ -1171,21 +1535,21 @@ namespace Automation
                     }
                     lock (item.SyncRoot)
                     {
-                        if (item.str == null || !item.str.ContainsValue(key))
+                        if (item.str == null)
                         {
                             continue;
                         }
-                        foreach (KeyValuePair<int, string> kvp in item.str)
+                        foreach (string candidate in item.str.Values)
                         {
-                            if (kvp.Value == key)
+                            if (candidate == key)
                             {
-                                value = kvp.Value;
-                                found = true;
+                                value = candidate;
+                                return true;
                             }
                         }
                     }
                 }
-                return found;
+                return false;
             }
         }
 
@@ -1198,7 +1562,6 @@ namespace Automation
                 {
                     return false;
                 }
-                bool found = false;
                 foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
                 {
                     if (item == null)
@@ -1207,21 +1570,21 @@ namespace Automation
                     }
                     lock (item.SyncRoot)
                     {
-                        if (item.num == null || !item.num.ContainsValue(key))
+                        if (item.num == null)
                         {
                             continue;
                         }
-                        foreach (KeyValuePair<int, double> kvp in item.num)
+                        foreach (double candidate in item.num.Values)
                         {
-                            if (kvp.Value == key)
+                            if (candidate == key)
                             {
-                                value = kvp.Value;
-                                found = true;
+                                value = candidate;
+                                return true;
                             }
                         }
                     }
                 }
-                return found;
+                return false;
             }
         }
 
@@ -1243,6 +1606,21 @@ namespace Automation
                 return false;
             }
             return true;
+        }
+
+        public List<int> GetItemValueIndexes(int structIndex, int itemIndex)
+        {
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
+            {
+                return new List<int>();
+            }
+            lock (item.SyncRoot)
+            {
+                return item.FieldNames.Keys
+                    .Where(index => item.FieldTypes.ContainsKey(index))
+                    .OrderBy(index => index)
+                    .ToList();
+            }
         }
 
         private bool TryGetRuntimeItem(int structIndex, int itemIndex, out DataStructItem item)

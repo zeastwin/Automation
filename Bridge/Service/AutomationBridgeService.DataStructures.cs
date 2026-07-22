@@ -289,7 +289,9 @@ namespace Automation.Bridge
             string fieldTypeStr = fieldType == DataStructValueType.Number ? "Number" : "Text";
             if (fieldType == DataStructValueType.Number)
             {
-                if (!double.TryParse(value, out _))
+                if (!double.TryParse(value, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out double number)
+                    || double.IsNaN(number) || double.IsInfinity(number))
                 {
                     return BridgeError(400, "INVALID_ARGUMENT", $"字段是 Number 类型，value 不是有效数字：{value}");
                 }
@@ -317,7 +319,7 @@ namespace Automation.Bridge
         private JObject HandleUpsertDataStruct(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("保存数据结构");
+            EnsureAllProcsInactiveForAiStructureCommit("保存数据结构");
             DataStructDefinition definition = ReadRequiredObject(request, "definition")
                 .ToObject<DataStructDefinition>();
             DataStruct candidate = BuildDataStructCandidate(definition);
@@ -339,7 +341,7 @@ namespace Automation.Bridge
         private JObject HandleDeleteDataStruct(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("删除数据结构");
+            EnsureAllProcsInactiveForAiStructureCommit("删除数据结构");
             string name = ReadRequiredString(request, "name");
             if (!runtime.Stores.DataStructures.TryDeleteAndSave(name, runtime.Paths.ConfigPath, out string error))
             {

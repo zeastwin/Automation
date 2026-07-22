@@ -253,8 +253,11 @@ namespace Automation.Bridge
                 {
                     ["name"] = sock.Name ?? string.Empty,
                     ["type"] = sock.Type ?? string.Empty,
-                    ["port"] = sock.Port,
-                    ["address"] = sock.Address ?? string.Empty,
+                    ["localAddress"] = sock.LocalAddress ?? string.Empty,
+                    ["localPort"] = sock.LocalPort,
+                    ["remoteAddress"] = sock.RemoteAddress ?? string.Empty,
+                    ["remotePort"] = sock.RemotePort,
+                    ["autoReconnect"] = sock.AutoReconnect,
                     ["isServer"] = string.Equals(sock.Type, "Server", StringComparison.Ordinal),
                     ["frameMode"] = sock.FrameMode ?? string.Empty,
                     ["frameDelimiter"] = sock.FrameDelimiter ?? string.Empty,
@@ -264,7 +267,10 @@ namespace Automation.Bridge
                 if (includeStatus && runtime.Communication != null)
                 {
                     TcpStatus status = runtime.Communication.GetTcpStatus(sock.Name);
-                    obj["isRunning"] = status.IsRunning;
+                    obj["isStarted"] = status.IsStarted;
+                    obj["isConnected"] = status.IsConnected;
+                    obj["connectionState"] = status.ConnectionState.ToString();
+                    obj["lastError"] = status.LastError;
                     obj["clientCount"] = status.ClientCount;
                     obj["droppedFrames"] = status.DroppedFrames;
                 }

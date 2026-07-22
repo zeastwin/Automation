@@ -35,7 +35,9 @@ namespace Automation
         Monitor,
         Folder,
         Settings,
-        StopAll
+        StopAll,
+        PopOut,
+        DockBack
     }
 
     /// <summary>
@@ -86,11 +88,8 @@ namespace Automation
 
         private static void DrawNavigationIcon(Graphics graphics, UiIconKind kind, int size, bool active)
         {
-            Color baseColor = active
-                ? UiPalette.NavigationAccent
-                : BlendColor(GetNavigationColor(kind), Color.FromArgb(184, 199, 210), 0.20F);
-            Color primaryColor = Color.FromArgb(255, baseColor);
-            Color secondaryColor = Color.FromArgb(active ? 210 : 190, baseColor);
+            Color primaryColor = active ? UiPalette.TextInverse : UiPalette.NavigationIconAccent;
+            Color secondaryColor = active ? UiPalette.NavigationAccent : UiPalette.NavigationIcon;
             float glyphSize = size * 0.90F;
             float glyphLeft = (size - glyphSize) / 2F;
             float glyphTop = (size - glyphSize) / 2F;
@@ -101,53 +100,13 @@ namespace Automation
             graphics.Restore(glyphState);
         }
 
-        private static Color GetNavigationColor(UiIconKind kind)
-        {
-            switch (kind)
-            {
-                case UiIconKind.Process:
-                    return Color.FromArgb(64, 200, 255);
-                case UiIconKind.Station:
-                    return Color.FromArgb(255, 179, 64);
-                case UiIconKind.Variable:
-                    return Color.FromArgb(191, 90, 242);
-                case UiIconKind.Sliders:
-                    return Color.FromArgb(90, 210, 195);
-                case UiIconKind.Communication:
-                    return Color.FromArgb(100, 210, 255);
-                case UiIconKind.Plc:
-                    return Color.FromArgb(48, 209, 88);
-                case UiIconKind.Debug:
-                    return Color.FromArgb(255, 55, 95);
-                case UiIconKind.ControlCard:
-                    return Color.FromArgb(125, 122, 255);
-                case UiIconKind.History:
-                    return Color.FromArgb(255, 159, 10);
-                case UiIconKind.Ai:
-                    return Color.FromArgb(218, 143, 255);
-                case UiIconKind.Monitor:
-                    return Color.FromArgb(64, 205, 225);
-                default:
-                    return Color.FromArgb(202, 214, 223);
-            }
-        }
-
-        private static Color BlendColor(Color source, Color target, float targetWeight)
-        {
-            float sourceWeight = 1F - targetWeight;
-            return Color.FromArgb(
-                (int)(source.R * sourceWeight + target.R * targetWeight),
-                (int)(source.G * sourceWeight + target.G * targetWeight),
-                (int)(source.B * sourceWeight + target.B * targetWeight));
-        }
-
         private static void DrawNavigationPictogram(
             Graphics graphics,
             UiIconKind kind,
             Color primaryColor,
             Color secondaryColor)
         {
-            using (Pen primaryPen = new Pen(primaryColor, 2F))
+            using (Pen primaryPen = new Pen(primaryColor, 2.1F))
             using (Pen secondaryPen = new Pen(secondaryColor, 2F))
             using (SolidBrush primaryBrush = new SolidBrush(primaryColor))
             using (SolidBrush secondaryBrush = new SolidBrush(secondaryColor))
@@ -170,14 +129,14 @@ namespace Automation
                     case UiIconKind.Station:
                         FillRoundedRectangle(graphics, secondaryBrush, 5, 18, 12, 3, 1.2F);
                         graphics.DrawLine(secondaryPen, 8, 18, 8, 16);
-                        graphics.DrawLine(primaryPen, 8, 16, 12, 11);
-                        graphics.DrawLine(primaryPen, 12, 11, 16, 12);
-                        graphics.DrawLine(primaryPen, 16, 12, 19, 8);
+                        graphics.DrawLine(secondaryPen, 8, 16, 12, 11);
+                        graphics.DrawLine(secondaryPen, 12, 11, 16, 12);
+                        graphics.DrawLine(secondaryPen, 16, 12, 19, 8);
                         FillCircle(graphics, primaryBrush, 8, 16, 1.8F);
-                        FillCircle(graphics, secondaryBrush, 12, 11, 1.8F);
+                        FillCircle(graphics, primaryBrush, 12, 11, 1.8F);
                         FillCircle(graphics, primaryBrush, 16, 12, 1.8F);
-                        graphics.DrawLine(secondaryPen, 19, 8, 21, 6);
-                        graphics.DrawLine(secondaryPen, 19, 8, 21, 10);
+                        graphics.DrawLine(primaryPen, 19, 8, 21, 6);
+                        graphics.DrawLine(primaryPen, 19, 8, 21, 10);
                         break;
                     case UiIconKind.Variable:
                         graphics.DrawArc(secondaryPen, 4, 3, 8, 18, 90, 180);
@@ -234,7 +193,7 @@ namespace Automation
                     case UiIconKind.ControlCard:
                         DrawRoundedRectangle(graphics, secondaryPen, 3, 5, 18, 14, 2);
                         graphics.DrawLine(primaryPen, 7, 9, 17, 9);
-                        graphics.DrawLine(primaryPen, 7, 14.5F, 13, 14.5F);
+                        graphics.DrawLine(secondaryPen, 7, 14.5F, 13, 14.5F);
                         FillCircle(graphics, primaryBrush, 17, 14.5F, 1.7F);
                         graphics.DrawLine(secondaryPen, 7, 19, 7, 21);
                         graphics.DrawLine(secondaryPen, 11, 19, 11, 21);
@@ -248,9 +207,9 @@ namespace Automation
                         graphics.DrawLine(primaryPen, 12, 12, 15.5F, 14);
                         break;
                     case UiIconKind.Ai:
-                        DrawSparkle(graphics, primaryPen, 12, 11, 6.5F);
-                        DrawSparkle(graphics, secondaryPen, 18.5F, 5.5F, 2.3F);
-                        DrawSparkle(graphics, secondaryPen, 5.5F, 18.5F, 2.3F);
+                        DrawSparkle(graphics, secondaryPen, 12, 11, 6.5F);
+                        DrawSparkle(graphics, primaryPen, 18.5F, 5.5F, 2.3F);
+                        DrawSparkle(graphics, primaryPen, 5.5F, 18.5F, 2.3F);
                         break;
                     case UiIconKind.Monitor:
                         DrawRoundedRectangle(graphics, secondaryPen, 3, 4, 18, 13, 2);
@@ -381,6 +340,20 @@ namespace Automation
                     case UiIconKind.StopAll:
                         DrawRoundedRectangle(graphics, pen, 3, 3, 18, 18, 4);
                         FillRoundedRectangle(graphics, brush, 7, 7, 10, 10, 2);
+                        break;
+                    case UiIconKind.PopOut:
+                        DrawRoundedRectangle(graphics, pen, 3, 8, 13, 12, 2);
+                        graphics.DrawLine(pen, 10, 5, 20, 5);
+                        graphics.DrawLine(pen, 20, 5, 20, 15);
+                        graphics.DrawLine(pen, 10, 15, 20, 5);
+                        graphics.DrawLine(pen, 15, 5, 20, 5);
+                        graphics.DrawLine(pen, 20, 5, 20, 10);
+                        break;
+                    case UiIconKind.DockBack:
+                        DrawRoundedRectangle(graphics, pen, 3, 4, 18, 16, 2);
+                        graphics.DrawLine(pen, 16, 8, 9, 15);
+                        graphics.DrawLine(pen, 9, 15, 9, 10);
+                        graphics.DrawLine(pen, 9, 15, 14, 15);
                         break;
                 }
             }

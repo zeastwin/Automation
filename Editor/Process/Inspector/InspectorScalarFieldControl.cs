@@ -50,7 +50,7 @@ namespace Automation
                 displayCell = new InspectorValueCell
                 {
                     AccessibleName = definition.Label,
-                    Font = InspectorFonts.Regular9,
+                    Font = InspectorFonts.Bold9,
                     ShowDropDownArrow = editor is InspectorComboBox,
                     TabIndex = 0
                 };
@@ -112,7 +112,7 @@ namespace Automation
             if (editor is TextBox textBox)
             {
                 textBox.ReadOnly = !allow;
-                textBox.BackColor = UiPalette.Input;
+                textBox.BackColor = UiPalette.BrandSoft;
             }
             else
             {
@@ -251,7 +251,7 @@ namespace Automation
                 var checkBox = new InspectorToggle
                 {
                     AutoSize = false,
-                    BackColor = UiPalette.Surface,
+                    BackColor = UiPalette.BrandSoft,
                     Font = InspectorFonts.Regular9,
                     ForeColor = UiPalette.TextSecondary,
                     Height = 24,
@@ -274,7 +274,7 @@ namespace Automation
                 var comboBox = new InspectorComboBox
                 {
                     DropDownHeight = 320,
-                    Font = InspectorFonts.Regular9,
+                    Font = InspectorFonts.Bold9,
                     IntegralHeight = false
                 };
                 comboBox.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
@@ -309,7 +309,7 @@ namespace Automation
 
             var textEditor = new InspectorTextBox
             {
-                Font = InspectorFonts.Regular9
+                Font = InspectorFonts.Bold9
             };
             textEditor.Validated += (sender, args) =>
             {

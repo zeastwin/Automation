@@ -152,10 +152,16 @@ namespace Automation.Protocol
         public string Name { get; set; } = string.Empty;
         [Description("严格枚举：Server 或 Client。")]
         public string Type { get; set; } = string.Empty;
-        [Description("端口，范围1..65535。")]
-        public int Port { get; set; }
-        [Description("监听或远端IP地址。")]
-        public string Address { get; set; } = string.Empty;
+        [Description("本地绑定IPv4地址。Client可用0.0.0.0让系统选择网卡；Server为监听地址。")]
+        public string LocalAddress { get; set; } = "0.0.0.0";
+        [Description("本地端口。Client允许0表示系统分配；Server范围1..65535。")]
+        public int LocalPort { get; set; }
+        [Description("远端IPv4地址。Client必须为明确地址；Server允许*表示接收未被其他逻辑通道匹配的客户端。")]
+        public string RemoteAddress { get; set; } = string.Empty;
+        [Description("远端端口。Client范围1..65535；Server允许0表示任意源端口。")]
+        public int RemotePort { get; set; }
+        [Description("Client断线后是否在当前通道生命周期内自动重连；Server忽略并归一化为false。")]
+        public bool AutoReconnect { get; set; } = true;
         [Description("严格枚举：Raw 或 Delimiter。")]
         public string FrameMode { get; set; } = "Raw";
         public string FrameDelimiter { get; set; } = "\\n";

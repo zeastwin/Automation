@@ -254,10 +254,18 @@ namespace Automation
         protected void DrawPropertyRowBackground(PaintEventArgs e, int labelWidth)
         {
             using (var labelBrush = new SolidBrush(UiPalette.SurfaceSubtle))
+            using (var valueBrush = new SolidBrush(UiPalette.BrandSoft))
             {
                 e.Graphics.FillRectangle(
                     labelBrush,
-                    new Rectangle(0, 0, labelWidth, Math.Max(1, Height - 1)));
+                    new Rectangle(0, 0, labelWidth, PropertyRowHeight));
+                e.Graphics.FillRectangle(
+                    valueBrush,
+                    new Rectangle(
+                        labelWidth,
+                        0,
+                        Math.Max(1, Width - labelWidth),
+                        PropertyRowHeight));
             }
             using (var divider = new Pen(UiPalette.Divider))
             {

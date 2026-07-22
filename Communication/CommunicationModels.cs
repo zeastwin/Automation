@@ -7,9 +7,12 @@ namespace Automation
     {
         public int ID { get; set; }
         public string Name { get; set; }
-        public string Type { get; set; }
-        public int Port { get; set; }
-        public string Address { get; set; }
+        public string Type { get; set; } = "Client";
+        public string LocalAddress { get; set; } = "0.0.0.0";
+        public int LocalPort { get; set; }
+        public string RemoteAddress { get; set; } = "127.0.0.1";
+        public int RemotePort { get; set; } = 5000;
+        public bool AutoReconnect { get; set; } = true;
         public string FrameMode { get; set; } = "Raw";
         public string FrameDelimiter { get; set; } = "\\n";
         public string EncodingName { get; set; } = "UTF-8";

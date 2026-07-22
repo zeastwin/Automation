@@ -3,6 +3,7 @@
 
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace Automation.ParamFrm
@@ -14,8 +15,6 @@ namespace Automation.ParamFrm
         private readonly int itemIndex;
         private readonly int fieldIndex;
         private readonly bool isNew;
-        private readonly DataStructValueType originalType;
-        private readonly string originalName;
 
         private TextBox textBoxIndex;
         private TextBox textBoxName;
@@ -33,8 +32,6 @@ namespace Automation.ParamFrm
             this.itemIndex = itemIndex;
             fieldIndex = -1;
             isNew = true;
-            originalType = DataStructValueType.Text;
-            originalName = string.Empty;
             InitializeUi("新增字段");
             textBoxIndex.Text = "自动";
             comboType.SelectedIndex = 0;
@@ -48,8 +45,6 @@ namespace Automation.ParamFrm
             this.itemIndex = itemIndex;
             this.fieldIndex = fieldIndex;
             isNew = false;
-            originalType = fieldType;
-            originalName = fieldName ?? string.Empty;
             InitializeUi("编辑字段");
             textBoxIndex.Text = fieldIndex.ToString();
             textBoxName.Text = fieldName ?? string.Empty;
@@ -169,7 +164,10 @@ namespace Automation.ParamFrm
             DataStructValueType type = comboType.SelectedIndex == 0 ? DataStructValueType.Text : DataStructValueType.Number;
             string value = textBoxValue.Text ?? string.Empty;
 
-            if (type == DataStructValueType.Number && !double.TryParse(value, out _))
+            if (type == DataStructValueType.Number
+                && (!double.TryParse(value, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out double number)
+                    || double.IsNaN(number) || double.IsInfinity(number)))
             {
                 MessageBox.Show("数值格式错误");
                 return;
@@ -188,31 +186,11 @@ namespace Automation.ParamFrm
                 return;
             }
 
-            if (!string.Equals(originalName, fieldName, StringComparison.Ordinal))
+            if (!dataStructStore.TryUpdateField(
+                    structIndex, itemIndex, fieldIndex, fieldName, type, value,
+                    out string updateError))
             {
-                if (!dataStructStore.RenameField(structIndex, itemIndex, fieldIndex, fieldName, out string renameError))
-                {
-                    MessageBox.Show(renameError);
-                    return;
-                }
-            }
-
-            if (originalType != type)
-            {
-                if (!dataStructStore.SetFieldType(structIndex, itemIndex, fieldIndex, type, out string message))
-                {
-                    MessageBox.Show(message);
-                    return;
-                }
-                if (!string.IsNullOrEmpty(message))
-                {
-                    MessageBox.Show(message);
-                }
-            }
-
-            if (!dataStructStore.SetFieldValue(structIndex, itemIndex, fieldIndex, type, value, out string valueError))
-            {
-                MessageBox.Show(valueError);
+                MessageBox.Show(updateError);
                 return;
             }
 

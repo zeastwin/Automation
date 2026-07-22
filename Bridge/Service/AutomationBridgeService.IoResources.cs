@@ -315,7 +315,7 @@ namespace Automation.Bridge
         private JObject HandleSetAlarm(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("修改报警信息");
+            EnsureAllProcsInactiveForAiStructureCommit("修改报警信息");
             int index = ReadRequiredInt(request, "index");
             string name = ReadRequiredString(request, "name");
             string note = ReadRequiredString(request, "note");
@@ -354,7 +354,7 @@ namespace Automation.Bridge
         private JObject HandleDeleteAlarm(JObject request)
         {
             EnsureRuntimeReady();
-            EnsureAllProcsStoppedForAiStructureCommit("删除报警信息");
+            EnsureAllProcsInactiveForAiStructureCommit("删除报警信息");
             int index = ReadRequiredInt(request, "index");
             AlarmInfo alarm = ResolveAlarm(index);
             if (string.IsNullOrEmpty(alarm.Name) && string.IsNullOrEmpty(alarm.Note))

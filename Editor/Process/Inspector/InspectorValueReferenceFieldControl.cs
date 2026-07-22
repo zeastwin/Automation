@@ -40,7 +40,7 @@ namespace Automation
             DoubleBuffered = true;
 
             kind.DropDownStyle = ComboBoxStyle.DropDownList;
-            kind.Font = InspectorFonts.Regular9;
+            kind.Font = InspectorFonts.Bold9;
             kind.SelectionChangeCommitted += Kind_SelectionChangeCommitted;
             kind.DropDownClosed += (sender, args) =>
                 BeginInvoke((Action)(() => DeactivateEditors(true)));
@@ -49,7 +49,7 @@ namespace Automation
             kind.TabStop = false;
             Controls.Add(kind);
 
-            value.Font = InspectorFonts.Regular9;
+            value.Font = InspectorFonts.Bold9;
             value.IntegralHeight = false;
             value.DropDownHeight = 320;
             value.DropDown += (sender, args) => EnsureValueOptionsLoaded();
@@ -75,13 +75,13 @@ namespace Automation
             Controls.Add(value);
 
             kindDisplay.AccessibleName = definition.Label + "引用方式";
-            kindDisplay.Font = InspectorFonts.Regular9;
+            kindDisplay.Font = InspectorFonts.Bold9;
             kindDisplay.ShowDropDownArrow = true;
             kindDisplay.ActivationRequested += (sender, args) => ActivateKindEditor();
             Controls.Add(kindDisplay);
 
             valueDisplay.AccessibleName = definition.Label;
-            valueDisplay.Font = InspectorFonts.Regular9;
+            valueDisplay.Font = InspectorFonts.Bold9;
             valueDisplay.ActivationRequested += (sender, args) => ActivateValueEditor();
             Controls.Add(valueDisplay);
             kindDisplay.BringToFront();

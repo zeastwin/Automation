@@ -54,7 +54,7 @@
             this.Io_Page.Location = new System.Drawing.Point(286, 0);
             this.Io_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.Io_Page.Name = "Io_Page";
-            this.Io_Page.Size = new System.Drawing.Size(143, 129);
+            this.Io_Page.Size = new System.Drawing.Size(143, 96);
             this.Io_Page.TabIndex = 9;
             this.Io_Page.Text = "IO调试";
             this.Io_Page.UseVisualStyleBackColor = false;
@@ -73,7 +73,7 @@
             this.process_Page.Location = new System.Drawing.Point(0, 0);
             this.process_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.process_Page.Name = "process_Page";
-            this.process_Page.Size = new System.Drawing.Size(143, 129);
+            this.process_Page.Size = new System.Drawing.Size(143, 96);
             this.process_Page.TabIndex = 6;
             this.process_Page.Text = "流程";
             this.process_Page.UseVisualStyleBackColor = false;
@@ -92,7 +92,7 @@
             this.station_Page.Location = new System.Drawing.Point(143, 0);
             this.station_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.station_Page.Name = "station_Page";
-            this.station_Page.Size = new System.Drawing.Size(143, 129);
+            this.station_Page.Size = new System.Drawing.Size(143, 96);
             this.station_Page.TabIndex = 10;
             this.station_Page.Text = "工站";
             this.station_Page.UseVisualStyleBackColor = false;
@@ -111,7 +111,7 @@
             this.communication_Page.Location = new System.Drawing.Point(429, 0);
             this.communication_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.communication_Page.Name = "communication_Page";
-            this.communication_Page.Size = new System.Drawing.Size(143, 129);
+            this.communication_Page.Size = new System.Drawing.Size(143, 96);
             this.communication_Page.TabIndex = 11;
             this.communication_Page.Text = "通讯";
             this.communication_Page.UseVisualStyleBackColor = false;
@@ -130,7 +130,7 @@
             this.Plc_Page.Location = new System.Drawing.Point(572, 0);
             this.Plc_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 3);
             this.Plc_Page.Name = "Plc_Page";
-            this.Plc_Page.Size = new System.Drawing.Size(143, 129);
+            this.Plc_Page.Size = new System.Drawing.Size(143, 96);
             this.Plc_Page.TabIndex = 16;
             this.Plc_Page.Text = "PLC";
             this.Plc_Page.UseVisualStyleBackColor = false;
@@ -152,7 +152,7 @@
             this.panel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panel1.Location = new System.Drawing.Point(0, 0);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(1205, 129);
+            this.panel1.Size = new System.Drawing.Size(1205, 96);
             this.panel1.TabIndex = 12;
             // 
             // Card_Page
@@ -168,7 +168,7 @@
             this.Card_Page.Location = new System.Drawing.Point(715, 0);
             this.Card_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.Card_Page.Name = "Card_Page";
-            this.Card_Page.Size = new System.Drawing.Size(143, 129);
+            this.Card_Page.Size = new System.Drawing.Size(143, 96);
             this.Card_Page.TabIndex = 12;
             this.Card_Page.Text = "控制卡配置";
             this.Card_Page.UseVisualStyleBackColor = false;
@@ -187,7 +187,7 @@
             this.aiAssistant_Page.Location = new System.Drawing.Point(858, 0);
             this.aiAssistant_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.aiAssistant_Page.Name = "aiAssistant_Page";
-            this.aiAssistant_Page.Size = new System.Drawing.Size(143, 129);
+            this.aiAssistant_Page.Size = new System.Drawing.Size(143, 96);
             this.aiAssistant_Page.TabIndex = 17;
             this.aiAssistant_Page.Text = "AI助手";
             this.aiAssistant_Page.UseVisualStyleBackColor = false;
@@ -206,7 +206,7 @@
             this.valueDebug_Page.Location = new System.Drawing.Point(715, 0);
             this.valueDebug_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.valueDebug_Page.Name = "valueDebug_Page";
-            this.valueDebug_Page.Size = new System.Drawing.Size(143, 129);
+            this.valueDebug_Page.Size = new System.Drawing.Size(143, 96);
             this.valueDebug_Page.TabIndex = 14;
             this.valueDebug_Page.Text = "变量调试";
             this.valueDebug_Page.UseVisualStyleBackColor = false;
@@ -225,7 +225,7 @@
             this.value_Page.Location = new System.Drawing.Point(572, 0);
             this.value_Page.Margin = new System.Windows.Forms.Padding(3, 100, 3, 100);
             this.value_Page.Name = "value_Page";
-            this.value_Page.Size = new System.Drawing.Size(143, 129);
+            this.value_Page.Size = new System.Drawing.Size(143, 96);
             this.value_Page.TabIndex = 7;
             this.value_Page.Text = "变量";
             this.value_Page.UseVisualStyleBackColor = false;
@@ -235,7 +235,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1205, 129);
+            this.ClientSize = new System.Drawing.Size(1205, 96);
             this.Controls.Add(this.panel1);
             this.Name = "FrmMenu";
             this.Text = "FrmMenu";

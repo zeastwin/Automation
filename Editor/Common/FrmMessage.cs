@@ -18,9 +18,41 @@ namespace Automation
         private EventHandler1 closeFallback;
         private readonly PlatformSafetyCoordinator safety;
         private readonly IPlatformEditorUiAdapter editorUi;
+        private CheckBox optionCheckBox;
         private int completionState;
 
         public bool isChoiced => Volatile.Read(ref completionState) != 0;
+
+        internal static bool ShowConfirmationWithOption(
+            PlatformRuntime runtime,
+            string headText,
+            string msg,
+            string optionText,
+            bool optionCheckedByDefault,
+            string confirmText,
+            string cancelText,
+            out bool optionChecked)
+        {
+            if (runtime == null) throw new ArgumentNullException(nameof(runtime));
+            bool confirmed = false;
+            using (var dialog = new Message(
+                runtime.Safety,
+                runtime.EditorUi,
+                headText,
+                msg,
+                () => confirmed = true,
+                null,
+                confirmText,
+                cancelText,
+                true,
+                false))
+            {
+                dialog.ConfigureOption(optionText, optionCheckedByDefault);
+                dialog.PresentDeferred(true);
+                optionChecked = dialog.optionCheckBox.Checked;
+            }
+            return confirmed;
+        }
 
         public Message(PlatformRuntime runtime, string headText, string msg,
             EventHandler1 eventHandler1, string btnTxt1, bool isWait)
@@ -156,6 +188,28 @@ namespace Automation
             AdjustDialogSize();
         }
 
+        private void ConfigureOption(string optionText, bool isChecked)
+        {
+            float scale = DeviceDpi > 0 ? DeviceDpi / 96F : 1F;
+            optionCheckBox = new CheckBox
+            {
+                AutoEllipsis = true,
+                BackColor = UiPalette.SurfaceStrong,
+                Checked = isChecked,
+                Dock = DockStyle.Fill,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                ForeColor = UiPalette.TextPrimary,
+                Margin = new Padding(0, (int)(10 * scale), 0, 0),
+                Text = optionText ?? string.Empty,
+                TextAlign = ContentAlignment.MiddleLeft,
+                UseVisualStyleBackColor = false
+            };
+            contentLayout.RowCount = 3;
+            contentLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(44 * scale)));
+            contentLayout.Controls.Add(optionCheckBox, 0, 2);
+            AdjustDialogSize();
+        }
+
         private void Present(bool modal)
         {
             AdjustDialogSize();
@@ -205,6 +259,7 @@ namespace Automation
             Size measured = TextRenderer.MeasureText(txtMsg.Text.Length == 0 ? " " : txtMsg.Text,
                 txtMsg.Font, new Size(contentMaxWidth, int.MaxValue),
                 TextFormatFlags.TextBoxControl | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            int optionWidth = optionCheckBox?.GetPreferredSize(Size.Empty).Width ?? 0;
             int buttonAreaWidth = panelBtn.Padding.Horizontal;
             foreach (Button button in new[] { btn1, btn2, btn3 })
             {
@@ -213,10 +268,12 @@ namespace Automation
                     buttonAreaWidth += button.GetPreferredSize(Size.Empty).Width + button.Margin.Horizontal;
                 }
             }
+            int measuredContentWidth = Math.Max(measured.Width, optionWidth);
             int desiredWidth = Math.Max(minWidth,
-                Math.Min(maxWidth, Math.Max(measured.Width + (int)(88 * scale), buttonAreaWidth)));
-            int chromeHeight = (int)(174 * scale);
-            int minHeight = Math.Max((int)(260 * scale), MinimumSize.Height);
+                Math.Min(maxWidth, Math.Max(measuredContentWidth + (int)(88 * scale), buttonAreaWidth)));
+            int optionAreaHeight = optionCheckBox == null ? 0 : (int)(52 * scale);
+            int chromeHeight = (int)(174 * scale) + optionAreaHeight;
+            int minHeight = Math.Max((int)(260 * scale) + optionAreaHeight, MinimumSize.Height);
             int maxHeight = Math.Max(minHeight, (int)(workingArea.Height * 0.72));
             int desiredHeight = Math.Max(minHeight, Math.Min(maxHeight, measured.Height + chromeHeight));
             ClientSize = new Size(desiredWidth, desiredHeight);

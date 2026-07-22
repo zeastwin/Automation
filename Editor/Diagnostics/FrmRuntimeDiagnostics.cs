@@ -598,6 +598,7 @@ namespace Automation
                 case ProcRunState.Alarming: return "报警";
                 case ProcRunState.Stopping: return "停止中";
                 case ProcRunState.SingleStep: return "单步";
+                case ProcRunState.Ready: return "就绪";
                 default: return "已停止";
             }
         }
@@ -608,6 +609,7 @@ namespace Automation
             {
                 case ProcRunState.Running: return "success";
                 case ProcRunState.Alarming: return "danger";
+                case ProcRunState.Ready: return "success";
                 case ProcRunState.Paused:
                 case ProcRunState.Stopping: return "warning";
                 default: return "neutral";

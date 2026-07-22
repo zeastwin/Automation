@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 
 namespace Automation
 {
@@ -207,7 +208,10 @@ namespace Automation
             error = null;
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ids = new HashSet<int>();
-            var serverEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var serverCatchAllEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var fixedServerSelectors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var serverListenerEndpoints = new List<IPEndPoint>();
+            var clientLocalEndpoints = new List<IPEndPoint>();
             foreach (SocketInfo item in source)
             {
                 if (!CommunicationHub.TryValidateSocketInfo(item, out error))
@@ -226,12 +230,59 @@ namespace Automation
                 }
                 if (string.Equals(item.Type, "Server", StringComparison.Ordinal))
                 {
-                    string endpoint = $"{item.Address}:{item.Port}";
-                    if (!serverEndpoints.Add(endpoint))
+                    var localEndpoint = new IPEndPoint(IPAddress.Parse(item.LocalAddress), item.LocalPort);
+                    IPEndPoint sameEndpoint = serverListenerEndpoints.FirstOrDefault(existing =>
+                        existing.Port == localEndpoint.Port && Equals(existing.Address, localEndpoint.Address));
+                    if (sameEndpoint == null)
                     {
-                        error = $"TCP服务端监听地址重复：{endpoint}";
+                        IPEndPoint overlapping = serverListenerEndpoints.FirstOrDefault(existing =>
+                            existing.Port == localEndpoint.Port
+                            && (Equals(existing.Address, IPAddress.Any) || Equals(localEndpoint.Address, IPAddress.Any)));
+                        if (overlapping != null)
+                        {
+                            error = $"TCP服务端监听地址重叠：{overlapping} 与 {localEndpoint}";
+                            return false;
+                        }
+                        serverListenerEndpoints.Add(localEndpoint);
+                    }
+
+                    string endpoint = localEndpoint.ToString();
+                    string remoteAddress = string.Equals(item.RemoteAddress, "*", StringComparison.Ordinal)
+                        ? "*"
+                        : IPAddress.Parse(item.RemoteAddress).ToString();
+                    bool catchAll = string.Equals(item.RemoteAddress, "*", StringComparison.Ordinal)
+                        && item.RemotePort == 0;
+                    if (catchAll && !serverCatchAllEndpoints.Add(endpoint))
+                    {
+                        error = $"TCP服务端监听地址只能配置一个未匹配客户端接收通道：{endpoint}";
                         return false;
                     }
+                    if (!catchAll && item.RemotePort > 0)
+                    {
+                        string selector = $"{endpoint}|{remoteAddress}:{item.RemotePort}";
+                        if (!fixedServerSelectors.Add(selector))
+                        {
+                            error = $"TCP服务端远端选择条件重复：{remoteAddress}:{item.RemotePort}";
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+
+                if (item.LocalPort > 0)
+                {
+                    var localEndpoint = new IPEndPoint(IPAddress.Parse(item.LocalAddress), item.LocalPort);
+                    IPEndPoint conflicting = clientLocalEndpoints.FirstOrDefault(existing =>
+                        existing.Port == localEndpoint.Port
+                        && (Equals(existing.Address, localEndpoint.Address)
+                            || Equals(existing.Address, IPAddress.Any)
+                            || Equals(localEndpoint.Address, IPAddress.Any)));
+                    if (conflicting != null)
+                    {
+                        error = $"TCP客户端本地绑定地址冲突：{conflicting} 与 {localEndpoint}";
+                        return false;
+                    }
+                    clientLocalEndpoints.Add(localEndpoint);
                 }
             }
             return true;
@@ -276,8 +327,11 @@ namespace Automation
                 ID = item.ID,
                 Name = item.Name,
                 Type = item.Type,
-                Port = item.Port,
-                Address = item.Address,
+                LocalAddress = item.LocalAddress,
+                LocalPort = item.LocalPort,
+                RemoteAddress = item.RemoteAddress,
+                RemotePort = item.RemotePort,
+                AutoReconnect = string.Equals(item.Type, "Client", StringComparison.Ordinal) && item.AutoReconnect,
                 FrameMode = item.FrameMode,
                 FrameDelimiter = item.FrameDelimiter,
                 EncodingName = item.EncodingName,

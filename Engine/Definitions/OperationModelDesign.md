@@ -30,7 +30,7 @@
 - 通讯资源字段使用 `ConnectionName`，与指令稳定身份 `Id` 分离，并通过 `referenceType` 引导精确资源读取。
 - Schema 中仍为字符串的数值外观字段分为两类：资源/变量引用保持引用语义；固定值与变量双来源字段后续应整体升级为 discriminator 对象，不能机械改成 `int` 后丢失动态表达能力。
 - `OperationDefinitionRegistry` 在注册时递归校验顶层字段、内联对象和数组元素字段：名称必须为 PascalCase，不允许仅大小写不同的字段，数组必须初始化且满足边界，每个注册指令必须具有专用行为契约。
-- `OperationBehaviorCatalog` 已覆盖全部 45 种注册指令。AI 读取原生 Schema 时同时得到用途、执行顺序、控制流、条件字段、约束和失败模式，不需要从属性名猜测运行语义。
+- `OperationBehaviorCatalog` 已覆盖全部 47 种注册指令，并只为 TCP、串口和 PLC 数据通信指令投影固定间隔重试及接收结果判定。AI 读取原生 Schema 时同时得到用途、执行顺序、控制流、通信失败分类、条件字段、约束和失败模式，不需要从属性名猜测运行语义。
 - 指令显示名 `Name` 只承担显示和日志定位。自定义函数使用 `FunctionName`，插入结构体数据项使用 `ItemName`，两者均作为可配置业务字段出现在 AI Schema 中。
 - 调试断点 `IsBreakpoint` 是编辑器维护状态，不进入 AI 原生指令字段。
 
@@ -52,7 +52,7 @@
 | 非负固定数值字符串 | 已改为 `int`/`int?` 并投影最小值 | 强类型属性与 `NumericRangeAttribute` |
 | 小写、拼写错误和含混业务字段 | 已统一且注册时强制检查 | PascalCase 明确业务名 |
 | `Name` 被业务参数复用 | 已拆分 | `Name`、`FunctionName`、`ItemName` 各自唯一语义 |
-| 原生指令行为缺失 | 45 种指令已全部覆盖 | `OperationBehaviorCatalog` |
+| 原生指令行为缺失 | 47 种指令已全部覆盖 | `OperationBehaviorCatalog` |
 | 固定值/变量双来源 | 保留现有运行能力，后续整体替换 | `ValueSource<T>` discriminator |
 | 变量的名称/索引并行字段 | 保留现有运行能力，后续整体替换 | 强类型 `ValueReference` |
 | 中文字符串模式 | 后续按行为 Catalog 逐类替换 | 稳定枚举 + 中文显示元数据 |

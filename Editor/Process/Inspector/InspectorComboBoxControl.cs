@@ -39,10 +39,10 @@ namespace Automation
 
         public InspectorComboBox()
         {
-            BackColor = UiPalette.Input;
-            ForeColor = UiPalette.TextPrimary;
+            BackColor = UiPalette.BrandSoft;
+            ForeColor = UiPalette.SelectionText;
             FlatStyle = FlatStyle.Flat;
-            Font = InspectorFonts.Regular9;
+            Font = InspectorFonts.Bold9;
             DrawMode = DrawMode.OwnerDrawFixed;
             ItemHeight = 22;
             dropDownButton.AccessibleName = "展开选项";
@@ -79,9 +79,13 @@ namespace Automation
             bool selectionField = (e.State & DrawItemState.ComboBoxEdit)
                 == DrawItemState.ComboBoxEdit;
             Color backColor = selectionField
-                ? (Enabled ? UiPalette.Input : UiPalette.SurfaceSubtle)
-                : (selected ? UiPalette.BrandSoft : UiPalette.Surface);
-            Color foreColor = Enabled ? UiPalette.TextPrimary : UiPalette.TextDisabled;
+                ? Enabled
+                    ? Focused ? UiPalette.Selection : UiPalette.BrandSoft
+                    : UiPalette.SurfaceSubtle
+                : selected ? UiPalette.BrandSoft : UiPalette.Surface;
+            Color foreColor = Enabled
+                ? selectionField ? UiPalette.SelectionText : UiPalette.TextPrimary
+                : UiPalette.TextDisabled;
             using (var brush = new SolidBrush(backColor))
             {
                 e.Graphics.FillRectangle(brush, e.Bounds);
@@ -108,7 +112,7 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = UiPalette.Input;
+            BackColor = UiPalette.Selection;
             Invalidate();
             ClearTextSelection();
         }
@@ -116,7 +120,7 @@ namespace Automation
         protected override void OnLeave(EventArgs e)
         {
             ClearTextSelection();
-            BackColor = UiPalette.Input;
+            BackColor = UiPalette.BrandSoft;
             base.OnLeave(e);
             Invalidate();
         }
@@ -157,8 +161,8 @@ namespace Automation
             {
                 activeStandardValueDropDown?.Close();
             }
-            BackColor = Enabled ? UiPalette.Input : UiPalette.SurfaceSubtle;
-            ForeColor = Enabled ? UiPalette.TextPrimary : UiPalette.TextDisabled;
+            BackColor = Enabled ? UiPalette.BrandSoft : UiPalette.SurfaceSubtle;
+            ForeColor = Enabled ? UiPalette.SelectionText : UiPalette.TextDisabled;
             base.OnEnabledChanged(e);
             dropDownButton.Invalidate();
             Invalidate();

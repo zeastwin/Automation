@@ -298,7 +298,7 @@ namespace Automation
                     Index = i,
                     Id = proc?.head?.Id ?? Guid.Empty,
                     Name = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{i}" : proc.head.Name,
-                    State = snapshot?.State ?? ProcRunState.Stopped,
+                    State = snapshot?.State ?? ProcRunState.Ready,
                     Disabled = proc?.head?.Disable == true,
                     IsAlarm = snapshot?.IsAlarm == true,
                     AlarmMessage = snapshot?.AlarmMessage ?? string.Empty
@@ -324,7 +324,7 @@ namespace Automation
                 error = $"流程已禁用:{procIndex}";
                 return false;
             }
-            if (!runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out error))
+            if (!runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out error))
             {
                 return false;
             }
@@ -338,9 +338,9 @@ namespace Automation
             }
             if (!runtime.ProcessControl.StartProc(procIndex))
             {
-                error = runtime.ProcessEngine.TryValidateProcessStopped(procIndex, out string stoppedError)
+                error = runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string inactiveError)
                     ? $"流程启动请求未被内核接受:{procIndex}"
-                    : stoppedError;
+                    : inactiveError;
                 return false;
             }
             return true;
@@ -777,7 +777,7 @@ namespace Automation
                     continue;
                 }
                 EngineSnapshot snapshot = engine.GetSnapshot(i);
-                if (snapshot == null || snapshot.State == ProcRunState.Stopped)
+                if (snapshot == null || snapshot.State.IsInactive())
                 {
                     engine.StartProcAuto(proc, i);
                 }

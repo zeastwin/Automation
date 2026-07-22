@@ -129,6 +129,17 @@ namespace Automation
                         {
                             incomplete = true;
                         }
+                        if (AddCommunicationRetryBlockers(
+                            proc.head.Id, operation, validationContext, valueStore,
+                            location, blockers))
+                        {
+                            incomplete = true;
+                        }
+                        if (AddCycleTimeProbeBlockers(
+                            proc.head.Id, operation, validationContext, valueStore, location, blockers))
+                        {
+                            incomplete = true;
+                        }
                         if (AddVariableReferenceBlockers(
                             proc.head.Id, operation, validationContext, valueStore, location, blockers))
                         {
@@ -144,7 +155,8 @@ namespace Automation
                             incomplete = true;
                         }
                         if (AddProcessReferenceBlockers(
-                            proc, operation, allProcesses, location, blockers))
+                            proc, operation, allProcesses, validationContext, valueStore,
+                            location, blockers))
                         {
                             incomplete = true;
                         }
@@ -230,6 +242,176 @@ namespace Automation
                 }
                 blockers.Add($"{location} 的 {reference.Path} {error}");
                 incomplete = true;
+            }
+            return incomplete;
+        }
+
+        private static bool AddCommunicationRetryBlockers(
+            Guid procId,
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
+            string location,
+            ICollection<string> blockers)
+        {
+            if (!(operation is CommunicationOperationType communication))
+            {
+                return false;
+            }
+            if (communication.RetryCount < 0 || communication.RetryCount > 10
+                || communication.RetryIntervalMs < 0 || communication.RetryIntervalMs > 60000)
+            {
+                blockers.Add($"{location} 的通信重试次数或重试间隔越界。");
+                return true;
+            }
+            if (communication.RetryCount == 0
+                || !(communication is ResponseCommunicationOperationType response)
+                || !response.ShouldEvaluateResponseConditions)
+            {
+                return false;
+            }
+
+            bool incomplete = false;
+            if (response.ResponseConditions != null && response.ResponseConditions.Count > 20)
+            {
+                blockers.Add($"{location} 的通信结果判定条件不能超过20条。");
+                incomplete = true;
+            }
+            int conditionIndex = 0;
+            foreach (CommunicationResponseCondition condition in response.ResponseConditions
+                ?? new CustomList<CommunicationResponseCondition>())
+            {
+                conditionIndex++;
+                string conditionLocation = $"{location} 的结果判定{conditionIndex}";
+                string error = null;
+                if (condition == null
+                    || !TryResolveVariable(condition.SourceVariableName, null, procId,
+                        validationContext, valueStore, out DicValue variable, out error))
+                {
+                    blockers.Add($"{conditionLocation}来源变量{error ?? "为空"}");
+                    incomplete = true;
+                    continue;
+                }
+                if (!IsCommunicationResultVariable(
+                    operation, variable, procId, validationContext, valueStore))
+                {
+                    blockers.Add($"{conditionLocation}来源变量不是本指令的接收或PLC读取结果：{condition.SourceVariableName}。");
+                    incomplete = true;
+                }
+                bool numeric = condition.JudgeMode == "值在区间左"
+                    || condition.JudgeMode == "值在区间右"
+                    || condition.JudgeMode == "值在区间内";
+                bool text = condition.JudgeMode == "等于特征字符"
+                    || condition.JudgeMode == "包含特征字符";
+                bool supported = condition.JudgeMode == "非空"
+                    || condition.JudgeMode == "字段存在" || numeric || text;
+                if (!supported)
+                {
+                    blockers.Add($"{conditionLocation}判断模式无效：{condition.JudgeMode}。");
+                    incomplete = true;
+                }
+                if (!string.IsNullOrWhiteSpace(condition.JsonFieldPath)
+                    && !string.Equals(variable.Type, "string",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    blockers.Add($"{conditionLocation}使用JSON字段路径时来源变量必须是string。");
+                    incomplete = true;
+                }
+                if (condition.JudgeMode == "字段存在"
+                    && string.IsNullOrWhiteSpace(condition.JsonFieldPath))
+                {
+                    blockers.Add($"{conditionLocation}使用字段存在时必须配置JSON字段路径。");
+                    incomplete = true;
+                }
+                if (numeric && string.IsNullOrWhiteSpace(condition.JsonFieldPath)
+                    && !string.Equals(variable.Type, "double",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    blockers.Add($"{conditionLocation}进行数值判断时来源变量必须是double，或配置string JSON字段路径。");
+                    incomplete = true;
+                }
+                if (numeric
+                    && (double.IsNaN(condition.Down) || double.IsInfinity(condition.Down)
+                        || condition.JudgeMode == "值在区间内"
+                        && (double.IsNaN(condition.Up) || double.IsInfinity(condition.Up)
+                            || condition.Up < condition.Down)))
+                {
+                    blockers.Add($"{conditionLocation}数值区间上下限无效。");
+                    incomplete = true;
+                }
+                if (text && condition.ExpectedText == null)
+                {
+                    blockers.Add($"{conditionLocation}缺少期望文本。");
+                    incomplete = true;
+                }
+                if (conditionIndex > 1
+                    && condition.Operator != "且" && condition.Operator != "或")
+                {
+                    blockers.Add($"{conditionLocation}运算符只能是且或或。");
+                    incomplete = true;
+                }
+            }
+            return incomplete;
+        }
+
+        private static bool IsCommunicationResultVariable(
+            OperationType operation,
+            DicValue variable,
+            Guid procId,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore)
+        {
+            if (variable == null) return false;
+            if (operation is ReceiveTcpMsg tcp)
+                return string.Equals(variable.Name, tcp.MsgSaveValue, StringComparison.Ordinal);
+            if (operation is ReceiveSerialPortMsg serial)
+                return string.Equals(variable.Name, serial.MsgSaveValue, StringComparison.Ordinal);
+            if (operation is SendReceiveCommMsg request)
+                return string.Equals(variable.Name, request.ReceiveSaveValue, StringComparison.Ordinal);
+            if (!(operation is PlcReadWrite plc) || plc.Action != PlcAccessAction.Read)
+                return false;
+            if (plc.Mode == PlcAccessMode.Items)
+            {
+                return (plc.ReadItems ?? new CustomList<PlcReadItem>()).Any(item =>
+                    item != null && string.Equals(item.VariableName, variable.Name, StringComparison.Ordinal));
+            }
+            string firstName = plc.ReadBatch?.FirstVariableName;
+            int count = plc.ReadBatch?.ElementCount ?? 0;
+            return count > 0
+                && TryResolveVariable(firstName, null, procId, validationContext, valueStore,
+                    out DicValue first, out _)
+                && variable.Index >= first.Index
+                && variable.Index < first.Index + count;
+        }
+
+        private static bool AddCycleTimeProbeBlockers(
+            Guid procId,
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
+            string location,
+            ICollection<string> blockers)
+        {
+            if (!(operation is CycleTimeProbe probe)) return false;
+            bool incomplete = false;
+            foreach (KeyValuePair<string, string> result in new[]
+            {
+                new KeyValuePair<string, string>("分段耗时变量", probe.SegmentMillisecondsVariableName),
+                new KeyValuePair<string, string>("累计耗时变量", probe.CycleMillisecondsVariableName)
+            })
+            {
+                if (string.IsNullOrWhiteSpace(result.Value)) continue;
+                if (!TryResolveVariable(result.Value, null, procId, validationContext, valueStore,
+                    out DicValue variable, out string error))
+                {
+                    blockers.Add($"{location} 的{result.Key}{error}");
+                    incomplete = true;
+                }
+                else if (!string.Equals(variable.Type, "double", StringComparison.Ordinal))
+                {
+                    blockers.Add($"{location} 的{result.Key}必须是double：{result.Value}。");
+                    incomplete = true;
+                }
             }
             return incomplete;
         }
@@ -564,6 +746,8 @@ namespace Automation
 
         private static bool AddProcessReferenceBlockers(
             Proc current, OperationType operation, IList<Proc> allProcesses,
+            ProcessDefinitionValidationContext validationContext,
+            ValueConfigStore valueStore,
             string location, List<string> blockers)
         {
             var processesByName = (allProcesses ?? Array.Empty<Proc>())
@@ -629,7 +813,8 @@ namespace Automation
                 }
                 foreach (WaitProcParam item in waits.Params ?? new CustomList<WaitProcParam>())
                 {
-                    if (item == null || (item.TargetState != "运行" && item.TargetState != "停止"))
+                    if (item == null || (item.TargetState != "运行"
+                        && item.TargetState != "就绪" && item.TargetState != "停止"))
                     {
                         blockers.Add($"{location} 尚未配置等待状态。");
                         incomplete = true;
