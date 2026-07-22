@@ -34,6 +34,12 @@ namespace Automation
         public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
+
+        /// <summary>
+        /// 工具接入模式：Tools = 会话注入 Automation MCP HTTP 扩展（默认，现状）；
+        /// Cli = 不注入 mcpServers，模型经 shell 执行 Automation.McpServer.exe cli list/schema/call。
+        /// </summary>
+        public string ToolMode { get; set; }
     }
 
     /// <summary>
@@ -88,6 +94,10 @@ namespace Automation
         private const string LegacyFullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
+        public const string ToolModeKey = "ToolMode";
+        public const string ToolModeTools = "Tools";
+        public const string ToolModeCli = "Cli";
+        public const string DefaultToolMode = ToolModeTools;
         public const int DefaultMaxTurns = 100;
         public const int DefaultMaxOutputTokens = 8192;
         public const double DefaultTemperature = 0.7d;
@@ -143,7 +153,8 @@ namespace Automation
                         obj,
                         AutoApproveModeKey,
                         ReadOptionalBool(obj, LegacyFullPermissionModeKey, false)),
-                    ToolProfile = ReadToolProfile(obj)
+                    ToolProfile = ReadToolProfile(obj),
+                    ToolMode = ReadToolMode(obj)
                 };
 
                 if (!Validate(config, out error))
@@ -158,6 +169,7 @@ namespace Automation
                     || !obj.TryGetValue(ModelServicesKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(TemperatureKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(AutoApproveModeKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(ToolModeKey, StringComparison.Ordinal, out _)
                     || obj.TryGetValue(LegacyFullPermissionModeKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
                 // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
@@ -234,7 +246,8 @@ namespace Automation
                 [MaxTurnsKey] = config.MaxTurns,
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
                 [AutoApproveModeKey] = config.AutoApproveMode,
-                [ToolProfileKey] = config.ToolProfile
+                [ToolProfileKey] = config.ToolProfile,
+                [ToolModeKey] = config.ToolMode
             };
 
             string path = ConfigPath;
@@ -288,7 +301,8 @@ namespace Automation
                 MaxTurns = DefaultMaxTurns,
                 MaxOutputTokens = DefaultMaxOutputTokens,
                 AutoApproveMode = false,
-                ToolProfile = DefaultToolProfile
+                ToolProfile = DefaultToolProfile,
+                ToolMode = DefaultToolMode
             };
         }
 
@@ -421,7 +435,32 @@ namespace Automation
                 error = $"AI工具模式不支持:{config.ToolProfile}，可选Diagnostic/Editor";
                 return false;
             }
+            if (!string.Equals(config.ToolMode, ToolModeTools, StringComparison.Ordinal)
+                && !string.Equals(config.ToolMode, ToolModeCli, StringComparison.Ordinal))
+            {
+                error = $"AI工具接入模式不支持:{config.ToolMode}，可选Tools/Cli";
+                return false;
+            }
             return true;
+        }
+
+        private static string ReadToolMode(JObject obj)
+        {
+            if (!obj.TryGetValue(ToolModeKey, StringComparison.Ordinal, out JToken token))
+            {
+                return DefaultToolMode;
+            }
+            if (token.Type != JTokenType.String)
+            {
+                throw new InvalidOperationException($"EW-AI配置字段类型无效:{ToolModeKey}");
+            }
+            string value = token.Value<string>();
+            if (!string.Equals(value, ToolModeTools, StringComparison.Ordinal)
+                && !string.Equals(value, ToolModeCli, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"AI工具接入模式不支持:{value}，可选Tools/Cli");
+            }
+            return value;
         }
 
         private static string ReadToolProfile(JObject obj)
@@ -529,7 +568,8 @@ namespace Automation
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
                 AutoApproveMode = config.AutoApproveMode,
-                ToolProfile = config.ToolProfile
+                ToolProfile = config.ToolProfile,
+                ToolMode = config.ToolMode
             };
         }
 

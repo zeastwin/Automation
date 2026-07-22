@@ -190,21 +190,24 @@ namespace Automation
             {
                 sessionMeta["model"] = configuredModel;
             }
+            JArray mcpServers = new JArray();
+            if (!IsCliToolMode)
+            {
+                mcpServers.Add(new JObject
+                {
+                    ["name"] = "automation",
+                    ["type"] = "http",
+                    ["url"] = config.McpUri,
+                    // ACP session/new 的 McpServer HTTP 变体要求 headers 字段（即使为空数组），
+                    // 缺失会导致 "data did not match any variant of untagged enum McpServer" 反序列化错误。
+                    ["headers"] = new JArray()
+                });
+            }
+            // Cli 工具接入模式不注入 mcpServers，Automation 工具经 shell 的 cli 子命令按需发现和调用。
             JObject result = await SendRequestAsync("session/new", new JObject
             {
                 ["cwd"] = sessionWorkingDirectory,
-                ["mcpServers"] = new JArray
-                {
-                    new JObject
-                    {
-                        ["name"] = "automation",
-                        ["type"] = "http",
-                        ["url"] = config.McpUri,
-                        // ACP session/new 的 McpServer HTTP 变体要求 headers 字段（即使为空数组），
-                        // 缺失会导致 "data did not match any variant of untagged enum McpServer" 反序列化错误。
-                        ["headers"] = new JArray()
-                    }
-                },
+                ["mcpServers"] = mcpServers,
                 ["_meta"] = sessionMeta
             }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
 
@@ -424,12 +427,20 @@ namespace Automation
             }
         }
 
+        private bool IsCliToolMode => string.Equals(
+            config.ToolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
+
         /// <summary>
         /// 在当前 Goose 会话内重新挂载 Automation MCP，使 Goose 重新读取工具清单。
         /// 返回 false 表示当前尚未创建会话，后续新会话会直接使用最新 MCP 配置。
         /// </summary>
         public async Task<bool> ReloadAutomationExtensionAsync(string mcpUri, CancellationToken cancellationToken)
         {
+            // Cli 模式会话没有 automation 扩展，无需热切换。
+            if (IsCliToolMode)
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(mcpUri))
             {
                 throw new InvalidOperationException("MCP地址不能为空。");
@@ -538,6 +549,7 @@ namespace Automation
 
             bool runtimeDiagnostic = string.Equals(
                 config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal);
+            bool cliToolMode = !runtimeDiagnostic && IsCliToolMode;
             string sessionWorkingDirectory = ResolveWorkingDirectory();
             string skillProvisionMessage = null;
             if (!runtimeDiagnostic
@@ -546,6 +558,13 @@ namespace Automation
                     out skillProvisionMessage))
             {
                 throw new InvalidOperationException(skillProvisionMessage);
+            }
+            if (cliToolMode
+                && !GooseRuntimeProvisioner.TryEnsureMcpCliSkill(
+                    sessionWorkingDirectory,
+                    out string cliSkillProvisionMessage))
+            {
+                throw new InvalidOperationException(cliSkillProvisionMessage);
             }
 
             var startInfo = new ProcessStartInfo
@@ -596,20 +615,41 @@ namespace Automation
             // Hmi 是客户可修改目录，不从其中加载平台内部规范。
             // Automation 专用上下文由 TOM 注入编辑会话；运行诊断会话不加载流程编写路由。
             startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[]";
-            if (!File.Exists(GooseRuntimeProvisioner.IntegrationContextPath))
+            // Cli 模式注入独立的 cli 路由上下文，Tools 模式注入 MCP 工具路由上下文。
+            string integrationContextPath = cliToolMode
+                ? GooseRuntimeProvisioner.CliIntegrationContextPath
+                : GooseRuntimeProvisioner.IntegrationContextPath;
+            if (!File.Exists(integrationContextPath))
             {
                 throw new FileNotFoundException("Automation 专用 Goose 上下文不存在。",
-                    GooseRuntimeProvisioner.IntegrationContextPath);
+                    integrationContextPath);
             }
             if (!runtimeDiagnostic)
             {
-                startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] =
-                    GooseRuntimeProvisioner.IntegrationContextPath;
+                startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] = integrationContextPath;
             }
             else
             {
                 startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_FILE");
                 startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_TEXT");
+            }
+            // Cli 模式向当前子进程公开 MCP CLI 入口与工具 Profile；
+            // Tools 模式显式清除，避免沿用父进程继承的旧值。
+            if (cliToolMode)
+            {
+                string mcpCliPath = AutomationMcpServerManager.ResolveMcpServerExecutablePath();
+                if (string.IsNullOrWhiteSpace(mcpCliPath))
+                {
+                    throw new InvalidOperationException(
+                        "Cli 工具接入模式需要完整的 Automation.McpServer 运行包，但未找到。");
+                }
+                startInfo.EnvironmentVariables["AUTOMATION_MCP_CLI_PATH"] = mcpCliPath;
+                startInfo.EnvironmentVariables["AUTOMATION_MCP_PROFILE"] = config.ToolProfile;
+            }
+            else
+            {
+                startInfo.EnvironmentVariables.Remove("AUTOMATION_MCP_CLI_PATH");
+                startInfo.EnvironmentVariables.Remove("AUTOMATION_MCP_PROFILE");
             }
 
             AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
@@ -706,6 +746,13 @@ namespace Automation
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
             startupInfo.Append(" sessionName=").Append(runtimeSessionName);
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
+            startupInfo.Append(" toolMode=").Append(cliToolMode ? "Cli" : "Tools");
+            if (cliToolMode)
+            {
+                startupInfo.Append(" mcpCliPath=")
+                    .Append(startInfo.EnvironmentVariables["AUTOMATION_MCP_CLI_PATH"]);
+                startupInfo.Append(" mcpCliProfile=").Append(config.ToolProfile);
+            }
             if (!runtimeDiagnostic)
             {
                 startupInfo.Append(" builtinExtensions=developer,skills,tom");
@@ -1591,6 +1638,10 @@ namespace Automation
             else
             {
                 context = "当前 Automation 工具模式：Editor。当前会话开放读取、诊断、配置写入和运行控制工具。";
+            }
+            if (IsCliToolMode)
+            {
+                context += " 工具接入模式：Cli，Automation 工具不注入会话，经 shell 执行 MCP CLI 的 list/schema/call 子命令按需发现和调用。";
             }
             context += BuildSelectionContext();
             string restoredContext = restoredConversationContext;

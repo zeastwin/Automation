@@ -71,6 +71,8 @@ namespace Automation
         private const string ProductProcessName = OwnedPrefix + "产品检测流程";
         private const string ResultVariableName = OwnedPrefix + "检测结果";
         private const string RetryVariableName = OwnedPrefix + "重试次数";
+        private const string SumProcessName = OwnedPrefix + "1到100相加";
+        private const string SumVariableName = OwnedPrefix + "累加结果";
 
         private static readonly IReadOnlyList<AiStandardTestScenario> scenarios =
             new List<AiStandardTestScenario>
@@ -114,7 +116,13 @@ namespace Automation
                     "大体量流程检查",
                     "验证按需读取、长流程分析和分阶段修复。",
                     AiStandardTestSetupKind.ProductLargeInspection,
-                    "检查当前流程中的变量写入、报警和全部跳转关系，列出能够由配置直接证明的问题；只修复确定存在的问题，允许分阶段提交，完成后回读验证。")
+                    "检查当前流程中的变量写入、报警和全部跳转关系，列出能够由配置直接证明的问题；只修复确定存在的问题，允许分阶段提交，完成后回读验证。"),
+                new AiStandardTestScenario(
+                    "cli_loop_sum",
+                    "Cli 模式循环累加",
+                    "面向 Cli 工具接入模式的冒烟场景：工具经 shell 的 cli 子命令发现和调用，验证循环结构、变量声明、预演确认与结构回读。建议配合本地模型服务运行。",
+                    AiStandardTestSetupKind.EmptyOwnedObjects,
+                    "帮我新增一个循环流程“标准测试_1到100相加”：用循环把1到100累加，结果保存到变量“标准测试_累加结果”。先完成可确定的部分，不要虚构资源。")
             };
 
         public static IReadOnlyList<AiStandardTestScenario> Scenarios => scenarios;
@@ -312,6 +320,17 @@ namespace Automation
                     CheckGotoStructure(runtime, result, proc);
                     break;
                 }
+                case "cli_loop_sum":
+                {
+                    Proc proc = FindProcess(runtime, SumProcessName);
+                    result.Check(proc != null, "目标流程已创建", $"未找到流程“{SumProcessName}”。");
+                    result.Check(CountOperations(proc) >= 3, "流程包含可审查的循环结构", "流程指令不足3条，未形成循环结构。");
+                    Dictionary<string, DicValue> variables = runtime.Stores.Values.BuildSaveData();
+                    result.Check(variables.ContainsKey(SumVariableName), "累加结果变量已声明", $"未找到变量“{SumVariableName}”。");
+                    result.Check(HasBackwardGoto(runtime, proc), "循环包含回边跳转", "未找到指向前序指令的循环回边。");
+                    CheckGotoStructure(runtime, result, proc);
+                    break;
+                }
                 default:
                     result.Check(false, string.Empty, $"未知测试场景：{scenario.Id}");
                     break;
@@ -461,6 +480,33 @@ namespace Automation
                     string.Equals(operation.DefaultGoto, target, StringComparison.Ordinal)))
                 {
                     return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool HasBackwardGoto(PlatformRuntime runtime, Proc proc)
+        {
+            if (proc?.steps == null) return false;
+            int procIndex = runtime.Stores.Processes.Items.IndexOf(proc);
+            string prefix = procIndex + "-";
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                List<OperationType> operations = proc.steps[stepIndex]?.Ops;
+                if (operations == null) continue;
+                for (int opIndex = 0; opIndex < operations.Count; opIndex++)
+                {
+                    if (!(operations[opIndex] is Goto gotoOperation)) continue;
+                    string target = gotoOperation.DefaultGoto;
+                    if (string.IsNullOrWhiteSpace(target) || !target.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                    string[] parts = target.Split('-');
+                    if (parts.Length != 3
+                        || !int.TryParse(parts[1], out int targetStep)
+                        || !int.TryParse(parts[2], out int targetOp)) continue;
+                    if (targetStep < stepIndex || (targetStep == stepIndex && targetOp < opIndex))
+                    {
+                        return true;
+                    }
                 }
             }
             return false;

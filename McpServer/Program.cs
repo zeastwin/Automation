@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Text;
@@ -14,14 +14,20 @@ namespace Automation.McpServer
     internal static class Program
     {
         [STAThread]
-        private static async Task Main(string[] args)
+        private static async Task<int> Main(string[] args)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             if (args.Any(value => string.Equals(value, "--verify-profile", StringComparison.Ordinal)))
             {
                 VerifyEditorProfile();
-                return;
+                return 0;
+            }
+
+            // MCP CLI 模式：不启动 HTTP/托盘，直接把当前 Profile 工具集作为命令行工具使用。
+            if (args.Length > 0 && string.Equals(args[0], "cli", StringComparison.OrdinalIgnoreCase))
+            {
+                return await CliCommand.RunAsync(args.Skip(1).ToArray()).ConfigureAwait(false);
             }
 
             var builder = WebApplication.CreateBuilder(args);
@@ -123,7 +129,7 @@ namespace Automation.McpServer
             if (!options.EnableTrayIcon)
             {
                 await runTask.ConfigureAwait(false);
-                return;
+                return 0;
             }
 
             var exitSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -163,6 +169,7 @@ namespace Automation.McpServer
             {
                 RestartCurrentProcess(args);
             }
+            return 0;
         }
 
         private static void VerifyEditorProfile()

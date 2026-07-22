@@ -75,6 +75,8 @@ namespace Automation
         private List<AiModelServiceConfig> modelServices = new List<AiModelServiceConfig>();
         private string modelServiceId = string.Empty;
         private string toolProfile = GooseConfigStorage.DefaultToolProfile;
+        // 工具接入模式（Tools/Cli）不进设置界面，只随配置文件往返。
+        private string toolMode = GooseConfigStorage.DefaultToolMode;
         private GooseConfig appliedConfig;
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly object clientLock = new object();
@@ -1568,6 +1570,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
             toolProfile = config.ToolProfile;
+            toolMode = string.IsNullOrWhiteSpace(config.ToolMode)
+                ? GooseConfigStorage.DefaultToolMode
+                : config.ToolMode;
             if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
                 fullPermissionEnabled = false;
@@ -1918,18 +1923,31 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || !SelectedModelServiceEqual(oldConfig, config)
                 || Math.Abs(oldConfig.Temperature - config.Temperature) > 0.0001d
                 || oldConfig.MaxTurns != config.MaxTurns
-                || oldConfig.MaxOutputTokens != config.MaxOutputTokens;
+                || oldConfig.MaxOutputTokens != config.MaxOutputTokens
+                || !string.Equals(
+                    oldConfig.ToolMode ?? GooseConfigStorage.DefaultToolMode,
+                    config.ToolMode,
+                    StringComparison.Ordinal);
+            bool cliToolMode = string.Equals(
+                config.ToolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
             bool uriChanged = oldConfig == null
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
             bool profileChanged = oldConfig == null
                 || !string.Equals(oldConfig.ToolProfile, config.ToolProfile, StringComparison.Ordinal);
+            // Cli 模式的工具 Profile 固定在 Goose 子进程环境变量（AUTOMATION_MCP_PROFILE）中，
+            // 没有 HTTP 热切换通道，切换 Profile 必须重建 Goose 进程。
+            if (cliToolMode && profileChanged)
+            {
+                requiresGooseProcessRestart = true;
+            }
             GooseAcpClient activeClient;
             bool sessionToolsReloaded = false;
             lock (clientLock)
             {
                 activeClient = gooseClient;
             }
-            if (uriChanged || profileChanged)
+            // Cli 模式不启动也不热切换 MCP HTTP 实例；会话经 shell 直连 Bridge。
+            if (!cliToolMode && (uriChanged || profileChanged))
             {
                 try
                 {
@@ -2127,6 +2145,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MaxTurns = (int)nudMaxTurns.Value,
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
                 ToolProfile = toolProfile,
+                ToolMode = string.IsNullOrWhiteSpace(toolMode)
+                    ? GooseConfigStorage.DefaultToolMode
+                    : toolMode,
                 AutoApproveMode = autoApproveMode
             };
 
@@ -2167,6 +2188,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
                 ToolProfile = config.ToolProfile,
+                ToolMode = config.ToolMode,
                 AutoApproveMode = config.AutoApproveMode
             };
         }
@@ -4991,10 +5013,74 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return null;
         }
 
+        // Cli 模式专用：拼接 tool_result 全部 content 项中的文本，兼容 shell 输出所在位置。
+        private static string ExtractAllToolResultText(JObject raw)
+        {
+            JToken parameters = raw?["params"];
+            JToken update = parameters?["update"] ?? parameters;
+            if (!(update?["content"] is JArray arr))
+            {
+                return null;
+            }
+            var builder = new StringBuilder();
+            foreach (JToken entry in arr)
+            {
+                JToken textToken = entry?["text"] ?? entry?["content"]?["text"];
+                if (textToken != null && textToken.Type == JTokenType.String)
+                {
+                    if (builder.Length > 0)
+                    {
+                        builder.Append('\n');
+                    }
+                    builder.Append(textToken.Value<string>());
+                }
+            }
+            return builder.Length == 0 ? null : builder.ToString();
+        }
+
+        // Cli 模式专用：shell 输出可能夹带非 JSON 文本，从后往前尝试各 '{' 起点，
+        // 只接受包含 data.previewId 的完整 JSON 对象。
+        private static JObject TryExtractPreviewJsonObject(string text)
+        {
+            int searchFrom = text.Length;
+            while (searchFrom > 0)
+            {
+                int start = text.LastIndexOf('{', searchFrom - 1);
+                if (start < 0)
+                {
+                    return null;
+                }
+                try
+                {
+                    using (var reader = new JsonTextReader(new StringReader(text.Substring(start))))
+                    {
+                        JObject candidate = JObject.Load(reader);
+                        if (!string.IsNullOrWhiteSpace(
+                            candidate["data"]?["previewId"]?.Value<string>()))
+                        {
+                            return candidate;
+                        }
+                    }
+                }
+                catch
+                {
+                    // 该起点不是完整 JSON 对象，继续向前搜索。
+                }
+                searchFrom = start;
+            }
+            return null;
+        }
+
         private async void TryPromptPreviewConfirmation(JObject raw)
         {
             // 从预演工具的字符串结果中提取 previewId；普通工具结果没有该字段。
             string resultText = ExtractToolResultText(raw);
+            bool cliToolMode = string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(resultText) && cliToolMode)
+            {
+                // Cli 模式预演结果来自 developer shell 输出，文本可能不在 content[0]。
+                resultText = ExtractAllToolResultText(raw);
+            }
             if (string.IsNullOrWhiteSpace(resultText))
             {
                 return;
@@ -5007,7 +5093,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             catch
             {
-                return;
+                // Cli 模式 shell 输出可能在 JSON 前后带有附加文本，按 data.previewId 定位其中的预演 JSON。
+                resultObj = cliToolMode ? TryExtractPreviewJsonObject(resultText) : null;
+                if (resultObj == null)
+                {
+                    return;
+                }
             }
 
             // Bridge 的预演类型不只有 intent.preview / patch.preview，流程结构操作还会
@@ -5307,6 +5398,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     MaxTurns = config.MaxTurns,
                     MaxOutputTokens = config.MaxOutputTokens,
                     ToolProfile = config.ToolProfile,
+                    ToolMode = config.ToolMode,
                     AutoApproveMode = config.AutoApproveMode
                 };
                 using (GooseAcpClient client = new GooseAcpClient(runtime, resolvedConfig))

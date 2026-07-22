@@ -385,7 +385,11 @@ namespace Automation
             }
         }
 
-        private static string ResolveMcpServerExecutablePath()
+        /// <summary>
+        /// 解析本机 Automation.McpServer.exe 路径；Cli 工具接入模式直接以该 exe 的
+        /// cli 子命令直连 Bridge，不启动 HTTP 实例。找不到完整运行包时返回 null。
+        /// </summary>
+        public static string ResolveMcpServerExecutablePath()
         {
             var candidates = new List<string>();
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;

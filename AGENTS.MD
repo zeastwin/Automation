@@ -125,7 +125,7 @@
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
 - `AppConfig.json` — 缺失文件或字段时按当前契约生成默认值并持久化；已有值执行启动强校验。当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
-- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens`。
+- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens/ToolProfile/ToolMode`。`ToolMode` 为 `Tools`（默认，会话注入 MCP HTTP 扩展）或 `Cli`（不注入扩展，经 shell 调用 MCP CLI）。
 
 ## 账户与权限
 - 角色：`SystemAdmin`（全量）、`Admin`（全量 - Account.Manage）、`Operator`（Process.Access/Run/Search）。
@@ -133,16 +133,16 @@
 - 账户或权限配置异常触发 `SetSecurityLock`，仅恢复登录可用。
 
 ## AI 助手 / MCP / Bridge 链路
-- 启动层：正常 HMI 启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时，由 `AutomationMcpServerManager` 启动 Bridge 与 MCP，进程最终退出时统一关闭。辅助服务失败只禁用 EW-AI，不阻断平台/HMI 初始化。
-- 上下文部署层：`GooseRuntimeProvisioner` 从 Manifest 优先部署 `system.md` 与 `automation.md`，分别维护版本；`system.md` 部署到 Goose 受管默认提示词路径，`automation.md` 由 `GooseAcpClient` 通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 子进程。Provider/Model 和 UTF-8 PowerShell 也只覆盖当前子进程，不从客户 HMI 目录加载平台规范。
+- 启动层：正常 HMI 启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时，由 `AutomationMcpServerManager` 启动 Bridge 与 MCP，进程最终退出时统一关闭。`ToolMode=Cli` 时跳过 MCP HTTP 实例启动（Bridge 仍由编辑器正常启动）。辅助服务失败只禁用 EW-AI，不阻断平台/HMI 初始化。
+- 上下文部署层：`GooseRuntimeProvisioner` 从 Manifest 优先部署 `system.md`、`automation.md` 与 `automation-cli.md`，分别维护版本（Cli 上下文使用独立的 `CliIntegrationContextVersion`）；`system.md` 部署到 Goose 受管默认提示词路径，`automation.md`（Tools 模式）或 `automation-cli.md`（Cli 模式）由 `GooseAcpClient` 通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 子进程。Provider/Model 和 UTF-8 PowerShell 也只覆盖当前子进程，不从客户 HMI 目录加载平台规范。
 - Provider 层：Provider/Model 只作当前子进程环境变量覆盖，空值沿用 Goose 配置且不保存模型密钥。下拉框优先从 `%APPDATA%\Block\goose\config\config.yaml` 读取已注册 provider 名，解析由 `GooseConfigStorage.TryLoadGooseProviders` 完成。
 - ACP 层：`FrmAiAssistant` 是唯一聊天前台；`GooseAcpClient` 隐藏启动 `goose acp`，通过 stdin/stdout 换行分隔 JSON-RPC 调用 `initialize/session/new/session/prompt/session/cancel`。`session/new.mcpServers` 使用 `name/type/url/headers`，HTTP 类型即使无 Header 也传空数组。
 - 选择上下文层：每次 prompt 由 `GooseAcpClient.BuildSelectionContext` 附加当前编辑器选择。只展开实际有效的 `process -> step -> operation` 层级，包含显示 index 和稳定 ID；选择只用于定位，不等于用户授权修改。
-- MCP 注入层：ACP 会话只注入 Automation MCP 的 HTTP 地址；Goose 不直接访问 Bridge Named Pipe。当前可见工具完全由 `McpToolProfile` 决定，Editor 提供知识/读取、有限诊断、ChangeSet 写入和已授权运行工具，Diagnostic 不暴露配置写入。
+- MCP 注入层：`ToolMode=Tools` 时 ACP 会话只注入 Automation MCP 的 HTTP 地址；Goose 不直接访问 Bridge Named Pipe。`ToolMode=Cli` 时 `session/new.mcpServers` 为空数组，模型经 developer shell 执行 `Automation.McpServer.exe cli list/schema/call` 按需发现和调用同一批工具；CLI 入口路径与 Profile 通过当前子进程环境变量 `AUTOMATION_MCP_CLI_PATH`/`AUTOMATION_MCP_PROFILE` 传递，机制知识由 `automation-mcp-cli` Skill 按需加载，工具集合、Schema 与 Bridge 校验和 HTTP 模式完全同源（`McpToolProfile.CreateTools` + `AutomationMcpTools` + `AutomationBridgeClient`）。当前可见工具完全由 `McpToolProfile` 决定，Editor 提供知识/读取、有限诊断、ChangeSet 写入和已授权运行工具，Diagnostic 不暴露配置写入。
 - 读取与表达层：AI 先复用会话中已验证且仍适用的事实。目标未知时使用目录/搜索，目标已知时直接读取精确对象或对应 Schema；普通业务意图优先选能准确表达的语义 `kind`，已知原生 `operaType` 或语义层表达不足时读取精确原生 Schema 并使用 `native.operation`。Guide 只在运行语义确实不明确时按类型读取。
 - MCP/Bridge 传输层：`AutomationMcpTools` 接收强类型参数，经 `AutomationBridgeClient` 发送到本机 Bridge；Bridge 管道名固定 `AutomationBridgePipe`，协议为 `4字节长度前缀 + UTF-8 JSON`。基础类型、数量和大小错误应在 MCP 或 Bridge 工作线程发现，只有访问 WinForms/Store 状态和提交时才进入 UI 线程。
 - 配置预演层：流程结构默认通过 `preview_change_set` 提交当前阶段。Bridge 使用 `AiChangeSetCompiler` 在流程、变量和 `BuildAiResourceSnapshot` 快照上编译，解析语义/原生指令、资源策略和符号跳转，计算 readiness，冻结编译结果并记录基础状态哈希；返回对象仍是 `preview_only`。
-- 前台确认层：`FrmAiAssistant` 根据预演事件显示一个确认窗体，用户确认只把对应预演记录标记为 confirmed。聊天气泡不显示内部 previewId、自动确认或继续提交指令；AI 通过工具返回的 `status/confirmed/allowedTransitions` 感知状态。
+- 前台确认层：`FrmAiAssistant` 根据预演事件显示一个确认窗体，用户确认只把对应预演记录标记为 confirmed。聊天气泡不显示内部 previewId、自动确认或继续提交指令；AI 通过工具返回的 `status/confirmed/allowedTransitions` 感知状态。Cli 模式下同一检测兼容 developer shell 输出中的预演 JSON（按 `data.previewId` + `confirmed=false` 判定）。
 - 提交层：`apply_change_set` 只接收同一预演的 `previewId`。Bridge 再校验确认状态、过期时间和基础状态哈希，然后使用冻结的编译结果执行事务保存与发布；不得重新让模型提交原始 ChangeSet，也不得在 apply 时重新编译出另一份结果。
 - 身份与继续编辑层：预演中的 `plannedProcIndex` 和局部 key 不能用于读取已提交对象。提交后以 `createdObjects/affectedProcesses` 返回的 `procId/stepId/opId` 和当前真实索引继续读取、校验或下一阶段编辑。
 - 验证层：`apply_change_set` 只证明阶段已提交；`validate_proc` 证明结构，`readinessStatus/runnable` 证明启动条件，`run_proc_test` 或明确授权的运行工具证明实际观测。最终报告必须按用户目标选择证据，不把这些层级合并成“全部完成”。

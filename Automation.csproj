@@ -538,6 +538,15 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\automation-cli.md">
+      <LogicalName>Automation.Assets.Goose.automation-cli.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-mcp-cli\SKILL.md">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-mcp-cli.SKILL.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-mcp-cli.skill-version</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
     </EmbeddedResource>
@@ -560,6 +569,15 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\automation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\automation-cli.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\Skills\automation-mcp-cli\SKILL.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
@@ -607,10 +625,14 @@
   <Target Name="ProvisionProcessAuthoringSkillInOutput" AfterTargets="Build">
     <PropertyGroup>
       <ProcessAuthoringSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-authoring</ProcessAuthoringSkillOutputDirectory>
+      <McpCliSkillOutputDirectory>$(TargetDir).agents\skills\automation-mcp-cli</McpCliSkillOutputDirectory>
     </PropertyGroup>
     <MakeDir Directories="$(ProcessAuthoringSkillOutputDirectory)" />
     <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\SKILL.md" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
+    <MakeDir Directories="$(McpCliSkillOutputDirectory)" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-mcp-cli\SKILL.md" DestinationFolder="$(McpCliSkillOutputDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version" DestinationFolder="$(McpCliSkillOutputDirectory)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="RemoveUnsupportedNativeGitLibraries" AfterTargets="Build">
     <ItemGroup>

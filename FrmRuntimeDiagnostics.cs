@@ -354,7 +354,9 @@ namespace Automation
                 MaxTurns = source.MaxTurns,
                 MaxOutputTokens = source.MaxOutputTokens,
                 AutoApproveMode = false,
-                ToolProfile = "RuntimeDiagnostic"
+                ToolProfile = "RuntimeDiagnostic",
+                // 运行诊断会话使用独立的 runtime_diagnostic MCP 实例，不随编辑器 ToolMode 切换。
+                ToolMode = GooseConfigStorage.ToolModeTools
             };
         }
 

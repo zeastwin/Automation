@@ -491,14 +491,26 @@ namespace Automation
         {
             string baseUri = GooseConfigStorage.CreateDefaultConfig().McpUri;
             string toolProfile = GooseConfigStorage.CreateDefaultConfig().ToolProfile;
+            string toolMode = GooseConfigStorage.DefaultToolMode;
             if (GooseConfigStorage.TryLoad(out GooseConfig config, out string loadError))
             {
                 baseUri = config.McpUri;
                 toolProfile = config.ToolProfile;
+                toolMode = config.ToolMode ?? GooseConfigStorage.DefaultToolMode;
             }
             else if (frmInfo != null && !frmInfo.IsDisposed)
             {
                 frmInfo.PrintInfo($"MCP Server：EW-AI 配置读取失败，使用默认 MCP 地址。{loadError}", FrmInfo.Level.Error);
+            }
+
+            // Cli 模式不启动 MCP HTTP 实例；AI 会话经 shell 调用 Automation.McpServer.exe cli 直连 Bridge。
+            if (string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal))
+            {
+                if (frmInfo != null && !frmInfo.IsDisposed)
+                {
+                    frmInfo.PrintInfo("MCP Server：当前为 Cli 工具接入模式，跳过 MCP HTTP 实例启动。", FrmInfo.Level.Normal);
+                }
+                return;
             }
 
             try
