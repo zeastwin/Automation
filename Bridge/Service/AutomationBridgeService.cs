@@ -39,6 +39,8 @@ namespace Automation.Bridge
 
         private readonly FrmMain owner;
         private readonly PlatformRuntime runtime;
+        private readonly Func<DateTime> previewUtcNow;
+        private readonly TimeSpan previewLifetime;
         private readonly object previewLock = new object();
         private readonly Dictionary<string, PreviewApprovalRecord> previewRecords =
             new Dictionary<string, PreviewApprovalRecord>(StringComparer.OrdinalIgnoreCase);
@@ -46,8 +48,22 @@ namespace Automation.Bridge
             new Dictionary<int, DiagnosticProcIndex>();
 
         public AutomationBridgeService(FrmMain owner)
+            : this(owner, () => DateTime.UtcNow, TimeSpan.FromMinutes(30))
+        {
+        }
+
+        internal AutomationBridgeService(
+            FrmMain owner,
+            Func<DateTime> previewUtcNow,
+            TimeSpan previewLifetime)
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            this.previewUtcNow = previewUtcNow ?? throw new ArgumentNullException(nameof(previewUtcNow));
+            if (previewLifetime <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(previewLifetime));
+            }
+            this.previewLifetime = previewLifetime;
             runtime = owner.Runtime;
         }
 

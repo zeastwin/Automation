@@ -766,7 +766,7 @@
     <Error Condition="!Exists('$(MSBuildProjectDirectory)\Resources\AutomationChick.ico')" Text="应用程序图标缺失：Resources\AutomationChick.ico。请确认已完整拉取 Git 仓库。" />
   </Target>
   <Target Name="ValidateArchitectureBoundaries" BeforeTargets="BeforeBuild">
-    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Tests\ArchitectureBoundaryRegression.ps1&quot;" />
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Automation.Core.Tests\Architecture\ArchitectureBoundaryRegression.ps1&quot;" />
   </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

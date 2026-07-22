@@ -24,12 +24,7 @@ namespace Automation.Protocol
         [Description("ChangeSet V2 原子动作列表。公开写入链只使用该字段。")]
         public List<ChangeSetAction> Actions { get; set; }
 
-        [Description("删除流程选择；mode=all 删除全部，mode=selected 时通过 names/procIds 精确选择。")]
-        public ProcessDeleteSelection DeleteProcesses { get; set; }
-
         public List<VariableChange> Variables { get; set; }
-
-        public List<ProcessDefinition> Processes { get; set; }
     }
 
     /// <summary>
@@ -151,24 +146,12 @@ namespace Automation.Protocol
         public bool? Disable { get; set; }
     }
 
-    public sealed class ProcessDeleteSelection
-    {
-        [Description("严格枚举：all 或 selected。all 不得提供 names/procIds；selected 必须至少提供一种选择器。")]
-        public string Mode { get; set; }
-
-        [Description("mode=selected 时按流程名称精确选择；不支持模糊匹配。")]
-        public List<string> Names { get; set; }
-
-        [Description("mode=selected 时按流程 GUID 精确选择。")]
-        public List<string> ProcIds { get; set; }
-    }
-
     public sealed class VariableChange
     {
-        [Description("变量精确名称。")]
+        [Description("必填；变量精确名称，必须包含非空白字符。")]
         public string Name { get; set; }
 
-        [Description("变量作用域：public、process 或 system。单流程内部状态使用process；跨流程、HMI或设备共享状态使用public。")]
+        [Description("必填；变量作用域：public、process 或 system。单流程内部状态使用process；跨流程、HMI或设备共享状态使用public。")]
         public string Scope { get; set; }
 
         [Description("scope=process时必填的所属流程；可使用现有流程procId/name或同一ChangeSet新流程key。其他作用域不得提供。")]
@@ -177,7 +160,8 @@ namespace Automation.Protocol
         [Description("可选普通变量全局槽位，范围[0,1000)；省略时新变量自动分配，现有变量保持原槽位。")]
         public int? Index { get; set; }
 
-        [Description("变量类型：double 或 string。复用现有变量时需与现有类型一致。")]
+        [Description("可选；变量类型：" + VariableChangeContract.SupportedTypes
+            + "。省略时沿用现有变量类型，新变量默认double；显式提供时需与复用变量的现有类型一致。")]
         public string Type { get; set; }
 
         [Description("变量当前值，按type解析；创建时省略则使用double的0或string的空字符串，更新时省略则保持当前值。")]
@@ -186,55 +170,10 @@ namespace Automation.Protocol
         [Description("变量说明，可省略。")]
         public string Note { get; set; }
 
-        [Description("策略：reuse/create/update/replace/require。reuse可复用或创建；require只接受已存在变量。"
+        [Description("可选；策略：" + VariableChangeContract.SupportedPolicies
+            + "。省略时使用reuse；reuse可复用或创建，require只接受已存在变量。"
             + "系统变量区配置只读，已存在的系统变量只使用reuse或require，缺失的系统变量不由ChangeSet创建。")]
         public string Policy { get; set; }
-    }
-
-    public sealed class ProcessDefinition
-    {
-        [Description("原子阶段内新建流程的局部 key；内部编译结果使用，替换现有流程时省略。")]
-        public string Key { get; set; }
-
-        /// <summary>create（默认）或 replace。</summary>
-        public string Action { get; set; }
-
-        /// <summary>replace 时与 TargetName 二选一，定位现有流程。</summary>
-        public string TargetProcId { get; set; }
-
-        /// <summary>replace 时与 TargetProcId 二选一，按精确名称定位现有流程。</summary>
-        public string TargetName { get; set; }
-
-        public string Name { get; set; }
-
-        [Description("create 时省略表示 false；replace 时省略表示保留现值。")]
-        public bool? AutoStart { get; set; }
-
-        [Description("create 时省略表示 false；replace 时省略表示保留现值。")]
-        public bool? Disable { get; set; }
-
-        public List<StepDefinition> Steps { get; set; }
-    }
-
-    public sealed class StepDefinition
-    {
-        [Description("replace 时可提供现有 stepId 以保留步骤身份；新步骤不得提供。")]
-        public string StepId { get; set; }
-
-        public string Key { get; set; }
-
-        public string Name { get; set; }
-
-        [Description("新步骤省略表示 false；保留步骤省略表示保留现值。")]
-        public bool? Disable { get; set; }
-
-        [Description("按既有配置或精确规范重建时提供原生指令类型序列；完整预演会逐项核对，禁止静默替换相近指令。")]
-        public List<string> ExpectedOperaTypes { get; set; }
-
-        /// <summary>内部编译标记：这些稳定指令ID按新定义完整替换，但保留原ID和入站跳转。</summary>
-        public List<string> ReplaceOperationIds { get; set; }
-
-        public List<SemanticOperation> Operations { get; set; }
     }
 
     /// <summary>

@@ -316,7 +316,7 @@ namespace Automation.McpServer
             ApplyIoConditionsSchema(operationSchema);
             ApplyIoOutputsSchema(operationSchema);
             ApplyStringEnum(operationSchema, "conditionLogic", "all", "any");
-            ApplyVariableChangeScopeSchema(root);
+            ApplyVariableChangeSchema(root);
 
             operationSchema["oneOf"] = new JsonArray
             {
@@ -494,27 +494,34 @@ namespace Automation.McpServer
             return builder.Length == 0 ? "Value" : builder.ToString();
         }
 
-        private static void ApplyVariableChangeScopeSchema(JsonObject root)
+        private static void ApplyVariableChangeSchema(JsonObject root)
         {
             JsonObject? variableSchema = FindVariableChangeSchema(root);
             if (variableSchema?["properties"] is not JsonObject properties
-                || properties["scope"] is not JsonObject scopeSchema)
+                || properties["name"] is not JsonObject nameSchema
+                || properties["scope"] is not JsonObject scopeSchema
+                || properties["type"] is not JsonObject typeSchema
+                || properties["policy"] is not JsonObject policySchema)
             {
-                throw new InvalidOperationException("preview_change_set 生成Schema缺少变量scope定义。");
+                throw new InvalidOperationException("preview_change_set 生成Schema缺少变量声明定义。");
             }
+            nameSchema["minLength"] = 1;
+            nameSchema["pattern"] = "\\S";
             scopeSchema["enum"] = new JsonArray(
                 VariableScopeContract.Public,
                 VariableScopeContract.Process,
                 VariableScopeContract.System);
-            JsonArray required = variableSchema["required"] as JsonArray ?? new JsonArray();
-            foreach (string requiredField in new[] { "name", "scope", "type", "policy" })
-            {
-                if (!required.Any(item => string.Equals(item?.GetValue<string>(), requiredField, StringComparison.Ordinal)))
-                {
-                    required.Add(requiredField);
-                }
-            }
-            variableSchema["required"] = required;
+            typeSchema["enum"] = new JsonArray(
+                VariableChangeContract.DoubleType,
+                VariableChangeContract.StringType);
+            policySchema["enum"] = new JsonArray(
+                VariableChangeContract.ReusePolicy,
+                VariableChangeContract.CreatePolicy,
+                VariableChangeContract.UpdatePolicy,
+                VariableChangeContract.ReplacePolicy,
+                VariableChangeContract.RequirePolicy);
+            variableSchema["required"] = new JsonArray("name", "scope");
+            variableSchema["additionalProperties"] = false;
             variableSchema["allOf"] = new JsonArray
             {
                 new JsonObject

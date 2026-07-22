@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.DeviceSdk", "Aut
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.Runtime.Contracts", "Automation.Runtime.Contracts\Automation.Runtime.Contracts.csproj", "{E23DE03C-33B2-4A28-A178-528507F8787A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Automation.Core.Tests", "Automation.Core.Tests\Automation.Core.Tests.csproj", "{C7B45563-8A66-4B27-9E48-65EB63DD441E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -48,6 +50,10 @@ Global
 		{E23DE03C-33B2-4A28-A178-528507F8787A}.Debug|x64.Build.0 = Debug|Any CPU
 		{E23DE03C-33B2-4A28-A178-528507F8787A}.Release|x64.ActiveCfg = Release|Any CPU
 		{E23DE03C-33B2-4A28-A178-528507F8787A}.Release|x64.Build.0 = Release|Any CPU
+		{C7B45563-8A66-4B27-9E48-65EB63DD441E}.Debug|x64.ActiveCfg = Debug|x64
+		{C7B45563-8A66-4B27-9E48-65EB63DD441E}.Debug|x64.Build.0 = Debug|x64
+		{C7B45563-8A66-4B27-9E48-65EB63DD441E}.Release|x64.ActiveCfg = Release|x64
+		{C7B45563-8A66-4B27-9E48-65EB63DD441E}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

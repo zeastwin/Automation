@@ -105,19 +105,6 @@ namespace Automation.Bridge
                         return WrapResponse("change_set.native_contract", HandleGetNativeOperationContract(request));
                     case "/bridge/change-set/native-contracts":
                         return WrapResponse("change_set.native_contracts", HandleGetNativeOperationContracts(request));
-                    // ---------- proc_manage 拆分端点（previewId 为空预演，非空提交） ----------
-                    case "/bridge/proc/create":
-                        WaitForPreviewConfirmation(request, false);
-                        return WrapResponse("proc.create", ExecuteOnUiThread(() => HandleCreateOrApply(request)));
-                    case "/bridge/proc/delete":
-                        WaitForPreviewConfirmation(request, false);
-                        return WrapResponse("proc.delete", ExecuteOnUiThread(() => HandleDeleteOrApply(request)));
-                    case "/bridge/proc/reorder":
-                        WaitForPreviewConfirmation(request, false);
-                        return WrapResponse("proc.reorder", ExecuteOnUiThread(() => HandleReorderOrApply(request)));
-                    case "/bridge/proc/copy":
-                        WaitForPreviewConfirmation(request, false);
-                        return WrapResponse("proc.copy", ExecuteOnUiThread(() => HandleCopyOrApply(request)));
                     // ---------- control_proc 拆分端点（直接构造 action 调用 HandleControlProc） ----------
                     case "/bridge/proc/start":
                         return WrapResponse("proc.start", ExecuteOnUiThread(() => HandleControlProc(BuildControlRequest(request, "start"))));

@@ -31,7 +31,7 @@ namespace Automation.Bridge
         private void EnsureNoActivePreviewLocked(bool supportsExplicitReplacement = false)
         {
             PreviewApprovalRecord active = previewRecords.Values.FirstOrDefault(item =>
-                item != null && !item.Rejected && item.ExpiresAtUtc > DateTime.UtcNow);
+                item != null && !item.Rejected && item.ExpiresAtUtc > previewUtcNow());
             if (active != null)
             {
                 bool canReplace = supportsExplicitReplacement && active.IsChangeSetPreview;
@@ -112,7 +112,7 @@ namespace Automation.Bridge
 
         private void CleanupExpiredPreviewsLocked()
         {
-            DateTime now = DateTime.UtcNow;
+            DateTime now = previewUtcNow();
             List<string> expiredIds = previewRecords
                 .Where(item => item.Value == null || item.Value.ExpiresAtUtc <= now)
                 .Select(item => item.Key)

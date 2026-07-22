@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildOutputRoot = Join-Path $repoRoot "bin\$Configuration"
 $isolatedRoot = Join-Path $env:TEMP (
     "automation-headless-regression-" + [Guid]::NewGuid().ToString("N"))
@@ -14,7 +14,7 @@ $deviceSdkPath = Join-Path $isolatedRoot "Automation.DeviceSdk.dll"
 $runtimeContractsPath = Join-Path $isolatedRoot "Automation.Runtime.Contracts.dll"
 $netstandardFacadePath = Join-Path ${env:ProgramFiles(x86)} `
     "Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\Facades\netstandard.dll"
-$sourcePath = Join-Path $PSScriptRoot "HeadlessPlatformHostSmoke.cs"
+$sourcePath = Join-Path $PSScriptRoot "Harnesses\HeadlessPlatformHostSmoke.cs"
 $smokePath = Join-Path $isolatedRoot "HeadlessPlatformHostSmoke.exe"
 $smokeConfigPath = "$smokePath.config"
 $compilerPath = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"

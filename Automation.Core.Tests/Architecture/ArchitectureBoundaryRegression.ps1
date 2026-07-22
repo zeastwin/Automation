@@ -1,9 +1,9 @@
 ﻿$ErrorActionPreference = "Stop"
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $violations = New-Object System.Collections.Generic.List[string]
 Get-ChildItem -LiteralPath $repoRoot -Filter *.cs -Recurse | Where-Object {
-    $_.FullName -notmatch '\\(bin|obj|Tests|packages)\\'
+    $_.FullName -notmatch '\\(bin|obj|Tests|Automation\.Core\.Tests|packages)\\'
 } | ForEach-Object {
     Select-String -LiteralPath $_.FullName -Pattern '\bSF\s*\.' | ForEach-Object {
         $violations.Add("$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
@@ -161,10 +161,27 @@ foreach ($retiredRoute in @(
     "/bridge/patch/apply_intent",
     "/bridge/patch/preview_patch",
     "/bridge/patch/apply_patch",
-    "/bridge/proc/create_batch"))
+    "/bridge/proc/create_batch",
+    "/bridge/proc/create",
+    "/bridge/proc/delete",
+    "/bridge/proc/reorder",
+    "/bridge/proc/copy"))
 {
     $bridgeFiles | Select-String -SimpleMatch $retiredRoute | ForEach-Object {
         $violations.Add("Bridge 仍暴露已退役写入路由：$($_.Line.Trim())")
+    }
+}
+
+$changeSetProtocolPath = Join-Path $repoRoot "Automation.Protocol\AiChangeSetModels.cs"
+foreach ($retiredProperty in @(
+    "public ProcessDeleteSelection DeleteProcesses",
+    "public List<ProcessDefinition> Processes",
+    "public sealed class ProcessDeleteSelection",
+    "public sealed class ProcessDefinition",
+    "public sealed class StepDefinition"))
+{
+    Select-String -LiteralPath $changeSetProtocolPath -SimpleMatch $retiredProperty | ForEach-Object {
+        $violations.Add("ChangeSet 公开 DTO 仍暴露旧流程写入字段：$($_.Line.Trim())")
     }
 }
 
@@ -291,7 +308,7 @@ foreach ($retiredArchitectureName in @(
 {
     Get-ChildItem -LiteralPath $repoRoot -File -Recurse | Where-Object {
         $isSourceFile = $_.Extension -eq ".cs" -or $_.Extension -eq ".csproj"
-        $isSourceFile -and $_.Name -ne "nul" -and $_.FullName -notmatch '\\(bin|obj|Tests|packages)\\'
+        $isSourceFile -and $_.Name -ne "nul" -and $_.FullName -notmatch '\\(bin|obj|Tests|Automation\.Core\.Tests|packages)\\'
     } | Select-String -Pattern "\b$retiredArchitectureName\b" | ForEach-Object {
         $violations.Add("已退役架构名称仍存在：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
     }
@@ -637,7 +654,7 @@ foreach ($mainLifecycleFile in @(
 }
 
 Get-ChildItem -LiteralPath $repoRoot -Filter *.cs -Recurse | Where-Object {
-    $_.FullName -notmatch '\\(bin|obj|Tests|packages)\\'
+    $_.FullName -notmatch '\\(bin|obj|Tests|Automation\.Core\.Tests|packages)\\'
 } | ForEach-Object {
     foreach ($pattern in @("StopAllProcsForSafety", "using static Automation.FrmCard", "using static Automation.FrmProc"))
     {

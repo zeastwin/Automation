@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ([string]::IsNullOrWhiteSpace($AssemblyPath)) {
     $AssemblyPath = Join-Path $projectRoot "bin\$Configuration\Automation.exe"
 }

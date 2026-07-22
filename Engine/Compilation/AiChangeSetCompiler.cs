@@ -87,7 +87,7 @@ namespace Automation
             }
 
             int atomicActionCount = changeSet.Actions?.Count ?? 0;
-            changeSet = ExpandAtomicActions(changeSet, currentProcesses);
+            ExpandedChangeSet expanded = ExpandAtomicActions(changeSet, currentProcesses);
 
             List<Proc> processes = (currentProcesses ?? Array.Empty<Proc>())
                 .Select(ObjectGraphCloner.Clone).ToList();
@@ -103,22 +103,22 @@ namespace Automation
                 ["variables"] = new JArray()
             };
 
-            int deletedCount = ApplyProcessDeletion(changeSet.DeleteProcesses, processes, changes);
+            int deletedCount = ApplyProcessDeletion(expanded.DeletedProcessIds, processes, changes);
             if (deletedCount > 0)
             {
                 ProcessEditingService.AdaptGotoProcIndexes(processes, 0);
             }
             Dictionary<ProcessDefinition, Guid> plannedProcessIds =
-                BuildPlannedProcessIds(changeSet.Processes, processes);
+                BuildPlannedProcessIds(expanded.Processes, processes);
             int variableCount = RemoveVariablesWithoutOwner(
                 variables, processes, plannedProcessIds.Values, changes, variableResolutions);
             variableCount += ApplyVariableChanges(
-                changeSet.Variables, variables, processes, plannedProcessIds,
+                expanded.Variables, variables, processes, plannedProcessIds,
                 changes, variableResolutions, createdObjects, variableValueOverrides);
             int operationCount = 0;
             int replacedCount;
             int createdCount = ApplyProcessDefinitions(
-                changeSet.Processes, processes, variables, resources, changes, ref operationCount,
+                expanded.Processes, processes, variables, resources, changes, ref operationCount,
                 createdObjects, plannedProcessIds, out replacedCount);
 
             if (deletedCount == 0 && variableCount == 0 && createdCount == 0 && replacedCount == 0)
@@ -215,16 +215,16 @@ namespace Automation
             return result;
         }
 
-        private static AiChangeSet ExpandAtomicActions(AiChangeSet source, IList<Proc> currentProcesses)
+        private static ExpandedChangeSet ExpandAtomicActions(
+            AiChangeSet source,
+            IList<Proc> currentProcesses)
         {
             if ((source.Actions?.Count ?? 0) == 0)
             {
-                return source;
-            }
-            if (source.DeleteProcesses != null || (source.Processes?.Count ?? 0) > 0)
-            {
-                throw new InvalidOperationException(
-                    "changeSet.actions 不得与旧的 deleteProcesses 或 processes 混用。");
+                return new ExpandedChangeSet
+                {
+                    Variables = source.Variables
+                };
             }
 
             var states = (currentProcesses ?? Array.Empty<Proc>())
@@ -328,18 +328,61 @@ namespace Automation
             {
                 throw new InvalidOperationException("changeSet.actions 未产生有效变更。");
             }
-            return new AiChangeSet
+            return new ExpandedChangeSet
             {
-                Version = 2,
-                Title = source.Title,
                 Variables = source.Variables,
-                DeleteProcesses = deletedIds.Count == 0 ? null : new ProcessDeleteSelection
-                {
-                    Mode = "selected",
-                    ProcIds = deletedIds.Select(id => id.ToString("D")).ToList()
-                },
+                DeletedProcessIds = deletedIds.ToList(),
                 Processes = processDefinitions
             };
+        }
+
+        /// <summary>
+        /// 编译器内部的确定性流程图，不属于 MCP 或 Bridge 的公开输入协议。
+        /// 外部请求只能提交 actions；该结构只承接原子动作展开结果。
+        /// </summary>
+        private sealed class ExpandedChangeSet
+        {
+            public List<Guid> DeletedProcessIds { get; set; }
+
+            public List<VariableChange> Variables { get; set; }
+
+            public List<ProcessDefinition> Processes { get; set; }
+        }
+
+        private sealed class ProcessDefinition
+        {
+            public string Key { get; set; }
+
+            public string Action { get; set; }
+
+            public string TargetProcId { get; set; }
+
+            public string TargetName { get; set; }
+
+            public string Name { get; set; }
+
+            public bool? AutoStart { get; set; }
+
+            public bool? Disable { get; set; }
+
+            public List<StepDefinition> Steps { get; set; }
+        }
+
+        private sealed class StepDefinition
+        {
+            public string StepId { get; set; }
+
+            public string Key { get; set; }
+
+            public string Name { get; set; }
+
+            public bool? Disable { get; set; }
+
+            public List<string> ExpectedOperaTypes { get; set; }
+
+            public List<string> ReplaceOperationIds { get; set; }
+
+            public List<SemanticOperation> Operations { get; set; }
         }
 
         private static void EnsureActionShape(ChangeSetAction action, string path,
@@ -804,59 +847,24 @@ namespace Automation
         }
 
         private static int ApplyProcessDeletion(
-            ProcessDeleteSelection selection,
+            IList<Guid> deletedProcessIds,
             List<Proc> processes,
             JArray changes)
         {
-            if (selection == null)
+            if (deletedProcessIds == null || deletedProcessIds.Count == 0)
             {
                 return 0;
             }
-            string mode = RequiredText(selection.Mode, "deleteProcesses.mode");
             var deleteIndexes = new HashSet<int>();
-            if (string.Equals(mode, "all", StringComparison.Ordinal))
+            foreach (Guid procId in deletedProcessIds)
             {
-                for (int i = 0; i < processes.Count; i++) deleteIndexes.Add(i);
-                if ((selection.Names?.Count ?? 0) > 0 || (selection.ProcIds?.Count ?? 0) > 0)
+                int index = processes.FindIndex(proc => proc?.head?.Id == procId);
+                if (index < 0)
                 {
-                    throw new InvalidOperationException("deleteProcesses.mode=all 时不得再提供 names 或 procIds。");
+                    throw new InvalidOperationException(
+                        $"原子动作展开结果引用了不存在的待删除流程：{procId:D}");
                 }
-            }
-            else if (string.Equals(mode, "selected", StringComparison.Ordinal))
-            {
-                foreach (string name in selection.Names ?? new List<string>())
-                {
-                    string exactName = RequiredText(name, "deleteProcesses.names[]");
-                    List<int> matches = processes.Select((proc, index) => new { proc, index })
-                        .Where(item => string.Equals(item.proc?.head?.Name, exactName, StringComparison.Ordinal))
-                        .Select(item => item.index).ToList();
-                    if (matches.Count == 0)
-                    {
-                        throw new InvalidOperationException($"待删除流程不存在：{exactName}");
-                    }
-                    foreach (int index in matches) deleteIndexes.Add(index);
-                }
-                foreach (string procIdText in selection.ProcIds ?? new List<string>())
-                {
-                    if (!Guid.TryParse(procIdText, out Guid procId) || procId == Guid.Empty)
-                    {
-                        throw new InvalidOperationException($"deleteProcesses.procIds 包含非法流程 ID：{procIdText}");
-                    }
-                    int index = processes.FindIndex(proc => proc?.head?.Id == procId);
-                    if (index < 0)
-                    {
-                        throw new InvalidOperationException($"待删除流程 ID 不存在：{procId:D}");
-                    }
-                    deleteIndexes.Add(index);
-                }
-                if (deleteIndexes.Count == 0)
-                {
-                    throw new InvalidOperationException("deleteProcesses.mode=selected 时必须提供 names 或 procIds。");
-                }
-            }
-            else
-            {
-                throw new InvalidOperationException("deleteProcesses.mode 只能是 all 或 selected。");
+                deleteIndexes.Add(index);
             }
 
             foreach (int index in deleteIndexes.OrderByDescending(value => value))
@@ -970,10 +978,12 @@ namespace Automation
                     definition.OwnerProcess, scope, name, processes, plannedProcessIds);
                 string ownerProcName = ResolveVariableOwnerName(
                     ownerProcId, processes, plannedProcessIds);
-                string policy = string.IsNullOrWhiteSpace(definition.Policy) ? "reuse" : definition.Policy.Trim();
+                string policy = string.IsNullOrWhiteSpace(definition.Policy)
+                    ? VariableChangeContract.DefaultPolicy
+                    : definition.Policy;
                 if (ProtectedVariables.Contains(name)
-                    && !string.Equals(policy, "reuse", StringComparison.Ordinal)
-                    && !string.Equals(policy, "require", StringComparison.Ordinal))
+                    && !string.Equals(policy, VariableChangeContract.ReusePolicy, StringComparison.Ordinal)
+                    && !string.Equals(policy, VariableChangeContract.RequirePolicy, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException($"系统保留变量[{name}]只允许 reuse 或 require 策略。");
                 }
@@ -986,17 +996,19 @@ namespace Automation
                         $"系统变量[{name}]配置只读，只能对现有系统变量使用 reuse 或 require。");
                 }
                 string type = string.IsNullOrWhiteSpace(definition.Type)
-                    ? existing?.Type ?? "double"
-                    : definition.Type.Trim();
-                if (!string.Equals(type, "double", StringComparison.Ordinal)
-                    && !string.Equals(type, "string", StringComparison.Ordinal))
+                    ? existing?.Type ?? VariableChangeContract.DefaultType
+                    : definition.Type;
+                if (!VariableChangeContract.IsValidType(type))
                 {
-                    throw new InvalidOperationException($"变量[{name}] type 只能是 double 或 string。");
+                    throw new InvalidOperationException(
+                        $"变量[{name}] type 只能是 {VariableChangeContract.SupportedTypes}。");
                 }
                 string value = definition.Value
                     ?? existing?.Value
-                    ?? (string.Equals(type, "double", StringComparison.Ordinal) ? "0" : string.Empty);
-                if (string.Equals(type, "double", StringComparison.Ordinal)
+                    ?? (string.Equals(type, VariableChangeContract.DoubleType, StringComparison.Ordinal)
+                        ? "0"
+                        : string.Empty);
+                if (string.Equals(type, VariableChangeContract.DoubleType, StringComparison.Ordinal)
                     && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
                     && !double.TryParse(value, out _))
                 {
@@ -1004,8 +1016,8 @@ namespace Automation
                 }
                 if (exists
                     && string.Equals(existing.Scope, VariableScopeContract.System, StringComparison.Ordinal)
-                    && !string.Equals(policy, "reuse", StringComparison.Ordinal)
-                    && !string.Equals(policy, "require", StringComparison.Ordinal))
+                    && !string.Equals(policy, VariableChangeContract.ReusePolicy, StringComparison.Ordinal)
+                    && !string.Equals(policy, VariableChangeContract.RequirePolicy, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
                         $"系统变量[{name}]配置对 AI 只读，只允许 reuse 或 require 策略。");
@@ -1015,8 +1027,8 @@ namespace Automation
                 {
                     throw new InvalidOperationException($"系统变量不存在，AI 不能创建：{name}。");
                 }
-                if (string.Equals(policy, "require", StringComparison.Ordinal)
-                    || string.Equals(policy, "reuse", StringComparison.Ordinal) && exists)
+                if (string.Equals(policy, VariableChangeContract.RequirePolicy, StringComparison.Ordinal)
+                    || string.Equals(policy, VariableChangeContract.ReusePolicy, StringComparison.Ordinal) && exists)
                 {
                     if (!exists) throw new InvalidOperationException($"要求复用的变量不存在：{name}");
                     EnsureVariableType(existing, type, name);
@@ -1030,18 +1042,19 @@ namespace Automation
                         name, type, policy, "reused", false, existing, ownerProcName));
                     continue;
                 }
-                if (string.Equals(policy, "create", StringComparison.Ordinal))
+                if (string.Equals(policy, VariableChangeContract.CreatePolicy, StringComparison.Ordinal))
                 {
                     if (exists) throw new InvalidOperationException($"变量已存在，create 策略禁止覆盖：{name}");
                 }
-                else if (string.Equals(policy, "update", StringComparison.Ordinal))
+                else if (string.Equals(policy, VariableChangeContract.UpdatePolicy, StringComparison.Ordinal))
                 {
                     if (!exists) throw new InvalidOperationException($"变量不存在，update 策略无法更新：{name}");
                 }
-                else if (!string.Equals(policy, "reuse", StringComparison.Ordinal)
-                    && !string.Equals(policy, "replace", StringComparison.Ordinal))
+                else if (!string.Equals(policy, VariableChangeContract.ReusePolicy, StringComparison.Ordinal)
+                    && !string.Equals(policy, VariableChangeContract.ReplacePolicy, StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException($"变量[{name}] policy 只能是 reuse/create/update/replace/require。");
+                    throw new InvalidOperationException(
+                        $"变量[{name}] policy 只能是 {VariableChangeContract.SupportedPolicies}。");
                 }
 
                 int index = definition.Index ?? existing?.Index ?? FindFreeVariableIndex(variables);
@@ -1074,7 +1087,9 @@ namespace Automation
                     valueOverrides[updated.Id] = value;
                 }
                 string outcome = exists
-                    ? string.Equals(policy, "replace", StringComparison.Ordinal) ? "replaced" : "updated"
+                    ? string.Equals(policy, VariableChangeContract.ReplacePolicy, StringComparison.Ordinal)
+                        ? "replaced"
+                        : "updated"
                     : "created";
                 resolutions.Add(BuildVariableResolution(
                     name, type, policy, outcome, true, updated, ownerProcName));

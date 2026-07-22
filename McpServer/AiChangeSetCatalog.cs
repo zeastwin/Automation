@@ -12,108 +12,20 @@ namespace Automation.McpServer
             if (changeSet == null) return "changeSet 不能为空。";
             if (changeSet.Version != 2) return "changeSet.version 必须为2。";
             List<ChangeSetAction> actions = changeSet.Actions ?? new List<ChangeSetAction>();
-            if (actions.Count > 0)
+            for (int index = 0; index < actions.Count; index++)
             {
-                if (changeSet.DeleteProcesses != null || (changeSet.Processes?.Count ?? 0) > 0)
-                    return "changeSet.actions 不得与旧流程写入字段混用。";
-                for (int index = 0; index < actions.Count; index++)
+                ChangeSetAction action = actions[index];
+                if (action == null || string.IsNullOrWhiteSpace(action.Type))
+                    return $"actions[{index}].type 不能为空。";
+                if (!ChangeSetActionTypes.SupportedTypes.Split('、').Contains(action.Type, StringComparer.Ordinal))
+                    return $"actions[{index}].type 不受支持：{action.Type}。";
+                if (action.Operation != null)
                 {
-                    ChangeSetAction action = actions[index];
-                    if (action == null || string.IsNullOrWhiteSpace(action.Type))
-                        return $"actions[{index}].type 不能为空。";
-                    if (!ChangeSetActionTypes.SupportedTypes.Split('、').Contains(action.Type, StringComparer.Ordinal))
-                        return $"actions[{index}].type 不受支持：{action.Type}。";
-                    if (action.Operation != null)
-                    {
-                        string operationError = ValidateOperation(action.Operation);
-                        if (operationError != null) return $"actions[{index}].operation：{operationError}";
-                    }
-                }
-                return ValidateVariables(changeSet.Variables);
-            }
-            string deletionError = ValidateProcessDeletion(changeSet.DeleteProcesses);
-            if (deletionError != null) return deletionError;
-            int steps = changeSet.Processes?.Sum(process => process?.Steps?.Count ?? 0) ?? 0;
-            int operations = changeSet.Processes?.Sum(process =>
-                process?.Steps?.Sum(step => step?.Operations?.Count ?? 0) ?? 0) ?? 0;
-            if (steps == 0 && operations > 0) return "指令必须属于步骤。";
-            foreach (ProcessDefinition process in changeSet.Processes ?? new List<ProcessDefinition>())
-            {
-                if (process == null || string.IsNullOrWhiteSpace(process.Name)) return "processes[].name 不能为空。";
-                string action = string.IsNullOrWhiteSpace(process.Action) ? "create" : process.Action.Trim();
-                if (action != "create" && action != "replace") return "processes[].action 只能是create或replace。";
-                bool hasTargetId = !string.IsNullOrWhiteSpace(process.TargetProcId);
-                bool hasTargetName = !string.IsNullOrWhiteSpace(process.TargetName);
-                if (action == "replace" && hasTargetId == hasTargetName)
-                    return $"流程[{process.Name}]替换时targetProcId与targetName必须且只能提供一个。";
-                if (action == "create" && (hasTargetId || hasTargetName))
-                    return $"流程[{process.Name}]创建时不得提供targetProcId或targetName。";
-                foreach (StepDefinition step in process.Steps ?? new List<StepDefinition>())
-                {
-                    if (step == null || string.IsNullOrWhiteSpace(step.Key)
-                        || string.IsNullOrWhiteSpace(step.Name) && string.IsNullOrWhiteSpace(step.StepId))
-                        return $"流程[{process.Name}]的步骤 key 不能为空；新步骤 name 不能为空。";
-                    foreach (SemanticOperation operation in step.Operations ?? new List<SemanticOperation>())
-                    {
-                        string error = ValidateOperation(operation);
-                        if (error != null) return $"流程[{process.Name}]步骤[{step.Key}]：{error}";
-                    }
+                    string operationError = ValidateOperation(action.Operation);
+                    if (operationError != null) return $"actions[{index}].operation：{operationError}";
                 }
             }
-            return ValidateVariables(changeSet.Variables);
-        }
-
-        private static string ValidateVariables(IEnumerable<VariableChange> variables)
-        {
-            int index = 0;
-            foreach (VariableChange variable in variables ?? Array.Empty<VariableChange>())
-            {
-                if (variable == null || string.IsNullOrWhiteSpace(variable.Name))
-                    return $"variables[{index}].name 不能为空。";
-                if (!VariableScopeContract.IsValid(variable.Scope))
-                    return $"variables[{index}].scope 必须是 public、process 或 system。";
-                bool processScope = string.Equals(
-                    variable.Scope, VariableScopeContract.Process, StringComparison.Ordinal);
-                if (processScope && variable.OwnerProcess == null)
-                    return $"variables[{index}].scope=process 时 ownerProcess 必填。";
-                if (!processScope && variable.OwnerProcess != null)
-                    return $"variables[{index}].scope={variable.Scope} 时不能携带 ownerProcess。";
-                if (variable.Index.HasValue
-                    && (variable.Index.Value < 0
-                        || variable.Index.Value >= VariableIndexContract.NormalValueCapacity))
-                    return $"variables[{index}].index 必须位于普通变量区 {VariableIndexContract.NormalValueIndexRange}。";
-                string type = string.IsNullOrWhiteSpace(variable.Type) ? "double" : variable.Type;
-                if (!string.Equals(type, "double", StringComparison.Ordinal)
-                    && !string.Equals(type, "string", StringComparison.Ordinal))
-                    return $"variables[{index}].type 只能是 double 或 string。";
-                string policy = string.IsNullOrWhiteSpace(variable.Policy) ? "reuse" : variable.Policy;
-                if (!new[] { "reuse", "create", "update", "replace", "require" }
-                    .Contains(policy, StringComparer.Ordinal))
-                    return $"variables[{index}].policy 只能是 reuse/create/update/replace/require。";
-                index++;
-            }
-            return null!;
-        }
-
-        private static string ValidateProcessDeletion(ProcessDeleteSelection selection)
-        {
-            if (selection == null) return null!;
-            string mode = selection.Mode?.Trim() ?? string.Empty;
-            bool hasNames = (selection.Names?.Count ?? 0) > 0;
-            bool hasProcIds = (selection.ProcIds?.Count ?? 0) > 0;
-            if (mode == "all")
-            {
-                return hasNames || hasProcIds
-                    ? "deleteProcesses.mode=all 时不得提供 names 或 procIds。"
-                    : null!;
-            }
-            if (mode == "selected")
-            {
-                return !hasNames && !hasProcIds
-                    ? "deleteProcesses.mode=selected 时必须提供 names 或 procIds。"
-                    : null!;
-            }
-            return "deleteProcesses.mode 只能是 all 或 selected。";
+            return VariableChangeContract.Validate(changeSet.Variables);
         }
 
         private static string ValidateOperation(SemanticOperation operation)

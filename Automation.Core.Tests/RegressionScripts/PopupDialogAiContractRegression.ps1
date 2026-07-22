@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$AssemblyPath = (Join-Path $PSScriptRoot '..\bin\Debug\Automation.exe')
+    [string]$AssemblyPath = (Join-Path $PSScriptRoot '..\..\bin\Debug\Automation.exe')
 )
 
 $ErrorActionPreference = 'Stop'

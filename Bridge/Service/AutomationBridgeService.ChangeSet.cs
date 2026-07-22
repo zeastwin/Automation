@@ -29,12 +29,19 @@ namespace Automation.Bridge
             ValidateChangeSetShape(token);
             try
             {
-                return JsonConvert.DeserializeObject<AiChangeSet>(token.ToString(Formatting.None),
+                AiChangeSet changeSet = JsonConvert.DeserializeObject<AiChangeSet>(token.ToString(Formatting.None),
                     new JsonSerializerSettings
                     {
                         MissingMemberHandling = MissingMemberHandling.Error,
                         NullValueHandling = NullValueHandling.Include
                     }) ?? throw new JsonSerializationException("changeSet 反序列化结果为空。");
+                string variableValidationError = VariableChangeContract.Validate(changeSet.Variables);
+                if (variableValidationError != null)
+                {
+                    throw new BridgeRequestException(
+                        400, "CHANGE_SET_INVALID", variableValidationError);
+                }
+                return changeSet;
             }
             catch (JsonException ex)
             {
@@ -111,17 +118,8 @@ namespace Automation.Bridge
         private static void ValidateChangeSetShape(JObject changeSet)
         {
             EnsureOnlyProperties(changeSet, "changeSet",
-                "version", "title", "actions", "deleteProcesses", "variables", "processes");
+                "version", "title", "actions", "variables");
             ValidateObjectArray(changeSet["actions"], "changeSet.actions", ValidateAtomicActionShape);
-            if (changeSet["deleteProcesses"] is JObject deletion)
-            {
-                EnsureOnlyProperties(deletion, "changeSet.deleteProcesses", "mode", "names", "procIds");
-            }
-            else if (changeSet["deleteProcesses"] != null && changeSet["deleteProcesses"].Type != JTokenType.Null)
-            {
-                throw new BridgeRequestException(400, "CHANGE_SET_INVALID", "changeSet.deleteProcesses 必须是对象。");
-            }
-
             ValidateObjectArray(changeSet["variables"], "changeSet.variables", variable =>
             {
                 EnsureOnlyProperties(variable, "changeSet.variables[]",
@@ -136,20 +134,6 @@ namespace Automation.Bridge
                     throw new BridgeRequestException(
                         400, "CHANGE_SET_INVALID", "changeSet.variables[].ownerProcess 必须是对象。");
                 }
-            });
-            ValidateObjectArray(changeSet["processes"], "changeSet.processes", process =>
-            {
-                EnsureOnlyProperties(process, "changeSet.processes[]", "key", "action", "targetProcId", "targetName",
-                    "name", "autoStart", "disable", "steps");
-                ValidateObjectArray(process["steps"], "changeSet.processes[].steps", step =>
-                {
-                    EnsureOnlyProperties(step, "changeSet.processes[].steps[]", "stepId", "key", "name", "disable",
-                        "expectedOperaTypes", "operations");
-                    ValidateObjectArray(step["operations"], "changeSet.processes[].steps[].operations", operation =>
-                    {
-                        ValidateSemanticOperationShape(operation);
-                    });
-                });
             });
         }
 
@@ -458,7 +442,7 @@ namespace Automation.Bridge
                 active = previewRecords.Values.FirstOrDefault(item => item != null
                     && item.IsChangeSetPreview
                     && !item.Rejected
-                    && item.ExpiresAtUtc > DateTime.UtcNow);
+                    && item.ExpiresAtUtc > previewUtcNow());
             }
             if (active?.Patch == null)
             {

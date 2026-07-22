@@ -1,6 +1,6 @@
 using System;
 using System.Windows.Forms;
-// 模块：测试 / 无编辑器宿主冒烟。
+// 模块：核心测试 / 隔离进程夹具。
 // 职责范围：验证平台宿主不显示编辑器也能初始化和关闭。
 // 排查入口：失败按 AppConfig、Host.Initialize 和 ShutdownCoordinator 顺序定位。
 

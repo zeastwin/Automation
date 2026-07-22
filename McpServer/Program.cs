@@ -261,9 +261,19 @@ namespace Automation.McpServer
             JsonObject? variableChangeSchema = FindSchemaByProperties(
                 JsonNode.Parse(previewChangeSetTool.ProtocolTool.InputSchema.GetRawText()),
                 "name", "scope", "ownerProcess", "policy");
+            JsonObject? variableChangeProperties = variableChangeSchema?["properties"] as JsonObject;
+            JsonObject? variableNameSchema = variableChangeProperties?["name"] as JsonObject;
             JsonArray? changeSetVariableScopes =
-                (variableChangeSchema?["properties"]?["scope"] as JsonObject)?["enum"] as JsonArray;
+                (variableChangeProperties?["scope"] as JsonObject)?["enum"] as JsonArray;
+            JsonArray? variableTypes =
+                (variableChangeProperties?["type"] as JsonObject)?["enum"] as JsonArray;
+            JsonArray? variablePolicies =
+                (variableChangeProperties?["policy"] as JsonObject)?["enum"] as JsonArray;
             JsonArray? variableRequired = variableChangeSchema?["required"] as JsonArray;
+            var requiredVariableFields = variableRequired?
+                .Select(item => item?.GetValue<string>())
+                .Where(field => field != null)
+                .ToHashSet(StringComparer.Ordinal);
             JsonObject? processSelectorSchema = FindSchemaByProperties(
                 JsonNode.Parse(previewChangeSetTool.ProtocolTool.InputSchema.GetRawText()),
                 "procId", "name", "key");
@@ -274,14 +284,50 @@ namespace Automation.McpServer
                     VariableScopeContract.Process,
                     VariableScopeContract.System
                 }.All(expected => changeSetVariableScopes.Any(item => item?.GetValue<string>() == expected))
-                || variableRequired == null
-                || !new[] { "name", "scope", "type", "policy" }
-                    .All(field => variableRequired.Any(item => item?.GetValue<string>() == field))
+                || variableNameSchema?["minLength"]?.GetValue<int>() != 1
+                || variableNameSchema?["pattern"]?.GetValue<string>() != "\\S"
+                || variableTypes == null
+                || !new[] { VariableChangeContract.DoubleType, VariableChangeContract.StringType }
+                    .All(expected => variableTypes.Any(item => item?.GetValue<string>() == expected))
+                || variablePolicies == null
+                || !new[]
+                {
+                    VariableChangeContract.ReusePolicy,
+                    VariableChangeContract.CreatePolicy,
+                    VariableChangeContract.UpdatePolicy,
+                    VariableChangeContract.ReplacePolicy,
+                    VariableChangeContract.RequirePolicy
+                }.All(expected => variablePolicies.Any(item => item?.GetValue<string>() == expected))
+                || requiredVariableFields == null
+                || !requiredVariableFields.SetEquals(new[] { "name", "scope" })
+                || variableChangeSchema?["additionalProperties"]?.GetValue<bool>() != false
                 || variableChangeSchema?["allOf"] is not JsonArray
                 || processSelectorSchema?["oneOf"] is not JsonArray selectorBranches
                 || selectorBranches.Count != 3)
             {
-                throw new InvalidOperationException("preview_change_set 的变量作用域及owner条件Schema不完整。");
+                throw new InvalidOperationException(
+                    "preview_change_set 的变量必填项、枚举、名称或owner条件Schema不完整。");
+            }
+            string defaultVariableError = VariableChangeContract.Validate(new[]
+            {
+                new VariableChange
+                {
+                    Name = "测试变量",
+                    Scope = VariableScopeContract.Public
+                }
+            });
+            string blankVariableNameError = VariableChangeContract.Validate(new[]
+            {
+                new VariableChange
+                {
+                    Name = "   ",
+                    Scope = VariableScopeContract.Public
+                }
+            });
+            if (defaultVariableError != null || blankVariableNameError == null)
+            {
+                throw new InvalidOperationException(
+                    "ChangeSet 变量默认值或非空名称校验与公开Schema不一致。");
             }
             McpServerTool addVariableTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "add_variable", StringComparison.Ordinal));
@@ -637,34 +683,12 @@ namespace Automation.McpServer
                     throw new InvalidOperationException($"完全权限工具{contract.Key}缺少强类型字段：{missingTerm}");
                 }
             }
-            string invalidDeletion = AiChangeSetCatalog.Validate(new AiChangeSet
+            string previewChangeSetSchema = previewChangeSetTool.ProtocolTool.InputSchema.GetRawText();
+            if (previewChangeSetSchema.Contains("deleteProcesses", StringComparison.Ordinal)
+                || previewChangeSetSchema.Contains("\"processes\"", StringComparison.Ordinal))
             {
-                Version = 2,
-                DeleteProcesses = new ProcessDeleteSelection
-                {
-                    Mode = "byNames",
-                    Names = new List<string> { "测试流程" }
-                }
-            });
-            if (!string.Equals(invalidDeletion, "deleteProcesses.mode 只能是 all 或 selected。", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("ChangeSet 删除模式本地校验未严格限制 all/selected。");
-            }
-            string invalidSelected = AiChangeSetCatalog.Validate(new AiChangeSet
-            {
-                Version = 2,
-                DeleteProcesses = new ProcessDeleteSelection { Mode = "selected" }
-            });
-            string validAll = AiChangeSetCatalog.Validate(new AiChangeSet
-            {
-                Version = 2,
-                DeleteProcesses = new ProcessDeleteSelection { Mode = "all" }
-            });
-            if (!string.Equals(invalidSelected,
-                    "deleteProcesses.mode=selected 时必须提供 names 或 procIds。", StringComparison.Ordinal)
-                || validAll != null)
-            {
-                throw new InvalidOperationException("ChangeSet 删除选择器组合校验错误。");
+                throw new InvalidOperationException(
+                    "preview_change_set Schema 意外暴露旧流程写入字段，流程结构只能通过 actions 表达。");
             }
             string invalidIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
             {

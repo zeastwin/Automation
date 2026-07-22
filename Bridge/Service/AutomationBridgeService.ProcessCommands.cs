@@ -41,7 +41,7 @@ namespace Automation.Bridge
 
                 EnsurePreviewProcVersion(record);
                 record.Confirmed = true;
-                record.ConfirmedAtUtc = DateTime.UtcNow;
+                record.ConfirmedAtUtc = previewUtcNow();
                 Monitor.PulseAll(previewLock);
             }
 
@@ -86,7 +86,7 @@ namespace Automation.Bridge
                 return;
             }
             ValidatePreviewIdFormat(previewId);
-            DateTime deadline = DateTime.UtcNow.AddSeconds(110);
+            DateTime deadline = previewUtcNow().AddSeconds(110);
             lock (previewLock)
             {
                 while (true)
@@ -104,7 +104,7 @@ namespace Automation.Bridge
                     {
                         return;
                     }
-                    TimeSpan remaining = deadline - DateTime.UtcNow;
+                    TimeSpan remaining = deadline - previewUtcNow();
                     if (remaining <= TimeSpan.Zero)
                     {
                         throw new BridgeRequestException(408, "PREVIEW_CONFIRM_TIMEOUT", "等待前台确认预演超时，未执行提交。");
@@ -181,196 +181,6 @@ namespace Automation.Bridge
                 ["procName"] = proc?.head?.Name ?? string.Empty,
                 ["previousState"] = currentState.ToString(),
                 ["message"] = $"已发送{action}命令到流程 {procIndex}"
-            };
-        }
-
-        private JObject PreviewCreateProc(JObject request)
-        {
-            EnsureRuntimeReady();
-            string name = ReadRequiredString(request, "name");
-            bool autoStart = ReadOptionalBoolean(request, "autoStart") ?? false;
-            bool disable = ReadOptionalBoolean(request, "disable") ?? false;
-            EnsureAllProcsStoppedForAiStructureCommit("创建流程");
-
-            // 预演：创建 proc 对象但不加入 procsList
-            Proc proc = new Proc();
-            proc.head = new ProcHead { Name = name, AutoStart = autoStart, Disable = disable };
-
-            int targetIndex = runtime.Stores.Processes.Items.Count;
-            JObject preview = new JObject
-            {
-                ["action"] = "create_proc",
-                ["targetIndex"] = targetIndex,
-                ["procName"] = name,
-                ["autoStart"] = autoStart,
-                ["disable"] = disable,
-                ["messages"] = new JArray { $"将在索引 {targetIndex} 创建流程「{name}」" }
-            };
-
-            string previewId = RegisterManagePreview(preview);
-            preview["previewId"] = previewId;
-            preview["committed"] = false;
-            return preview;
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject PreviewDeleteProcs(JObject request)
-        {
-            EnsureRuntimeReady();
-            JArray indexes = ReadRequiredArray(request, "procIndexes");
-            if (indexes == null || indexes.Count == 0)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "procIndexes 不能为空。");
-            }
-
-            var procInfos = new JArray();
-            var messages = new JArray();
-            for (int i = 0; i < indexes.Count; i++)
-            {
-                int procIndex = indexes[i].Value<int>();
-                if (procIndex < 0 || procIndex >= runtime.Stores.Processes.Items.Count)
-                {
-                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"流程索引 {procIndex} 越界。");
-                }
-                Proc proc = runtime.Stores.Processes.Items[procIndex];
-                EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
-                if (snapshot != null && snapshot.State != ProcRunState.Stopped)
-                {
-                    throw new BridgeRequestException(409, "PROC_RUNNING", $"流程 {procIndex}「{proc?.head?.Name}」正在运行，请先停止。");
-                }
-                procInfos.Add(new JObject
-                {
-                    ["procIndex"] = procIndex,
-                    ["procName"] = proc?.head?.Name ?? string.Empty,
-                    ["procId"] = proc?.head?.Id.ToString("D") ?? string.Empty
-                });
-                messages.Add($"将删除流程 {procIndex}「{proc?.head?.Name ?? procIndex.ToString()}」");
-            }
-
-            JObject preview = new JObject
-            {
-                ["action"] = "delete_procs",
-                ["procIndexes"] = indexes,
-                ["procs"] = procInfos,
-                ["messages"] = messages
-            };
-
-            string previewId = RegisterManagePreview(preview);
-            preview["previewId"] = previewId;
-            return preview;
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject PreviewReorderProc(JObject request)
-        {
-            EnsureRuntimeReady();
-            int procIndex = ReadRequiredInt(request, "procIndex");
-            int targetIndex = ReadRequiredInt(request, "targetIndex");
-            Proc proc = GetProcByIndex(procIndex);
-            if (targetIndex < 0 || targetIndex >= runtime.Stores.Processes.Items.Count)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"目标索引 {targetIndex} 越界。");
-            }
-            EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
-            if (snapshot != null && snapshot.State != ProcRunState.Stopped)
-            {
-                throw new BridgeRequestException(409, "PROC_RUNNING", $"流程 {procIndex} 正在运行，请先停止。");
-            }
-
-            JObject preview = new JObject
-            {
-                ["action"] = "reorder_proc",
-                ["procIndex"] = procIndex,
-                ["targetIndex"] = targetIndex,
-                ["procName"] = proc?.head?.Name ?? string.Empty,
-                ["messages"] = new JArray { $"将流程 {procIndex}「{proc?.head?.Name}」移动到索引 {targetIndex}" }
-            };
-
-            string previewId = RegisterManagePreview(preview);
-            preview["previewId"] = previewId;
-            return preview;
-        }
-
-        private JObject PreviewCopyProc(JObject request)
-        {
-            EnsureRuntimeReady();
-            int procIndex = ReadRequiredInt(request, "procIndex");
-            string newName = ReadOptionalString(request, "newName");
-            Proc source = GetProcByIndex(procIndex);
-
-            Proc copy = ObjectGraphCloner.Clone(source);
-            copy.head.Id = Guid.NewGuid();
-            copy.head.Name = ResolveCopiedProcessName(source.head?.Name, newName);
-            copy.head.AutoStart = false;
-            Dictionary<string, DicValue> draftVariables = runtime.Stores.Values.BuildSaveData();
-            ProcessVariableCopyResult variableCopy = ProcessVariableLifecycleService.CopyPrivateVariables(
-                source.head.Id, copy.head.Id, copy, draftVariables);
-            JArray variableMappings = new JArray(variableCopy.Mappings.Select(mapping => new JObject
-            {
-                ["sourceVariableId"] = mapping.SourceVariableId,
-                ["variableId"] = mapping.VariableId,
-                ["sourceName"] = mapping.SourceName,
-                ["name"] = mapping.Name,
-                ["sourceIndex"] = mapping.SourceIndex,
-                ["index"] = mapping.Index,
-                ["scope"] = VariableScopeContract.Process,
-                ["ownerProcId"] = copy.head.Id,
-                ["ownerProcName"] = copy.head.Name
-            }));
-
-            int targetIndex = runtime.Stores.Processes.Items.Count;
-            JObject preview = new JObject
-            {
-                ["action"] = "copy_proc",
-                ["sourceProcIndex"] = procIndex,
-                ["sourceProcName"] = source.head?.Name ?? string.Empty,
-                ["targetIndex"] = targetIndex,
-                ["newProcName"] = copy.head.Name,
-                ["stepCount"] = copy.steps?.Count ?? 0,
-                ["variableMappings"] = variableMappings,
-                ["warnings"] = new JArray(variableCopy.Warnings),
-                ["messages"] = new JArray { $"将复制流程 {procIndex}「{source.head?.Name}」到索引 {targetIndex}，新名称「{copy.head.Name}」" }
-            };
-
-            string previewId = RegisterManagePreview(preview);
-            preview["previewId"] = previewId;
-            return preview;
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject ExecuteCreateProc(JObject request)
-        {
-            string name = ReadRequiredString(request, "name");
-            bool autoStart = ReadOptionalBoolean(request, "autoStart") ?? false;
-            bool disable = ReadOptionalBoolean(request, "disable") ?? false;
-
-            Proc proc = new Proc();
-            proc.head = new ProcHead { Name = name, AutoStart = autoStart, Disable = disable };
-
-            int procIndex = runtime.Stores.Processes.Items.Count;
-            runtime.Stores.Processes.Items.Add(proc);
-
-            List<string> errors = new List<string>();
-            ProcessDefinitionService.NormalizeProc(
-                procIndex, proc, errors, runtime.CreateProcessValidationContext());
-            if (errors.Count > 0)
-            {
-                runtime.Stores.Processes.Items.RemoveAt(procIndex);
-                throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程创建校验失败。", string.Join("\r\n", errors.Distinct()));
-            }
-
-            if (runtime.EditorUi?.RebuildWorkConfig(procIndex) != true)
-            {
-                throw new BridgeRequestException(500, "SAVE_FAILED", "流程创建失败，原流程配置已恢复。");
-            }
-            NotifyProcChanged(procIndex, ProcChangeKind.Added);
-
-            return new JObject
-            {
-                ["action"] = "create_proc",
-                ["procIndex"] = procIndex,
-                ["procName"] = name,
-                ["messages"] = new JArray { $"流程「{name}」已创建，索引 {procIndex}" }
             };
         }
 
@@ -588,106 +398,6 @@ namespace Automation.Bridge
             };
         }
 
-        private JObject ExecuteDeleteProcs(JObject request)
-        {
-            JArray indexes = ReadRequiredArray(request, "procIndexes");
-            // 从大到小删除，避免索引移位
-            var sortedIndexes = indexes.Select(t => t.Value<int>()).OrderByDescending(i => i).ToList();
-            EnsureAllProcsStoppedForAiStructureCommit("删除流程");
-
-            List<Proc> draftProcesses = runtime.Stores.Processes.Items
-                .Select(ObjectGraphCloner.Clone).ToList();
-            Dictionary<string, DicValue> draftVariables = runtime.Stores.Values.BuildSaveData();
-            var deleted = new JArray();
-            var deletedProcIds = new List<Guid>();
-            foreach (int procIndex in sortedIndexes)
-            {
-                if (procIndex < 0 || procIndex >= draftProcesses.Count)
-                {
-                    continue;
-                }
-                Proc proc = draftProcesses[procIndex];
-                string procName = proc?.head?.Name ?? procIndex.ToString();
-                Guid procId = proc?.head?.Id ?? Guid.Empty;
-                if (procId != Guid.Empty) deletedProcIds.Add(procId);
-                draftProcesses.RemoveAt(procIndex);
-                deleted.Add(new JObject
-                {
-                    ["procIndex"] = procIndex,
-                    ["procId"] = procId,
-                    ["procName"] = procName
-                });
-            }
-
-            int minDeleted = sortedIndexes.Min();
-            int deletedPrivateVariableCount = ProcessVariableLifecycleService.RemoveOwnedVariables(
-                draftVariables, deletedProcIds);
-            CommitChangeSet(new AiChangeSetCompileResult
-            {
-                Processes = draftProcesses,
-                Variables = draftVariables
-            });
-            // 删除后原 procIndex 节点已不存在，闪烁剩余列表中同索引位置（若有效）作为视觉提示。
-            if (minDeleted < runtime.Stores.Processes.Items.Count)
-            {
-                NotifyProcChanged(minDeleted, ProcChangeKind.Deleted);
-            }
-            else if (runtime.Stores.Processes.Items.Count > 0)
-            {
-                NotifyProcChanged(runtime.Stores.Processes.Items.Count - 1, ProcChangeKind.Deleted);
-            }
-
-            return new JObject
-            {
-                ["action"] = "delete_procs",
-                ["deleted"] = deleted,
-                ["deletedPrivateVariableCount"] = deletedPrivateVariableCount,
-                ["remainingCount"] = runtime.Stores.Processes.Items.Count,
-                ["messages"] = new JArray { $"已删除 {deleted.Count} 个流程，剩余 {runtime.Stores.Processes.Items.Count} 个" }
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject ExecuteReorderProc(JObject request)
-        {
-            int procIndex = ReadRequiredInt(request, "procIndex");
-            int targetIndex = ReadRequiredInt(request, "targetIndex");
-            if (procIndex < 0 || procIndex >= runtime.Stores.Processes.Items.Count)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"流程索引 {procIndex} 越界。");
-            }
-            if (targetIndex < 0 || targetIndex >= runtime.Stores.Processes.Items.Count)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"目标索引 {targetIndex} 越界。");
-            }
-            if (procIndex == targetIndex)
-            {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "源索引与目标索引相同。");
-            }
-            EnsureAllProcsStoppedForAiStructureCommit("调整流程顺序");
-
-            Proc proc = runtime.Stores.Processes.Items[procIndex];
-            string procName = proc?.head?.Name ?? string.Empty;
-            runtime.Stores.Processes.Items.RemoveAt(procIndex);
-            runtime.Stores.Processes.Items.Insert(targetIndex, proc);
-
-            // 重建工作配置
-            int minIndex = Math.Min(procIndex, targetIndex);
-            if (runtime.EditorUi?.RebuildWorkConfig(minIndex) != true)
-            {
-                throw new BridgeRequestException(500, "SAVE_FAILED", "流程重排序失败，原流程配置已恢复。");
-            }
-            NotifyProcChanged(targetIndex, ProcChangeKind.Modified);
-
-            return new JObject
-            {
-                ["action"] = "reorder_proc",
-                ["procName"] = procName,
-                ["newProcIndex"] = targetIndex,
-                ["messages"] = new JArray { $"流程「{procName}」已从索引 {procIndex} 移动到 {targetIndex}" }
-            };
-        }
-
         private void EnsureAllProcsStoppedForAiStructureCommit(string actionName)
         {
             int procCount = runtime.Stores.Processes?.Items?.Count ?? 0;
@@ -710,127 +420,6 @@ namespace Automation.Bridge
                         }.ToString(Formatting.None));
                 }
             }
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject ExecuteCopyProc(JObject request)
-        {
-            int procIndex = ReadRequiredInt(request, "procIndex");
-            string newName = ReadOptionalString(request, "newName");
-            Proc source = GetProcByIndex(procIndex);
-            EnsureAllProcsStoppedForAiStructureCommit("复制流程");
-
-            Proc copy = ObjectGraphCloner.Clone(source);
-            copy.head.Id = Guid.NewGuid();
-            copy.head.Name = ResolveCopiedProcessName(source.head?.Name, newName);
-            copy.head.AutoStart = false;
-            if (runtime.Stores.Processes.Items.Any(proc => string.Equals(
-                proc?.head?.Name, copy.head.Name, StringComparison.Ordinal)))
-            {
-                throw new BridgeRequestException(409, "PROC_NAME_EXISTS", $"流程名称已存在：{copy.head.Name}");
-            }
-
-            int newProcIndex = runtime.Stores.Processes.Items.Count;
-            // 重置流程内步骤和指令的 Id，避免重复
-            ResetProcStepOpIds(copy);
-
-            List<Proc> draftProcesses = runtime.Stores.Processes.Items
-                .Select(ObjectGraphCloner.Clone).ToList();
-            Dictionary<string, DicValue> draftVariables = runtime.Stores.Values.BuildSaveData();
-            ProcessVariableCopyResult variableCopy = ProcessVariableLifecycleService.CopyPrivateVariables(
-                source.head.Id, copy.head.Id, copy, draftVariables);
-            draftProcesses.Add(copy);
-
-            List<string> errors = new List<string>();
-            ProcessDefinitionService.NormalizeProc(
-                newProcIndex, copy, errors, runtime.CreateProcessValidationContext());
-            if (errors.Count > 0)
-            {
-                throw new BridgeRequestException(400, "PROC_VALIDATE_FAILED", "流程复制校验失败。", string.Join("\r\n", errors.Distinct()));
-            }
-
-            CommitChangeSet(new AiChangeSetCompileResult
-            {
-                Processes = draftProcesses,
-                Variables = draftVariables
-            });
-            NotifyProcChanged(newProcIndex, ProcChangeKind.Added);
-
-            JArray variableMappings = new JArray(variableCopy.Mappings.Select(mapping => new JObject
-            {
-                ["sourceVariableId"] = mapping.SourceVariableId,
-                ["variableId"] = mapping.VariableId,
-                ["sourceName"] = mapping.SourceName,
-                ["name"] = mapping.Name,
-                ["sourceIndex"] = mapping.SourceIndex,
-                ["index"] = mapping.Index,
-                ["scope"] = VariableScopeContract.Process,
-                ["ownerProcId"] = copy.head.Id,
-                ["ownerProcName"] = copy.head.Name
-            }));
-
-            return new JObject
-            {
-                ["action"] = "copy_proc",
-                ["sourceProcIndex"] = procIndex,
-                ["newProcIndex"] = newProcIndex,
-                ["newProcId"] = copy.head.Id,
-                ["newProcName"] = copy.head.Name,
-                ["variableMappings"] = variableMappings,
-                ["warnings"] = new JArray(variableCopy.Warnings),
-                ["readiness"] = BuildProcessReadinessJObject(newProcIndex),
-                ["messages"] = new JArray { $"已复制流程 {procIndex}「{source.head?.Name}」到索引 {newProcIndex}，新名称「{copy.head.Name}」" }
-            };
-        }
-
-        private static void ResetProcStepOpIds(Proc proc)
-        {
-            if (proc?.steps == null) return;
-            foreach (var step in proc.steps)
-            {
-                if (step == null) continue;
-                step.Id = Guid.NewGuid();
-                if (step.Ops == null) continue;
-                foreach (var op in step.Ops)
-                {
-                    if (op != null)
-                    {
-                        op.Id = Guid.NewGuid();
-                    }
-                }
-            }
-        }
-
-        private string ResolveCopiedProcessName(string sourceName, string requestedName)
-        {
-            if (!string.IsNullOrWhiteSpace(requestedName)) return requestedName.Trim();
-            string basis = string.IsNullOrWhiteSpace(sourceName) ? "流程" : sourceName;
-            for (int number = 1; ; number++)
-            {
-                string candidate = basis + (number == 1 ? "_副本" : "_副本" + number);
-                if (!(runtime.Stores.Processes?.Items ?? new List<Proc>()).Any(proc =>
-                    string.Equals(proc?.head?.Name, candidate, StringComparison.Ordinal)))
-                {
-                    return candidate;
-                }
-            }
-        }
-
-        private JObject BuildProcessReadinessJObject(int procIndex)
-        {
-            Proc proc = procIndex >= 0 && procIndex < (runtime.Stores.Processes?.Items?.Count ?? 0)
-                ? runtime.Stores.Processes.Items[procIndex]
-                : null;
-            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
-                procIndex, proc, runtime.Stores.Processes?.Items,
-                runtime.CreateProcessValidationContext(), runtime.Stores.Values);
-            return new JObject
-            {
-                ["readinessStatus"] = readiness.ReadinessStatus,
-                ["runnable"] = readiness.Runnable,
-                ["warnings"] = new JArray(readiness.Warnings),
-                ["runBlockers"] = new JArray(readiness.RunBlockers)
-            };
         }
 
         // 流程结构操作的预演记录，复用 previewLock 保证线程安全。
@@ -866,7 +455,7 @@ namespace Automation.Bridge
                         item != null
                         && item.IsChangeSetPreview
                         && !item.Rejected
-                        && item.ExpiresAtUtc > DateTime.UtcNow);
+                        && item.ExpiresAtUtc > previewUtcNow());
                     if (activeChangeSet != null)
                     {
                         activeChangeSet.Rejected = true;
@@ -876,6 +465,7 @@ namespace Automation.Bridge
                 }
                 EnsureNoActivePreviewLocked(supportsExplicitReplacement);
                 // 复用 PreviewApprovalRecord，patch 字段存 previewData
+                DateTime createdAtUtc = previewUtcNow();
                 var record = new PreviewApprovalRecord
                 {
                     PreviewId = previewId,
@@ -883,15 +473,15 @@ namespace Automation.Bridge
                     PatchHash = ComputePatchHash(previewData),
                     ProcIndex = -1,  // 流程结构操作不绑定单个 procIndex
                     BaseProcId = string.Empty,
-                    CreatedAtUtc = DateTime.UtcNow,
-                    ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30),
+                    CreatedAtUtc = createdAtUtc,
+                    ExpiresAtUtc = createdAtUtc.Add(previewLifetime),
                     Confirmed = autoConfirmed,
                     IsChangeSetPreview = supportsExplicitReplacement,
                     ReplacedPreviewId = replacedPreviewId
                 };
                 if (autoConfirmed)
                 {
-                    record.ConfirmedAtUtc = DateTime.UtcNow;
+                    record.ConfirmedAtUtc = createdAtUtc;
                 }
                 previewRecords[record.PreviewId] = record;
             }
