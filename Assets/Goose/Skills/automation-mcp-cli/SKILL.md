@@ -43,3 +43,4 @@ $changeSet | ConvertTo-Json -Compress -Depth 20 | Set-Content -Encoding utf8 $en
 - 工具集合、Schema 与 Bridge 校验和 MCP HTTP 模式完全同源；只有调用通道不同。
 - `preview_change_set` 返回 `previewId` 且 `confirmed=false` 时，前台仍会弹出确认窗；用户确认后仅以该 `previewId` 调用 `apply_change_set`。
 - `cli call` 返回未开放工具时，用 `cli list` 核对当前 Profile 的可用集合，不要猜测工具名。
+- 迁移/平台配置工具（`preview_motion_io_configuration` 等 8 个）只在 Editor Profile 且完全权限开启时开放：CLI 加 `--full-permission`，或环境变量 `AUTOMATION_MCP_FULL_PERMISSION=1`（由前台"完全权限"开关注入，仅 Editor 生效）。

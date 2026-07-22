@@ -64,6 +64,15 @@ namespace Automation.McpServer
                 return ExitUsage;
             }
 
+            bool fullPermission = args.Any(value => string.Equals(value, "--full-permission", StringComparison.OrdinalIgnoreCase))
+                || IsTruthyEnvironment("AUTOMATION_MCP_FULL_PERMISSION");
+            if (fullPermission && !string.Equals(profile, "Editor", StringComparison.Ordinal))
+            {
+                // 与 DynamicMcpToolRegistry.SetConfiguration 同一约束。
+                Console.Error.WriteLine("完全权限只能在Editor模式下开启。");
+                return ExitUsage;
+            }
+
             AutomationMcpOptions options = AutomationMcpOptions.Load(
                 new ConfigurationBuilder().Build(),
                 AppContext.BaseDirectory);
@@ -71,7 +80,7 @@ namespace Automation.McpServer
             ToolCallLogger.Configure(options.LogRoot);
             AutomationMcpRuntime.Initialize(options);
 
-            IReadOnlyList<McpServerTool> tools = McpToolProfile.CreateTools(profile, fullPermissionEnabled: false);
+            IReadOnlyList<McpServerTool> tools = McpToolProfile.CreateTools(profile, fullPermission);
 
             switch (command.ToLowerInvariant())
             {
@@ -324,8 +333,14 @@ namespace Automation.McpServer
             }.ToJsonString(IndentedOptions);
         }
 
-        private static string? ReadOptionValue(string[] args, string option)
+        private static bool IsTruthyEnvironment(string name)
         {
+            string? value = Environment.GetEnvironmentVariable(name);
+            return string.Equals(value, "1", StringComparison.Ordinal)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ReadOptionValue(string[] args, string option)        {
             for (int index = 1; index < args.Length - 1; index++)
             {
                 if (string.Equals(args[index], option, StringComparison.OrdinalIgnoreCase))
@@ -353,13 +368,14 @@ namespace Automation.McpServer
             Console.Error.WriteLine(
                 "Automation MCP CLI — 以命令行方式使用当前Profile的MCP工具集。" + Environment.NewLine
                 + "用法:" + Environment.NewLine
-                + "  cli list [--full] [--profile <Editor|Diagnostic|RuntimeDiagnostic>]" + Environment.NewLine
-                + "      列出工具名与描述；--full 附带每个工具的 inputSchema。" + Environment.NewLine
+                + "  cli list [--full] [--profile <Editor|Diagnostic|RuntimeDiagnostic>] [--full-permission]" + Environment.NewLine
+                + "      列出工具名与描述；--full 附带每个工具的 inputSchema；--full-permission 仅 Editor 可用，追加迁移/平台配置工具。" + Environment.NewLine
                 + "  cli schema <name>" + Environment.NewLine
                 + "      输出单个工具的描述与 inputSchema。" + Environment.NewLine
                 + "  cli call <name> [--json '<argsJson>' | --json-file <path>]" + Environment.NewLine
                 + "      调用工具并输出其 JSON 返回；--json 缺省为 {}；大体积参数用 --json-file 从 UTF-8 文件读取。" + Environment.NewLine
                 + "Profile 解析顺序：--profile 参数 > AUTOMATION_MCP_PROFILE 环境变量 > Editor。" + Environment.NewLine
+                + "完全权限解析顺序：--full-permission 参数 > AUTOMATION_MCP_FULL_PERMISSION 环境变量（1/true）> 关闭。" + Environment.NewLine
                 + "退出码：0=调用已执行（业务错误在输出JSON的ok:false内）；1=本地故障；2=用法错误。");
         }
 

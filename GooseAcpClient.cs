@@ -431,6 +431,12 @@ namespace Automation
             config.ToolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
 
         /// <summary>
+        /// 完全权限（迁移/平台配置工具）开关，仅 Editor Profile 的 Cli 模式会话使用，
+        /// 由前台在创建客户端时赋值；Tools 模式经 /tool-profile 热切换，不读此属性。
+        /// </summary>
+        public bool FullPermissionEnabled { get; set; }
+
+        /// <summary>
         /// 在当前 Goose 会话内重新挂载 Automation MCP，使 Goose 重新读取工具清单。
         /// 返回 false 表示当前尚未创建会话，后续新会话会直接使用最新 MCP 配置。
         /// </summary>
@@ -645,6 +651,15 @@ namespace Automation
                 }
                 startInfo.EnvironmentVariables["AUTOMATION_MCP_CLI_PATH"] = mcpCliPath;
                 startInfo.EnvironmentVariables["AUTOMATION_MCP_PROFILE"] = config.ToolProfile;
+                if (FullPermissionEnabled
+                    && string.Equals(config.ToolProfile, "Editor", StringComparison.Ordinal))
+                {
+                    startInfo.EnvironmentVariables["AUTOMATION_MCP_FULL_PERMISSION"] = "1";
+                }
+                else
+                {
+                    startInfo.EnvironmentVariables.Remove("AUTOMATION_MCP_FULL_PERMISSION");
+                }
             }
             else
             {
@@ -752,6 +767,7 @@ namespace Automation
                 startupInfo.Append(" mcpCliPath=")
                     .Append(startInfo.EnvironmentVariables["AUTOMATION_MCP_CLI_PATH"]);
                 startupInfo.Append(" mcpCliProfile=").Append(config.ToolProfile);
+                startupInfo.Append(" mcpCliFullPermission=").Append(FullPermissionEnabled);
             }
             if (!runtimeDiagnostic)
             {

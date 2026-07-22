@@ -2060,6 +2060,19 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
 
+            // Cli 模式没有 HTTP 热切换；完全权限固定在 Goose 子进程环境变量
+            // （AUTOMATION_MCP_FULL_PERMISSION）中，切换后重建 Goose 进程生效。
+            if (string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal))
+            {
+                fullPermissionEnabled = enabled;
+                DisposeGooseClient();
+                ShowWebToast(enabled
+                    ? "完全权限已开启，新的 AI 对话生效。"
+                    : "完全权限已关闭，新的 AI 对话生效。");
+                PushWebAppState();
+                return;
+            }
+
             bool previous = fullPermissionEnabled;
             GooseAcpClient activeClient;
             lock (clientLock)
@@ -2956,6 +2969,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 }
 
                 runtime.Client = new GooseAcpClient(Workspace.Runtime, config, runtime.RestoredContext);
+                runtime.Client.FullPermissionEnabled = fullPermissionEnabled;
                 runtime.RestoredContext = null;
                 runtime.Client.EventReceived += item => TaskClient_EventReceived(runtime, item);
                 runtime.Client.PermissionRequestHandler = HandlePermissionRequest;

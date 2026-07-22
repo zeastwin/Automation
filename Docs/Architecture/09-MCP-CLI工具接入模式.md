@@ -47,6 +47,8 @@ flowchart LR
 | `cli call <name> [--json '<args>' \| --json-file <path>]` | 调用工具并输出其 JSON 返回；`--json` 缺省 `{}`；ChangeSet 等大体积参数用 `--json-file` 从 UTF-8 文件读取 |
 
 - Profile 解析顺序：`--profile` 参数 > `AUTOMATION_MCP_PROFILE` 环境变量 > `Editor`。
+- 完全权限解析顺序：`--full-permission` 参数 > `AUTOMATION_MCP_FULL_PERMISSION`（1/true）> 关闭；仅 Editor Profile 可开（与 HTTP 模式 `DynamicMcpToolRegistry.SetConfiguration` 同一约束，非 Editor 请求报用法错误）。开启后追加 FullPermission 组 8 个迁移/平台配置工具，Editor 工具数 58 → 66，CLI 覆盖率达到 74/74。
+- 前台"完全权限"按钮在 Cli 模式下不再走 `/tool-profile`：`SetFullPermissionToolsAsync` 直接更新 `GooseAcpClient.FullPermissionEnabled` 并重建 Goose 进程，经 `AUTOMATION_MCP_FULL_PERMISSION` 注入子进程。
 - 退出码：0 = 调用已执行；1 = 本地故障（如 Bridge 未运行）；2 = 用法错误（未知工具、缺必填参数、JSON 无效，参数解析失败会回显实际收到的参数前缀）。
 - 入口在 `McpServer/Program.cs` 按 `--verify-profile` 先例拦截，不启动 HTTP 与托盘。
 
