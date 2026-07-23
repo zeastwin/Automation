@@ -1927,7 +1927,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || !string.Equals(
                     oldConfig.ToolMode ?? GooseConfigStorage.DefaultToolMode,
                     config.ToolMode,
-                    StringComparison.Ordinal);
+                    StringComparison.Ordinal)
+                // SkillsProjectOnly 在 Goose 子进程启动时装配为环境变量，变化必须重建进程。
+                || oldConfig.SkillsProjectOnly != config.SkillsProjectOnly;
             bool cliToolMode = string.Equals(
                 config.ToolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
             bool uriChanged = oldConfig == null
@@ -2161,7 +2163,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ToolMode = string.IsNullOrWhiteSpace(toolMode)
                     ? GooseConfigStorage.DefaultToolMode
                     : toolMode,
-                AutoApproveMode = autoApproveMode
+                AutoApproveMode = autoApproveMode,
+                // 设置页不提供该开关，保留文件中的当前值。
+                SkillsProjectOnly = appliedConfig?.SkillsProjectOnly
+                    ?? GooseConfigStorage.DefaultSkillsProjectOnly
             };
 
             if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
@@ -2202,7 +2207,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 MaxOutputTokens = config.MaxOutputTokens,
                 ToolProfile = config.ToolProfile,
                 ToolMode = config.ToolMode,
-                AutoApproveMode = config.AutoApproveMode
+                AutoApproveMode = config.AutoApproveMode,
+                SkillsProjectOnly = config.SkillsProjectOnly
             };
         }
 
@@ -5413,7 +5419,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     MaxOutputTokens = config.MaxOutputTokens,
                     ToolProfile = config.ToolProfile,
                     ToolMode = config.ToolMode,
-                    AutoApproveMode = config.AutoApproveMode
+                    AutoApproveMode = config.AutoApproveMode,
+                    SkillsProjectOnly = config.SkillsProjectOnly
                 };
                 using (GooseAcpClient client = new GooseAcpClient(runtime, resolvedConfig))
                 using (CancellationTokenSource cts = new CancellationTokenSource(30000))

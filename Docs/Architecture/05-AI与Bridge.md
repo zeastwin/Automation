@@ -49,6 +49,8 @@ Goose 不直接连接 WinForms，也不直接访问 Named Pipe。它只看到 MC
 
 每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程。
 
+所有会话按 `GooseConfig.json` 的 `SkillsProjectOnly`（缺省补写 `true`）注入 `GOOSE_SKILLS_PROJECT_ONLY`：`true` 时 Goose 的 skills 扩展只暴露项目目录（`<cwd>/.agents| .goose|.claude/skills`）与内置 Skill，隔离 `~/.claude/skills` 等本机全局 Skill 对 system prompt 的噪声；`false` 时显式移除该环境变量，保持 Goose 上游默认发现行为。该开关由 EW-AI 维护的 Goose 补丁识别（`E:\project\goose`，设计见该仓库根目录 `GOOSE_SKILLS_PROJECT_ONLY.md`）；官方 Goose 忽略未知环境变量，`GooseExecutablePath` 指回官方 exe 时行为不变。
+
 ## 工具 Profile
 
 `McpServer/McpToolProfile.cs` 是当前工具集合的权威来源：

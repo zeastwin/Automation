@@ -125,7 +125,7 @@
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
 - `AppConfig.json` — 缺失文件或字段时按当前契约生成默认值并持久化；已有值执行启动强校验。当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
-- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens/ToolProfile/ToolMode`。`ToolMode` 为 `Tools`（默认，会话注入 MCP HTTP 扩展）或 `Cli`（不注入扩展，经 shell 调用 MCP CLI）。
+- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens/ToolProfile/ToolMode/SkillsProjectOnly`。`ToolMode` 为 `Tools`（默认，会话注入 MCP HTTP 扩展）或 `Cli`（不注入扩展，经 shell 调用 MCP CLI）。`SkillsProjectOnly` 缺省 true，控制 Goose skills 扩展只暴露项目目录与内置 Skill。
 
 ## 账户与权限
 - 角色：`SystemAdmin`（全量）、`Admin`（全量 - Account.Manage）、`Operator`（Process.Access/Run/Search）。
@@ -136,7 +136,7 @@
 - 启动层：正常 HMI 启动不启动 Bridge/MCP；首次显示平台编辑器或打开 AI 页面时，由 `AutomationMcpServerManager` 启动 Bridge 与 MCP，进程最终退出时统一关闭。`ToolMode=Cli` 时跳过 MCP HTTP 实例启动（Bridge 仍由编辑器正常启动）。辅助服务失败只禁用 EW-AI，不阻断平台/HMI 初始化。
 - 上下文部署层：`GooseRuntimeProvisioner` 从 Manifest 优先部署 `system.md`、`automation.md` 与 `automation-cli.md`，分别维护版本（Cli 上下文使用独立的 `CliIntegrationContextVersion`）；`system.md` 部署到 Goose 受管默认提示词路径，`automation.md`（Tools 模式）或 `automation-cli.md`（Cli 模式）由 `GooseAcpClient` 通过 `GOOSE_MOIM_MESSAGE_FILE` 仅注入当前 EW-AI 子进程。Provider/Model 和 UTF-8 PowerShell 也只覆盖当前子进程，不从客户 HMI 目录加载平台规范。
 - Provider 层：Provider/Model 只作当前子进程环境变量覆盖，空值沿用 Goose 配置且不保存模型密钥。下拉框优先从 `%APPDATA%\Block\goose\config\config.yaml` 读取已注册 provider 名，解析由 `GooseConfigStorage.TryLoadGooseProviders` 完成。
-- ACP 层：`FrmAiAssistant` 是唯一聊天前台；`GooseAcpClient` 隐藏启动 `goose acp`，通过 stdin/stdout 换行分隔 JSON-RPC 调用 `initialize/session/new/session/prompt/session/cancel`。`session/new.mcpServers` 使用 `name/type/url/headers`，HTTP 类型即使无 Header 也传空数组。
+- ACP 层：`FrmAiAssistant` 是唯一聊天前台；`GooseAcpClient` 隐藏启动 `goose acp`，通过 stdin/stdout 换行分隔 JSON-RPC 调用 `initialize/session/new/session/prompt/session/cancel`。`session/new.mcpServers` 使用 `name/type/url/headers`，HTTP 类型即使无 Header 也传空数组。所有会话按 `GooseConfig.SkillsProjectOnly`（缺省 true）注入 `GOOSE_SKILLS_PROJECT_ONLY`（EW-AI 维护的 Goose 补丁，见 `Docs/Architecture/05-AI与Bridge.md`），skills 扩展只暴露项目目录与内置 Skill，隔离本机全局 Skill。
 - 选择上下文层：每次 prompt 由 `GooseAcpClient.BuildSelectionContext` 附加当前编辑器选择。只展开实际有效的 `process -> step -> operation` 层级，包含显示 index 和稳定 ID；选择只用于定位，不等于用户授权修改。
 - MCP 注入层：`ToolMode=Tools` 时 ACP 会话只注入 Automation MCP 的 HTTP 地址；Goose 不直接访问 Bridge Named Pipe。`ToolMode=Cli` 时 `session/new.mcpServers` 为空数组，模型经 developer shell 执行 `Automation.McpServer.exe cli list/schema/call` 按需发现和调用同一批工具；CLI 入口路径、Profile 与完全权限通过当前子进程环境变量 `AUTOMATION_MCP_CLI_PATH`/`AUTOMATION_MCP_PROFILE`/`AUTOMATION_MCP_FULL_PERMISSION` 传递，机制知识由 `automation-mcp-cli` Skill 按需加载，工具集合、Schema 与 Bridge 校验和 HTTP 模式完全同源（`McpToolProfile.CreateTools` + `AutomationMcpTools` + `AutomationBridgeClient`）。当前可见工具完全由 `McpToolProfile` 决定，Editor 提供知识/读取、有限诊断、ChangeSet 写入和已授权运行工具，Diagnostic 不暴露配置写入；完全权限（迁移/平台配置 8 个工具）仅 Editor 可开，Tools 模式经 `/tool-profile` 热切换，Cli 模式经环境变量注入并重建 Goose 进程。
 - 读取与表达层：AI 先复用会话中已验证且仍适用的事实。目标未知时使用目录/搜索，目标已知时直接读取精确对象或对应 Schema；普通业务意图优先选能准确表达的语义 `kind`，已知原生 `operaType` 或语义层表达不足时读取精确原生 Schema 并使用 `native.operation`。Guide 只在运行语义确实不明确时按类型读取。

@@ -40,6 +40,14 @@ namespace Automation
         /// Cli = 不注入 mcpServers，模型经 shell 执行 Automation.McpServer.exe cli list/schema/call。
         /// </summary>
         public string ToolMode { get; set; }
+
+        /// <summary>
+        /// 会话 Skill 可见范围：true = Goose skills 扩展只暴露项目目录（.agents/.goose/.claude/skills）
+        /// 与内置 Skill，隔离本机全局 Skill（如 ~/.claude/skills）对 system prompt 的噪声；
+        /// false = Goose 上游默认发现行为。由 EW-AI 维护的 Goose 补丁识别，
+        /// 官方 Goose 忽略该环境变量，行为不受本配置影响。
+        /// </summary>
+        public bool SkillsProjectOnly { get; set; }
     }
 
     /// <summary>
@@ -98,6 +106,8 @@ namespace Automation
         public const string ToolModeTools = "Tools";
         public const string ToolModeCli = "Cli";
         public const string DefaultToolMode = ToolModeTools;
+        public const string SkillsProjectOnlyKey = "SkillsProjectOnly";
+        public const bool DefaultSkillsProjectOnly = true;
         public const int DefaultMaxTurns = 100;
         public const int DefaultMaxOutputTokens = 8192;
         public const double DefaultTemperature = 0.7d;
@@ -154,7 +164,8 @@ namespace Automation
                         AutoApproveModeKey,
                         ReadOptionalBool(obj, LegacyFullPermissionModeKey, false)),
                     ToolProfile = ReadToolProfile(obj),
-                    ToolMode = ReadToolMode(obj)
+                    ToolMode = ReadToolMode(obj),
+                    SkillsProjectOnly = ReadOptionalBool(obj, SkillsProjectOnlyKey, DefaultSkillsProjectOnly)
                 };
 
                 if (!Validate(config, out error))
@@ -170,6 +181,7 @@ namespace Automation
                     || !obj.TryGetValue(TemperatureKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(AutoApproveModeKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(ToolModeKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(SkillsProjectOnlyKey, StringComparison.Ordinal, out _)
                     || obj.TryGetValue(LegacyFullPermissionModeKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
                 // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
@@ -247,7 +259,8 @@ namespace Automation
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
                 [AutoApproveModeKey] = config.AutoApproveMode,
                 [ToolProfileKey] = config.ToolProfile,
-                [ToolModeKey] = config.ToolMode
+                [ToolModeKey] = config.ToolMode,
+                [SkillsProjectOnlyKey] = config.SkillsProjectOnly
             };
 
             string path = ConfigPath;
@@ -302,7 +315,8 @@ namespace Automation
                 MaxOutputTokens = DefaultMaxOutputTokens,
                 AutoApproveMode = false,
                 ToolProfile = DefaultToolProfile,
-                ToolMode = DefaultToolMode
+                ToolMode = DefaultToolMode,
+                SkillsProjectOnly = DefaultSkillsProjectOnly
             };
         }
 
@@ -569,7 +583,8 @@ namespace Automation
                 MaxOutputTokens = config.MaxOutputTokens,
                 AutoApproveMode = config.AutoApproveMode,
                 ToolProfile = config.ToolProfile,
-                ToolMode = config.ToolMode
+                ToolMode = config.ToolMode,
+                SkillsProjectOnly = config.SkillsProjectOnly
             };
         }
 

@@ -639,6 +639,18 @@ namespace Automation
                 startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_FILE");
                 startInfo.EnvironmentVariables.Remove("GOOSE_MOIM_MESSAGE_TEXT");
             }
+            // 所有会话按配置控制 Goose skills 扩展的 Skill 可见范围：true 只暴露项目目录
+            // 与 Goose 内置 Skill，隔离本机全局 Skill（如 ~/.claude/skills）对 system prompt
+            // 的噪声与错误路由；false 显式移除，保持 Goose 上游默认发现行为。
+            // 该开关由 EW-AI 维护的 Goose 补丁识别；官方 Goose 忽略未知环境变量，行为不变。
+            if (config.SkillsProjectOnly)
+            {
+                startInfo.EnvironmentVariables["GOOSE_SKILLS_PROJECT_ONLY"] = "1";
+            }
+            else
+            {
+                startInfo.EnvironmentVariables.Remove("GOOSE_SKILLS_PROJECT_ONLY");
+            }
             // Cli 模式向当前子进程公开 MCP CLI 入口与工具 Profile；
             // Tools 模式显式清除，避免沿用父进程继承的旧值。
             if (cliToolMode)
@@ -776,6 +788,8 @@ namespace Automation
                 startupInfo.Append(" processAuthoringSkill=")
                     .Append(GooseRuntimeProvisioner.ProcessAuthoringSkillPath);
             }
+            startupInfo.Append(" skillsScope=")
+                .Append(config.SkillsProjectOnly ? "project-only" : "all");
             if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
                 startupInfo.Append(" provider=").Append(effectiveProvider);
