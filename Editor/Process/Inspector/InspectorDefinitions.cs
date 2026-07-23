@@ -458,7 +458,7 @@ namespace Automation
                     {
                         Key = propertyPath,
                         Label = string.IsNullOrWhiteSpace(inlineList?.DisplayName)
-                            ? descriptor.DisplayName
+                            ? GetDisplayName(instance, descriptor)
                             : inlineList.DisplayName,
                         Description = descriptor.Description,
                         IsReadOnly = descriptor.IsReadOnly,
@@ -482,7 +482,7 @@ namespace Automation
                     string groupName = inlineGroup?.DisplayName;
                     if (string.IsNullOrWhiteSpace(groupName))
                     {
-                        groupName = descriptor.DisplayName;
+                        groupName = GetDisplayName(instance, descriptor);
                     }
                     BuildObject(value, propertyPath, groupName, sections, depth + 1);
                     continue;
@@ -544,7 +544,7 @@ namespace Automation
                 {
                     Key = fixedLeaf.Item2 + ".source",
                     Label = string.IsNullOrWhiteSpace(alternative.DisplayName)
-                        ? fixedProperty.DisplayName
+                        ? GetDisplayName(owner, fixedProperty)
                         : alternative.DisplayName,
                     Description = fixedProperty.Description,
                     IsReadOnly = fixedProperty.IsReadOnly,
@@ -572,7 +572,11 @@ namespace Automation
                 {
                     continue;
                 }
-                if (!TryGetReferencePart(property, out string baseLabel, out InspectorValueReferenceKind kind))
+                if (!TryGetReferencePart(
+                    owner,
+                    property,
+                    out string baseLabel,
+                    out InspectorValueReferenceKind kind))
                 {
                     continue;
                 }
@@ -603,7 +607,7 @@ namespace Automation
                 {
                     continue;
                 }
-                string key = leaf.Item3 + "||" + property.DisplayName;
+                string key = leaf.Item3 + "||" + GetDisplayName(owner, property);
                 if (groups.TryGetValue(key, out InspectorValueReferenceFieldDefinition field))
                 {
                     field.Add(InspectorValueReferenceKind.Name, property);
@@ -641,7 +645,7 @@ namespace Automation
                 section.Fields.Add(new InspectorScalarFieldDefinition
                 {
                     Key = leaf.Item2,
-                    Label = property.DisplayName,
+                    Label = GetDisplayName(owner, property),
                     Description = property.Description,
                     IsReadOnly = property.IsReadOnly,
                     Owner = owner,
@@ -680,11 +684,12 @@ namespace Automation
         }
 
         private static bool TryGetReferencePart(
+            object owner,
             PropertyDescriptor property,
             out string baseLabel,
             out InspectorValueReferenceKind kind)
         {
-            string label = property.DisplayName ?? string.Empty;
+            string label = GetDisplayName(owner, property) ?? string.Empty;
             var suffixes = new[]
             {
                 Tuple.Create("索引二级", InspectorValueReferenceKind.Index2),
@@ -705,6 +710,18 @@ namespace Automation
             baseLabel = null;
             kind = InspectorValueReferenceKind.Name;
             return false;
+        }
+
+        private static string GetDisplayName(
+            object owner,
+            PropertyDescriptor property)
+        {
+            string defaultDisplayName = property?.DisplayName ?? string.Empty;
+            return owner is OperationType operation
+                ? operation.GetPropertyDisplayName(
+                    property?.Name,
+                    defaultDisplayName)
+                : defaultDisplayName;
         }
 
         private static InspectorSectionDefinition GetOrAddSection(
@@ -788,13 +805,13 @@ namespace Automation
                                 priority = 55;
                                 break;
                             case nameof(OperationType.AlarmType):
-                                priority = -90;
+                                priority = 35;
                                 break;
                             case nameof(OperationType.AlarmInfoId):
                             case nameof(OperationType.Goto1):
                             case nameof(OperationType.Goto2):
                             case nameof(OperationType.Goto3):
-                                priority = -85;
+                                priority = 36;
                                 break;
                         }
                         if (instance is ParamGoto)
@@ -884,7 +901,21 @@ namespace Automation
                 string.Equals(section.Key, "参数", StringComparison.Ordinal));
             if (target == null && fragments.Count < 2)
             {
-                return;
+                // 一个只有单字段的小分类同样会造成视觉碎片；已有明确业务主区域时，
+                // 将其并入主区域，而不是为一行内容单独保留标题。
+                target = sections
+                    .Where(section =>
+                        !IsSystemSection(section)
+                        && !fragments.Contains(section)
+                        && section.Fields.Any(field =>
+                            !(field is InspectorCollectionFieldDefinition)))
+                    .OrderBy(section => section.Priority)
+                    .ThenBy(section => sections.IndexOf(section))
+                    .FirstOrDefault();
+                if (target == null)
+                {
+                    return;
+                }
             }
             if (target == null)
             {
@@ -917,6 +948,16 @@ namespace Automation
 
         private static bool IsVisible(object instance, PropertyDescriptor descriptor)
         {
+            if (instance is OperationType
+                && (string.Equals(descriptor.Name, nameof(OperationType.Id), StringComparison.Ordinal)
+                    || string.Equals(descriptor.Name, nameof(OperationType.AiKey), StringComparison.Ordinal)
+                    || string.Equals(descriptor.Name, nameof(OperationType.Num), StringComparison.Ordinal)
+                    || string.Equals(descriptor.Name, nameof(OperationType.OperaType), StringComparison.Ordinal)))
+            {
+                // 这些是系统身份或已由 Inspector 标题承载的字段。即使旧的动态
+                // Attribute 修改污染了 TypeDescriptor，也不能把它们暴露成业务参数。
+                return false;
+            }
             bool visible = InspectorOperationPresentationPolicy.IsVisible(
                 instance,
                 descriptor,

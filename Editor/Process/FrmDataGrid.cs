@@ -877,9 +877,16 @@ namespace Automation
                 return;
             }
 
-            Enable_Click(sender, EventArgs.Empty);
-            string enableAction = dataItem.Disable ? "已禁用" : "已启用";
-            string enableOpName = string.IsNullOrWhiteSpace(dataItem.Name) ? "未命名" : dataItem.Name;
+            if (!TryToggleSelectedOperationDisabled())
+            {
+                return;
+            }
+
+            OperationType updatedOperation = Workspace.ProcessDefinitions[
+                Workspace.ProcessSelection.ProcIndex].steps[
+                Workspace.ProcessSelection.StepIndex].Ops[iSelectedRow];
+            string enableAction = updatedOperation?.Disable == true ? "已禁用" : "已启用";
+            string enableOpName = string.IsNullOrWhiteSpace(updatedOperation?.Name) ? "未命名" : updatedOperation.Name;
             if (Workspace.Info != null && !Workspace.Info.IsDisposed)
             {
                 Workspace.Info.PrintInfo($"快捷键：{Workspace.ProcessSelection.ProcIndex}-{Workspace.ProcessSelection.StepIndex}-{iSelectedRow} {enableOpName} {enableAction}", FrmInfo.Level.Normal);
@@ -1289,7 +1296,6 @@ namespace Automation
             if (dataGridView1.GetSelectedIndexes().Count == 0)
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? dataGridView1.OperationCount : iSelectedRow + 1 };
-            OperationTemp.RefleshPropertyAlarm();
             Workspace.Inspector.ShowObject(OperationTemp);
             Workspace.Runtime.Editor.IsAddingOperations = true;
             BeginOperationEditSession(true);
@@ -1406,7 +1412,6 @@ namespace Automation
             OperationTemp = (OperationType)selectedOperation.Clone();
             EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
             OperationTemp.RefreshInspector?.Invoke();
-            TypeDescriptor.Refresh(OperationTemp);
             BeginOperationEditSession(false);
             Workspace.Proc.Enabled = false;
         }
@@ -1606,7 +1611,23 @@ namespace Automation
             }
             else if (e.Button == MouseButtons.Left && rowIndex >= 0)
             {
+                Keys selectionModifiers = ModifierKeys & (Keys.Control | Keys.Shift);
+                if (selectionModifiers == Keys.None)
+                {
+                    // 在任何 Inspector 构建和跳转关系绘制之前先提交选中状态，
+                    // 保证鼠标按下这一帧就能看到目标行，不等待 MouseUp。
+                    dataGridView1.SelectSingle(rowIndex);
+                }
                 iSelectedRow = rowIndex;
+                if (editorWorkspace?.Proc != null
+                    && editorWorkspace.Inspector != null
+                    && !editorWorkspace.Inspector.IsDisposed)
+                {
+                    // 鼠标按下时直接呈现目标指令；原生 SelectedIndexChanged
+                    // 仍负责键盘、多选等最终状态校正。
+                    dataGridView1.Update();
+                    ShowOperationProperties(rowIndex);
+                }
             }
             if (ModifierKeys == Keys.Alt && e.Button == MouseButtons.Left)
             {
@@ -1717,8 +1738,7 @@ namespace Automation
             {
                 EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
                 OperationTemp.RefreshInspector?.Invoke();
-                TypeDescriptor.Refresh(OperationTemp);
-                inspector.ShowObject(OperationTemp);
+                inspector.ShowObject(OperationTemp, true);
             }
             finally
             {
@@ -1837,19 +1857,28 @@ namespace Automation
 
         private void Enable_Click(object sender, EventArgs e)
         {
+            TryToggleSelectedOperationDisabled();
+        }
+
+        private bool TryToggleSelectedOperationDisabled()
+        {
             int procIndex = Workspace.ProcessSelection.ProcIndex;
             int stepIndex = Workspace.ProcessSelection.StepIndex;
             if (iSelectedRow >= 0 && procIndex >= 0 && stepIndex >= 0)
             {
-                if (!Workspace.Runtime.OperationEditing.TryToggleDisabled(
+                if (Workspace.Runtime.OperationEditing.TryToggleDisabled(
                     procIndex, stepIndex, iSelectedRow, out string commitError))
                 {
-                    if (!string.IsNullOrWhiteSpace(commitError))
-                    {
-                        MessageBox.Show(commitError, "更新指令状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(commitError))
+                {
+                    MessageBox.Show(commitError, "更新指令状态失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
+
+            return false;
         }
 
         private void CProgramCopy_Click(object sender, EventArgs e)

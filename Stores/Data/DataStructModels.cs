@@ -146,4 +146,68 @@ namespace Automation
             Volatile.Write(ref hasValue, 1);
         }
     }
+
+    internal sealed class DataStructFieldRuntimeBinding
+    {
+        internal DataStructFieldRuntimeBinding(
+            int structIndex,
+            int itemIndex,
+            DataStructItem item,
+            DataStructRuntimeState state,
+            DataStructFieldSlot field)
+        {
+            StructIndex = structIndex;
+            ItemIndex = itemIndex;
+            Item = item;
+            State = state;
+            Field = field;
+        }
+
+        internal int StructIndex { get; }
+
+        internal int ItemIndex { get; }
+
+        internal int FieldIndex => Field.Index;
+
+        internal DataStructValueType ValueType => Field.ValueType;
+
+        internal DataStructItem Item { get; }
+
+        internal DataStructRuntimeState State { get; }
+
+        internal DataStructFieldSlot Field { get; }
+    }
+
+    internal readonly struct DataStructFieldRuntimeValue
+    {
+        private DataStructFieldRuntimeValue(
+            DataStructFieldRuntimeBinding binding,
+            double number,
+            string text)
+        {
+            Binding = binding;
+            Number = number;
+            Text = text;
+        }
+
+        internal DataStructFieldRuntimeBinding Binding { get; }
+
+        internal double Number { get; }
+
+        internal string Text { get; }
+
+        internal static DataStructFieldRuntimeValue FromNumber(
+            DataStructFieldRuntimeBinding binding,
+            double value)
+        {
+            return new DataStructFieldRuntimeValue(binding, value, null);
+        }
+
+        internal static DataStructFieldRuntimeValue FromText(
+            DataStructFieldRuntimeBinding binding,
+            string value)
+        {
+            return new DataStructFieldRuntimeValue(binding, 0, value);
+        }
+    }
 }

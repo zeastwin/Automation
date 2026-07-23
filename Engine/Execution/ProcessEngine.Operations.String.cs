@@ -43,10 +43,17 @@ namespace Automation
             if (binding == null
                 && !(evt?.Proc != null
                     ? ProcessRuntimeBinder.TryBind(
-                        evt.Proc, evt.procNum, valueStore, out bindError)
+                        evt.Proc,
+                        evt.procNum,
+                        valueStore,
+                        Context?.DataStructStore,
+                        out bindError)
                     : ProcessRuntimeBinder.TryBindStandalone(
                         evt?.procId ?? Guid.Empty,
-                        valueStore, stringFormat, out bindError)))
+                        valueStore,
+                        Context?.DataStructStore,
+                        stringFormat,
+                        out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "字符串格式化运行计划未编译");
             }
@@ -56,20 +63,58 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, "字符串格式化运行计划未编译");
             }
-            var values = new string[binding.Sources.Length];
-            for (int i = 0; i < binding.Sources.Length; i++)
+            object firstValue = null;
+            object secondValue = null;
+            object thirdValue = null;
+            object[] values = null;
+            if (binding.Sources.Length <= 3)
             {
-                if (!binding.Sources[i].TryResolveValue(
-                        valueStore, "源变量", evt.procId,
-                        out DicValue sourceItem, out string sourceResolveError))
+                firstValue = ResolveStringFormatArgument(
+                    evt, valueStore, binding.Sources[0], 0);
+                if (binding.Sources.Length >= 2)
                 {
-                    throw CreateAlarmException(evt, sourceResolveError);
+                    secondValue = ResolveStringFormatArgument(
+                        evt, valueStore, binding.Sources[1], 1);
                 }
-                values[i] = sourceItem.Value ?? string.Empty;
+                if (binding.Sources.Length == 3)
+                {
+                    thirdValue = ResolveStringFormatArgument(
+                        evt, valueStore, binding.Sources[2], 2);
+                }
+            }
+            else
+            {
+                values = new object[binding.Sources.Length];
+                for (int i = 0; i < binding.Sources.Length; i++)
+                {
+                    values[i] = ResolveStringFormatArgument(
+                        evt, valueStore, binding.Sources[i], i);
+                }
             }
             try
             {
-                string formattedStr = string.Format(stringFormat.Format, values);
+                string formattedStr;
+                switch (binding.Sources.Length)
+                {
+                    case 1:
+                        formattedStr = string.Format(
+                            stringFormat.Format, firstValue);
+                        break;
+                    case 2:
+                        formattedStr = string.Format(
+                            stringFormat.Format,
+                            firstValue, secondValue);
+                        break;
+                    case 3:
+                        formattedStr = string.Format(
+                            stringFormat.Format,
+                            firstValue, secondValue, thirdValue);
+                        break;
+                    default:
+                        formattedStr = string.Format(
+                            stringFormat.Format, values);
+                        break;
+                }
                 if (!binding.Output.TryResolveValue(
                         valueStore, "存储变量", evt.procId,
                         out DicValue outputItem, out string outputResolveError))
@@ -93,6 +138,24 @@ namespace Automation
 
         }
 
+        private string ResolveStringFormatArgument(
+            ProcHandle evt,
+            ValueConfigStore valueStore,
+            ValueRef source,
+            int parameterIndex)
+        {
+            if (!source.TryResolveValue(
+                    valueStore,
+                    $"源变量[{parameterIndex}]",
+                    evt?.procId ?? Guid.Empty,
+                    out DicValue sourceItem,
+                    out string error))
+            {
+                throw CreateAlarmException(evt, error);
+            }
+            return sourceItem.Value ?? string.Empty;
+        }
+
         public bool RunSplit(ProcHandle evt, Split split)
         {
             ValueConfigStore valueStore = Context?.ValueStore;
@@ -107,10 +170,17 @@ namespace Automation
             if (binding == null
                 && !(evt?.Proc != null
                     ? ProcessRuntimeBinder.TryBind(
-                        evt.Proc, evt.procNum, valueStore, out bindError)
+                        evt.Proc,
+                        evt.procNum,
+                        valueStore,
+                        Context?.DataStructStore,
+                        out bindError)
                     : ProcessRuntimeBinder.TryBindStandalone(
                         evt?.procId ?? Guid.Empty,
-                        valueStore, split, out bindError)))
+                        valueStore,
+                        Context?.DataStructStore,
+                        split,
+                        out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "字符串分割运行计划未编译");
             }
@@ -185,10 +255,17 @@ namespace Automation
             if (binding == null
                 && !(evt?.Proc != null
                     ? ProcessRuntimeBinder.TryBind(
-                        evt.Proc, evt.procNum, valueStore, out bindError)
+                        evt.Proc,
+                        evt.procNum,
+                        valueStore,
+                        Context?.DataStructStore,
+                        out bindError)
                     : ProcessRuntimeBinder.TryBindStandalone(
                         evt?.procId ?? Guid.Empty,
-                        valueStore, replace, out bindError)))
+                        valueStore,
+                        Context?.DataStructStore,
+                        replace,
+                        out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "字符串替换运行计划未编译");
             }

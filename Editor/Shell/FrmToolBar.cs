@@ -95,7 +95,7 @@ namespace Automation
             ConfigureButton(btnPause, UiIconKind.Pause, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnContinue, UiIconKind.Run, 44, UiPalette.Success, UiPalette.Surface, UiPalette.SuccessSoft);
             ConfigureButton(btnStop, UiIconKind.Stop, 44, UiPalette.Danger, UiPalette.Surface, UiPalette.DangerSoft);
-            ConfigureButton(SingleRun, UiIconKind.Step, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(SingleRun, UiIconKind.Step, 44, UiPalette.Brand, UiPalette.Surface, UiPalette.BrandSoft);
             ConfigureButton(btnLocate, UiIconKind.Locate, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnDataBreakpoints, UiIconKind.Breakpoint, 44, UiPalette.Breakpoint, UiPalette.Surface, UiPalette.BreakpointSoft);
             ConfigureButton(btnAlarm, UiIconKind.Alarm, 44, UiPalette.Warning, UiPalette.Surface, UiPalette.WarningSoft);
@@ -112,7 +112,7 @@ namespace Automation
             ConfigureIconOnlyButton(btnUndo, "撤销（Ctrl+Z）");
             ConfigureIconOnlyButton(btnRedo, "重做（Ctrl+Y）");
             ConfigureIconOnlyButton(btnPause, "暂停");
-            ConfigureIconOnlyButton(btnContinue, "继续运行");
+            ConfigureIconOnlyButton(btnContinue, "全速运行");
             ConfigureIconOnlyButton(btnStop, "停止");
             ConfigureIconOnlyButton(SingleRun, "单步");
             ConfigureIconOnlyButton(btnLocate, "定位");
@@ -181,7 +181,8 @@ namespace Automation
 
             btnPause.Enabled = state == ProcRunState.Running
                 || state == ProcRunState.Alarming;
-            btnContinue.Enabled = state == ProcRunState.SingleStep;
+            btnContinue.Enabled = state == ProcRunState.Paused
+                || state == ProcRunState.SingleStep;
             SingleRun.Enabled = state == ProcRunState.SingleStep;
             btnStop.Enabled = !state.IsInactive();
         }
@@ -493,12 +494,15 @@ namespace Automation
                 return;
             }
             EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
-            if (snapshot == null || snapshot.State != ProcRunState.SingleStep)
+            if (snapshot == null
+                || (snapshot.State != ProcRunState.Paused
+                    && snapshot.State != ProcRunState.SingleStep))
             {
                 ApplyProcessRunState(snapshot?.State ?? ProcRunState.Ready);
                 return;
             }
 
+            ProcRunState expectedState = snapshot.State;
             Proc proc = null;
             if (Workspace.Proc?.procsList != null
                 && procIndex >= 0
@@ -553,7 +557,7 @@ namespace Automation
                 }
                 EngineSnapshot current = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
                 if (current == null
-                    || current.State != ProcRunState.SingleStep
+                    || current.State != expectedState
                     || current.RunId != snapshot.RunId
                     || current.StepIndex != stepIndex
                     || current.OpIndex != opIndex)

@@ -119,7 +119,11 @@ namespace Automation
             string bindError = null;
             if (binding == null && (evt?.Proc == null
                 || !ProcessRuntimeBinder.TryBind(
-                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+                    evt.Proc,
+                    evt.procNum,
+                    Context?.ValueStore,
+                    Context?.DataStructStore,
+                    out bindError)))
             {
                 MarkAlarm(evt, bindError ?? "等待流程运行计划未编译");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -304,7 +308,11 @@ namespace Automation
             string bindError = null;
             if (binding == null && (evt?.Proc == null
                 || !ProcessRuntimeBinder.TryBind(
-                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+                    evt.Proc,
+                    evt.procNum,
+                    Context?.ValueStore,
+                    Context?.DataStructStore,
+                    out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "跳转运行计划未编译");
             }
@@ -381,7 +389,11 @@ namespace Automation
             string bindError = null;
             if (binding == null && (evt?.Proc == null
                 || !ProcessRuntimeBinder.TryBind(
-                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+                    evt.Proc,
+                    evt.procNum,
+                    Context?.ValueStore,
+                    Context?.DataStructStore,
+                    out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "逻辑判断运行计划未编译");
             }

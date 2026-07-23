@@ -29,7 +29,7 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            this.proc_treeView = new System.Windows.Forms.TreeView();
+            this.proc_treeView = new Automation.ProcessTreeView();
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.AddProc = new System.Windows.Forms.ToolStripMenuItem();
             this.AddStep = new System.Windows.Forms.ToolStripMenuItem();

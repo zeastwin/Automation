@@ -909,12 +909,13 @@ namespace Automation
         public bool TryModifyValueByIndex(int index, Func<string, string> updater, out string error, string source = null)
         {
             return TryModifyValueByIndexCore(
-                index, updater, null, null, null,
+                index, null, updater, null, null, null,
                 false, false, out error, source);
         }
 
         internal bool TryModifyValueByIndex(
             int index,
+            DicValue expected,
             string sourceValue,
             string changeValue,
             bool sourceFromCurrent,
@@ -924,12 +925,92 @@ namespace Automation
             string source = null)
         {
             return TryModifyValueByIndexCore(
-                index, null, updater, sourceValue, changeValue,
+                index, expected, null, updater, sourceValue, changeValue,
                 sourceFromCurrent, changeFromCurrent, out error, source);
+        }
+
+        internal bool TryModifyNumberByIndex(
+            int index,
+            DicValue expected,
+            double sourceValue,
+            double changeValue,
+            bool sourceFromCurrent,
+            bool changeFromCurrent,
+            Func<double, double, double> updater,
+            out string error,
+            string source = null)
+        {
+            error = null;
+            if (index < 0 || index >= ValueCapacity)
+            {
+                error = $"索引超出范围:{index}";
+                return false;
+            }
+            if (updater == null)
+            {
+                error = "更新函数为空";
+                return false;
+            }
+            DicValue value = values[index];
+            if (value == null
+                || expected != null && !ReferenceEquals(value, expected)
+                || string.IsNullOrEmpty(value.Name))
+            {
+                error = expected == null
+                    ? $"未找到索引变量:{index}"
+                    : $"预绑定变量已失效:索引{index}";
+                return false;
+            }
+            string current;
+            string updated;
+            long changeSequence;
+            lock (value.SyncRoot)
+            {
+                if (!ReferenceEquals(values[index], value)
+                    || string.IsNullOrEmpty(value.Name))
+                {
+                    error = $"预绑定变量已失效:索引{index}";
+                    return false;
+                }
+                current = value.Value;
+                try
+                {
+                    double currentNumber = value.GetDValue();
+                    double result = updater(
+                        sourceFromCurrent ? currentNumber : sourceValue,
+                        changeFromCurrent ? currentNumber : changeValue);
+                    updated = result.ToString();
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    return false;
+                }
+                if (string.Equals(current, updated, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+                if (!TryValidateCurrentValue(
+                        value,
+                        updated,
+                        out error,
+                        out bool hasParsedDouble,
+                        out double parsedDouble))
+                {
+                    return false;
+                }
+                value.SetValidatedValue(
+                    updated, hasParsedDouble, parsedDouble);
+                changeSequence = value.AdvanceChangeSequenceNoLock();
+            }
+            RaiseValueChanged(
+                value, current, updated, source, changeSequence);
+            return true;
         }
 
         private bool TryModifyValueByIndexCore(
             int index,
+            DicValue expected,
             Func<string, string> unaryUpdater,
             Func<string, string, string> binaryUpdater,
             string sourceValue,
@@ -951,9 +1032,13 @@ namespace Automation
                 return false;
             }
             DicValue value = values[index];
-            if (value == null || string.IsNullOrEmpty(value.Name))
+            if (value == null
+                || expected != null && !ReferenceEquals(value, expected)
+                || string.IsNullOrEmpty(value.Name))
             {
-                error = $"未找到索引变量:{index}";
+                error = expected == null
+                    ? $"未找到索引变量:{index}"
+                    : $"预绑定变量已失效:索引{index}";
                 return false;
             }
             string current;
@@ -961,9 +1046,12 @@ namespace Automation
             long changeSequence;
             lock (value.SyncRoot)
             {
-                if (string.IsNullOrEmpty(value.Name))
+                if (!ReferenceEquals(values[index], value)
+                    || string.IsNullOrEmpty(value.Name))
                 {
-                    error = $"未找到索引变量:{index}";
+                    error = expected == null
+                        ? $"未找到索引变量:{index}"
+                        : $"预绑定变量已失效:索引{index}";
                     return false;
                 }
                 current = value.Value;

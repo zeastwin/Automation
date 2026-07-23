@@ -22,6 +22,9 @@ namespace Automation
         private const int WmSetRedraw = 0x000B;
         private const int TvmSetExtendedStyle = 0x112C;
         private const int TvsExDoubleBuffer = 0x0004;
+        private const int VariableToolbarHeight = 44;
+        private const int VariableToolbarButtonHeight = 32;
+        private const int PreferredSidePanelWidth = 320;
 
         private sealed class CommonValueItem
         {
@@ -399,14 +402,12 @@ namespace Automation
         private bool isValueEditValid = true;
         private bool isScopeFilterPending;
         private bool refreshScopeTreePending;
-        private bool isScopeSelectionApplyPending;
         private bool suppressScopeSelectionChanged;
         private bool suppressCommonSelectionChanged;
         private bool hasVariableSnapshot;
         private bool variableGridRowsInitialized;
         private bool isRebuildingVariableRows;
-        private bool configurationRefreshPending;
-        private bool visibleRefreshScheduled;
+        private bool preparedForDisplay;
         private int variableGridPresentationVersion = 1;
         private string appliedGridScopeKey;
         private int variableGridUpdateDepth;
@@ -471,13 +472,13 @@ namespace Automation
             commonViewHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 4, 0, 0),
+                Padding = Padding.Empty,
                 BackColor = UiPalette.Surface
             };
             dataStructViewHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 4, 0, 0),
+                Padding = Padding.Empty,
                 BackColor = UiPalette.Surface
             };
             lblCommonEmpty = new Label
@@ -519,7 +520,7 @@ namespace Automation
 
             btnNormalVariables.Text = "新增变量";
             btnSystemVariables.Visible = false;
-            btnClearSearch = new MaterialButton { Text = "×" };
+            btnClearSearch = new MaterialButton { Text = "×", Visible = false };
             txtVariableSearch = new TextBox();
             lblEmptyState = new Label();
             uiToolTip = new ToolTip
@@ -576,7 +577,7 @@ namespace Automation
             splitContainerMain.Panel2.SuspendLayout();
 
             panel1.Controls.Clear();
-            panel1.Height = 56;
+            panel1.Height = VariableToolbarHeight;
             panel1.Padding = Padding.Empty;
 
             var actions = new FlowLayoutPanel
@@ -590,12 +591,12 @@ namespace Automation
                 Padding = Padding.Empty
             };
 
-            ConfigureToolbarButton(btnMonitorAdd, "加入监控", 96);
-            ConfigureToolbarButton(btnAddCommon, "加入常用", 96);
-            ConfigureToolbarButton(btnMonitor, "监控记录", 96);
-            ConfigureToolbarButton(btnCopy, "复制", 68);
-            ConfigureToolbarButton(btnPaste, "粘贴", 68);
-            ConfigureToolbarButton(btnClearData, "清空变量", 92);
+            ConfigureToolbarButton(btnMonitorAdd, "加入监控", 88);
+            ConfigureToolbarButton(btnAddCommon, "加入常用", 88);
+            ConfigureToolbarButton(btnMonitor, "监控记录", 88);
+            ConfigureToolbarButton(btnCopy, "复制", 62);
+            ConfigureToolbarButton(btnPaste, "粘贴", 62);
+            ConfigureToolbarButton(btnClearData, "清空变量", 86);
 
             actions.Controls.Add(btnMonitorAdd);
             actions.Controls.Add(btnAddCommon);
@@ -613,11 +614,11 @@ namespace Automation
             var searchPanel = new Panel
             {
                 Dock = DockStyle.Right,
-                Width = 340,
-                Padding = new Padding(10, 0, 0, 0),
+                Width = 316,
+                Padding = new Padding(8, 0, 0, 0),
                 BackColor = UiPalette.Surface
             };
-            ConfigureToolbarButton(btnSearch, "搜索", 72);
+            ConfigureToolbarButton(btnSearch, "搜索", 64);
             btnSearch.Dock = DockStyle.Right;
             btnSearch.Margin = Padding.Empty;
 
@@ -664,7 +665,8 @@ namespace Automation
             {
                 Dock = DockStyle.Right,
                 Width = 50,
-                Padding = new Padding(8, 4, 4, 6),
+                Margin = Padding.Empty,
+                Padding = new Padding(8, 0, 4, 0),
                 BackColor = UiPalette.Surface
             };
             workspaceWindowButton.Dock = DockStyle.Fill;
@@ -678,15 +680,16 @@ namespace Automation
                 Margin = Padding.Empty,
                 BackColor = UiPalette.Surface
             };
-            ConfigureToolbarButton(btnShowCommon, "常用变量", 98);
-            ConfigureToolbarButton(btnShowDataStruct, "数据结构", 98);
+            ConfigureToolbarButton(btnShowCommon, "常用变量", 92);
+            ConfigureToolbarButton(btnShowDataStruct, "数据结构", 92);
             sideViewHeader.Controls.Add(btnShowCommon);
             sideViewHeader.Controls.Add(btnShowDataStruct);
 
             var leftToolbarHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 8, 0, 8),
+                Margin = Padding.Empty,
+                Padding = new Padding(12, 6, 0, 6),
                 BackColor = UiPalette.Surface
             };
             var leftToolbarContent = new Panel
@@ -705,13 +708,13 @@ namespace Automation
                 ColumnCount = 3,
                 RowCount = 1,
                 Margin = Padding.Empty,
-                Padding = new Padding(0, 8, 12, 8),
+                Padding = new Padding(0, 6, 12, 6),
                 BackColor = UiPalette.Surface,
                 GrowStyle = TableLayoutPanelGrowStyle.FixedSize
             };
             rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50F));
-            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 208F));
+            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46F));
+            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 196F));
             rightToolbarHost.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             rightToolbarHost.Controls.Add(windowButtonHost, 1, 0);
             rightToolbarHost.Controls.Add(sideViewHeader, 2, 0);
@@ -747,7 +750,7 @@ namespace Automation
 
             panelCommon.Controls.Clear();
             panelCommon.Width = 180;
-            panelCommon.Padding = new Padding(6, 0, 6, 8);
+            panelCommon.Padding = new Padding(6, 0, 6, 6);
             panelCommon.BackColor = UiPalette.SurfaceSubtle;
 
             panelCommon.Controls.Add(scopeTree);
@@ -755,7 +758,7 @@ namespace Automation
             var gridHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 10, 12, 12),
+                Padding = new Padding(12, 4, 12, 8),
                 BackColor = UiPalette.Surface
             };
             var scopeSplitter = new Splitter
@@ -905,8 +908,8 @@ namespace Automation
         {
             button.Text = text;
             button.Width = width;
-            button.Height = 40;
-            button.Margin = new Padding(3, 0, 3, 0);
+            button.Height = VariableToolbarButtonHeight;
+            button.Margin = new Padding(2, 0, 2, 0);
             button.Anchor = AnchorStyles.None;
             button.Cursor = Cursors.Hand;
         }
@@ -1173,13 +1176,7 @@ namespace Automation
         //刷新变量界面
         public void FreshFrmValue()
         {
-            if (!Visible && isValueGridReady)
-            {
-                configurationRefreshPending = true;
-                return;
-            }
-            configurationRefreshPending = false;
-            bool allowRefresh = isValueGridReady;
+            bool allowRefresh = isValueGridReady || !variableGridRowsInitialized;
             isValueGridReady = false;
             BeginVariableGridUpdate();
             try
@@ -1594,18 +1591,14 @@ namespace Automation
             if (suppressScopeSelectionChanged) return;
             if (!(e.Node?.Tag is VariableScopeSelection selection)) return;
 
-            if (!isScopeSelectionApplyPending)
-            {
-                SaveVariableGridViewState();
-            }
+            SaveVariableGridViewState();
             selectedScope = selection.Scope;
             selectedOwnerProcId = selection.OwnerProcId;
 
-            // AfterSelect运行在鼠标消息内部。先完成树节点绘制，再把表格筛选放到下一条UI消息，
-            // 避免1200行显隐处理阻塞左侧选中反馈。
+            // 先画出选中节点，再在同一轮完成筛选，避免树和表格出现先后跳变。
             scopeTree.Invalidate();
             scopeTree.Update();
-            ScheduleScopeSelectionApply();
+            ApplyScopeSelection();
         }
 
         private void ScopeTree_MouseMove(object sender, MouseEventArgs e)
@@ -1648,38 +1641,22 @@ namespace Automation
                 scopeTree.ItemHeight));
         }
 
-        private void ScheduleScopeSelectionApply()
+        private void ApplyScopeSelection()
         {
-            if (isScopeSelectionApplyPending || IsDisposed || Disposing || !IsHandleCreated)
+            if (IsDisposed || Disposing)
             {
                 return;
             }
-            isScopeSelectionApplyPending = true;
+            BeginVariableGridUpdate();
             try
             {
-                BeginInvoke((Action)(() =>
-                {
-                    isScopeSelectionApplyPending = false;
-                    if (IsDisposed || Disposing || !Visible)
-                    {
-                        return;
-                    }
-                    BeginVariableGridUpdate();
-                    try
-                    {
-                        ApplyScopeFilter();
-                        RestoreVariableGridViewState();
-                        RefreshDisplayedRuntimeValues();
-                    }
-                    finally
-                    {
-                        EndVariableGridUpdate();
-                    }
-                }));
+                ApplyScopeFilter();
+                RestoreVariableGridViewState();
+                RefreshDisplayedRuntimeValues();
             }
-            catch (InvalidOperationException)
+            finally
             {
-                isScopeSelectionApplyPending = false;
+                EndVariableGridUpdate();
             }
         }
 
@@ -1967,12 +1944,41 @@ namespace Automation
         private void FrmValue_Load(object sender, EventArgs e)
         {
             EnsureValueStoreHooked();
-            selectedScope = AllVariableScopes;
-            selectedOwnerProcId = null;
-            RefreshScopeTree();
-            ApplyScopeFilter();
+            if (!isValueGridReady)
+            {
+                selectedScope = AllVariableScopes;
+                selectedOwnerProcId = null;
+                RefreshFromStore();
+            }
             AttachDataStructView();
             SetDefaultStructPanelRatio();
+        }
+
+        internal void PrepareForDisplay()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            try
+            {
+                AttachDataStructView();
+                Workspace.DataStruct?.RefreshDataSturctTree();
+                FreshFrmValue();
+            }
+            catch (Exception ex)
+            {
+                lblEmptyState.Text = "变量加载失败，请查看运行信息";
+                lblEmptyState.Visible = true;
+                lblEmptyState.BringToFront();
+                Workspace.Info?.PrintInfo(
+                    $"变量界面刷新失败：{ex.Message}",
+                    FrmInfo.Level.Error);
+            }
+            finally
+            {
+                preparedForDisplay = true;
+            }
         }
 
         protected override void OnVisibleChanged(EventArgs e)
@@ -1983,76 +1989,12 @@ namespace Automation
                 runtimeValueRefreshTimer?.Stop();
                 return;
             }
-            if (configurationRefreshPending
-                || !hasVariableSnapshot
-                || !variableGridRowsInitialized)
+            if (!preparedForDisplay)
             {
-                ScheduleVisibleRefresh();
-                return;
+                PrepareForDisplay();
             }
-            RefreshViewportRows();
-            RefreshDisplayedRuntimeValues();
+            preparedForDisplay = false;
             runtimeValueRefreshTimer?.Start();
-            if (IsHandleCreated)
-            {
-                BeginInvoke((Action)(() =>
-                {
-                    if (!IsDisposed && !Disposing && Visible)
-                    {
-                        RefreshViewportRows();
-                    }
-                }));
-            }
-        }
-
-        private void ScheduleVisibleRefresh()
-        {
-            if (visibleRefreshScheduled || !Visible || IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return;
-            }
-            visibleRefreshScheduled = true;
-            lblEmptyState.Text = "正在加载变量...";
-            lblEmptyState.Visible = true;
-            lblEmptyState.BringToFront();
-            panel1.Enabled = false;
-            scopeTree.Enabled = false;
-            try
-            {
-                BeginInvoke((Action)(() =>
-                {
-                    visibleRefreshScheduled = false;
-                    if (!Visible || IsDisposed || Disposing)
-                    {
-                        panel1.Enabled = true;
-                        scopeTree.Enabled = true;
-                        return;
-                    }
-                    try
-                    {
-                        FreshFrmValue();
-                    }
-                    catch (Exception ex)
-                    {
-                        lblEmptyState.Text = "变量加载失败，请查看运行信息";
-                        lblEmptyState.Visible = true;
-                        lblEmptyState.BringToFront();
-                        Workspace.Info?.PrintInfo($"变量界面刷新失败：{ex.Message}", FrmInfo.Level.Error);
-                    }
-                    finally
-                    {
-                        panel1.Enabled = true;
-                        scopeTree.Enabled = true;
-                        runtimeValueRefreshTimer?.Start();
-                    }
-                }));
-            }
-            catch (InvalidOperationException)
-            {
-                visibleRefreshScheduled = false;
-                panel1.Enabled = true;
-                scopeTree.Enabled = true;
-            }
         }
 
         private void RefreshDisplayedRuntimeValues()
@@ -2139,7 +2081,9 @@ namespace Automation
             {
                 return;
             }
-            int targetLeftWidth = (int)(splitContainerMain.Width * 0.75);
+            int targetLeftWidth = splitContainerMain.Width
+                - PreferredSidePanelWidth
+                - splitContainerMain.SplitterWidth;
             int minLeftWidth = splitContainerMain.Panel1MinSize;
             int maxLeftWidth = splitContainerMain.Width - splitContainerMain.Panel2MinSize - splitContainerMain.SplitterWidth;
             if (targetLeftWidth < minLeftWidth)
@@ -3145,6 +3089,7 @@ namespace Automation
             }
             if (listCommon.SelectedItem is CommonValueItem item)
             {
+                listCommon.Update();
                 currentIndex = item.Index;
                 LocateValueIndex(item.Index);
             }

@@ -23,6 +23,7 @@ namespace Automation
         private bool showDropDownArrow;
         private bool pointerOver;
         private bool pointerDown;
+        private bool dropDownRequestedOnMouseDown;
 
         public InspectorValueCell()
         {
@@ -90,6 +91,8 @@ namespace Automation
             }
         }
 
+        internal bool OpenDropDownOnMouseDown { get; set; }
+
         public event EventHandler ActivationRequested;
         public event EventHandler DropDownRequested;
 
@@ -119,6 +122,7 @@ namespace Automation
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            dropDownRequestedOnMouseDown = false;
             if (Editable && e.Button == MouseButtons.Left)
             {
                 pointerDown = true;
@@ -126,14 +130,28 @@ namespace Automation
                 Invalidate();
             }
             base.OnMouseDown(e);
+            if (Editable
+                && OpenDropDownOnMouseDown
+                && ShowDropDownArrow
+                && e.Button == MouseButtons.Left
+                && e.X >= Width - 26
+                && DropDownRequested != null)
+            {
+                dropDownRequestedOnMouseDown = true;
+                pointerDown = false;
+                Invalidate();
+                DropDownRequested.Invoke(this, EventArgs.Empty);
+            }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             bool activate = Editable
+                && !dropDownRequestedOnMouseDown
                 && pointerDown
                 && e.Button == MouseButtons.Left
                 && ClientRectangle.Contains(e.Location);
+            dropDownRequestedOnMouseDown = false;
             pointerDown = false;
             Invalidate();
             base.OnMouseUp(e);

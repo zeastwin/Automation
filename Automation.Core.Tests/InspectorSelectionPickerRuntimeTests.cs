@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Forms;
 using Automation.Protocol;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -129,6 +130,127 @@ namespace Automation.Core.Tests
             Assert.IsTrue(popupBounds.Top >= workingArea.Top);
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void EnteringInspectorEditMode_PrewarmsPickerAndExitReleasesCache()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var view = new InspectorView { Dock = DockStyle.Fill })
+                using (var host = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(420, 560)
+                })
+                {
+                    var runtime = new PlatformRuntime(directory.FullPath);
+                    var variables = new Dictionary<string, DicValue>
+                    {
+                        ["预热变量"] = new DicValue
+                        {
+                            Id = Guid.NewGuid(),
+                            Index = 12,
+                            Name = "预热变量",
+                            Type = "double",
+                            Value = "0",
+                            Scope = VariableScopeContract.Public
+                        }
+                    };
+                    Assert.IsTrue(runtime.Stores.Values.TryCommitConfiguration(
+                        runtime.Paths.ConfigPath,
+                        variables,
+                        out string variableError), variableError);
+                    Assert.IsTrue(runtime.Stores.IoConfiguration.TryReplaceMap(
+                        new[]
+                        {
+                            new List<IO>
+                            {
+                                new IO
+                                {
+                                    Name = "预热输入IO",
+                                    IOType = "通用输入"
+                                }
+                            }
+                        },
+                        out string ioError), ioError);
+
+                    var operation = new ModifyValue();
+                    EditorServiceRegistry.AttachGraph(operation, runtime);
+                    host.Controls.Add(view);
+                    host.Show();
+                    view.SetObject(operation, true);
+                    Application.DoEvents();
+
+                    InspectorSelectionPickerPrewarmSession session =
+                        GetPrivateField<InspectorSelectionPickerPrewarmSession>(
+                            view,
+                            "selectionPickerPrewarmSession");
+                    Assert.IsTrue(session.PreparedCount > 0,
+                        "进入 Inspector 编辑态后应在首次点击前完成选择器预热。");
+
+                    PropertyDescriptor variableProperty =
+                        TypeDescriptor.GetProperties(operation)[
+                            nameof(ModifyValue.ValueSourceName)];
+                    InspectorSelectionPickerPanel prepared = session.Take(
+                        InspectorSelectionPickerKind.Variable,
+                        operation,
+                        variableProperty,
+                        null);
+                    Assert.IsNotNull(prepared);
+                    Assert.IsTrue(prepared.IsHandleCreated,
+                        "预热面板应提前创建控件句柄，点击时只需定位和显示。");
+                    prepared.Dispose();
+
+                    var ioGoto = new IoLogicGoto();
+                    EditorServiceRegistry.AttachGraph(ioGoto, runtime);
+                    view.SetObject(ioGoto, true);
+                    Application.DoEvents();
+
+                    IoLogicGotoParam ioParam = ioGoto.IoParams[0];
+                    PropertyDescriptor ioProperty =
+                        TypeDescriptor.GetProperties(ioParam)[
+                            nameof(IoLogicGotoParam.IoName)];
+                    using (InspectorSelectionPickerPanel ioPanel = session.Take(
+                        InspectorSelectionPickerKind.InputOutput,
+                        ioParam,
+                        ioProperty,
+                        null))
+                    {
+                        Assert.IsNotNull(ioPanel,
+                            "进入编辑态时应提前生成 IO 选择页。");
+                        Assert.IsTrue(ioPanel.IsHandleCreated);
+                    }
+
+                    PropertyDescriptor addressProperty =
+                        TypeDescriptor.GetProperties(ioGoto)[
+                            nameof(IoLogicGoto.TrueGoto)];
+                    using (InspectorSelectionPickerPanel addressPanel = session.Take(
+                        InspectorSelectionPickerKind.Address,
+                        ioGoto,
+                        addressProperty,
+                        null))
+                    {
+                        Assert.IsNotNull(addressPanel,
+                            "进入编辑态时应提前生成跳转地址选择页。");
+                        Assert.IsTrue(addressPanel.IsHandleCreated);
+                    }
+
+                    view.SetEditable(false);
+                    Assert.AreEqual(0, session.PreparedCount,
+                        "退出编辑态后应释放预热面板。");
+
+                    view.SetObject(ioGoto, true);
+                    Application.DoEvents();
+                    Assert.IsTrue(session.PreparedCount > 0,
+                        "同一对象从只读态重新进入编辑态时应重新建立预热缓存。");
+                    view.SetEditable(false);
+                }
+            }, TimeSpan.FromSeconds(15));
+        }
+
         private static InspectorCollectionFieldControl CreateCollectionControl(
             ProcHead owner,
             string propertyName,
@@ -152,6 +274,17 @@ namespace Automation.Core.Tests
                 .OfType<InspectorIconButton>()
                 .Single(button => button.Text == "添加");
             addButton.PerformClick();
+        }
+
+        private static T GetPrivateField<T>(object owner, string fieldName)
+            where T : class
+        {
+            FieldInfo field = owner.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"未找到字段：{fieldName}");
+            return field.GetValue(owner) as T
+                ?? throw new InvalidOperationException($"字段类型不正确：{fieldName}");
         }
     }
 }

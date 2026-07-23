@@ -113,6 +113,16 @@ namespace Automation
             }
         }
 
+        public override void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
+        {
+            foreach (InspectorCollectionItemControl item in itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>())
+            {
+                item.PrewarmSelectionPickers(session);
+            }
+        }
+
         public override bool CanRebind(InspectorFieldDefinition next)
         {
             if (!base.CanRebind(next))
@@ -655,6 +665,15 @@ namespace Automation
             foreach (InspectorFieldControl field in fieldControls)
             {
                 field.EndEdit();
+            }
+        }
+
+        public void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
+        {
+            foreach (InspectorFieldControl field in fieldControls)
+            {
+                field.PrewarmSelectionPickers(session);
             }
         }
 

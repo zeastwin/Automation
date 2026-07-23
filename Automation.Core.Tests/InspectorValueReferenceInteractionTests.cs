@@ -160,6 +160,271 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void AllNativeOperations_PutBusinessParametersBeforeAlarmAndDebug()
+        {
+            foreach (OperationType operation in OperationDefinitionRegistry.CreateAll())
+            {
+                InspectorDocument document = InspectorDefinitionBuilder.Build(operation);
+                List<InspectorSectionDefinition> sections = document.Sections.ToList();
+                int alarmIndex = sections.FindIndex(section =>
+                    section.Key == "报警配置");
+                int debugIndex = sections.FindIndex(section =>
+                    section.Key == "运行与调试");
+                List<int> businessIndexes = sections
+                    .Select((section, index) => new { section, index })
+                    .Where(item => item.section.Key != "指令信息"
+                        && item.section.Key != "报警配置"
+                        && item.section.Key != "运行与调试")
+                    .Select(item => item.index)
+                    .ToList();
+
+                if (businessIndexes.Count > 0 && alarmIndex >= 0)
+                {
+                    Assert.IsTrue(
+                        businessIndexes.Max() < alarmIndex,
+                        $"{operation.OperaType} 的业务参数必须先于报警配置。");
+                }
+                if (alarmIndex >= 0 && debugIndex >= 0)
+                {
+                    Assert.IsTrue(
+                        alarmIndex < debugIndex,
+                        $"{operation.OperaType} 的报警配置必须先于运行与调试。");
+                }
+
+                string[] internalFields =
+                {
+                    nameof(OperationType.Id),
+                    nameof(OperationType.AiKey),
+                    nameof(OperationType.Num),
+                    nameof(OperationType.OperaType)
+                };
+                foreach (string internalField in internalFields)
+                {
+                    Assert.IsFalse(
+                        sections.SelectMany(section => section.Fields)
+                            .Any(field => string.Equals(
+                                field.Key?.Split('.')[0],
+                                internalField,
+                                StringComparison.Ordinal)),
+                        $"{operation.OperaType} 不应显示内部字段 {internalField}。");
+                }
+
+                List<InspectorSectionDefinition> businessSections = sections
+                    .Where(section => section.Key != "指令信息"
+                        && section.Key != "报警配置"
+                        && section.Key != "运行与调试")
+                    .ToList();
+                if (businessSections.Count > 1)
+                {
+                    Assert.IsFalse(
+                        businessSections.Any(section =>
+                            section.Fields.Count == 1
+                            && !(section.Fields[0]
+                                is InspectorCollectionFieldDefinition)),
+                        $"{operation.OperaType} 不应为单个普通字段单独划分区域。");
+                }
+            }
+
+            InspectorDocument plc = InspectorDefinitionBuilder.Build(new PlcReadWrite());
+            Assert.IsFalse(plc.Sections.Any(section => section.Key == "访问方式"),
+                "只有一个模式字段的访问方式不应单独占一个区域。");
+            Assert.IsTrue(plc.Sections
+                .Single(section => section.Key == "PLC参数")
+                .Fields.Any(field => field.Key == nameof(PlcReadWrite.Mode)));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void DynamicVisibility_IsScopedToCurrentOperationInstance()
+        {
+            var stopped = new Delay { AlarmType = "报警停止" };
+            var popupAlarm = new Delay
+            {
+                AlarmType = "弹框确定与否与取消"
+            };
+            Assert.IsFalse(InspectorDefinitionBuilder.Build(stopped).Sections
+                .SelectMany(section => section.Fields)
+                .Any(field => field.Key == nameof(OperationType.Goto1)));
+            Assert.IsTrue(InspectorDefinitionBuilder.Build(popupAlarm).Sections
+                .SelectMany(section => section.Fields)
+                .Any(field => field.Key == nameof(OperationType.Goto3)));
+
+            var defaultPopup = new PopupDialog();
+            defaultPopup.RefreshInspector?.Invoke();
+            var threeButtonPopup = new PopupDialog
+            {
+                PopupType = "弹是与否与取消",
+                InfoType = "变量类型",
+                AlarmLightEnable = "启用",
+                BuzzerTimeType = "自定义时间"
+            };
+            threeButtonPopup.RefreshInspector?.Invoke();
+            IReadOnlyList<string> defaultPopupFields =
+                InspectorDefinitionBuilder.Build(defaultPopup).Sections
+                    .SelectMany(section => section.Fields)
+                    .Select(field => field.Key)
+                    .ToList();
+            IReadOnlyList<string> threeButtonFields =
+                InspectorDefinitionBuilder.Build(threeButtonPopup).Sections
+                    .SelectMany(section => section.Fields)
+                    .Select(field => field.Key)
+                    .ToList();
+            CollectionAssert.DoesNotContain(
+                defaultPopupFields.ToList(),
+                nameof(PopupDialog.PopupGoto3));
+            CollectionAssert.Contains(
+                threeButtonFields.ToList(),
+                nameof(PopupDialog.PopupGoto3));
+            CollectionAssert.DoesNotContain(
+                defaultPopupFields.ToList(),
+                nameof(PopupDialog.PopupMessageValue));
+            CollectionAssert.Contains(
+                threeButtonFields.ToList(),
+                nameof(PopupDialog.PopupMessageValue));
+
+            var contentReplace = new Replace();
+            contentReplace.RefreshInspector?.Invoke();
+            var positionReplace = new Replace
+            {
+                ReplaceType = "替换指定位置"
+            };
+            positionReplace.RefreshInspector?.Invoke();
+            IReadOnlyList<string> contentFields =
+                InspectorDefinitionBuilder.Build(contentReplace).Sections
+                    .SelectMany(section => section.Fields)
+                    .Select(field => field.Key)
+                    .ToList();
+            IReadOnlyList<string> positionFields =
+                InspectorDefinitionBuilder.Build(positionReplace).Sections
+                    .SelectMany(section => section.Fields)
+                    .Select(field => field.Key)
+                    .ToList();
+            Assert.IsTrue(contentFields.Any(key =>
+                key.StartsWith(nameof(Replace.ReplaceStr), StringComparison.Ordinal)));
+            Assert.IsFalse(contentFields.Contains(nameof(Replace.StartIndex)));
+            Assert.IsFalse(positionFields.Any(key =>
+                key.StartsWith(
+                    nameof(Replace.ReplaceStr),
+                    StringComparison.Ordinal)));
+            Assert.IsTrue(positionFields.Contains(nameof(Replace.StartIndex)));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void DataStructOperations_UseNameFirstAddressesAndOnlyShowEffectiveFields()
+        {
+            var runtime = new PlatformRuntime();
+            Assert.IsTrue(
+                runtime.Stores.DataStructures.AddStruct("产品结构", out string error),
+                error);
+            Assert.IsTrue(runtime.Stores.DataStructures.CreateItem(
+                0, "当前产品", 0, out int itemIndex, out error),
+                error);
+            Assert.IsTrue(runtime.Stores.DataStructures.AddField(
+                0, itemIndex, "计数", DataStructValueType.Number,
+                "0", 0, out _, out error),
+                error);
+
+            var get = new GetDataStructItem();
+            EditorServiceRegistry.AttachGraph(get, runtime);
+            InspectorSectionDefinition initialGet = InspectorDefinitionBuilder
+                .Build(get).Sections.Single(section => section.Key == "参数");
+            CollectionAssert.AreEqual(
+                new[] { "结构体", "数据项", "获取全部字段" },
+                initialGet.Fields.Select(field => field.Label).ToArray());
+            Assert.IsFalse(initialGet.Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+            Assert.IsTrue(initialGet.Fields
+                .OfType<InspectorValueReferenceFieldDefinition>()
+                .All(field => field.GetDefaultKind()
+                    == InspectorValueReferenceKind.Name));
+
+            get.StructName = "产品结构";
+            get.ItemName = "当前产品";
+            InspectorSectionDefinition configuredGet = InspectorDefinitionBuilder
+                .Build(get).Sections.Single(section => section.Key == "参数");
+            Assert.IsTrue(configuredGet.Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+            InspectorValueReferenceFieldDefinition getFieldAddress =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    get.Params[0],
+                    "Params[0]")
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Single(field => field.Label == "字段");
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    InspectorValueReferenceKind.Name,
+                    InspectorValueReferenceKind.Index
+                },
+                getFieldAddress.AvailableKinds.ToArray());
+            get.IsAllItem = true;
+            InspectorSectionDefinition allGet = InspectorDefinitionBuilder
+                .Build(get).Sections.Single(section => section.Key == "参数");
+            Assert.IsFalse(allGet.Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+            Assert.IsTrue(allGet.Fields.Any(field => field.Label == "首个结果变量"));
+
+            var copy = new CopyDataStructItem();
+            EditorServiceRegistry.AttachGraph(copy, runtime);
+            InspectorSectionDefinition initialCopy = InspectorDefinitionBuilder
+                .Build(copy).Sections.Single(section => section.Key == "参数");
+            Assert.IsFalse(initialCopy.Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+            Assert.IsTrue(initialCopy.Fields
+                .OfType<InspectorValueReferenceFieldDefinition>()
+                .All(field => field.GetDefaultKind()
+                    == InspectorValueReferenceKind.Name));
+            copy.SourceStructName = "产品结构";
+            copy.SourceItemName = "当前产品";
+            copy.TargetStructName = "产品结构";
+            copy.TargetItemName = "当前产品";
+            Assert.IsTrue(InspectorDefinitionBuilder.Build(copy).Sections
+                .Single(section => section.Key == "参数").Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+            IReadOnlyList<InspectorValueReferenceFieldDefinition> copyFieldAddresses =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    copy.Params[0],
+                    "Params[0]")
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .ToList();
+            CollectionAssert.AreEquivalent(
+                new[] { "源字段", "目标字段" },
+                copyFieldAddresses.Select(field => field.Label).ToArray());
+            Assert.IsTrue(copyFieldAddresses.All(field =>
+                field.GetDefaultKind() == InspectorValueReferenceKind.Name));
+            copy.IsAllValue = true;
+            Assert.IsFalse(InspectorDefinitionBuilder.Build(copy).Sections
+                .Single(section => section.Key == "参数").Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any());
+
+            var insert = new InsertDataStructItem
+            {
+                TargetStructName = "产品结构",
+                ItemName = "新产品",
+                TargetItemIndex = 1
+            };
+            IReadOnlyList<InspectorFieldDefinition> insertItemFields =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    insert.Params[0],
+                    "Params[0]");
+            InspectorValueReferenceFieldDefinition insertSource =
+                insertItemFields.OfType<InspectorValueReferenceFieldDefinition>()
+                    .Single(field => field.Label == "数据来源");
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    InspectorValueReferenceKind.Fixed,
+                    InspectorValueReferenceKind.Name,
+                    InspectorValueReferenceKind.Name2,
+                    InspectorValueReferenceKind.Index,
+                    InspectorValueReferenceKind.Index2
+                },
+                insertSource.AvailableKinds.ToArray());
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void SetDataStructItem_UsesCascadingNameFirstLayoutAndFullValueSources()
         {
             var runtime = new PlatformRuntime();
@@ -631,6 +896,178 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void VariableDisplayArrow_ShowsPrewarmedPickerOnMouseDown()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var operation = new ModifyValue();
+                var definition = new InspectorValueReferenceFieldDefinition
+                {
+                    Label = "源变量",
+                    Owner = operation
+                };
+                definition.Add(
+                    InspectorValueReferenceKind.Name,
+                    TypeDescriptor.GetProperties(operation)[
+                        nameof(ModifyValue.ValueSourceName)]);
+
+                using (var toolTip = new ToolTip())
+                using (var session = new InspectorSelectionPickerPrewarmSession())
+                using (var control = new InspectorValueReferenceFieldControl(
+                    definition,
+                    true,
+                    toolTip)
+                {
+                    Dock = DockStyle.Top,
+                    Height = 48
+                })
+                using (var host = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(520, 100)
+                })
+                {
+                    host.Controls.Add(control);
+                    host.Show();
+                    session.Reset();
+                    control.PrewarmSelectionPickers(session);
+                    Application.DoEvents();
+
+                    InspectorValueCell displayCell =
+                        GetPrivateField<InspectorValueCell>(
+                            control,
+                            "valueDisplay");
+                    var mouseDown = new MouseEventArgs(
+                        MouseButtons.Left,
+                        1,
+                        Math.Max(1, displayCell.Width - 4),
+                        displayCell.Height / 2,
+                        0);
+                    FieldInfo activePickerField = control.GetType().GetField(
+                        "activeSelectionPicker",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("未找到变量选择页字段。");
+
+                    InvokeProtected(displayCell, "OnMouseDown", mouseDown);
+                    var activePickerOnMouseDown =
+                        activePickerField.GetValue(control) as ToolStripDropDown;
+                    Assert.IsNotNull(
+                        activePickerOnMouseDown,
+                        "鼠标按下事件返回前应已显示预热变量页，不能等待鼠标抬起。");
+                    Assert.IsTrue(activePickerOnMouseDown.Visible);
+
+                    InvokeProtected(
+                        displayCell,
+                        "OnMouseUp",
+                        new MouseEventArgs(
+                            MouseButtons.Left,
+                            1,
+                            mouseDown.X,
+                            mouseDown.Y,
+                            0));
+                    Assert.AreSame(
+                        activePickerOnMouseDown,
+                        activePickerField.GetValue(control),
+                        "随后到来的鼠标抬起事件不得重复创建选择页。");
+                    activePickerOnMouseDown.Close();
+                    Application.DoEvents();
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ReferenceKindArrow_ShowsOptionsOnMouseDown()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var operation = new ModifyValue();
+                var definition = new InspectorValueReferenceFieldDefinition
+                {
+                    Label = "修改值",
+                    Owner = operation
+                };
+                definition.Add(
+                    InspectorValueReferenceKind.Fixed,
+                    TypeDescriptor.GetProperties(operation)[
+                        nameof(ModifyValue.ChangeValue)]);
+                definition.Add(
+                    InspectorValueReferenceKind.Name,
+                    TypeDescriptor.GetProperties(operation)[
+                        nameof(ModifyValue.ChangeValueName)]);
+
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorValueReferenceFieldControl(
+                    definition,
+                    true,
+                    toolTip)
+                {
+                    Dock = DockStyle.Top,
+                    Height = 48
+                })
+                using (var host = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(520, 100)
+                })
+                {
+                    host.Controls.Add(control);
+                    host.Show();
+                    Application.DoEvents();
+
+                    InspectorValueCell displayCell =
+                        GetPrivateField<InspectorValueCell>(
+                            control,
+                            "kindDisplay");
+                    InspectorComboBox editor =
+                        GetPrivateField<InspectorComboBox>(
+                            control,
+                            "kind");
+                    FieldInfo activeDropDownField = typeof(InspectorComboBox)
+                        .GetField(
+                            "activeStandardValueDropDown",
+                            BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("未找到引用方式选项页字段。");
+                    var mouseDown = new MouseEventArgs(
+                        MouseButtons.Left,
+                        1,
+                        Math.Max(1, displayCell.Width - 4),
+                        displayCell.Height / 2,
+                        0);
+
+                    InvokeProtected(displayCell, "OnMouseDown", mouseDown);
+                    var activeDropDownOnMouseDown =
+                        activeDropDownField.GetValue(editor) as ToolStripDropDown;
+                    Assert.IsNotNull(
+                        activeDropDownOnMouseDown,
+                        "鼠标按下事件返回前应已显示引用方式选项。");
+                    Assert.IsTrue(activeDropDownOnMouseDown.Visible);
+
+                    InvokeProtected(
+                        displayCell,
+                        "OnMouseUp",
+                        new MouseEventArgs(
+                            MouseButtons.Left,
+                            1,
+                            mouseDown.X,
+                            mouseDown.Y,
+                            0));
+                    Assert.AreSame(
+                        activeDropDownOnMouseDown,
+                        activeDropDownField.GetValue(editor),
+                        "鼠标抬起不得再次打开引用方式选项。");
+                    activeDropDownOnMouseDown.Close();
+                    Application.DoEvents();
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void ReadOnlyToggle_StillDistinguishesOnFromOff()
         {
             StaTestRunner.Run(() =>
@@ -661,7 +1098,7 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
-        public void Toolbar_ExposesDedicatedContinueButtonForSingleStep()
+        public void Toolbar_EnablesContinueForPausedAndSingleStepStates()
         {
             StaTestRunner.Run(() =>
             {
@@ -671,10 +1108,28 @@ namespace Automation.Core.Tests
                         toolbar,
                         "btnContinue");
 
+                    Assert.AreEqual(string.Empty, continueButton.Text);
+                    Assert.AreEqual("全速运行", continueButton.AccessibleName);
+                    Assert.AreEqual(UiPalette.Success.ToArgb(), continueButton.ForeColor.ToArgb());
+                    Assert.AreEqual(UiPalette.Surface.ToArgb(), continueButton.BackColor.ToArgb());
+                    Assert.AreEqual(string.Empty, toolbar.SingleRun.Text);
+                    Assert.AreEqual(UiPalette.Brand.ToArgb(), toolbar.SingleRun.ForeColor.ToArgb());
+                    Assert.AreEqual(UiPalette.Surface.ToArgb(), toolbar.SingleRun.BackColor.ToArgb());
+
                     toolbar.ApplyProcessRunState(ProcRunState.SingleStep);
                     Assert.IsTrue(continueButton.Enabled);
                     Assert.IsFalse(toolbar.btnPause.Enabled);
                     Assert.IsTrue(toolbar.SingleRun.Enabled);
+
+                    toolbar.ApplyProcessRunState(ProcRunState.Paused);
+                    Assert.IsTrue(continueButton.Enabled);
+                    Assert.IsFalse(toolbar.btnPause.Enabled);
+                    Assert.IsFalse(toolbar.SingleRun.Enabled);
+
+                    toolbar.ApplyProcessRunState(ProcRunState.Pausing);
+                    Assert.IsFalse(continueButton.Enabled);
+                    Assert.IsFalse(toolbar.btnPause.Enabled);
+                    Assert.IsFalse(toolbar.SingleRun.Enabled);
 
                     toolbar.ApplyProcessRunState(ProcRunState.Running);
                     Assert.IsFalse(continueButton.Enabled);

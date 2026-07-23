@@ -115,7 +115,9 @@ namespace Automation
 
         private static void DrawReady(Graphics graphics)
         {
-            using (Pen pen = CreatePen(UiPalette.Success, 1.8F))
+            // Ready 同时表示尚未启动和执行完成。使用蓝色勾与绿色运行徽标区分，
+            // 避免流程结束后仍被误认为处于运行态。
+            using (Pen pen = CreatePen(UiPalette.BrandAccent, 1.8F))
             {
                 graphics.DrawEllipse(pen, 3, 3, 14, 14);
                 graphics.DrawLines(pen, new[]

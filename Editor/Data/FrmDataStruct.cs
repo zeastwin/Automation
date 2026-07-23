@@ -17,6 +17,7 @@ namespace Automation
         private const int TextPreviewLength = 30;
         private const int TvmSetExtendedStyle = 0x112C;
         private const int TvsExDoubleBuffer = 0x0004;
+        private int renderedStoreVersion = -1;
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(
@@ -61,6 +62,51 @@ namespace Automation
             public string FieldName { get; set; }
             public DataStructValueType FieldType { get; set; }
             public object FieldValue { get; set; }
+        }
+
+        private struct DataStructNodeIdentity : IEquatable<DataStructNodeIdentity>
+        {
+            public DataStructNodeType NodeType { get; set; }
+            public string StructName { get; set; }
+            public string ItemName { get; set; }
+            public int FieldIndex { get; set; }
+
+            public bool Equals(DataStructNodeIdentity other)
+            {
+                return NodeType == other.NodeType
+                    && FieldIndex == other.FieldIndex
+                    && string.Equals(StructName, other.StructName, StringComparison.Ordinal)
+                    && string.Equals(ItemName, other.ItemName, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is DataStructNodeIdentity other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = (int)NodeType;
+                    hash = (hash * 397) ^ (StructName == null
+                        ? 0
+                        : StringComparer.Ordinal.GetHashCode(StructName));
+                    hash = (hash * 397) ^ (ItemName == null
+                        ? 0
+                        : StringComparer.Ordinal.GetHashCode(ItemName));
+                    hash = (hash * 397) ^ FieldIndex;
+                    return hash;
+                }
+            }
+        }
+
+        private sealed class DataStructTreeState
+        {
+            public HashSet<DataStructNodeIdentity> ExpandedNodes { get; } =
+                new HashSet<DataStructNodeIdentity>();
+            public DataStructNodeIdentity? SelectedNode { get; set; }
+            public DataStructNodeIdentity? TopNode { get; set; }
         }
 
         private DataStructClipboard clipboard;
@@ -146,6 +192,12 @@ namespace Automation
             {
                 return;
             }
+            int storeVersion = Workspace.Runtime.Stores.DataStructures.Version;
+            if (renderedStoreVersion == storeVersion)
+            {
+                return;
+            }
+            DataStructTreeState previousState = CaptureTreeState();
             treeView1.BeginUpdate();
             try
             {
@@ -161,11 +213,168 @@ namespace Automation
                         treeView1.Nodes.Add(structNode);
                     }
                 }
+                RestoreTreeState(previousState);
+                renderedStoreVersion = storeVersion;
             }
             finally
             {
                 treeView1.EndUpdate();
             }
+        }
+
+        private DataStructTreeState CaptureTreeState()
+        {
+            var state = new DataStructTreeState();
+            foreach (TreeNode node in EnumerateTreeNodes(treeView1.Nodes))
+            {
+                if (node.IsExpanded && TryGetNodeIdentity(node, out DataStructNodeIdentity identity))
+                {
+                    state.ExpandedNodes.Add(identity);
+                }
+            }
+            if (TryGetNodeIdentity(treeView1.SelectedNode, out DataStructNodeIdentity selectedIdentity))
+            {
+                state.SelectedNode = selectedIdentity;
+            }
+            if (TryGetNodeIdentity(treeView1.TopNode, out DataStructNodeIdentity topIdentity))
+            {
+                state.TopNode = topIdentity;
+            }
+            return state;
+        }
+
+        private void RestoreTreeState(DataStructTreeState state)
+        {
+            if (state == null)
+            {
+                return;
+            }
+            Dictionary<DataStructNodeIdentity, TreeNode> nodes = BuildNodeIdentityMap();
+            foreach (DataStructNodeIdentity identity in state.ExpandedNodes
+                .OrderByDescending(item => item.NodeType == DataStructNodeType.Item))
+            {
+                if (nodes.TryGetValue(identity, out TreeNode node))
+                {
+                    if (identity.NodeType == DataStructNodeType.Item
+                        && node.Tag is DataStructNodeTag itemTag
+                        && !IsItemNodeLoaded(node))
+                    {
+                        LoadFieldNodes(node, itemTag.StructIndex, itemTag.ItemIndex);
+                    }
+                    node.Expand();
+                }
+            }
+
+            // 展开的数据项会按最新 Store 快照重新生成字段节点，因此在恢复选择前重建一次映射。
+            nodes = BuildNodeIdentityMap();
+            if (state.SelectedNode.HasValue
+                && nodes.TryGetValue(state.SelectedNode.Value, out TreeNode selectedNode)
+                && AreAncestorsExpanded(selectedNode))
+            {
+                treeView1.SelectedNode = selectedNode;
+            }
+            if (state.TopNode.HasValue
+                && nodes.TryGetValue(state.TopNode.Value, out TreeNode topNode)
+                && AreAncestorsExpanded(topNode))
+            {
+                treeView1.TopNode = topNode;
+            }
+        }
+
+        private Dictionary<DataStructNodeIdentity, TreeNode> BuildNodeIdentityMap()
+        {
+            var nodes = new Dictionary<DataStructNodeIdentity, TreeNode>();
+            foreach (TreeNode node in EnumerateTreeNodes(treeView1.Nodes))
+            {
+                if (TryGetNodeIdentity(node, out DataStructNodeIdentity identity))
+                {
+                    nodes[identity] = node;
+                }
+            }
+            return nodes;
+        }
+
+        private static IEnumerable<TreeNode> EnumerateTreeNodes(TreeNodeCollection nodes)
+        {
+            if (nodes == null)
+            {
+                yield break;
+            }
+            foreach (TreeNode node in nodes)
+            {
+                yield return node;
+                foreach (TreeNode child in EnumerateTreeNodes(node.Nodes))
+                {
+                    yield return child;
+                }
+            }
+        }
+
+        private static bool TryGetNodeIdentity(
+            TreeNode node,
+            out DataStructNodeIdentity identity)
+        {
+            identity = default;
+            DataStructNodeTag tag = node?.Tag as DataStructNodeTag;
+            if (tag == null || tag.NodeType == DataStructNodeType.Placeholder)
+            {
+                return false;
+            }
+
+            TreeNode structNode = tag.NodeType == DataStructNodeType.Struct
+                ? node
+                : FindAncestor(node, DataStructNodeType.Struct);
+            TreeNode itemNode = tag.NodeType == DataStructNodeType.Item
+                ? node
+                : FindAncestor(node, DataStructNodeType.Item);
+            if (structNode == null)
+            {
+                return false;
+            }
+
+            identity = new DataStructNodeIdentity
+            {
+                NodeType = tag.NodeType,
+                StructName = ReadNodeName(structNode),
+                ItemName = itemNode == null ? string.Empty : ReadNodeName(itemNode),
+                FieldIndex = tag.NodeType == DataStructNodeType.Field ? tag.FieldIndex : -1
+            };
+            return true;
+        }
+
+        private static TreeNode FindAncestor(TreeNode node, DataStructNodeType nodeType)
+        {
+            TreeNode current = node?.Parent;
+            while (current != null)
+            {
+                if (current.Tag is DataStructNodeTag tag && tag.NodeType == nodeType)
+                {
+                    return current;
+                }
+                current = current.Parent;
+            }
+            return null;
+        }
+
+        private static string ReadNodeName(TreeNode node)
+        {
+            string text = node?.Text ?? string.Empty;
+            int separatorIndex = text.IndexOf(':');
+            return separatorIndex < 0 ? text : text.Substring(separatorIndex + 1);
+        }
+
+        private static bool AreAncestorsExpanded(TreeNode node)
+        {
+            TreeNode parent = node?.Parent;
+            while (parent != null)
+            {
+                if (!parent.IsExpanded)
+                {
+                    return false;
+                }
+                parent = parent.Parent;
+            }
+            return true;
         }
 
         private void AddCommonMenuItems(ContextMenuStrip menu)

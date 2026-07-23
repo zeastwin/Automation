@@ -27,8 +27,10 @@ namespace Automation
         private bool refreshing;
         private bool endingEdit;
         private bool valueOptionsLoaded;
+        private bool selectionPickerPrewarmPending;
         private InspectorValueReferenceKind? pendingKind;
         private ToolStripDropDown activeSelectionPicker;
+        private InspectorSelectionPickerPrewarmSession selectionPickerPrewarmSession;
 
         public InspectorValueReferenceFieldControl(
             InspectorValueReferenceFieldDefinition definition,
@@ -79,6 +81,7 @@ namespace Automation
 
             kindDisplay.AccessibleName = definition.Label + "引用方式";
             kindDisplay.Font = InspectorFonts.Bold95;
+            kindDisplay.OpenDropDownOnMouseDown = true;
             kindDisplay.ShowDropDownArrow = true;
             kindDisplay.ActivationRequested += (sender, args) => ActivateKindEditor();
             kindDisplay.DropDownRequested += (sender, args) => ActivateKindEditor();
@@ -212,6 +215,34 @@ namespace Automation
             DeactivateEditors(true);
         }
 
+        public override void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
+        {
+            selectionPickerPrewarmSession = session;
+            if (session == null || !Editable || definition.IsReadOnly)
+            {
+                return;
+            }
+            foreach (InspectorValueReferenceKind availableKind in definition.AvailableKinds)
+            {
+                PropertyDescriptor property = definition.GetActiveProperty(availableKind);
+                if (property == null
+                    || !InspectorSelectionPickerResolver.TryResolve(
+                        property,
+                        out InspectorSelectionPickerKind pickerKind))
+                {
+                    continue;
+                }
+                session.Prepare(
+                    pickerKind,
+                    definition.Owner,
+                    property,
+                    Convert.ToString(
+                        definition.GetValue(availableKind),
+                        CultureInfo.CurrentCulture));
+            }
+        }
+
         public override void Rebind(InspectorFieldDefinition next, bool editable)
         {
             var nextDefinition = (InspectorValueReferenceFieldDefinition)next;
@@ -270,6 +301,7 @@ namespace Automation
                 value.Enabled = false;
                 valueDisplay.DisplayText = string.Empty;
                 valueDisplay.ShowDropDownArrow = false;
+                valueDisplay.OpenDropDownOnMouseDown = false;
                 valueDisplay.Editable = false;
                 return;
             }
@@ -287,6 +319,7 @@ namespace Automation
                 || InspectorValueConversion.HasStandardValues(definition.Owner, property)
                 || (Nullable.GetUnderlyingType(property.PropertyType)
                     ?? property.PropertyType).IsEnum;
+            valueDisplay.OpenDropDownOnMouseDown = valueDisplay.ShowDropDownArrow;
             object currentValue = definition.HasValue(selectedKind)
                 ? definition.GetValue(selectedKind)
                 : null;
@@ -302,6 +335,7 @@ namespace Automation
                 definition.Owner,
                 property,
                 currentValue);
+            QueueSelectionPickerPrewarm();
         }
 
         private bool ActivateKindEditor()
@@ -316,13 +350,7 @@ namespace Automation
             kind.TabStop = true;
             kind.BringToFront();
             kind.Focus();
-            BeginInvoke((Action)(() =>
-            {
-                if (!IsDisposed && kind.Visible && kind.Enabled)
-                {
-                    kind.DroppedDown = true;
-                }
-            }));
+            kind.OpenDropDownImmediately();
             return true;
         }
 
@@ -344,13 +372,7 @@ namespace Automation
 
             if (value.UseSelectionPicker && openDropDown)
             {
-                BeginInvoke((Action)(() =>
-                {
-                    if (!IsDisposed && value.Visible && value.Enabled)
-                    {
-                        ShowSelectionPicker();
-                    }
-                }));
+                ShowSelectionPicker();
                 return true;
             }
 
@@ -362,13 +384,7 @@ namespace Automation
                         ?? property.PropertyType).IsEnum))
             {
                 EnsureValueOptionsLoaded();
-                BeginInvoke((Action)(() =>
-                {
-                    if (!IsDisposed && value.Visible && value.Enabled)
-                    {
-                        value.DroppedDown = true;
-                    }
-                }));
+                value.OpenDropDownImmediately();
             }
             else
             {
@@ -441,20 +457,50 @@ namespace Automation
                 return;
             }
             activeSelectionPicker?.Close();
+            string currentValue = Convert.ToString(
+                definition.GetValue(selectedKind),
+                CultureInfo.CurrentCulture);
+            InspectorSelectionPickerPanel preparedPanel =
+                selectionPickerPrewarmSession?.Take(
+                    kind,
+                    definition.Owner,
+                    property,
+                    currentValue);
             activeSelectionPicker = InspectorSelectionPickerDropDown.Show(
                 value,
                 kind,
                 definition.Owner,
                 property,
-                Convert.ToString(
-                    definition.GetValue(selectedKind),
-                    CultureInfo.CurrentCulture),
+                currentValue,
                 selectedValue => CommitPickerValue(selectedKind, selectedValue),
                 () =>
                 {
                     activeSelectionPicker = null;
                     DeactivateEditors(true);
-                });
+                    QueueSelectionPickerPrewarm();
+                },
+                preparedPanel);
+        }
+
+        private void QueueSelectionPickerPrewarm()
+        {
+            if (selectionPickerPrewarmPending
+                || selectionPickerPrewarmSession == null
+                || !Editable
+                || IsDisposed
+                || !IsHandleCreated)
+            {
+                return;
+            }
+            selectionPickerPrewarmPending = true;
+            BeginInvoke((Action)(() =>
+            {
+                selectionPickerPrewarmPending = false;
+                if (!IsDisposed && Editable)
+                {
+                    PrewarmSelectionPickers(selectionPickerPrewarmSession);
+                }
+            }));
         }
 
         private void CommitPickerValue(

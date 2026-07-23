@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -47,12 +48,20 @@ namespace Automation
         private ProcRunState runtimeState = ProcRunState.Ready;
         private bool runtimeBreakpoint;
         private readonly List<JumpLink> jumpLinks = new List<JumpLink>();
+        private readonly Dictionary<int, JumpLinkCacheEntry> jumpLinkCacheByProcIndex =
+            new Dictionary<int, JumpLinkCacheEntry>();
+        private static readonly ConcurrentDictionary<Type, JumpPropertyMetadata[]> JumpPropertyCache =
+            new ConcurrentDictionary<Type, JumpPropertyMetadata[]>();
         private Proc flowProc;
+        private Proc jumpLinkSourceProc;
         private int flowProcIndex = -1;
         private int flowStepIndex = -1;
+        private bool jumpLinksValid;
         private int linkedNavigationDepth;
         private int selectionUpdateDepth;
         private bool selectionChangedPending;
+        private bool bindingSourceResetFollowsSourceChange;
+        private bool jumpLinkPrewarmPending;
         private float jumpFlowPhase;
 
         public event EventHandler<JumpLinkClickedEventArgs> JumpLinkClicked;
@@ -76,6 +85,18 @@ namespace Automation
         {
             public string Address { get; set; }
             public JumpKind Kind { get; set; }
+        }
+
+        private sealed class JumpPropertyMetadata
+        {
+            public PropertyInfo Property { get; set; }
+            public bool IsGoto { get; set; }
+        }
+
+        private sealed class JumpLinkCacheEntry
+        {
+            public Proc Proc { get; set; }
+            public IReadOnlyList<JumpLink> Links { get; set; }
         }
 
         private sealed class JumpLink
@@ -186,6 +207,10 @@ namespace Automation
                 LvmSetExtendedListViewStyle,
                 new IntPtr(LvsExDoubleBuffer),
                 new IntPtr(LvsExDoubleBuffer));
+            if (flowProc != null && flowStepIndex < 0)
+            {
+                QueueJumpLinkPrewarm();
+            }
         }
 
         [Browsable(false)]
@@ -222,12 +247,27 @@ namespace Automation
         [Browsable(false)]
         public int OperationCount => operationSource?.Count ?? 0;
 
+        internal int JumpLinkBuildCount { get; private set; }
+
         public void SetFlowContext(int procIndex, int stepIndex, Proc proc)
         {
+            bool processChanged = flowProcIndex != procIndex || !ReferenceEquals(flowProc, proc);
             flowProcIndex = procIndex;
             flowStepIndex = stepIndex;
             flowProc = proc;
-            RebuildJumpLinks();
+            if (processChanged)
+            {
+                if (!TryActivateJumpLinkCache(procIndex, proc))
+                {
+                    jumpLinks.Clear();
+                    jumpLinkSourceProc = proc;
+                    jumpLinksValid = false;
+                }
+            }
+            if (proc != null && stepIndex < 0)
+            {
+                QueueJumpLinkPrewarm();
+            }
             if (linkedNavigationDepth == 0)
             {
                 Invalidate();
@@ -608,11 +648,30 @@ namespace Automation
             IList currentOperationSource = bindingSource?.List;
             bool operationSourceChanged = !ReferenceEquals(currentOperationSource, operationSource);
             operationSource = currentOperationSource;
-            RefreshOperations(operationSourceChanged);
+            if (e.ListChangedType == ListChangedType.PropertyDescriptorChanged)
+            {
+                // BindingSource 换源时固定先发属性描述通知、再发 Reset。
+                // 描述通知不涉及数据，等待 Reset 一次性刷新，避免同一次换步骤做两遍布局。
+                bindingSourceResetFollowsSourceChange = operationSourceChanged;
+                return;
+            }
+            bool sourceChangeReset = bindingSourceResetFollowsSourceChange
+                && e.ListChangedType == ListChangedType.Reset;
+            bindingSourceResetFollowsSourceChange = false;
+            bool resetViewport = operationSourceChanged || sourceChangeReset;
+            if (!resetViewport)
+            {
+                // 同一指令集合发生增删、替换或属性更新后，整流程跳转缓存才需要失效。
+                // 仅切换步骤时集合引用会变化，但流程本身未变，直接复用已有关系。
+                jumpLinkCacheByProcIndex.Remove(flowProcIndex);
+                jumpLinksValid = false;
+            }
+            RefreshOperations(resetViewport);
         }
 
         private void DetachBindingSource()
         {
+            bindingSourceResetFollowsSourceChange = false;
             if (bindingSource != null)
             {
                 bindingSource.ListChanged -= BindingSource_ListChanged;
@@ -634,7 +693,10 @@ namespace Automation
                     ClearSelection();
                 }
                 VirtualListSize = OperationCount;
-                RebuildJumpLinks();
+                if (flowStepIndex >= 0)
+                {
+                    EnsureJumpLinks();
+                }
                 RecalculateColumnWidths();
                 rowBackColors.Keys.Where(index => index >= OperationCount).ToList()
                     .ForEach(index => rowBackColors.Remove(index));
@@ -709,16 +771,74 @@ namespace Automation
 
         private void RebuildJumpLinks()
         {
-            jumpLinks.Clear();
-            if (flowProcIndex < 0 || flowStepIndex < 0 || flowProc?.steps == null
-                || flowStepIndex >= flowProc.steps.Count)
+            if (flowProcIndex < 0 || flowProc?.steps == null)
             {
+                jumpLinks.Clear();
+                jumpLinksValid = false;
                 return;
             }
 
-            for (int stepIndex = 0; stepIndex < flowProc.steps.Count; stepIndex++)
+            var entry = new JumpLinkCacheEntry
             {
-                List<OperationType> operations = flowProc.steps[stepIndex]?.Ops;
+                Proc = flowProc,
+                Links = BuildJumpLinks(flowProcIndex, flowProc)
+            };
+            jumpLinkCacheByProcIndex[flowProcIndex] = entry;
+            ActivateJumpLinkCache(flowProcIndex, entry);
+        }
+
+        internal void RebuildJumpLinkCaches(IReadOnlyList<Proc> processes)
+        {
+            jumpLinkCacheByProcIndex.Clear();
+            for (int procIndex = 0; procIndex < (processes?.Count ?? 0); procIndex++)
+            {
+                Proc proc = processes[procIndex];
+                if (proc?.steps == null)
+                {
+                    continue;
+                }
+                jumpLinkCacheByProcIndex[procIndex] = new JumpLinkCacheEntry
+                {
+                    Proc = proc,
+                    Links = BuildJumpLinks(procIndex, proc)
+                };
+            }
+
+            if (flowProc != null && TryActivateJumpLinkCache(flowProcIndex, flowProc))
+            {
+                InvalidateFlowColumn();
+                return;
+            }
+            jumpLinks.Clear();
+            jumpLinksValid = false;
+        }
+
+        internal void RebuildJumpLinkCache(int procIndex, Proc proc)
+        {
+            if (procIndex < 0 || proc?.steps == null)
+            {
+                jumpLinkCacheByProcIndex.Remove(procIndex);
+                return;
+            }
+            var entry = new JumpLinkCacheEntry
+            {
+                Proc = proc,
+                Links = BuildJumpLinks(procIndex, proc)
+            };
+            jumpLinkCacheByProcIndex[procIndex] = entry;
+            if (flowProcIndex == procIndex && ReferenceEquals(flowProc, proc))
+            {
+                ActivateJumpLinkCache(procIndex, entry);
+                InvalidateFlowColumn();
+            }
+        }
+
+        private List<JumpLink> BuildJumpLinks(int procIndex, Proc proc)
+        {
+            var links = new List<JumpLink>();
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                List<OperationType> operations = proc.steps[stepIndex]?.Ops;
                 if (operations == null)
                 {
                     continue;
@@ -735,15 +855,15 @@ namespace Automation
                                 out int targetProcIndex,
                                 out int targetStepIndex,
                                 out int targetOpIndex)
-                            || targetProcIndex != flowProcIndex
+                            || targetProcIndex != procIndex
                             || targetStepIndex < 0
-                            || targetStepIndex >= flowProc.steps.Count
+                            || targetStepIndex >= proc.steps.Count
                             || targetOpIndex < 0
-                            || targetOpIndex >= (flowProc.steps[targetStepIndex]?.Ops?.Count ?? 0))
+                            || targetOpIndex >= (proc.steps[targetStepIndex]?.Ops?.Count ?? 0))
                         {
                             continue;
                         }
-                        jumpLinks.Add(new JumpLink
+                        links.Add(new JumpLink
                         {
                             SourceStepIndex = stepIndex,
                             SourceOpIndex = opIndex,
@@ -755,7 +875,7 @@ namespace Automation
                 }
             }
 
-            List<JumpLink> distinctLinks = jumpLinks
+            List<JumpLink> distinctLinks = links
                 .GroupBy(link => new
                 {
                     link.SourceStepIndex,
@@ -774,13 +894,73 @@ namespace Automation
                 .ThenBy(link => link.TargetStepIndex)
                 .ThenBy(link => link.TargetOpIndex)
                 .ToList();
-            jumpLinks.Clear();
-            jumpLinks.AddRange(distinctLinks);
 
             int crossId = 1;
-            foreach (JumpLink link in jumpLinks.Where(link => link.IsCrossStep))
+            foreach (JumpLink link in distinctLinks.Where(link => link.IsCrossStep))
             {
                 link.CrossId = crossId++;
+            }
+            JumpLinkBuildCount++;
+            return distinctLinks;
+        }
+
+        private void EnsureJumpLinks()
+        {
+            if (jumpLinksValid && ReferenceEquals(jumpLinkSourceProc, flowProc))
+            {
+                return;
+            }
+            if (TryActivateJumpLinkCache(flowProcIndex, flowProc))
+            {
+                return;
+            }
+            RebuildJumpLinks();
+        }
+
+        private bool TryActivateJumpLinkCache(int procIndex, Proc proc)
+        {
+            if (procIndex < 0
+                || proc == null
+                || !jumpLinkCacheByProcIndex.TryGetValue(procIndex, out JumpLinkCacheEntry entry)
+                || !ReferenceEquals(entry.Proc, proc))
+            {
+                return false;
+            }
+            ActivateJumpLinkCache(procIndex, entry);
+            return true;
+        }
+
+        private void ActivateJumpLinkCache(int procIndex, JumpLinkCacheEntry entry)
+        {
+            jumpLinks.Clear();
+            jumpLinks.AddRange(entry.Links);
+            jumpLinkSourceProc = entry.Proc;
+            jumpLinksValid = flowProcIndex == procIndex && ReferenceEquals(flowProc, entry.Proc);
+        }
+
+        private void QueueJumpLinkPrewarm()
+        {
+            if (jumpLinkPrewarmPending || jumpLinksValid || !IsHandleCreated || IsDisposed)
+            {
+                return;
+            }
+            jumpLinkPrewarmPending = true;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    jumpLinkPrewarmPending = false;
+                    if (IsDisposed || flowProc == null || jumpLinksValid)
+                    {
+                        return;
+                    }
+                    EnsureJumpLinks();
+                    InvalidateFlowColumn();
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                jumpLinkPrewarmPending = false;
             }
         }
 
@@ -802,14 +982,13 @@ namespace Automation
                 return;
             }
 
-            foreach (PropertyInfo property in value.GetType().GetProperties())
+            JumpPropertyMetadata[] properties = JumpPropertyCache.GetOrAdd(
+                value.GetType(),
+                CreateJumpPropertyMetadata);
+            foreach (JumpPropertyMetadata metadata in properties)
             {
-                if (!property.CanRead || property.GetIndexParameters().Length > 0)
-                {
-                    continue;
-                }
-                if (property.PropertyType == typeof(string)
-                    && property.GetCustomAttribute<MarkedGotoAttribute>() != null)
+                PropertyInfo property = metadata.Property;
+                if (metadata.IsGoto)
                 {
                     string target = property.GetValue(value) as string;
                     if (!string.IsNullOrWhiteSpace(target))
@@ -822,12 +1001,29 @@ namespace Automation
                     }
                     continue;
                 }
-                if (property.PropertyType != typeof(string)
-                    && typeof(IEnumerable).IsAssignableFrom(property.PropertyType))
-                {
-                    CollectGotoTargets(property.GetValue(value), rootOperation, targets);
-                }
+                CollectGotoTargets(property.GetValue(value), rootOperation, targets);
             }
+        }
+
+        private static JumpPropertyMetadata[] CreateJumpPropertyMetadata(Type type)
+        {
+            return type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Where(property => property.CanRead && property.GetIndexParameters().Length == 0)
+                .Select(property => new
+                {
+                    Property = property,
+                    IsGoto = property.PropertyType == typeof(string)
+                        && property.GetCustomAttribute<MarkedGotoAttribute>() != null,
+                    IsCollection = property.PropertyType != typeof(string)
+                        && typeof(IEnumerable).IsAssignableFrom(property.PropertyType)
+                })
+                .Where(metadata => metadata.IsGoto || metadata.IsCollection)
+                .Select(metadata => new JumpPropertyMetadata
+                {
+                    Property = metadata.Property,
+                    IsGoto = metadata.IsGoto
+                })
+                .ToArray();
         }
 
         private static JumpKind ResolveJumpKind(

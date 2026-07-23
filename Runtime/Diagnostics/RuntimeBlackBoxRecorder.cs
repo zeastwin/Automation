@@ -252,8 +252,8 @@ namespace Automation
                 Outcome = "measured",
                 SegmentIndex = sample.SegmentIndex,
                 CycleStarted = sample.CycleStarted,
-                SegmentMilliseconds = sample.SegmentMilliseconds,
-                CycleMilliseconds = sample.CycleMilliseconds,
+                SegmentSeconds = sample.SegmentSeconds,
+                CycleSeconds = sample.CycleSeconds,
                 TimeUtc = sample.RecordedAtUtc
             });
         }
@@ -721,8 +721,8 @@ namespace Automation
             if (item.DurationMicroseconds.HasValue) result["durationMicroseconds"] = item.DurationMicroseconds.Value;
             if (item.SegmentIndex.HasValue) result["segmentIndex"] = item.SegmentIndex.Value;
             if (item.CycleStarted.HasValue) result["cycleStarted"] = item.CycleStarted.Value;
-            if (item.SegmentMilliseconds.HasValue) result["segmentMilliseconds"] = item.SegmentMilliseconds.Value;
-            if (item.CycleMilliseconds.HasValue) result["cycleMilliseconds"] = item.CycleMilliseconds.Value;
+            if (item.SegmentSeconds.HasValue) result["segmentSeconds"] = item.SegmentSeconds.Value;
+            if (item.CycleSeconds.HasValue) result["cycleSeconds"] = item.CycleSeconds.Value;
             return result;
         }
 
@@ -823,8 +823,8 @@ namespace Automation
             public double? DurationMicroseconds { get; set; }
             public int? SegmentIndex { get; set; }
             public bool? CycleStarted { get; set; }
-            public double? SegmentMilliseconds { get; set; }
-            public double? CycleMilliseconds { get; set; }
+            public double? SegmentSeconds { get; set; }
+            public double? CycleSeconds { get; set; }
         }
 
         private sealed class IncidentMarker

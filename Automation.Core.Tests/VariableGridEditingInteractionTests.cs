@@ -64,6 +64,75 @@ namespace Automation.Core.Tests
             }, TimeSpan.FromSeconds(10));
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void VariableToolbar_UsesCompactAlignedButtonsAndSidePanel()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var form = new FrmValue
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(1680, 720)
+                })
+                {
+                    form.CreateControl();
+                    InvokePrivateMethod(form, "SetDefaultStructPanelRatio");
+
+                    Panel toolbar = ReadPrivateField<Panel>(form, "panel1");
+                    SplitContainer split = ReadPrivateField<SplitContainer>(form, "splitContainerMain");
+                    Assert.AreEqual(44, toolbar.Height,
+                        "变量工具栏应压缩垂直空白，避免占用表格空间。");
+                    Assert.AreEqual(320, split.Panel2.Width,
+                        "右侧常用变量区域默认只保留实际需要的紧凑宽度。");
+
+                    foreach (string fieldName in new[]
+                    {
+                        "btnMonitorAdd",
+                        "btnAddCommon",
+                        "btnMonitor",
+                        "btnCopy",
+                        "btnPaste",
+                        "btnClearData",
+                        "btnSearch",
+                        "btnShowCommon",
+                        "btnShowDataStruct"
+                    })
+                    {
+                        Button button = ReadPrivateField<Button>(form, fieldName);
+                        Assert.AreEqual(32, button.Height,
+                            $"{button.Text}按钮应使用统一高度并在工具栏内对齐。");
+                    }
+
+                    Button clearSearch = ReadPrivateField<Button>(form, "btnClearSearch");
+                    Assert.IsFalse(clearSearch.Visible,
+                        "搜索内容为空时不应显示清除按钮或遗留背景色块。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        private static T ReadPrivateField<T>(FrmValue form, string fieldName)
+            where T : class
+        {
+            FieldInfo field = typeof(FrmValue).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"未找到字段：{fieldName}");
+            return field.GetValue(form) as T
+                ?? throw new InvalidOperationException($"字段类型不正确：{fieldName}");
+        }
+
+        private static void InvokePrivateMethod(FrmValue form, string methodName)
+        {
+            MethodInfo method = typeof(FrmValue).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"未找到方法：{methodName}");
+            method.Invoke(form, null);
+        }
+
         private static void InvokeCellMouseDoubleClick(
             FrmValue form,
             DataGridView grid,

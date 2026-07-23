@@ -147,6 +147,10 @@ namespace Automation
                 activeMenuButton.ForeColor = UiPalette.TextInverse;
                 SetMenuIcon(activeMenuButton, true);
                 activeMenuButton.Invalidate();
+                if (activeMenuButton.IsHandleCreated)
+                {
+                    activeMenuButton.Update();
+                }
             }
             hoverAnimator.RefreshRestingColors();
         }

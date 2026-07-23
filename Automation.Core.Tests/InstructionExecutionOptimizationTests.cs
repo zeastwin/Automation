@@ -2,6 +2,7 @@ using System;
 // 模块：核心测试 / 指令执行优化。
 // 职责范围：固化运行绑定、变量原子修改、字符串执行和自定义函数缓存的行为等价性。
 
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Automation.Core.Tests
@@ -209,6 +210,99 @@ namespace Automation.Core.Tests
 
             Assert.IsTrue(store.TryGetItemValueByIndex(0, 0, 0, out object value));
             Assert.AreEqual(5d, (double)value, 0.000001);
+        }
+
+        [TestMethod]
+        public void NumericModify_RuntimeTypedPathKeepsConcurrentAliasAtomicity()
+        {
+            const int workerCount = 8;
+            const int iterations = 2000;
+            var runtime = new PlatformRuntime();
+            ValueConfigStore values = runtime.Stores.Values;
+            Assert.IsTrue(values.TrySetValue(
+                0, "并发计数", "double", "0", string.Empty));
+            var operation = new ModifyValue
+            {
+                ModifyType = "叠加",
+                ValueSourceIndex = "0",
+                ChangeValue = "1",
+                OutputValueIndex = "0"
+            };
+
+            using (var engine = new ProcessEngine(new EngineContext
+            {
+                ValueStore = values,
+                DataStructStore = runtime.Stores.DataStructures
+            }))
+            {
+                Assert.IsTrue(engine.RunModifyValue(
+                    new ProcHandle(), operation));
+                Assert.IsTrue(values.SetValueByIndexForProcess(
+                    0, 0d, Guid.Empty));
+                Parallel.For(0, workerCount, _ =>
+                {
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        Assert.IsTrue(engine.RunModifyValue(
+                            new ProcHandle(), operation));
+                    }
+                });
+            }
+
+            Assert.AreEqual(
+                workerCount * iterations,
+                values.get_D_ValueByIndex(0),
+                0.000001);
+        }
+
+        [TestMethod]
+        public void DataStructRuntimeBinding_AfterFieldRenameDoesNotWriteWrongTarget()
+        {
+            var runtime = new PlatformRuntime();
+            DataStructStore store = runtime.Stores.DataStructures;
+            Assert.IsTrue(store.AddStruct("结构", out string error), error);
+            Assert.IsTrue(store.CreateItem(
+                0, "项", 0, out int itemIndex, out error), error);
+            Assert.IsTrue(store.AddField(
+                0, itemIndex, "原字段", DataStructValueType.Number,
+                "1", 0, out _, out error), error);
+            Assert.IsTrue(runtime.Stores.Values.TrySetValue(
+                0, "写入源", "double", "2", string.Empty));
+            var operation = new SetDataStructItem
+            {
+                StructName = "结构",
+                ItemName = "项",
+                Params = new OperationTypePartial.CustomList<SetDataStructItemParam>
+                {
+                    new SetDataStructItemParam
+                    {
+                        FieldName = "原字段",
+                        ValueName = "写入源"
+                    }
+                }
+            };
+
+            using (var engine = new ProcessEngine(new EngineContext
+            {
+                ValueStore = runtime.Stores.Values,
+                DataStructStore = store
+            }))
+            {
+                Assert.IsTrue(engine.RunSetDataStructItem(
+                    new ProcHandle(), operation));
+                Assert.IsTrue(store.RenameField(
+                    0, 0, 0, "新字段", out error), error);
+                Assert.IsTrue(runtime.Stores.Values.SetValueByIndexForProcess(
+                    0, 3d, Guid.Empty));
+
+                Assert.ThrowsExactly<InvalidOperationException>(() =>
+                    engine.RunSetDataStructItem(
+                        new ProcHandle(), operation));
+            }
+
+            Assert.IsTrue(store.TryGetItemValueByIndex(
+                0, 0, 0, out object value));
+            Assert.AreEqual(2d, (double)value, 0.000001);
         }
 
         private static Proc CreateProcess(params OperationType[] operations)

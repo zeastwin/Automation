@@ -835,7 +835,11 @@ namespace Automation
                 return false;
             }
             if (!ProcessRuntimeBinder.TryBind(
-                proc, procIndex, Context?.ValueStore, out string bindError))
+                proc,
+                procIndex,
+                Context?.ValueStore,
+                Context?.DataStructStore,
+                out string bindError))
             {
                 Logger?.Log($"启动流程失败:{bindError}", LogLevel.Error);
                 return false;
@@ -984,7 +988,11 @@ namespace Automation
                 return false;
             }
             if (!ProcessRuntimeBinder.TryBind(
-                proc, procIndex, Context?.ValueStore, out string bindError))
+                proc,
+                procIndex,
+                Context?.ValueStore,
+                Context?.DataStructStore,
+                out string bindError))
             {
                 Logger?.Log($"单次执行指令失败:{bindError}", LogLevel.Error);
                 return false;

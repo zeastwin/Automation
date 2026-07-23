@@ -427,9 +427,19 @@ namespace Automation
 
             if (operation is GetDataStructItem get)
             {
-                if (!ResolveStruct(get.UseNameAddressing, get.StructIndex,
+                if (!SelectAddressMode(
+                        get.StructName,
+                        get.StructIndex,
+                        "目标结构体",
+                        out bool useStructName)
+                    || !ResolveStruct(useStructName, get.StructIndex,
                         get.StructName, "目标", out int structIndex)
-                    || !ResolveItem(structIndex, get.UseNameAddressing,
+                    || !SelectAddressMode(
+                        get.ItemName,
+                        get.ItemIndex,
+                        "目标数据项",
+                        out bool useItemName)
+                    || !ResolveItem(structIndex, useItemName,
                         get.ItemIndex, get.ItemName, "目标", out int itemIndex))
                 {
                     return;
@@ -451,24 +461,51 @@ namespace Automation
                         errors.Add($"{location} 的 Params[{i}] 为空。");
                         continue;
                     }
-                    ResolveField(structIndex, itemIndex, get.UseNameAddressing,
-                        parameter.FieldIndex, parameter.FieldName, $"Params[{i}] ");
+                    if (SelectAddressMode(
+                        parameter.FieldName,
+                        parameter.FieldIndex,
+                        $"Params[{i}] 字段",
+                        out bool useFieldName))
+                    {
+                        ResolveField(structIndex, itemIndex, useFieldName,
+                            parameter.FieldIndex, parameter.FieldName, $"Params[{i}] ");
+                    }
                 }
                 return;
             }
 
             if (operation is CopyDataStructItem copy)
             {
-                if (!ResolveStruct(copy.UseSourceNameAddressing,
+                if (!SelectAddressMode(
+                        copy.SourceStructName,
+                        copy.SourceStructIndex,
+                        "源结构体",
+                        out bool useSourceStructName)
+                    || !ResolveStruct(useSourceStructName,
                         copy.SourceStructIndex, copy.SourceStructName,
                         "源", out int sourceStructIndex)
-                    || !ResolveItem(sourceStructIndex, copy.UseSourceNameAddressing,
+                    || !SelectAddressMode(
+                        copy.SourceItemName,
+                        copy.SourceItemIndex,
+                        "源数据项",
+                        out bool useSourceItemName)
+                    || !ResolveItem(sourceStructIndex, useSourceItemName,
                         copy.SourceItemIndex, copy.SourceItemName,
                         "源", out int sourceItemIndex)
-                    || !ResolveStruct(copy.UseTargetNameAddressing,
+                    || !SelectAddressMode(
+                        copy.TargetStructName,
+                        copy.TargetStructIndex,
+                        "目标结构体",
+                        out bool useTargetStructName)
+                    || !ResolveStruct(useTargetStructName,
                         copy.TargetStructIndex, copy.TargetStructName,
                         "目标", out int targetStructIndex)
-                    || !ResolveItem(targetStructIndex, copy.UseTargetNameAddressing,
+                    || !SelectAddressMode(
+                        copy.TargetItemName,
+                        copy.TargetItemIndex,
+                        "目标数据项",
+                        out bool useTargetItemName)
+                    || !ResolveItem(targetStructIndex, useTargetItemName,
                         copy.TargetItemIndex, copy.TargetItemName,
                         "目标", out int targetItemIndex))
                 {
@@ -491,21 +528,40 @@ namespace Automation
                         errors.Add($"{location} 的 Params[{i}] 为空。");
                         continue;
                     }
-                    ResolveField(sourceStructIndex, sourceItemIndex,
-                        copy.UseSourceNameAddressing,
-                        parameter.SourceFieldIndex, parameter.SourceFieldName,
-                        $"Params[{i}] 源");
-                    ResolveField(targetStructIndex, targetItemIndex,
-                        copy.UseTargetNameAddressing,
-                        parameter.TargetFieldIndex, parameter.TargetFieldName,
-                        $"Params[{i}] 目标");
+                    if (SelectAddressMode(
+                        parameter.SourceFieldName,
+                        parameter.SourceFieldIndex,
+                        $"Params[{i}] 源字段",
+                        out bool useSourceFieldName))
+                    {
+                        ResolveField(sourceStructIndex, sourceItemIndex,
+                            useSourceFieldName,
+                            parameter.SourceFieldIndex, parameter.SourceFieldName,
+                            $"Params[{i}] 源");
+                    }
+                    if (SelectAddressMode(
+                        parameter.TargetFieldName,
+                        parameter.TargetFieldIndex,
+                        $"Params[{i}] 目标字段",
+                        out bool useTargetFieldName))
+                    {
+                        ResolveField(targetStructIndex, targetItemIndex,
+                            useTargetFieldName,
+                            parameter.TargetFieldIndex, parameter.TargetFieldName,
+                            $"Params[{i}] 目标");
+                    }
                 }
                 return;
             }
 
             if (operation is InsertDataStructItem insert)
             {
-                if (!ResolveStruct(insert.UseStructNameAddressing,
+                if (!SelectAddressMode(
+                        insert.TargetStructName,
+                        insert.TargetStructIndex,
+                        "目标结构体",
+                        out bool useTargetStructName)
+                    || !ResolveStruct(useTargetStructName,
                         insert.TargetStructIndex, insert.TargetStructName,
                         "目标", out int structIndex))
                 {
@@ -516,27 +572,103 @@ namespace Automation
                 {
                     errors.Add($"{location} 的插入位置超出范围0..{itemCount}：{insert.TargetItemIndex}。");
                 }
+                if (string.IsNullOrWhiteSpace(insert.ItemName))
+                {
+                    errors.Add($"{location} 的新数据项名称不能为空。");
+                }
+                if (insert.Params == null || insert.Params.Count == 0)
+                {
+                    errors.Add($"{location} 的数据结构插入参数为空。");
+                    return;
+                }
+                var fieldNames = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < insert.Params.Count; i++)
+                {
+                    InsertDataStructItemParam parameter = insert.Params[i];
+                    if (parameter == null)
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 为空。");
+                        continue;
+                    }
+                    string fieldName = parameter.FieldName?.Trim();
+                    if (string.IsNullOrWhiteSpace(fieldName))
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 字段名称不能为空。");
+                    }
+                    else if (!fieldNames.Add(fieldName))
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 字段名称重复：{fieldName}。");
+                    }
+                    if (!string.Equals(parameter.Type, "double", StringComparison.Ordinal)
+                        && !string.Equals(parameter.Type, "string", StringComparison.Ordinal))
+                    {
+                        errors.Add($"{location} 的 Params[{i}] 数据类型无效：{parameter.Type}。");
+                    }
+                    bool hasLiteral = parameter.Value != null;
+                    bool hasReference = !string.IsNullOrEmpty(parameter.ValueIndex)
+                        || !string.IsNullOrEmpty(parameter.ValueIndex2Index)
+                        || !string.IsNullOrEmpty(parameter.ValueName)
+                        || !string.IsNullOrEmpty(parameter.ValueName2Index);
+                    if (hasLiteral == hasReference)
+                    {
+                        errors.Add(hasLiteral
+                            ? $"{location} 的 Params[{i}] 固定数据值与变量来源不能同时配置。"
+                            : $"{location} 的 Params[{i}] 尚未配置数据来源。");
+                    }
+                    else if (hasReference
+                        && !ValueRef.TryCreate(
+                            parameter.ValueIndex,
+                            parameter.ValueIndex2Index,
+                            parameter.ValueName,
+                            parameter.ValueName2Index,
+                            false,
+                            $"Params[{i}] 数据来源",
+                            out _,
+                            out string valueError))
+                    {
+                        errors.Add($"{location}：{valueError}。");
+                    }
+                }
                 return;
             }
 
             if (operation is DelDataStructItem delete)
             {
-                if (ResolveStruct(delete.UseNameAddressing,
+                if (SelectAddressMode(
+                        delete.TargetStructName,
+                        delete.TargetStructIndex,
+                        "目标结构体",
+                        out bool useTargetStructName)
+                    && ResolveStruct(useTargetStructName,
                         delete.TargetStructIndex, delete.TargetStructName,
                         "目标", out int structIndex))
                 {
-                    ResolveItem(structIndex, delete.UseNameAddressing,
-                        delete.TargetItemIndex, delete.TargetItemName,
-                        "目标", out _);
+                    if (SelectAddressMode(
+                        delete.TargetItemName,
+                        delete.TargetItemIndex,
+                        "目标数据项",
+                        out bool useTargetItemName))
+                    {
+                        ResolveItem(structIndex, useTargetItemName,
+                            delete.TargetItemIndex, delete.TargetItemName,
+                            "目标", out _);
+                    }
                 }
                 return;
             }
 
             if (operation is FindDataStructItem find)
             {
-                ResolveStruct(find.UseStructNameAddressing,
-                    find.TargetStructIndex, find.TargetStructName,
-                    "目标", out _);
+                if (SelectAddressMode(
+                    find.TargetStructName,
+                    find.TargetStructIndex,
+                    "目标结构体",
+                    out bool useTargetStructName))
+                {
+                    ResolveStruct(useTargetStructName,
+                        find.TargetStructIndex, find.TargetStructName,
+                        "目标", out _);
+                }
                 if (!string.Equals(find.Type, "名称等于key", StringComparison.Ordinal)
                     && !string.Equals(find.Type, "字符串等于key", StringComparison.Ordinal)
                     && !string.Equals(find.Type, "数值等于key", StringComparison.Ordinal))
@@ -555,9 +687,16 @@ namespace Automation
 
             if (operation is GetDataStructCount count)
             {
-                ResolveStruct(count.UseStructNameAddressing,
-                    count.TargetStructIndex, count.TargetStructName,
-                    "目标", out _);
+                if (SelectAddressMode(
+                    count.TargetStructName,
+                    count.TargetStructIndex,
+                    "目标结构体",
+                    out bool useTargetStructName))
+                {
+                    ResolveStruct(useTargetStructName,
+                        count.TargetStructIndex, count.TargetStructName,
+                        "目标", out _);
+                }
             }
         }
 

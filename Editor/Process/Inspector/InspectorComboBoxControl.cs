@@ -56,6 +56,21 @@ namespace Automation
 
         internal event EventHandler SelectionPickerRequested;
 
+        internal void OpenDropDownImmediately()
+        {
+            if (!Enabled || IsDisposed || !Visible)
+            {
+                return;
+            }
+            Focus();
+            if (CanOpenSelectionPicker())
+            {
+                SelectionPickerRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            ShowStandardValueDropDown();
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
@@ -195,8 +210,7 @@ namespace Automation
             {
                 return;
             }
-            Focus();
-            QueueDropDownRequest();
+            OpenDropDownImmediately();
         }
 
         private void LayoutDropDownButton()

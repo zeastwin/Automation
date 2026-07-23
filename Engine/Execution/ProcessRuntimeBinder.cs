@@ -4,6 +4,7 @@ using System;
 // 排查入口：运行前引用解析失败从 Binder 定位；不要在指令执行循环里重复搜索名称或静默使用旧索引。
 
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Automation
 {
@@ -224,7 +225,9 @@ namespace Automation
         public ValueRef Output { get; set; }
         public bool NeedsNumericValues { get; set; }
         public bool LiteralNumericValueValidated { get; set; }
+        public double LiteralNumericValue { get; set; }
         public Func<string, string, string> Calculate { get; set; }
+        public Func<double, double, double> CalculateNumber { get; set; }
     }
 
     internal sealed class CommunicationResponseRuntimeBinding
@@ -260,9 +263,26 @@ namespace Automation
     {
         public ValueRef FirstOutput { get; set; }
         public ValueRef[] Outputs { get; set; } = Array.Empty<ValueRef>();
+        public DataStructFieldRuntimeBinding[] Fields { get; set; } =
+            Array.Empty<DataStructFieldRuntimeBinding>();
+    }
+
+    internal sealed class SetDataStructValueRuntimeBinding
+    {
+        public DataStructFieldRuntimeBinding Target { get; set; }
+        public bool UsesLiteralValue { get; set; }
+        public string LiteralText { get; set; }
+        public double LiteralNumber { get; set; }
+        public ValueRef ValueSource { get; set; }
     }
 
     internal sealed class SetDataStructRuntimeBinding
+    {
+        public SetDataStructValueRuntimeBinding[] Values { get; set; } =
+            Array.Empty<SetDataStructValueRuntimeBinding>();
+    }
+
+    internal sealed class InsertDataStructRuntimeBinding
     {
         public bool[] UsesLiteralValues { get; set; } = Array.Empty<bool>();
         public ValueRef[] ValueSources { get; set; } = Array.Empty<ValueRef>();
@@ -271,7 +291,11 @@ namespace Automation
     internal static class ProcessRuntimeBinder
     {
         public static bool TryBind(
-            Proc proc, int procIndex, ValueConfigStore valueStore, out string error)
+            Proc proc,
+            int procIndex,
+            ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
+            out string error)
         {
             error = null;
             if (proc?.steps == null)
@@ -296,7 +320,13 @@ namespace Automation
                         return false;
                     }
                     if (!TryBindOperation(
-                        proc, procIndex, proc.head.Id, valueStore, operation, out error))
+                        proc,
+                        procIndex,
+                        proc.head.Id,
+                        valueStore,
+                        dataStructStore,
+                        operation,
+                        out error))
                     {
                         error = $"流程运行计划编译失败：{procIndex}-{stepIndex}-{opIndex} {error}";
                         return false;
@@ -309,6 +339,7 @@ namespace Automation
         internal static bool TryBindStandalone(
             Guid procId,
             ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
             OperationType operation,
             out string error)
         {
@@ -318,7 +349,7 @@ namespace Automation
                 return false;
             }
             return TryBindOperation(
-                null, 0, procId, valueStore, operation, out error);
+                null, 0, procId, valueStore, dataStructStore, operation, out error);
         }
 
         private static bool TryBindOperation(
@@ -326,6 +357,7 @@ namespace Automation
             int procIndex,
             Guid procId,
             ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
             OperationType operation,
             out string error)
         {
@@ -353,10 +385,13 @@ namespace Automation
                     return TryBindReplace(procId, valueStore, replace, out error);
                 case SetDataStructItem setDataStructItem:
                     return TryBindSetDataStructItem(
-                        procId, valueStore, setDataStructItem, out error);
+                        procId, valueStore, dataStructStore, setDataStructItem, out error);
                 case GetDataStructItem getDataStructItem:
                     return TryBindGetDataStructItem(
-                        procId, valueStore, getDataStructItem, out error);
+                        procId, valueStore, dataStructStore, getDataStructItem, out error);
+                case InsertDataStructItem insertDataStructItem:
+                    return TryBindInsertDataStructItem(
+                        procId, valueStore, insertDataStructItem, out error);
                 case ResponseCommunicationOperationType communication:
                     return TryBindCommunicationResponse(procId, valueStore, communication, out error);
                 default:
@@ -702,11 +737,13 @@ namespace Automation
                 || operation.ModifyType == "求余"
                 || operation.ModifyType == "绝对值";
             bool literalNumericValueValidated = false;
+            double literalNumericValue = 0;
             if (needsNumericValues
                 && operation.ModifyType != "绝对值"
                 && usesLiteral)
             {
-                if (!double.TryParse(operation.ChangeValue, out _))
+                if (!double.TryParse(
+                        operation.ChangeValue, out literalNumericValue))
                 {
                     error = "修改值不是有效数字";
                     return false;
@@ -714,39 +751,46 @@ namespace Automation
                 literalNumericValueValidated = true;
             }
             Func<string, string, string> calculate;
+            Func<double, double, double> calculateNumber;
             switch (operation.ModifyType)
             {
                 case "替换":
                     calculate = (sourceText, changeText) => changeText;
+                    calculateNumber = null;
                     break;
                 case "叠加":
                     double addSourceSign = operation.NegateSource ? -1d : 1d;
                     double addOperandSign = operation.NegateOperand ? -1d : 1d;
-                    calculate = (sourceText, changeText) =>
-                        (addSourceSign * double.Parse(sourceText)
-                            + addOperandSign * double.Parse(changeText)).ToString();
+                    calculate = null;
+                    calculateNumber = (sourceNumber, changeNumber) =>
+                        addSourceSign * sourceNumber
+                            + addOperandSign * changeNumber;
                     break;
                 case "乘法":
                     double multiplySourceSign = operation.NegateSource ? -1d : 1d;
                     double multiplyOperandSign = operation.NegateOperand ? -1d : 1d;
-                    calculate = (sourceText, changeText) =>
-                        (multiplySourceSign * double.Parse(sourceText)
-                            * multiplyOperandSign * double.Parse(changeText)).ToString();
+                    calculate = null;
+                    calculateNumber = (sourceNumber, changeNumber) =>
+                        multiplySourceSign * sourceNumber
+                            * multiplyOperandSign * changeNumber;
                     break;
                 case "除法":
                     double divideSourceSign = operation.NegateSource ? -1d : 1d;
                     double divideOperandSign = operation.NegateOperand ? -1d : 1d;
-                    calculate = (sourceText, changeText) =>
-                        ((divideSourceSign * double.Parse(sourceText))
-                            / (divideOperandSign * double.Parse(changeText))).ToString();
+                    calculate = null;
+                    calculateNumber = (sourceNumber, changeNumber) =>
+                        (divideSourceSign * sourceNumber)
+                            / (divideOperandSign * changeNumber);
                     break;
                 case "求余":
-                    calculate = (sourceText, changeText) =>
-                        (double.Parse(sourceText) % double.Parse(changeText)).ToString();
+                    calculate = null;
+                    calculateNumber = (sourceNumber, changeNumber) =>
+                        sourceNumber % changeNumber;
                     break;
                 case "绝对值":
-                    calculate = (sourceText, changeText) =>
-                        Math.Abs(double.Parse(sourceText)).ToString();
+                    calculate = null;
+                    calculateNumber = (sourceNumber, changeNumber) =>
+                        Math.Abs(sourceNumber);
                     break;
                 default:
                     error = $"修改模式无效:{operation.ModifyType ?? "空"}";
@@ -760,7 +804,9 @@ namespace Automation
                 Output = output,
                 NeedsNumericValues = needsNumericValues,
                 LiteralNumericValueValidated = literalNumericValueValidated,
-                Calculate = calculate
+                LiteralNumericValue = literalNumericValue,
+                Calculate = calculate,
+                CalculateNumber = calculateNumber
             };
             return true;
         }
@@ -907,10 +953,23 @@ namespace Automation
         private static bool TryBindGetDataStructItem(
             Guid procId,
             ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
             GetDataStructItem operation,
             out string error)
         {
             error = null;
+            if (!TryResolveDataStructItem(
+                    dataStructStore,
+                    operation.StructName,
+                    operation.StructIndex,
+                    operation.ItemName,
+                    operation.ItemIndex,
+                    out int structIndex,
+                    out int itemIndex,
+                    out error))
+            {
+                return false;
+            }
             var binding = new GetDataStructRuntimeBinding();
             if (operation.IsAllItem)
             {
@@ -925,6 +984,22 @@ namespace Automation
                     return false;
                 }
                 binding.FirstOutput = firstOutput;
+                List<int> fieldIndexes =
+                    dataStructStore.GetItemValueIndexes(structIndex, itemIndex);
+                var fields = new DataStructFieldRuntimeBinding[fieldIndexes.Count];
+                for (int i = 0; i < fieldIndexes.Count; i++)
+                {
+                    if (!dataStructStore.TryBindRuntimeField(
+                            structIndex,
+                            itemIndex,
+                            fieldIndexes[i],
+                            out fields[i],
+                            out error))
+                    {
+                        return false;
+                    }
+                }
+                binding.Fields = fields;
                 operation.RuntimeBinding = binding;
                 return true;
             }
@@ -936,6 +1011,7 @@ namespace Automation
                 return false;
             }
             var outputs = new ValueRef[count];
+            var boundFields = new DataStructFieldRuntimeBinding[count];
             for (int i = 0; i < count; i++)
             {
                 GetDataStructItemParam item = operation.Params[i];
@@ -950,8 +1026,27 @@ namespace Automation
                     error = error ?? $"数据结构读取参数{i}为空";
                     return false;
                 }
+                if (!TryResolveDataStructField(
+                        dataStructStore,
+                        structIndex,
+                        itemIndex,
+                        item.FieldName,
+                        item.FieldIndex,
+                        $"字段[{i}]",
+                        out int fieldIndex,
+                        out error)
+                    || !dataStructStore.TryBindRuntimeField(
+                        structIndex,
+                        itemIndex,
+                        fieldIndex,
+                        out boundFields[i],
+                        out error))
+                {
+                    return false;
+                }
             }
             binding.Outputs = outputs;
+            binding.Fields = boundFields;
             operation.RuntimeBinding = binding;
             return true;
         }
@@ -959,6 +1054,7 @@ namespace Automation
         private static bool TryBindSetDataStructItem(
             Guid procId,
             ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
             SetDataStructItem operation,
             out string error)
         {
@@ -969,8 +1065,19 @@ namespace Automation
                 error = "数据结构设置参数为空";
                 return false;
             }
-            var usesLiteralValues = new bool[count];
-            var valueSources = new ValueRef[count];
+            if (!TryResolveDataStructItem(
+                    dataStructStore,
+                    operation.StructName,
+                    operation.StructIndex,
+                    operation.ItemName,
+                    operation.ItemIndex,
+                    out int structIndex,
+                    out int itemIndex,
+                    out error))
+            {
+                return false;
+            }
+            var values = new SetDataStructValueRuntimeBinding[count];
             for (int i = 0; i < count; i++)
             {
                 SetDataStructItemParam item = operation.Params[i];
@@ -991,6 +1098,213 @@ namespace Automation
                         : $"写入值[{i}]不能为空";
                     return false;
                 }
+                if (!TryResolveDataStructField(
+                        dataStructStore,
+                        structIndex,
+                        itemIndex,
+                        item.FieldName,
+                        item.FieldIndex,
+                        $"字段[{i}]",
+                        out int fieldIndex,
+                        out error)
+                    || !dataStructStore.TryBindRuntimeField(
+                        structIndex,
+                        itemIndex,
+                        fieldIndex,
+                        out DataStructFieldRuntimeBinding target,
+                        out error))
+                {
+                    return false;
+                }
+                var valueBinding = new SetDataStructValueRuntimeBinding
+                {
+                    Target = target,
+                    UsesLiteralValue = usesLiteral,
+                    LiteralText = item.Value
+                };
+                if (usesLiteral)
+                {
+                    double literalNumber = 0;
+                    if (target.ValueType == DataStructValueType.Number
+                        && (!double.TryParse(
+                                item.Value,
+                                NumberStyles.Float,
+                                CultureInfo.InvariantCulture,
+                                out literalNumber)
+                            || double.IsNaN(literalNumber)
+                            || double.IsInfinity(literalNumber)))
+                    {
+                        error = $"写入值[{i}]数值无效:{item.Value}";
+                        return false;
+                    }
+                    if (target.ValueType == DataStructValueType.Number)
+                    {
+                        valueBinding.LiteralNumber = literalNumber;
+                    }
+                    values[i] = valueBinding;
+                    continue;
+                }
+                if (!ValueRef.TryCreate(
+                        item.ValueIndex,
+                        item.ValueIndex2Index,
+                        item.ValueName,
+                        item.ValueName2Index,
+                        false,
+                        $"写入值[{i}]",
+                        out ValueRef valueSource,
+                        out error)
+                    || !valueSource.TryBindStatic(
+                        valueStore,
+                        procId,
+                        $"写入值[{i}]",
+                        out valueSource,
+                        out error))
+                {
+                    return false;
+                }
+                valueBinding.ValueSource = valueSource;
+                values[i] = valueBinding;
+            }
+            operation.RuntimeBinding = new SetDataStructRuntimeBinding
+            {
+                Values = values
+            };
+            return true;
+        }
+
+        private static bool TryResolveDataStructItem(
+            DataStructStore store,
+            string structName,
+            int configuredStructIndex,
+            string itemName,
+            int configuredItemIndex,
+            out int structIndex,
+            out int itemIndex,
+            out string error)
+        {
+            structIndex = -1;
+            itemIndex = -1;
+            if (store == null)
+            {
+                error = "数据结构存储未初始化";
+                return false;
+            }
+            if (!TrySelectDataStructAddressMode(
+                    structName,
+                    configuredStructIndex,
+                    "结构体",
+                    out bool useStructName,
+                    out error)
+                || !TrySelectDataStructAddressMode(
+                    itemName,
+                    configuredItemIndex,
+                    "数据项",
+                    out bool useItemName,
+                    out error))
+            {
+                return false;
+            }
+            return store.TryResolveStructIndex(
+                    useStructName,
+                    configuredStructIndex,
+                    structName,
+                    out structIndex,
+                    out error)
+                && store.TryResolveItemIndex(
+                    structIndex,
+                    useItemName,
+                    configuredItemIndex,
+                    itemName,
+                    out itemIndex,
+                    out error);
+        }
+
+        private static bool TryResolveDataStructField(
+            DataStructStore store,
+            int structIndex,
+            int itemIndex,
+            string fieldName,
+            int configuredFieldIndex,
+            string label,
+            out int fieldIndex,
+            out string error)
+        {
+            fieldIndex = -1;
+            return TrySelectDataStructAddressMode(
+                    fieldName,
+                    configuredFieldIndex,
+                    label,
+                    out bool useFieldName,
+                    out error)
+                && store.TryResolveFieldIndex(
+                    structIndex,
+                    itemIndex,
+                    useFieldName,
+                    configuredFieldIndex,
+                    fieldName,
+                    out fieldIndex,
+                    out error);
+        }
+
+        private static bool TrySelectDataStructAddressMode(
+            string name,
+            int index,
+            string label,
+            out bool useName,
+            out string error)
+        {
+            bool hasName = !string.IsNullOrWhiteSpace(name);
+            bool hasIndex = index >= 0;
+            useName = hasName;
+            if (hasName && hasIndex)
+            {
+                error = $"{label}名称与索引不能同时配置";
+                return false;
+            }
+            if (!hasName && !hasIndex)
+            {
+                error = $"{label}尚未配置";
+                return false;
+            }
+            error = null;
+            return true;
+        }
+
+        private static bool TryBindInsertDataStructItem(
+            Guid procId,
+            ValueConfigStore valueStore,
+            InsertDataStructItem operation,
+            out string error)
+        {
+            error = null;
+            int count = operation.Params?.Count ?? 0;
+            if (count == 0)
+            {
+                error = "数据结构插入参数为空";
+                return false;
+            }
+            var usesLiteralValues = new bool[count];
+            var valueSources = new ValueRef[count];
+            for (int i = 0; i < count; i++)
+            {
+                InsertDataStructItemParam item = operation.Params[i];
+                if (item == null)
+                {
+                    error = $"数据结构插入参数{i}为空";
+                    return false;
+                }
+                bool usesLiteral = item.Value != null;
+                bool hasReference = !string.IsNullOrEmpty(item.ValueIndex)
+                    || !string.IsNullOrEmpty(item.ValueIndex2Index)
+                    || !string.IsNullOrEmpty(item.ValueName)
+                    || !string.IsNullOrEmpty(item.ValueName2Index);
+                if (usesLiteral == hasReference)
+                {
+                    error = usesLiteral
+                        ? $"数据来源[{i}]配置冲突"
+                        : $"数据来源[{i}]不能为空";
+                    return false;
+                }
                 usesLiteralValues[i] = usesLiteral;
                 if (!hasReference)
                 {
@@ -1002,20 +1316,20 @@ namespace Automation
                         item.ValueName,
                         item.ValueName2Index,
                         false,
-                        $"写入值[{i}]",
+                        $"数据来源[{i}]",
                         out valueSources[i],
                         out error)
                     || !valueSources[i].TryBindStatic(
                         valueStore,
                         procId,
-                        $"写入值[{i}]",
+                        $"数据来源[{i}]",
                         out valueSources[i],
                         out error))
                 {
                     return false;
                 }
             }
-            operation.RuntimeBinding = new SetDataStructRuntimeBinding
+            operation.RuntimeBinding = new InsertDataStructRuntimeBinding
             {
                 UsesLiteralValues = usesLiteralValues,
                 ValueSources = valueSources

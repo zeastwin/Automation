@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 12;
+        public const int ContractVersion = 13;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -299,11 +299,11 @@ namespace Automation
                 case "CT探针":
                     contract = CreateContract(
                         "在显式业务位置记录分段CT和自周期起点以来的累计CT。",
-                        new[] { "按当前流程runId与TaskKey定位计时任务", "StartNewCycle=true时用单调时钟重置周期", "后续探针计算距上一探针和周期起点的耗时", "按需写入double结果变量", "同步发布内存事件并更新最新样本" },
+                        new[] { "按当前流程runId与TaskKey定位计时任务", "StartNewCycle=true时用单调时钟重置周期", "后续探针计算距上一探针和周期起点的耗时", "按0.001秒精度写入double结果变量", "同步发布内存事件并更新最新样本" },
                         true);
                     AddRequiredField(contract, "TaskKey", "同一流程运行内计时任务的稳定标识");
                     AddRequiredField(contract, "SegmentName", "当前业务分段名称");
-                    contract["constraints"] = new JArray("每个TaskKey必须先执行StartNewCycle=true的探针", "结果变量可省略；配置时必须是当前流程可访问的double变量", "使用Stopwatch单调时钟，不依赖系统时间调整", "探针不在执行热路径同步写文件");
+                    contract["constraints"] = new JArray("每个TaskKey必须先执行StartNewCycle=true的探针", "结果变量可省略；配置时必须是当前流程可访问的double变量，单位为秒并保留3位小数", "使用Stopwatch单调时钟，不依赖系统时间调整", "探针不在执行热路径同步写文件");
                     contract["failureModes"] = new JArray("任务标识或分段名称为空时报警", "未先开始周期时报警", "结果变量不存在、类型不符或写入失败时报警");
                     break;
 
@@ -422,91 +422,87 @@ namespace Automation
                 case "获取结构体数据项":
                     contract = CreateContract(
                         "读取指定结构体项的字段，并批量写入连续变量或按映射写入变量。",
-                        new[] { "根据 UseNameAddressing 严格选择索引或名称寻址", "IsAllItem=true 时按真实字段索引排序读取并从 FirstResultVariableName 连续写入", "否则按 Params 的字段索引或名称与结果变量引用逐项写入" },
+                        new[] { "结构体、数据项和非批量读取的每个字段分别在名称与索引中严格选择一种寻址方式", "IsAllItem=true 时按真实字段索引排序读取并从 FirstResultVariableName 连续写入", "否则按 Params 的字段地址与结果变量引用逐项写入" },
                         true);
-                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
-                    AddConditionalField(contract, "StructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "ItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
-                    AddConditionalField(contract, "StructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
-                    AddConditionalField(contract, "ItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     AddConditionalField(contract, "FirstResultVariableName", "IsAllItem", new[] { "True" }, "批量结果的首个变量");
-                    AddConditionalField(contract, "Params", "IsAllItem", new[] { "False" }, "字段索引到目标变量的映射集合");
-                    contract["constraints"] = new JArray("名称模式下非批量读取的每个 Params 项必须填写 FieldName", "名称解析失败不回退索引");
-                    contract["failureModes"] = new JArray("结构体或变量索引无效时报警", "字段读取或变量写入失败时报警");
+                    AddConditionalField(contract, "Params", "IsAllItem", new[] { "False" }, "字段地址到目标变量的映射集合");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用 StructName、ItemName 和 FieldName，下拉中可显式切换为对应索引",
+                        "StructName/StructIndex、ItemName/ItemIndex、非批量时每项 FieldName/FieldIndex 均恰好配置一个",
+                        "名称解析失败不回退索引");
+                    contract["failureModes"] = new JArray("任一地址或结果变量无效时报警", "字段读取或变量写入失败时报警");
                     break;
 
                 case "复制结构体数据项":
                     contract = CreateContract(
                         "在两个结构体项之间复制全部字段或明确字段映射。",
-                        new[] { "源和目标分别根据 UseSourceNameAddressing/UseTargetNameAddressing 选择索引或名称寻址", "IsAllValue=true 时复制完整项数据", "否则解析全部 Params 后一次写入目标字段" },
+                        new[] { "源和目标的结构体、数据项分别在名称与索引中严格选择一种寻址方式", "IsAllValue=true 时复制完整项数据", "否则每个源字段和目标字段分别选择名称或索引，解析全部 Params 后一次写入目标字段" },
                         true);
-                    AddRequiredField(contract, "UseSourceNameAddressing", "源false按索引寻址，true按精确名称寻址");
-                    AddRequiredField(contract, "UseTargetNameAddressing", "目标false按索引寻址，true按精确名称寻址");
-                    AddConditionalField(contract, "SourceStructIndex", "UseSourceNameAddressing", new[] { "False" }, "源结构体非负索引");
-                    AddConditionalField(contract, "SourceItemIndex", "UseSourceNameAddressing", new[] { "False" }, "源结构项非负索引");
-                    AddConditionalField(contract, "SourceStructName", "UseSourceNameAddressing", new[] { "True" }, "源结构体精确名称");
-                    AddConditionalField(contract, "SourceItemName", "UseSourceNameAddressing", new[] { "True" }, "源数据项精确名称");
-                    AddConditionalField(contract, "TargetStructIndex", "UseTargetNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "TargetItemIndex", "UseTargetNameAddressing", new[] { "False" }, "目标结构项非负索引");
-                    AddConditionalField(contract, "TargetStructName", "UseTargetNameAddressing", new[] { "True" }, "目标结构体精确名称");
-                    AddConditionalField(contract, "TargetItemName", "UseTargetNameAddressing", new[] { "True" }, "目标数据项精确名称");
                     AddConditionalField(contract, "Params", "IsAllValue", new[] { "False" }, "源字段到目标字段的映射集合");
-                    contract["constraints"] = new JArray("名称模式下 Params 使用对应的 SourceFieldName/TargetFieldName", "名称解析失败不回退索引", "任一映射失败时目标项不产生部分写入");
-                    contract["failureModes"] = new JArray("任一索引或映射无效时报警", "源值为空、读取失败或目标写入失败时报警");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用名称，下拉中可显式切换为对应索引",
+                        "源和目标的结构体、数据项地址均恰好配置名称或索引之一",
+                        "非完整复制时每项源字段和目标字段地址均恰好配置名称或索引之一",
+                        "名称解析失败不回退索引",
+                        "任一映射失败时目标项不产生部分写入");
+                    contract["failureModes"] = new JArray("任一地址或映射无效时报警", "源值为空、读取失败或目标写入失败时报警");
                     break;
 
                 case "插入结构体数据项":
                     contract = CreateContract(
                         "在指定结构体位置插入由 Params 定义的新数据项。",
-                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "按 Params 顺序创建字段", "Type=double/string 时从变量或固定值严格取值", "按 TargetItemIndex 指定的位置插入" },
+                        new[] { "目标结构体在名称与索引中严格选择一种寻址方式", "按 Params 顺序和 FieldName 创建字段", "每个字段从固定 Value 或 ValueIndex/ValueIndex2Index/ValueName/ValueName2Index 中严格选择一种数据来源", "按 TargetItemIndex 指定的位置插入" },
                         true);
-                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
-                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "TargetItemIndex", "插入位置非负索引");
                     AddRequiredField(contract, "ItemName", "新数据项名称");
                     AddRequiredField(contract, "Params", "新数据项字段集合");
-                    contract["constraints"] = new JArray("每个字段的 ValueVariableName 与 Value 表达变量或固定值来源", "字段顺序决定字段索引");
-                    contract["failureModes"] = new JArray("数值固定值、变量或目标索引无效时报警", "插入失败时报警");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用 TargetStructName，下拉中可显式切换为 TargetStructIndex",
+                        "TargetStructName/TargetStructIndex 恰好配置一个",
+                        "每项 FieldName 非空且在新数据项内唯一",
+                        "每项固定 Value 与 ValueIndex、ValueIndex2Index、ValueName、ValueName2Index 四种变量引用恰好配置一个",
+                        "字段顺序决定字段索引");
+                    contract["failureModes"] = new JArray("字段名称、数据类型、数据来源或目标地址无效时报警", "插入失败时报警");
                     break;
 
                 case "删除结构体数据项":
                     contract = CreateContract(
                         "删除指定结构体中的一个数据项。",
-                        new[] { "根据 UseNameAddressing 严格选择索引或名称寻址", "删除解析到的目标项", "不改写任何流程中的其他索引" },
+                        new[] { "结构体和数据项分别在名称与索引中严格选择一种寻址方式", "删除解析到的目标项", "不改写任何流程中的其他索引" },
                         true);
-                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
-                    AddConditionalField(contract, "TargetStructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "TargetItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
-                    AddConditionalField(contract, "TargetStructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
-                    AddConditionalField(contract, "TargetItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
-                    contract["failureModes"] = new JArray("索引无效、越界或删除失败时报警");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用名称，下拉中可显式切换为对应索引",
+                        "TargetStructName/TargetStructIndex、TargetItemName/TargetItemIndex 均恰好配置一个",
+                        "名称解析失败不回退索引");
+                    contract["failureModes"] = new JArray("任一地址无效、越界或删除失败时报警");
                     break;
 
                 case "查找结构体数据项":
                     contract = CreateContract(
                         "按名称、字符串值或数值在结构体中查找匹配项并保存结果。",
-                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "按 Type 严格解释 Key 并查找", "命中后把结果写入 ResultVariableName；未命中触发指令报警" },
+                        new[] { "目标结构体在名称与索引中严格选择一种寻址方式", "按 Type 严格解释 Key 并查找", "命中后把结果写入 ResultVariableName；未命中触发指令报警" },
                         true);
-                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
-                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "Type", "名称等于key、字符串等于key或数值等于key");
                     AddRequiredField(contract, "Key", "查找关键字；数值模式必须是有效数值");
                     AddRequiredField(contract, "ResultVariableName", "查找结果保存变量");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用 TargetStructName，下拉中可显式切换为 TargetStructIndex",
+                        "TargetStructName/TargetStructIndex 恰好配置一个",
+                        "名称解析失败不回退索引");
                     contract["failureModes"] = new JArray("模式、关键字、结构体或保存变量无效时报警", "没有找到匹配项时报警");
                     break;
 
                 case "获取结构体数量":
                     contract = CreateContract(
                         "读取结构体总数和指定结构体的项数并分别写入变量。",
-                        new[] { "根据 UseStructNameAddressing 按结构体索引或名称寻址", "校验两个结果变量", "写入结构体总数和目标结构体项数" },
+                        new[] { "目标结构体在名称与索引中严格选择一种寻址方式", "校验两个结果变量", "写入结构体总数和目标结构体项数" },
                         true);
-                    AddRequiredField(contract, "UseStructNameAddressing", "false按结构体索引寻址，true按结构体精确名称寻址");
-                    AddConditionalField(contract, "TargetStructIndex", "UseStructNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "TargetStructName", "UseStructNameAddressing", new[] { "True" }, "目标结构体精确名称");
                     AddRequiredField(contract, "StructCountVariableName", "结构体总数保存变量");
                     AddRequiredField(contract, "ItemCountVariableName", "目标结构体项数保存变量");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用 TargetStructName，下拉中可显式切换为 TargetStructIndex",
+                        "TargetStructName/TargetStructIndex 恰好配置一个",
+                        "名称解析失败不回退索引");
                     contract["failureModes"] = new JArray("索引无效或任一结果变量写入失败时报警");
                     break;
 

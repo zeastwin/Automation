@@ -426,7 +426,7 @@ namespace Automation
             if (content == null) throw new ArgumentNullException(nameof(content));
 
             CreateControl();
-            CreateChildHandles(content);
+            PrepareContent(content);
             IntPtr handle = Handle;
             int disableTransitions = 1;
             DwmSetWindowAttribute(
@@ -451,12 +451,12 @@ namespace Automation
             }
         }
 
-        private static void CreateChildHandles(Control control)
+        internal static void PrepareContent(Control control)
         {
             control.CreateControl();
             foreach (Control child in control.Controls)
             {
-                CreateChildHandles(child);
+                PrepareContent(child);
             }
         }
     }

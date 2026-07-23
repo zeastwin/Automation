@@ -151,14 +151,13 @@ namespace Automation
 
     public delegate void EventRefreshInspector();
     [Serializable]
-    public class OperationType : ICloneable
+    public class OperationType : ICloneable, IPropertyVisibilityProvider
     {
         // 使用隐藏前缀保持分类排序，检查器显示时仍规范化为“常规”。
         public const string GeneralCategory = "\uFEFF常规";
 
-        public OperationType() 
+        public OperationType()
         {
-            RefreshInspector += RefleshPropertyAlarm;
         }
         [Browsable(false)]
         [JsonIgnore]
@@ -166,6 +165,12 @@ namespace Automation
 
         [NonSerialized]
         private object runtimeBinding;
+
+        [NonSerialized]
+        private Dictionary<string, bool> propertyVisibilityOverrides;
+
+        [NonSerialized]
+        private Dictionary<string, string> propertyDisplayNameOverrides;
 
         [Browsable(false)]
         [JsonIgnore]
@@ -218,57 +223,39 @@ namespace Automation
                 if (alarmType != value)
                 {
                     alarmType = value;
-                    if (IsOperationEditorActive)
-                    {
-                        RefleshPropertyAlarm();
-                    }
                 }
             }
         }
 
-        public void RefleshPropertyAlarm()
+        public virtual bool IsPropertyVisible(
+            string propertyName,
+            bool defaultVisibility)
         {
-            if (this.alarmType == "报警停止")
+            switch (propertyName)
             {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
-            }
-            else if (this.alarmType == "报警忽略")
-            {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
-            }
-            else if (this.alarmType == "自动处理")
-            {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
-            }
-            else if (this.alarmType == "弹框确定")
-            {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", false);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
-            }
-            else if (this.alarmType == "弹框确定与否")
-            {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", false);
-            }
-            else if (this.alarmType == "弹框确定与否与取消")
-            {
-                SetPropertyAttribute(this, "AlarmInfoId", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto1", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto2", typeof(BrowsableAttribute), "browsable", true);
-                SetPropertyAttribute(this, "Goto3", typeof(BrowsableAttribute), "browsable", true);
+                case nameof(AlarmInfoId):
+                    return alarmType == "弹框确定"
+                        || alarmType == "弹框确定与否"
+                        || alarmType == "弹框确定与否与取消";
+                case nameof(Goto1):
+                    return alarmType == "自动处理"
+                        || alarmType == "弹框确定"
+                        || alarmType == "弹框确定与否"
+                        || alarmType == "弹框确定与否与取消";
+                case nameof(Goto2):
+                    return alarmType == "弹框确定与否"
+                        || alarmType == "弹框确定与否与取消";
+                case nameof(Goto3):
+                    return alarmType == "弹框确定与否与取消";
+                default:
+                    if (propertyVisibilityOverrides != null
+                        && propertyVisibilityOverrides.TryGetValue(
+                            propertyName,
+                            out bool visible))
+                    {
+                        return visible;
+                    }
+                    return defaultVisibility;
             }
         }
         [DisplayName("报警信息ID"), Category(GeneralCategory), Description("弹框报警时使用的报警信息编号；仅在弹框类报警策略下生效。"), ReadOnly(false), TypeConverter(typeof(AlarmInfoItem))]
@@ -320,6 +307,19 @@ namespace Automation
             {
                 return;
             }
+            if (obj is OperationType operation
+                && attrType == typeof(BrowsableAttribute)
+                && string.Equals(attrField, "browsable", StringComparison.Ordinal)
+                && value is bool visible)
+            {
+                if (operation.propertyVisibilityOverrides == null)
+                {
+                    operation.propertyVisibilityOverrides =
+                        new Dictionary<string, bool>(StringComparer.Ordinal);
+                }
+                operation.propertyVisibilityOverrides[propertyName] = visible;
+                return;
+            }
 
             PropertyDescriptorCollection props = TypeDescriptor.GetProperties(obj);
             PropertyDescriptor prop = props[propertyName];
@@ -348,18 +348,29 @@ namespace Automation
             {
                 return;
             }
-            PropertyDescriptor descriptor = TypeDescriptor.GetProperties(obj)[PropertyName];
-            if (descriptor == null)
+            if (string.IsNullOrWhiteSpace(PropertyName)
+                || string.IsNullOrWhiteSpace(disPlayName))
             {
                 return;
             }
-            DisplayNameAttribute attribute = descriptor.Attributes[typeof(DisplayNameAttribute)] as DisplayNameAttribute;
-            if (attribute == null)
+            if (propertyDisplayNameOverrides == null)
             {
-                return;
+                propertyDisplayNameOverrides =
+                    new Dictionary<string, string>(StringComparer.Ordinal);
             }
-            FieldInfo field = attribute.GetType().GetField("_displayName", BindingFlags.NonPublic | BindingFlags.Instance);
-            field?.SetValue(attribute, disPlayName);
+            propertyDisplayNameOverrides[PropertyName] = disPlayName;
+        }
+
+        internal string GetPropertyDisplayName(
+            string propertyName,
+            string defaultDisplayName)
+        {
+            return propertyDisplayNameOverrides != null
+                && propertyDisplayNameOverrides.TryGetValue(
+                    propertyName,
+                    out string displayName)
+                    ? displayName
+                    : defaultDisplayName;
         }
 
     }
@@ -377,7 +388,7 @@ namespace Automation
     }
 
     [Serializable]
-    public abstract class ResponseCommunicationOperationType : CommunicationOperationType, IPropertyVisibilityProvider
+    public abstract class ResponseCommunicationOperationType : CommunicationOperationType
     {
         protected ResponseCommunicationOperationType()
         {
@@ -390,9 +401,10 @@ namespace Automation
         [TypeConverter(typeof(ParamListConverter<CommunicationResponseCondition>))]
         public CustomList<CommunicationResponseCondition> ResponseConditions { get; set; }
 
-        public virtual bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
         {
-            return propertyName != nameof(ResponseConditions) || RetryCount > 0;
+            return base.IsPropertyVisible(propertyName, defaultVisibility)
+                && (propertyName != nameof(ResponseConditions) || RetryCount > 0);
         }
 
         public virtual bool ShouldSerializeResponseConditions() => RetryCount > 0;
@@ -654,11 +666,11 @@ namespace Automation
         [DisplayName("计时起点"), Category("计时"), Description("为 true 时重置本任务并开始一个新周期。"), ReadOnly(false)]
         public bool StartNewCycle { get; set; }
 
-        [DisplayName("分段耗时变量"), Category("结果"), Description("可选 double 变量，写入距上一个探针的毫秒数。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string SegmentMillisecondsVariableName { get; set; }
+        [DisplayName("分段耗时变量"), Category("结果"), Description("可选 double 变量，写入距上一个探针的秒数，精确到0.001秒。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string SegmentSecondsVariableName { get; set; }
 
-        [DisplayName("累计耗时变量"), Category("结果"), Description("可选 double 变量，写入距计时起点的累计毫秒数。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string CycleMillisecondsVariableName { get; set; }
+        [DisplayName("累计耗时变量"), Category("结果"), Description("可选 double 变量，写入距计时起点的累计秒数，精确到0.001秒。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string CycleSecondsVariableName { get; set; }
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
@@ -685,7 +697,7 @@ namespace Automation
         }
     }
     [Serializable]
-    public class WaitProc : OperationType, IPropertyVisibilityProvider
+    public class WaitProc : OperationType
     {
         public const string WaitReadyMode = "等待就绪";
         public const string StateJumpMode = "状态跳转";
@@ -747,7 +759,7 @@ namespace Automation
         [DisplayName("状态变量"), Category("获取状态"), Description("目标变量；double 写入状态码（Stopped=0、Paused=1、SingleStep=2、Running=3、Alarming=4、Pausing=5、Stopping=6、Ready=7），string 写入对应枚举名称。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string StateVariableName { get; set; }
 
-        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
         {
             switch (propertyName)
             {
@@ -755,19 +767,23 @@ namespace Automation
                 case nameof(DelayAfterVariableName):
                 case nameof(Timeout):
                 case nameof(Params):
-                    return string.Equals(workMode, WaitReadyMode, StringComparison.Ordinal);
+                    return base.IsPropertyVisible(propertyName, defaultVisibility)
+                        && string.Equals(workMode, WaitReadyMode, StringComparison.Ordinal);
                 case nameof(TargetProcName):
                 case nameof(TargetProcValue):
-                    return string.Equals(workMode, StateJumpMode, StringComparison.Ordinal)
-                        || string.Equals(workMode, GetStateMode, StringComparison.Ordinal);
+                    return base.IsPropertyVisible(propertyName, defaultVisibility)
+                        && (string.Equals(workMode, StateJumpMode, StringComparison.Ordinal)
+                            || string.Equals(workMode, GetStateMode, StringComparison.Ordinal));
                 case nameof(ReadyGoto):
                 case nameof(AbnormalGoto):
                 case nameof(RunningGoto):
-                    return string.Equals(workMode, StateJumpMode, StringComparison.Ordinal);
+                    return base.IsPropertyVisible(propertyName, defaultVisibility)
+                        && string.Equals(workMode, StateJumpMode, StringComparison.Ordinal);
                 case nameof(StateVariableName):
-                    return string.Equals(workMode, GetStateMode, StringComparison.Ordinal);
+                    return base.IsPropertyVisible(propertyName, defaultVisibility)
+                        && string.Equals(workMode, GetStateMode, StringComparison.Ordinal);
                 default:
-                    return defaultVisibility;
+                    return base.IsPropertyVisible(propertyName, defaultVisibility);
             }
         }
 
@@ -1553,16 +1569,13 @@ namespace Automation
                 new GetDataStructItemParam()
             };
         }
-        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用结构体名称、数据项名称和字段名称；关闭时继续使用原索引。"), ReadOnly(false)]
-        public bool UseNameAddressing { get; set; }
-
-        [DisplayName("结构体名称"), Category("参数"), Description("按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string StructName { get; set; }
 
-        [DisplayName("数据项名称"), Category("参数"), Description("按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        [DisplayName("数据项名称"), Category("参数"), Description("目标数据项；候选项随结构体联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructItemName))]
         public string ItemName { get; set; }
 
-        [DisplayName("是否获取所有项"), Category("参数"), Description("启用后按数量连续读取多个数据项。"), ReadOnly(false)]
+        [DisplayName("获取全部字段"), Category("参数"), Description("启用后读取当前数据项的全部字段，并从首个结果变量开始连续写入。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
         public bool IsAllItem { get; set; }
 
         [DisplayName("首个结果变量"), Category("参数"), Description("批量读取时结果保存的首个变量，后续字段写入连续变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1570,11 +1583,11 @@ namespace Automation
 
         [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int StructIndex { get; set; }
+        public int StructIndex { get; set; } = -1;
 
         [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int ItemIndex { get; set; }
+        public int ItemIndex { get; set; } = -1;
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1582,17 +1595,33 @@ namespace Automation
 
         public CustomList<GetDataStructItemParam> Params { get; set; }
 
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            if (!base.IsPropertyVisible(propertyName, defaultVisibility))
+            {
+                return false;
+            }
+            if (propertyName == nameof(FirstResultVariableName))
+            {
+                return IsAllItem;
+            }
+            if (propertyName == nameof(Params))
+            {
+                return !IsAllItem;
+            }
+            return true;
+        }
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
     public class GetDataStructItemParam
     {
 
-        [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [DisplayName("字段索引"), Category("参数"), Description("目标字段索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int FieldIndex { get; set; }
+        public int FieldIndex { get; set; } = -1;
 
-        [DisplayName("字段名称"), Category("参数"), Description("按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        [DisplayName("字段名称"), Category("参数"), Description("目标字段；候选项随结构体和数据项联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructFieldName))]
         public string FieldName { get; set; }
 
         [DisplayName("结果变量索引"), Category("参数"), Description("当前结构体字段直接写入的目标变量索引。"), ReadOnly(false)]
@@ -1618,42 +1647,36 @@ namespace Automation
                 new CopyDataStructItemParam()
             };
         }
-        [DisplayName("源按名称寻址"), Category("参数"), Description("启用后源严格使用结构体名称、数据项名称和字段名称；关闭时继续使用源索引。"), ReadOnly(false)]
-        public bool UseSourceNameAddressing { get; set; }
-
-        [DisplayName("源结构体名称"), Category("参数"), Description("源按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("源结构体名称"), Category("参数"), Description("源结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string SourceStructName { get; set; }
 
-        [DisplayName("源数据项名称"), Category("参数"), Description("源按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        [DisplayName("源数据项名称"), Category("参数"), Description("源数据项；候选项随源结构体联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructItemName))]
         public string SourceItemName { get; set; }
 
-        [DisplayName("目标按名称寻址"), Category("参数"), Description("启用后目标严格使用结构体名称、数据项名称和字段名称；关闭时继续使用目标索引。"), ReadOnly(false)]
-        public bool UseTargetNameAddressing { get; set; }
-
-        [DisplayName("目标结构体名称"), Category("参数"), Description("目标按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string TargetStructName { get; set; }
 
-        [DisplayName("目标数据项名称"), Category("参数"), Description("目标按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        [DisplayName("目标数据项名称"), Category("参数"), Description("目标数据项；候选项随目标结构体联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructItemName))]
         public string TargetItemName { get; set; }
 
-        [DisplayName("是否复制所有项"), Category("参数"), Description("启用后从起始项开始按数量连续复制。"), ReadOnly(false)]
+        [DisplayName("复制全部字段"), Category("参数"), Description("启用后复制整个数据项；关闭时只复制下方配置的字段映射。"), ReadOnly(false), RefreshProperties(RefreshProperties.All)]
         public bool IsAllValue { get; set; }
 
         [DisplayName("源结构体索引"), Category("参数"), Description("源结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int SourceStructIndex { get; set; }
+        public int SourceStructIndex { get; set; } = -1;
 
         [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int SourceItemIndex { get; set; }
+        public int SourceItemIndex { get; set; } = -1;
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetStructIndex { get; set; }
+        public int TargetStructIndex { get; set; } = -1;
 
         [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetItemIndex { get; set; }
+        public int TargetItemIndex { get; set; } = -1;
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1661,24 +1684,29 @@ namespace Automation
 
         public CustomList<CopyDataStructItemParam> Params { get; set; }
 
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            return base.IsPropertyVisible(propertyName, defaultVisibility)
+                && (propertyName != nameof(Params) || !IsAllValue);
+        }
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
     public class CopyDataStructItemParam
     {
 
-        [DisplayName("源数据项索引"), Category("参数"), Description("源数据项索引。"), ReadOnly(false)]
+        [DisplayName("源字段索引"), Category("参数"), Description("源字段索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int SourceFieldIndex { get; set; }
+        public int SourceFieldIndex { get; set; } = -1;
 
-        [DisplayName("源字段名称"), Category("参数"), Description("源按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        [DisplayName("源字段名称"), Category("参数"), Description("源字段；候选项随源数据项联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructFieldName))]
         public string SourceFieldName { get; set; }
 
-        [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
+        [DisplayName("目标字段索引"), Category("参数"), Description("目标字段索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetFieldIndex { get; set; }
+        public int TargetFieldIndex { get; set; } = -1;
 
-        [DisplayName("目标字段名称"), Category("参数"), Description("目标按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        [DisplayName("目标字段名称"), Category("参数"), Description("目标字段；候选项随目标数据项联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructFieldName))]
         public string TargetFieldName { get; set; }
 
         public override string ToString()
@@ -1699,10 +1727,7 @@ namespace Automation
             };
         }
 
-        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。插入位置始终使用数据项索引。"), ReadOnly(false)]
-        public bool UseStructNameAddressing { get; set; }
-
-        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string TargetStructName { get; set; }
 
         [DisplayName("数据项名称"), Category("参数"), Description("插入后新数据项的名称。"), ReadOnly(false)]
@@ -1710,7 +1735,7 @@ namespace Automation
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetStructIndex { get; set; }
+        public int TargetStructIndex { get; set; } = -1;
 
         [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
@@ -1727,15 +1752,27 @@ namespace Automation
     [Serializable]
     public class InsertDataStructItemParam
     {
+        [DisplayName("字段名称"), Category("参数"), Description("新字段的名称；同一数据项内不可重复。"), ReadOnly(false)]
+        public string FieldName { get; set; }
+
         [DisplayName("数据类型"), Category("参数"), Description("数据项类型；决定变量取值与写入方式。"), ReadOnly(false), TypeConverter(typeof(SturctItemType))]
         public string Type { get; set; }
-
-        [DisplayName("数据变量"), Category("参数"), Description("数据来源变量名。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
-        public string ValueVariableName { get; set; }
 
         [DisplayName("数据值"), Category("参数"), Description("固定数据值。"), ReadOnly(false)]
         [ValueSourceAlternative("Value", DisplayName = "数据来源")]
         public string Value { get; set; }
+
+        [DisplayName("数据变量索引"), Category("参数"), Description("按变量索引读取数据来源。"), ReadOnly(false)]
+        public string ValueIndex { get; set; }
+
+        [DisplayName("数据变量索引二级"), Category("参数"), Description("读取指定索引变量的值，并把该值作为二级变量索引。"), ReadOnly(false)]
+        public string ValueIndex2Index { get; set; }
+
+        [DisplayName("数据变量名称"), Category("参数"), Description("按变量名称读取数据来源。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ValueName { get; set; }
+
+        [DisplayName("数据变量名称二级"), Category("参数"), Description("读取指定名称变量的值，并把该值作为二级变量索引。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ValueName2Index { get; set; }
 
         public override string ToString()
         {
@@ -1750,22 +1787,19 @@ namespace Automation
             OperaType = "删除结构体数据项";
         }
 
-        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称和数据项名称；关闭时继续使用原索引。"), ReadOnly(false)]
-        public bool UseNameAddressing { get; set; }
-
-        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string TargetStructName { get; set; }
 
-        [DisplayName("目标数据项名称"), Category("参数"), Description("按名称寻址时使用的目标数据项精确名称。"), ReadOnly(false)]
+        [DisplayName("目标数据项名称"), Category("参数"), Description("目标数据项；候选项随结构体联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructItemName))]
         public string TargetItemName { get; set; }
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetStructIndex { get; set; }
+        public int TargetStructIndex { get; set; } = -1;
 
         [DisplayName("目标数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetItemIndex { get; set; }
+        public int TargetItemIndex { get; set; } = -1;
     }
 
     [Serializable]
@@ -1776,15 +1810,12 @@ namespace Automation
             OperaType = "查找结构体数据项";
         }
 
-        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。"), ReadOnly(false)]
-        public bool UseStructNameAddressing { get; set; }
-
-        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string TargetStructName { get; set; }
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetStructIndex { get; set; }
+        public int TargetStructIndex { get; set; } = -1;
 
         //[DisplayName("目标结构项索引"), Category("参数"), Description(""), ReadOnly(false)]
         //public int TargetItemIndex { get; set; }
@@ -1808,15 +1839,12 @@ namespace Automation
             OperaType = "获取结构体数量";
         }
 
-        [DisplayName("结构体按名称寻址"), Category("参数"), Description("启用后严格使用目标结构体名称；关闭时继续使用目标结构体索引。"), ReadOnly(false)]
-        public bool UseStructNameAddressing { get; set; }
-
-        [DisplayName("目标结构体名称"), Category("参数"), Description("按名称寻址时使用的目标结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("目标结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string TargetStructName { get; set; }
 
         [DisplayName("目标结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int TargetStructIndex { get; set; }
+        public int TargetStructIndex { get; set; } = -1;
 
 
         [DisplayName("结构体数量保存地址"), Category("参数"), Description("结构体数量结果保存变量。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -2207,7 +2235,7 @@ namespace Automation
                 case nameof(WriteBatch):
                     return !read && !items;
                 default:
-                    return defaultVisibility;
+                    return base.IsPropertyVisible(propertyName, defaultVisibility);
             }
         }
 

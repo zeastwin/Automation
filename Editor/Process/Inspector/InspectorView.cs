@@ -41,9 +41,12 @@ namespace Automation
             = new List<InspectorSectionControl>();
         private readonly Dictionary<string, CachedInspectorPage> pageCache
             = new Dictionary<string, CachedInspectorPage>(StringComparer.Ordinal);
+        private readonly InspectorSelectionPickerPrewarmSession selectionPickerPrewarmSession =
+            new InspectorSelectionPickerPrewarmSession();
         private InspectorDocument document;
         private object selectedObject;
         private bool editable;
+        private bool selectionPickerPrewarmPending;
         private long cacheSequence;
         private int updateDepth;
         private bool refreshPending;
@@ -83,9 +86,17 @@ namespace Automation
         {
             bool objectChanged = !ReferenceEquals(selectedObject, value);
             selectedObject = value;
-            editable = allowEdit;
             if (objectChanged || document == null)
             {
+                editable = allowEdit;
+                if (allowEdit)
+                {
+                    selectionPickerPrewarmSession.Reset();
+                }
+                else
+                {
+                    ClearSelectionPickerPrewarm();
+                }
                 InspectorDocument next = InspectorDefinitionBuilder.Build(selectedObject);
                 if (CanRebind(next))
                 {
@@ -95,6 +106,7 @@ namespace Automation
                 {
                     Rebuild(next);
                 }
+                QueueSelectionPickerPrewarm();
                 return;
             }
             SetEditable(allowEdit);
@@ -103,10 +115,54 @@ namespace Automation
 
         public void SetEditable(bool allowEdit)
         {
+            bool editingChanged = editable != allowEdit;
             editable = allowEdit;
             foreach (InspectorSectionControl section in sectionControls)
             {
                 section.SetEditable(allowEdit);
+            }
+            if (!allowEdit)
+            {
+                ClearSelectionPickerPrewarm();
+                return;
+            }
+            if (editingChanged)
+            {
+                selectionPickerPrewarmSession.Reset();
+            }
+            QueueSelectionPickerPrewarm();
+        }
+
+        private void QueueSelectionPickerPrewarm()
+        {
+            if (!editable
+                || selectionPickerPrewarmPending
+                || IsDisposed
+                || !IsHandleCreated)
+            {
+                return;
+            }
+            selectionPickerPrewarmPending = true;
+            BeginInvoke((Action)(() =>
+            {
+                selectionPickerPrewarmPending = false;
+                if (!editable || IsDisposed)
+                {
+                    return;
+                }
+                foreach (InspectorSectionControl section in sectionControls)
+                {
+                    section.PrewarmSelectionPickers(selectionPickerPrewarmSession);
+                }
+            }));
+        }
+
+        private void ClearSelectionPickerPrewarm()
+        {
+            selectionPickerPrewarmSession.Clear();
+            foreach (InspectorSectionControl section in sectionControls)
+            {
+                section.PrewarmSelectionPickers(null);
             }
         }
 
@@ -250,6 +306,7 @@ namespace Automation
             finally
             {
                 EndUpdate();
+                QueueSelectionPickerPrewarm();
             }
         }
 
@@ -446,6 +503,7 @@ namespace Automation
         {
             if (disposing)
             {
+                selectionPickerPrewarmSession.Dispose();
                 foreach (CachedInspectorPage page in pageCache.Values)
                 {
                     DisposeSections(page.Sections);
@@ -454,6 +512,12 @@ namespace Automation
                 descriptionToolTip.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            QueueSelectionPickerPrewarm();
         }
 
         private void SectionControl_SizeChanged(object sender, EventArgs e)

@@ -64,7 +64,11 @@ namespace Automation.Core.Tests
                     Assert.AreEqual(1, actual[1].SegmentIndex);
                     Assert.AreEqual(actual[0].RunId, actual[1].RunId);
                     Assert.AreNotEqual(Guid.Empty, actual[1].RunId);
-                    Assert.IsTrue(actual[1].SegmentMilliseconds > 0d);
+                    Assert.IsTrue(actual[1].SegmentSeconds > 0d);
+                    Assert.AreEqual(
+                        Math.Round(actual[1].SegmentSeconds * 1000d),
+                        actual[1].SegmentSeconds * 1000d,
+                        0.0000001d);
                     Assert.AreEqual("到位", engine.GetLatestCycleTimeSamples(process.head.Id).Single().SegmentName);
                 }
                 runtime.ShutdownCoordinator.Shutdown(
@@ -469,6 +473,10 @@ namespace Automation.Core.Tests
                 .Any(operation => operation.OperaType == "调用子流程"));
             Assert.IsNotNull(probe["fields"]?["TaskKey"]);
             Assert.IsNotNull(probe["fields"]?["StartNewCycle"]);
+            Assert.IsNotNull(probe["fields"]?["SegmentSecondsVariableName"]);
+            Assert.IsNotNull(probe["fields"]?["CycleSecondsVariableName"]);
+            Assert.IsNull(probe["fields"]?["SegmentMillisecondsVariableName"]);
+            Assert.IsNull(probe["fields"]?["CycleMillisecondsVariableName"]);
             Assert.IsNull(probe["fields"]?["RetryCount"]);
             Assert.IsNotNull(request["fields"]?["RetryCount"]);
             Assert.IsNotNull(request["fields"]?["RetryIntervalMs"]);

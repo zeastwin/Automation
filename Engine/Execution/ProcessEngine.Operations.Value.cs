@@ -37,10 +37,17 @@ namespace Automation
             if (binding == null
                 && !(evt?.Proc != null
                     ? ProcessRuntimeBinder.TryBind(
-                        evt.Proc, evt.procNum, Context?.ValueStore, out bindError)
+                        evt.Proc,
+                        evt.procNum,
+                        Context?.ValueStore,
+                        Context?.DataStructStore,
+                        out bindError)
                     : ProcessRuntimeBinder.TryBindStandalone(
                         evt?.procId ?? Guid.Empty,
-                        Context?.ValueStore, getValue, out bindError)))
+                        Context?.ValueStore,
+                        Context?.DataStructStore,
+                        getValue,
+                        out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "获取变量运行计划未编译");
             }
@@ -80,10 +87,17 @@ namespace Automation
             if (binding == null
                 && !(evt?.Proc != null
                     ? ProcessRuntimeBinder.TryBind(
-                        evt.Proc, evt.procNum, Context?.ValueStore, out bindError)
+                        evt.Proc,
+                        evt.procNum,
+                        Context?.ValueStore,
+                        Context?.DataStructStore,
+                        out bindError)
                     : ProcessRuntimeBinder.TryBindStandalone(
                         evt?.procId ?? Guid.Empty,
-                        Context?.ValueStore, ops, out bindError)))
+                        Context?.ValueStore,
+                        Context?.DataStructStore,
+                        ops,
+                        out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "修改变量运行计划未编译");
             }
@@ -125,6 +139,8 @@ namespace Automation
             }
 
             bool needNumeric = binding.NeedsNumericValues;
+            double sourceNumber = 0;
+            double changeNumber = 0;
             if (needNumeric)
             {
                 if (!string.Equals(sourceItem.Type, "double", StringComparison.OrdinalIgnoreCase))
@@ -132,6 +148,7 @@ namespace Automation
                     string sourceName = string.IsNullOrWhiteSpace(sourceItem.Name) ? $"索引{sourceItem.Index}" : sourceItem.Name;
                     throw CreateAlarmException(evt, $"变量类型不匹配:{sourceName}");
                 }
+                sourceNumber = sourceItem.GetDValue();
                 if (ops.ModifyType != "绝对值")
                 {
                     if (changeItem != null)
@@ -141,9 +158,13 @@ namespace Automation
                             string changeName = string.IsNullOrWhiteSpace(changeItem.Name) ? $"索引{changeItem.Index}" : changeItem.Name;
                             throw CreateAlarmException(evt, $"变量类型不匹配:{changeName}");
                         }
+                        changeNumber = changeItem.GetDValue();
                     }
-                    else if (!binding.LiteralNumericValueValidated
-                        && !double.TryParse(changeValue, out _))
+                    else if (binding.LiteralNumericValueValidated)
+                    {
+                        changeNumber = binding.LiteralNumericValue;
+                    }
+                    else if (!double.TryParse(changeValue, out changeNumber))
                     {
                         throw CreateAlarmException(evt, "修改值不是有效数字");
                     }
@@ -164,22 +185,37 @@ namespace Automation
             bool useOutputLock = outputIndex >= 0 && (outputIndex == sourceIndex || outputIndex == changeIndex);
             if (useOutputLock)
             {
-                if (!valueStore.TryModifyValueByIndex(
+                bool modified = needNumeric
+                    ? valueStore.TryModifyNumberByIndex(
                         outputIndex,
+                        outputItem,
+                        sourceNumber,
+                        changeNumber,
+                        sourceIndex == outputIndex,
+                        changeIndex == outputIndex,
+                        binding.CalculateNumber,
+                        out string modifyError,
+                        source)
+                    : valueStore.TryModifyValueByIndex(
+                        outputIndex,
+                        outputItem,
                         sourceValue,
                         changeValue,
                         sourceIndex == outputIndex,
                         changeIndex == outputIndex,
                         binding.Calculate,
-                        out string modifyError,
-                        source))
+                        out modifyError,
+                        source);
+                if (!modified)
                 {
                     throw CreateAlarmException(evt, string.IsNullOrWhiteSpace(modifyError) ? "保存变量失败" : modifyError);
                 }
                 return true;
             }
 
-            string output = binding.Calculate(sourceValue, changeValue);
+            object output = needNumeric
+                ? (object)binding.CalculateNumber(sourceNumber, changeNumber)
+                : binding.Calculate(sourceValue, changeValue);
             if (outputIndex >= 0)
             {
                 if (!valueStore.SetResolvedValueForProcess(

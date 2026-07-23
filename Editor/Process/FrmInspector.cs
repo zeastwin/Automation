@@ -21,6 +21,7 @@ namespace Automation
         private Button saveButton;
         private Button cancelButton;
         private bool editing;
+        private object presentedObject;
 
         public FrmInspector()
         {
@@ -56,19 +57,32 @@ namespace Automation
 
         public void ShowObject(object value)
         {
-            EditorServiceRegistry.AttachGraph(value, Workspace.Runtime);
+            ShowObject(value, false);
+        }
+
+        internal void ShowObject(object value, bool graphAlreadyAttached)
+        {
+            if (!graphAlreadyAttached)
+            {
+                EditorServiceRegistry.AttachGraph(value, Workspace.Runtime);
+            }
             bool allowEdit = Workspace.Runtime.Editor.ActiveSession != null
                 && ReferenceEquals(Workspace.Runtime.Editor.ActiveSession.Draft, value);
             editing = allowEdit;
-            inspectorView.SetObject(value, allowEdit);
             UpdatePresentation(value);
+            if (IsHandleCreated)
+            {
+                // 标题区先呈现目标指令，属性控件的首次构建随后同步完成。
+                Update();
+            }
+            inspectorView.SetObject(value, allowEdit);
         }
 
         public void ClearObject()
         {
             editing = false;
-            inspectorView.SetObject(null, false);
             UpdatePresentation(null);
+            inspectorView.SetObject(null, false);
         }
 
         public void SetEditingState(bool allowEdit)
@@ -242,7 +256,7 @@ namespace Automation
                 actionBar.SetBounds(0, contentTop, width, actionBarHeight);
                 contentTop += actionBarHeight;
             }
-            if (inspectorView.SelectedObject is OperationType)
+            if (presentedObject is OperationType)
             {
                 header.SetBounds(0, contentTop, width, 38);
                 contentTop += 38;
@@ -252,7 +266,7 @@ namespace Automation
                 contentTop,
                 width,
                 Math.Max(0, contentBottom - contentTop));
-            if (inspectorView.SelectedObject is OperationType)
+            if (presentedObject is OperationType)
             {
                 int labelWidth = TextRenderer.MeasureText(
                         operationTypeLabel.Text,
@@ -283,6 +297,7 @@ namespace Automation
 
         private void UpdatePresentation(object value)
         {
+            presentedObject = value;
             bool operation = value is OperationType;
             header.Visible = operation;
             operationTypeLabel.Visible = operation;

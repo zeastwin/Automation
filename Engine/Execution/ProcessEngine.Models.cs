@@ -322,8 +322,8 @@ namespace Automation
         public string SegmentName { get; internal set; }
         public int SegmentIndex { get; internal set; }
         public bool CycleStarted { get; internal set; }
-        public double SegmentMilliseconds { get; internal set; }
-        public double CycleMilliseconds { get; internal set; }
+        public double SegmentSeconds { get; internal set; }
+        public double CycleSeconds { get; internal set; }
         public DateTime RecordedAtUtc { get; internal set; }
     }
 

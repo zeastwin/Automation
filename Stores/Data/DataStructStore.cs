@@ -1274,6 +1274,298 @@ namespace Automation
             }
         }
 
+        internal bool TryBindRuntimeField(
+            int structIndex,
+            int itemIndex,
+            int fieldIndex,
+            out DataStructFieldRuntimeBinding binding,
+            out string error)
+        {
+            binding = null;
+            error = null;
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
+            {
+                error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                return false;
+            }
+            DataStructRuntimeState state = item.RuntimeState;
+            if (state == null
+                || !state.TryGetField(fieldIndex, out DataStructFieldSlot field))
+            {
+                error = $"字段不存在:结构{structIndex},项{itemIndex},字段{fieldIndex}";
+                return false;
+            }
+            if (!ReferenceEquals(item.RuntimeState, state)
+                || !IsCurrentRuntimeItem(structIndex, itemIndex, item))
+            {
+                error = $"数据项运行代际已变更:结构{structIndex},项{itemIndex}";
+                return false;
+            }
+            binding = new DataStructFieldRuntimeBinding(
+                structIndex, itemIndex, item, state, field);
+            return true;
+        }
+
+        internal bool TrySetBoundFieldNumber(
+            DataStructFieldRuntimeBinding binding,
+            double value,
+            out string error)
+        {
+            error = null;
+            if (binding == null)
+            {
+                error = "字段运行绑定为空";
+                return false;
+            }
+            if (binding.ValueType != DataStructValueType.Number)
+            {
+                error = $"字段类型不一致:{binding.FieldIndex}";
+                return false;
+            }
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                error = $"字段数值格式错误:{binding.FieldIndex}";
+                return false;
+            }
+            lock (binding.Field.SyncRoot)
+            {
+                if (!IsCurrentRuntimeBinding(binding))
+                {
+                    error = FormatExpiredRuntimeBinding(binding);
+                    return false;
+                }
+                binding.Field.WriteNumber(value);
+            }
+            return true;
+        }
+
+        internal bool TrySetBoundFieldText(
+            DataStructFieldRuntimeBinding binding,
+            string value,
+            out string error)
+        {
+            error = null;
+            if (binding == null)
+            {
+                error = "字段运行绑定为空";
+                return false;
+            }
+            if (binding.ValueType != DataStructValueType.Text)
+            {
+                error = $"字段类型不一致:{binding.FieldIndex}";
+                return false;
+            }
+            if (value == null)
+            {
+                error = $"字段文本值为空:{binding.FieldIndex}";
+                return false;
+            }
+            lock (binding.Field.SyncRoot)
+            {
+                if (!IsCurrentRuntimeBinding(binding))
+                {
+                    error = FormatExpiredRuntimeBinding(binding);
+                    return false;
+                }
+                binding.Field.WriteText(value);
+            }
+            return true;
+        }
+
+        internal bool TryGetBoundFieldValue(
+            DataStructFieldRuntimeBinding binding,
+            out object value,
+            out string error)
+        {
+            value = null;
+            error = null;
+            if (binding == null)
+            {
+                error = "字段运行绑定为空";
+                return false;
+            }
+            if (!IsCurrentRuntimeBinding(binding))
+            {
+                error = FormatExpiredRuntimeBinding(binding);
+                return false;
+            }
+            if (!binding.Field.HasValue)
+            {
+                error = binding.ValueType == DataStructValueType.Number
+                    ? $"数值字段没有值:{binding.FieldIndex}"
+                    : $"文本字段没有值:{binding.FieldIndex}";
+                return false;
+            }
+            value = binding.ValueType == DataStructValueType.Number
+                ? (object)binding.Field.ReadNumber()
+                : binding.Field.ReadText();
+            if (IsCurrentRuntimeBinding(binding))
+            {
+                return true;
+            }
+            value = null;
+            error = FormatExpiredRuntimeBinding(binding);
+            return false;
+        }
+
+        internal bool IsRuntimeFieldBindingCurrent(
+            DataStructFieldRuntimeBinding binding)
+        {
+            return IsCurrentRuntimeBinding(binding);
+        }
+
+        internal bool TrySetBoundFieldValues(
+            IReadOnlyList<DataStructFieldRuntimeValue> values,
+            out string error)
+        {
+            error = null;
+            if (values == null || values.Count == 0)
+            {
+                error = "字段运行值集合为空";
+                return false;
+            }
+            DataStructFieldRuntimeBinding first = values[0].Binding;
+            if (first == null)
+            {
+                error = "字段运行绑定为空";
+                return false;
+            }
+            var unique = new HashSet<int>();
+            var fields = new List<DataStructFieldSlot>(values.Count);
+            for (int i = 0; i < values.Count; i++)
+            {
+                DataStructFieldRuntimeValue value = values[i];
+                DataStructFieldRuntimeBinding binding = value.Binding;
+                if (binding == null
+                    || !ReferenceEquals(binding.Item, first.Item)
+                    || !ReferenceEquals(binding.State, first.State))
+                {
+                    error = "批量字段运行绑定不属于同一数据项代际";
+                    return false;
+                }
+                if (!unique.Add(binding.FieldIndex))
+                {
+                    error = $"字段索引重复:{binding.FieldIndex}";
+                    return false;
+                }
+                if (binding.ValueType == DataStructValueType.Number)
+                {
+                    if (double.IsNaN(value.Number) || double.IsInfinity(value.Number))
+                    {
+                        error = $"字段数值格式错误:{binding.FieldIndex}";
+                        return false;
+                    }
+                }
+                else if (value.Text == null)
+                {
+                    error = $"字段文本值为空:{binding.FieldIndex}";
+                    return false;
+                }
+                fields.Add(binding.Field);
+            }
+            List<DataStructFieldSlot> lockedFields =
+                GetOrderedUniqueFields(fields);
+            EnterFieldLocks(lockedFields);
+            try
+            {
+                for (int i = 0; i < values.Count; i++)
+                {
+                    if (!IsCurrentRuntimeBinding(values[i].Binding))
+                    {
+                        error = FormatExpiredRuntimeBinding(values[i].Binding);
+                        return false;
+                    }
+                }
+                for (int i = 0; i < values.Count; i++)
+                {
+                    DataStructFieldRuntimeValue value = values[i];
+                    if (value.Binding.ValueType == DataStructValueType.Number)
+                    {
+                        value.Binding.Field.WriteNumber(value.Number);
+                    }
+                    else
+                    {
+                        value.Binding.Field.WriteText(value.Text);
+                    }
+                }
+                return true;
+            }
+            finally
+            {
+                ExitFieldLocks(lockedFields);
+            }
+        }
+
+        internal bool TryGetBoundFieldValues(
+            IReadOnlyList<DataStructFieldRuntimeBinding> bindings,
+            out object[] values,
+            out string error)
+        {
+            values = null;
+            error = null;
+            if (bindings == null)
+            {
+                error = "字段运行绑定集合为空";
+                return false;
+            }
+            if (bindings.Count == 0)
+            {
+                values = Array.Empty<object>();
+                return true;
+            }
+            DataStructFieldRuntimeBinding first = bindings[0];
+            if (first == null)
+            {
+                error = "字段运行绑定为空";
+                return false;
+            }
+            var fields = new List<DataStructFieldSlot>(bindings.Count);
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                DataStructFieldRuntimeBinding binding = bindings[i];
+                if (binding == null
+                    || !ReferenceEquals(binding.Item, first.Item)
+                    || !ReferenceEquals(binding.State, first.State))
+                {
+                    error = "批量字段运行绑定不属于同一数据项代际";
+                    return false;
+                }
+                fields.Add(binding.Field);
+            }
+            List<DataStructFieldSlot> lockedFields =
+                GetOrderedUniqueFields(fields);
+            EnterFieldLocks(lockedFields);
+            try
+            {
+                var result = new object[bindings.Count];
+                for (int i = 0; i < bindings.Count; i++)
+                {
+                    DataStructFieldRuntimeBinding binding = bindings[i];
+                    if (!IsCurrentRuntimeBinding(binding))
+                    {
+                        error = FormatExpiredRuntimeBinding(binding);
+                        return false;
+                    }
+                    if (!binding.Field.HasValue)
+                    {
+                        error = binding.ValueType == DataStructValueType.Number
+                            ? $"数值字段没有值:{binding.FieldIndex}"
+                            : $"文本字段没有值:{binding.FieldIndex}";
+                        return false;
+                    }
+                    result[i] = binding.ValueType == DataStructValueType.Number
+                        ? (object)binding.Field.ReadNumber()
+                        : binding.Field.ReadText();
+                }
+                values = result;
+                return true;
+            }
+            finally
+            {
+                ExitFieldLocks(lockedFields);
+            }
+        }
+
         public bool TrySetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, string value)
         {
             return TrySetItemValueByIndex(structIndex, itemIndex, ValueIndex, value, null);
@@ -1890,6 +2182,26 @@ namespace Automation
                 && itemIndex >= 0
                 && itemIndex < snapshot[structIndex].Length
                 && ReferenceEquals(snapshot[structIndex][itemIndex], expected);
+        }
+
+        private bool IsCurrentRuntimeBinding(
+            DataStructFieldRuntimeBinding binding)
+        {
+            return binding != null
+                && ReferenceEquals(binding.Item.RuntimeState, binding.State)
+                && binding.State.TryGetField(
+                    binding.FieldIndex, out DataStructFieldSlot field)
+                && ReferenceEquals(field, binding.Field)
+                && IsCurrentRuntimeItem(
+                    binding.StructIndex, binding.ItemIndex, binding.Item);
+        }
+
+        private static string FormatExpiredRuntimeBinding(
+            DataStructFieldRuntimeBinding binding)
+        {
+            return binding == null
+                ? "字段运行绑定为空"
+                : $"字段运行绑定已失效:结构{binding.StructIndex},项{binding.ItemIndex},字段{binding.FieldIndex}";
         }
 
         private void RebuildRuntimeItemsNoLock()

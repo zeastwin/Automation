@@ -88,8 +88,8 @@ namespace Automation.Bridge
                     ["segmentName"] = sample.SegmentName ?? string.Empty,
                     ["segmentIndex"] = sample.SegmentIndex,
                     ["cycleStarted"] = sample.CycleStarted,
-                    ["segmentMilliseconds"] = sample.SegmentMilliseconds,
-                    ["cycleMilliseconds"] = sample.CycleMilliseconds,
+                    ["segmentSeconds"] = sample.SegmentSeconds,
+                    ["cycleSeconds"] = sample.CycleSeconds,
                     ["recordedAtUtc"] = sample.RecordedAtUtc.ToString("O", CultureInfo.InvariantCulture)
                 }));
         }
@@ -486,7 +486,6 @@ namespace Automation.Bridge
 
         private static void RefreshOperationContext(OperationType op)
         {
-            op.RefleshPropertyAlarm();
             op.RefreshInspector?.Invoke();
             TypeDescriptor.Refresh(op);
         }

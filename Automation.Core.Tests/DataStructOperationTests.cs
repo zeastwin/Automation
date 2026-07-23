@@ -58,7 +58,6 @@ namespace Automation.Core.Tests
 
                 var getAll = new GetDataStructItem
                 {
-                    UseNameAddressing = true,
                     StructName = "测试结构",
                     ItemName = "测试项",
                     IsAllItem = true,
@@ -106,6 +105,57 @@ namespace Automation.Core.Tests
                 Run(new SetDataStructItemParam { ValueIndex = "30" });
                 Run(new SetDataStructItemParam { ValueName2Index = "写入指针" });
                 Run(new SetDataStructItemParam { ValueIndex2Index = "31" });
+            }
+        }
+
+        [TestMethod]
+        public void Insert_DataSourceSupportsAllVariableReferenceKindsAndKeepsFieldName()
+        {
+            PlatformRuntime runtime = CreateRuntimeWithSparseStruct();
+            DataStructStore store = runtime.Stores.DataStructures;
+            ValueConfigStore values = runtime.Stores.Values;
+            Assert.IsTrue(values.TrySetValue(
+                30, "插入源", "double", "7.25", string.Empty));
+            Assert.IsTrue(values.TrySetValue(
+                31, "插入指针", "double", "30", string.Empty));
+
+            using (var engine = CreateEngine(store, values))
+            {
+                int sequence = 0;
+                void Run(InsertDataStructItemParam parameter)
+                {
+                    string itemName = $"插入项{sequence++}";
+                    parameter.FieldName = "产品计数";
+                    parameter.Type = "double";
+                    var operation = new InsertDataStructItem
+                    {
+                        TargetStructName = "测试结构",
+                        ItemName = itemName,
+                        TargetItemIndex = store.GetItemCount(0),
+                        Params = new OperationTypePartial.CustomList<InsertDataStructItemParam>
+                        {
+                            parameter
+                        }
+                    };
+
+                    Assert.IsTrue(engine.RunInsertDataStructItem(
+                        new ProcHandle(), operation));
+                    Assert.IsTrue(store.TryResolveItemIndex(
+                        0, true, -1, itemName, out int itemIndex, out string error),
+                        error);
+                    Assert.IsTrue(store.TryResolveFieldIndex(
+                        0, itemIndex, true, -1, "产品计数",
+                        out int fieldIndex, out error),
+                        error);
+                    Assert.IsTrue(store.TryGetItemValueByIndex(
+                        0, itemIndex, fieldIndex, out object actual));
+                    Assert.AreEqual(7.25, (double)actual, 0.000001);
+                }
+
+                Run(new InsertDataStructItemParam { ValueName = "插入源" });
+                Run(new InsertDataStructItemParam { ValueIndex = "30" });
+                Run(new InsertDataStructItemParam { ValueName2Index = "插入指针" });
+                Run(new InsertDataStructItemParam { ValueIndex2Index = "31" });
             }
         }
 
@@ -283,7 +333,6 @@ namespace Automation.Core.Tests
                 var handle = new ProcHandle();
                 var operation = new FindDataStructItem
                 {
-                    UseStructNameAddressing = true,
                     TargetStructName = "测试结构",
                     Type = "名称等于key",
                     Key = "不存在的数据项",
@@ -389,6 +438,67 @@ namespace Automation.Core.Tests
             StringAssert.Contains(
                 behavior["constraints"]?.ToString() ?? string.Empty,
                 "ValueName2Index");
+
+            string[] operationTypes =
+            {
+                "获取结构体数据项",
+                "复制结构体数据项",
+                "插入结构体数据项",
+                "删除结构体数据项",
+                "查找结构体数据项",
+                "获取结构体数量"
+            };
+            string[] retiredSwitches =
+            {
+                "UseNameAddressing",
+                "UseStructNameAddressing",
+                "UseSourceNameAddressing",
+                "UseTargetNameAddressing"
+            };
+            foreach (string operationType in operationTypes)
+            {
+                JObject operationFields =
+                    (JObject)StructuredOperationCompiler
+                        .BuildContract(operationType)["fields"];
+                foreach (string retiredSwitch in retiredSwitches)
+                {
+                    Assert.IsNull(
+                        operationFields[retiredSwitch],
+                        $"{operationType} 不应继续暴露寻址开关 {retiredSwitch}");
+                }
+            }
+
+            var getDefaults = new GetDataStructItem();
+            Assert.AreEqual(-1, getDefaults.StructIndex);
+            Assert.AreEqual(-1, getDefaults.ItemIndex);
+            Assert.AreEqual(-1, getDefaults.Params[0].FieldIndex);
+            var copyDefaults = new CopyDataStructItem();
+            Assert.AreEqual(-1, copyDefaults.SourceStructIndex);
+            Assert.AreEqual(-1, copyDefaults.SourceItemIndex);
+            Assert.AreEqual(-1, copyDefaults.TargetStructIndex);
+            Assert.AreEqual(-1, copyDefaults.TargetItemIndex);
+            Assert.AreEqual(-1, copyDefaults.Params[0].SourceFieldIndex);
+            Assert.AreEqual(-1, copyDefaults.Params[0].TargetFieldIndex);
+
+            JObject insertFields = (JObject)StructuredOperationCompiler
+                .BuildContract("插入结构体数据项")["fields"];
+            JObject insertItemFields =
+                insertFields[nameof(InsertDataStructItem.Params)]
+                    ?["items"]?["fields"] as JObject;
+            Assert.IsNotNull(insertItemFields);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.FieldName)]);
+            Assert.IsNull(insertItemFields["ValueVariableName"]);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.Value)]);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.ValueIndex)]);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.ValueIndex2Index)]);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.ValueName)]);
+            Assert.IsNotNull(
+                insertItemFields[nameof(InsertDataStructItemParam.ValueName2Index)]);
         }
 
         private static PlatformRuntime CreateRuntimeWithSparseStruct()

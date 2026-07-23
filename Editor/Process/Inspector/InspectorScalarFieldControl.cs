@@ -26,7 +26,9 @@ namespace Automation
         private bool standardValuesLoaded;
         private readonly HashSet<Control> gotoDropControls = new HashSet<Control>();
         private bool selectionPickerConfigured;
+        private bool selectionPickerPrewarmPending;
         private ToolStripDropDown activeSelectionPicker;
+        private InspectorSelectionPickerPrewarmSession selectionPickerPrewarmSession;
 
         public InspectorScalarFieldControl(
             InspectorScalarFieldDefinition definition,
@@ -50,6 +52,7 @@ namespace Automation
                 {
                     AccessibleName = definition.Label,
                     Font = InspectorFonts.Bold95,
+                    OpenDropDownOnMouseDown = editor is InspectorComboBox,
                     ShowDropDownArrow = editor is InspectorComboBox,
                     TabIndex = 0
                 };
@@ -203,6 +206,24 @@ namespace Automation
         public override void EndEdit()
         {
             DeactivateEditor(true);
+        }
+
+        public override void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
+        {
+            selectionPickerPrewarmSession = session;
+            if (session == null || !Editable || definition.IsReadOnly
+                || !InspectorSelectionPickerResolver.TryResolve(
+                    definition.Property,
+                    out InspectorSelectionPickerKind kind))
+            {
+                return;
+            }
+            session.Prepare(
+                kind,
+                definition.Owner,
+                definition.Property,
+                Convert.ToString(definition.GetValue(), CultureInfo.CurrentCulture));
         }
 
         public override bool CanRebind(InspectorFieldDefinition next)
@@ -390,21 +411,12 @@ namespace Automation
                     || comboBox.DropDownStyle == ComboBoxStyle.DropDownList;
                 if (shouldOpenDropDown)
                 {
-                    BeginInvoke((Action)(() =>
+                    if (comboBox.UseSelectionPicker)
                     {
-                        if (IsDisposed || !comboBox.Visible || !comboBox.Enabled)
-                        {
-                            return;
-                        }
-                        if (comboBox.UseSelectionPicker)
-                        {
-                            ShowSelectionPicker(comboBox);
-                        }
-                        else
-                        {
-                            comboBox.DroppedDown = true;
-                        }
-                    }));
+                        ShowSelectionPicker(comboBox);
+                        return true;
+                    }
+                    comboBox.OpenDropDownImmediately();
                 }
                 else
                 {
@@ -538,6 +550,10 @@ namespace Automation
             comboBox.UseSelectionPicker = InspectorSelectionPickerResolver.TryResolve(
                 definition.Property,
                 out InspectorSelectionPickerKind _);
+            if (displayCell != null)
+            {
+                displayCell.OpenDropDownOnMouseDown = true;
+            }
             if (selectionPickerConfigured)
             {
                 return;
@@ -557,18 +573,50 @@ namespace Automation
                 return;
             }
             activeSelectionPicker?.Close();
+            string currentValue = Convert.ToString(
+                definition.GetValue(),
+                CultureInfo.CurrentCulture);
+            InspectorSelectionPickerPanel preparedPanel =
+                selectionPickerPrewarmSession?.Take(
+                    kind,
+                    definition.Owner,
+                    definition.Property,
+                    currentValue);
             activeSelectionPicker = InspectorSelectionPickerDropDown.Show(
                 comboBox,
                 kind,
                 definition.Owner,
                 definition.Property,
-                Convert.ToString(definition.GetValue(), CultureInfo.CurrentCulture),
+                currentValue,
                 selectedValue => CommitValue(selectedValue),
                 () =>
                 {
                     activeSelectionPicker = null;
                     DeactivateEditor(true);
-                });
+                    QueueSelectionPickerPrewarm();
+                },
+                preparedPanel);
+        }
+
+        private void QueueSelectionPickerPrewarm()
+        {
+            if (selectionPickerPrewarmPending
+                || selectionPickerPrewarmSession == null
+                || !Editable
+                || IsDisposed
+                || !IsHandleCreated)
+            {
+                return;
+            }
+            selectionPickerPrewarmPending = true;
+            BeginInvoke((Action)(() =>
+            {
+                selectionPickerPrewarmPending = false;
+                if (!IsDisposed && Editable)
+                {
+                    PrewarmSelectionPickers(selectionPickerPrewarmSession);
+                }
+            }));
         }
 
         private void EnsureStandardValuesLoaded(InspectorComboBox comboBox)

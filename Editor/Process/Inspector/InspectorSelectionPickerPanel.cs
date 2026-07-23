@@ -76,6 +76,15 @@ namespace Automation
             object owner,
             PropertyDescriptor property,
             string currentValue)
+            : this(
+                InspectorSelectionPickerData.Build(kind, owner, property, currentValue),
+                currentValue)
+        {
+        }
+
+        internal InspectorSelectionPickerPanel(
+            IReadOnlyList<PickerGroupDefinition> groups,
+            string currentValue)
         {
             AutoScaleMode = AutoScaleMode.None;
             AutoScroll = true;
@@ -84,12 +93,7 @@ namespace Automation
             Font = InspectorFonts.Regular9;
             TabStop = true;
 
-            IReadOnlyList<PickerGroupDefinition> groups = InspectorSelectionPickerData.Build(
-                kind,
-                owner,
-                property,
-                currentValue);
-            BuildGroups(groups, currentValue);
+            BuildGroups(groups ?? Array.Empty<PickerGroupDefinition>(), currentValue);
             SizeChanged += (sender, args) => RefreshPickerLayout();
         }
 
@@ -124,6 +128,27 @@ namespace Automation
             if (target != null)
             {
                 ScrollControlIntoView(target);
+            }
+        }
+
+        internal void PrepareForDisplay()
+        {
+            int width = Math.Max(180, PreferredPickerWidth);
+            Size = new Size(width, Math.Max(70, Math.Min(480, ContentHeight)));
+            RefreshPickerLayout();
+            InstantToolStripDropDown.PrepareContent(this);
+        }
+
+        internal void UpdateSelection(string currentValue)
+        {
+            selectedButton = null;
+            foreach (PickerGroupControl group in groupControls)
+            {
+                group.UpdateSelection(currentValue);
+                if (selectedButton == null && group.SelectedButton != null)
+                {
+                    selectedButton = group.SelectedButton;
+                }
             }
         }
 
@@ -384,9 +409,38 @@ namespace Automation
                 }
             }
 
-            public Button SelectedButton { get; }
+            public Button SelectedButton { get; private set; }
             public Button FirstSelectableButton => SelectableButtons.FirstOrDefault();
             public IEnumerable<Button> SelectableButtons => buttons.Where(button => button.Enabled);
+
+            public void UpdateSelection(string currentValue)
+            {
+                SelectedButton = null;
+                foreach (Button button in buttons)
+                {
+                    if (!(button.Tag is PickerChoice choice))
+                    {
+                        continue;
+                    }
+                    bool selected = choice.Selectable && string.Equals(
+                        choice.Value,
+                        currentValue,
+                        StringComparison.Ordinal);
+                    button.BackColor = selected
+                        ? UiPalette.BrandSoftHover
+                        : UiPalette.Surface;
+                    button.ForeColor = selected
+                        ? UiPalette.Brand
+                        : choice.Selectable
+                            ? UiPalette.TextPrimary
+                            : UiPalette.TextDisabled;
+                    if (selected)
+                    {
+                        SelectedButton = button;
+                    }
+                    button.Invalidate();
+                }
+            }
 
             public static int GetMaximumChoiceCount(int availableHeight)
             {
@@ -527,6 +581,28 @@ namespace Automation
                     return BuildAddresses(runtime);
                 default:
                     return Array.Empty<PickerGroupDefinition>();
+            }
+        }
+
+        internal static string BuildSessionCacheKey(
+            InspectorSelectionPickerKind kind,
+            object owner,
+            PropertyDescriptor property)
+        {
+            PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(owner);
+            switch (kind)
+            {
+                case InspectorSelectionPickerKind.Variable:
+                    return $"variable:{GetCurrentProcessId(runtime):N}";
+                case InspectorSelectionPickerKind.InputOutput:
+                    return "io:" + (property?.Converter?.GetType().FullName ?? string.Empty);
+                case InspectorSelectionPickerKind.Point:
+                    return "point:" + (GetStationName(runtime, owner) ?? string.Empty);
+                case InspectorSelectionPickerKind.Address:
+                    PlatformEditorSelection selection = runtime?.EditorUi?.GetSelection();
+                    return $"address:{selection?.ProcIndex ?? -1}:{selection?.StepIndex ?? -1}";
+                default:
+                    return kind.ToString();
             }
         }
 
@@ -824,6 +900,94 @@ namespace Automation
         }
     }
 
+    /// <summary>
+    /// 单次 Inspector 编辑会话中的选择器预热缓存。每种数据上下文只保留一个
+    /// 已创建控件句柄的面板；打开时移交给下拉框，关闭后再由字段按需补充。
+    /// </summary>
+    internal sealed class InspectorSelectionPickerPrewarmSession : IDisposable
+    {
+        private readonly Dictionary<string, InspectorSelectionPickerPanel> preparedPanels =
+            new Dictionary<string, InspectorSelectionPickerPanel>(StringComparer.Ordinal);
+        private bool active;
+
+        internal int PreparedCount => preparedPanels.Count;
+
+        public void Reset()
+        {
+            Clear();
+            active = true;
+        }
+
+        public void Clear()
+        {
+            active = false;
+            foreach (InspectorSelectionPickerPanel panel in preparedPanels.Values)
+            {
+                panel.Dispose();
+            }
+            preparedPanels.Clear();
+        }
+
+        public void Prepare(
+            InspectorSelectionPickerKind kind,
+            object owner,
+            PropertyDescriptor property,
+            string currentValue)
+        {
+            if (!active || owner == null || property == null)
+            {
+                return;
+            }
+            string key = InspectorSelectionPickerData.BuildSessionCacheKey(
+                kind,
+                owner,
+                property);
+            if (preparedPanels.TryGetValue(key, out InspectorSelectionPickerPanel existing)
+                && !existing.IsDisposed)
+            {
+                return;
+            }
+
+            IReadOnlyList<PickerGroupDefinition> groups =
+                InspectorSelectionPickerData.Build(kind, owner, property, currentValue);
+            var panel = new InspectorSelectionPickerPanel(groups, currentValue);
+            panel.PrepareForDisplay();
+            preparedPanels[key] = panel;
+        }
+
+        public InspectorSelectionPickerPanel Take(
+            InspectorSelectionPickerKind kind,
+            object owner,
+            PropertyDescriptor property,
+            string currentValue)
+        {
+            if (!active || owner == null || property == null)
+            {
+                return null;
+            }
+            string key = InspectorSelectionPickerData.BuildSessionCacheKey(
+                kind,
+                owner,
+                property);
+            if (!preparedPanels.TryGetValue(key, out InspectorSelectionPickerPanel panel))
+            {
+                return null;
+            }
+            preparedPanels.Remove(key);
+            if (panel.IsDisposed)
+            {
+                return null;
+            }
+            panel.UpdateSelection(currentValue);
+            return panel;
+        }
+
+        public void Dispose()
+        {
+            Clear();
+        }
+    }
+
     internal static class InspectorSelectionPickerDropDown
     {
         private const int MinimumPickerWidth = 180;
@@ -837,15 +1001,18 @@ namespace Automation
             PropertyDescriptor property,
             string currentValue,
             Action<string> selected,
-            Action closed)
+            Action closed,
+            InspectorSelectionPickerPanel preparedPanel = null)
         {
             Rectangle anchorBounds = anchor.RectangleToScreen(anchor.ClientRectangle);
             Rectangle workingArea = Screen.FromRectangle(anchorBounds).WorkingArea;
-            var panel = new InspectorSelectionPickerPanel(
-                kind,
-                owner,
-                property,
-                currentValue);
+            InspectorSelectionPickerPanel panel = preparedPanel
+                ?? new InspectorSelectionPickerPanel(
+                    kind,
+                    owner,
+                    property,
+                    currentValue);
+            panel.UpdateSelection(currentValue);
             int maximumWidth = Math.Max(
                 MinimumPickerWidth,
                 Math.Min(MaximumPickerWidth, workingArea.Width - WorkingAreaMargin));

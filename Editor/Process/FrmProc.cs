@@ -349,7 +349,12 @@ namespace Automation
             }
 
             const int imageSize = 20;
-            int imageLeft = Math.Max(5, e.Bounds.Left - imageSize - 2);
+            // FullRowSelect 会把 DrawNode 事件的 Bounds 扩展为整行，X 固定为 0。
+            // TreeNode.Bounds 始终保留原生标签位置，用它反推图标位置才能保持层级缩进。
+            Rectangle nativeLabelBounds = e.Node.Bounds;
+            int imageLeft = Math.Max(
+                0,
+                nativeLabelBounds.Left - imageSize - 3);
             var imageBounds = new Rectangle(
                 imageLeft,
                 rowTop + Math.Max(0, (rowHeight - imageSize) / 2),
@@ -376,9 +381,11 @@ namespace Automation
 
             Font font = e.Node.NodeFont ?? proc_treeView.Font;
             var textBounds = new Rectangle(
-                Math.Max(e.Bounds.Left, imageBounds.Right + 2),
+                Math.Max(nativeLabelBounds.Left, imageBounds.Right + 2),
                 rowTop,
-                Math.Max(1, proc_treeView.ClientSize.Width - e.Bounds.Left - 8),
+                Math.Max(
+                    1,
+                    proc_treeView.ClientSize.Width - nativeLabelBounds.Left - 8),
                 rowHeight);
             TextRenderer.DrawText(
                 e.Graphics,
@@ -387,8 +394,7 @@ namespace Automation
                 textBounds,
                 UiPalette.SelectionText,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
-                    | TextFormatFlags.NoPadding);
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
         }
 
         private static void DrawSelectedNodeChevron(
@@ -762,6 +768,7 @@ namespace Automation
             {
                 processDefinitionRepository.ReplaceAll(procsListTemp);
             }
+            editorWorkspace?.DataGrid?.dataGridView1?.RebuildJumpLinkCaches(procsList);
             RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
             }
             finally
@@ -900,6 +907,7 @@ namespace Automation
                 proc_treeView.EndUpdate();
             }
 
+            editorWorkspace?.DataGrid?.dataGridView1?.RebuildJumpLinkCache(procIndex, proc);
             if (SelectedProcNum == procIndex)
             {
                 RefreshCurrentBinding();
@@ -1093,20 +1101,26 @@ namespace Automation
                     return;
                 }
                 object fallbackInspectorObject;
+                bool bindingDataSourceChanged;
                 if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
                 {
                     Step selectedStep = procsList[SelectedProcNum].steps[SelectedStepNum];
                     grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
+                    bindingDataSourceChanged = !ReferenceEquals(bindingSource.DataSource, selectedStep.Ops);
                     bindingSource.DataSource = selectedStep.Ops;
                     fallbackInspectorObject = selectedStep;
                 }
                 else
                 {
                     grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
+                    bindingDataSourceChanged = bindingSource.DataSource != null;
                     bindingSource.DataSource = null;
                     fallbackInspectorObject = procsList[SelectedProcNum].head;
                 }
-                bindingSource.ResetBindings(false);
+                if (!bindingDataSourceChanged)
+                {
+                    bindingSource.ResetBindings(false);
+                }
                 bool restoredOperation = false;
                 if (grid != null && !grid.IsDisposed)
                 {
@@ -1351,6 +1365,14 @@ namespace Automation
         {
             if (proc_treeView.SelectedNode != null)
             {
+                // 先把原生选中结果绘制出来，再更新指令表和 Inspector。
+                // 这样即使后续对象较复杂，流程树也不会停留在按下态。
+                proc_treeView.Invalidate(new Rectangle(
+                    0,
+                    proc_treeView.SelectedNode.Bounds.Top,
+                    proc_treeView.ClientSize.Width,
+                    proc_treeView.ItemHeight));
+                proc_treeView.Update();
                 
                 if (proc_treeView.SelectedNode.Parent != null)
                 {

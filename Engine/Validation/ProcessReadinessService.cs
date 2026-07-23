@@ -396,8 +396,8 @@ namespace Automation
             bool incomplete = false;
             foreach (KeyValuePair<string, string> result in new[]
             {
-                new KeyValuePair<string, string>("分段耗时变量", probe.SegmentMillisecondsVariableName),
-                new KeyValuePair<string, string>("累计耗时变量", probe.CycleMillisecondsVariableName)
+                new KeyValuePair<string, string>("分段耗时变量", probe.SegmentSecondsVariableName),
+                new KeyValuePair<string, string>("累计耗时变量", probe.CycleSecondsVariableName)
             })
             {
                 if (string.IsNullOrWhiteSpace(result.Value)) continue;

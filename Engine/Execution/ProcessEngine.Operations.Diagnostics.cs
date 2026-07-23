@@ -26,8 +26,8 @@ namespace Automation
 
             long now = Stopwatch.GetTimestamp();
             CycleTimeProbeState state;
-            double segmentMilliseconds;
-            double cycleMilliseconds;
+            double segmentSeconds;
+            double cycleSeconds;
             int segmentIndex;
             if (operation.StartNewCycle)
             {
@@ -38,8 +38,8 @@ namespace Automation
                     SegmentIndex = 0
                 };
                 evt.CycleTimeProbes[operation.TaskKey] = state;
-                segmentMilliseconds = 0d;
-                cycleMilliseconds = 0d;
+                segmentSeconds = 0d;
+                cycleSeconds = 0d;
                 segmentIndex = 0;
             }
             else
@@ -49,18 +49,18 @@ namespace Automation
                     MarkAlarm(evt, $"CT探针任务尚未开始:{operation.TaskKey}");
                     throw CreateAlarmException(evt, evt.alarmMsg);
                 }
-                segmentMilliseconds = Math.Max(0L, now - state.LastProbeTicks) * 1000d / Stopwatch.Frequency;
-                cycleMilliseconds = Math.Max(0L, now - state.CycleStartedTicks) * 1000d / Stopwatch.Frequency;
+                segmentSeconds = ToMillisecondsPrecisionSeconds(now - state.LastProbeTicks);
+                cycleSeconds = ToMillisecondsPrecisionSeconds(now - state.CycleStartedTicks);
                 state.LastProbeTicks = now;
                 state.SegmentIndex++;
                 segmentIndex = state.SegmentIndex;
             }
 
             var writes = new List<KeyValuePair<DicValue, double>>();
-            AddCycleTimeWrite(evt, operation.SegmentMillisecondsVariableName,
-                segmentMilliseconds, "分段耗时变量", writes);
-            AddCycleTimeWrite(evt, operation.CycleMillisecondsVariableName,
-                cycleMilliseconds, "累计耗时变量", writes);
+            AddCycleTimeWrite(evt, operation.SegmentSecondsVariableName,
+                segmentSeconds, "分段耗时变量", writes);
+            AddCycleTimeWrite(evt, operation.CycleSecondsVariableName,
+                cycleSeconds, "累计耗时变量", writes);
             var previousValues = new List<KeyValuePair<DicValue, string>>();
             foreach (KeyValuePair<DicValue, double> write in writes)
             {
@@ -91,11 +91,17 @@ namespace Automation
                 SegmentName = operation.SegmentName,
                 SegmentIndex = segmentIndex,
                 CycleStarted = operation.StartNewCycle,
-                SegmentMilliseconds = segmentMilliseconds,
-                CycleMilliseconds = cycleMilliseconds,
+                SegmentSeconds = segmentSeconds,
+                CycleSeconds = cycleSeconds,
                 RecordedAtUtc = DateTime.UtcNow
             });
             return true;
+        }
+
+        private static double ToMillisecondsPrecisionSeconds(long elapsedTicks)
+        {
+            double seconds = Math.Max(0L, elapsedTicks) / (double)Stopwatch.Frequency;
+            return Math.Round(seconds, 3, MidpointRounding.AwayFromZero);
         }
 
         private void AddCycleTimeWrite(ProcHandle evt, string variableName, double value,

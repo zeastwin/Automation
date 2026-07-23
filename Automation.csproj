@@ -335,6 +335,9 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Editor\Process\ProcessEditorSelectionState.cs" />
+    <Compile Include="Editor\Process\ProcessTreeView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Editor\Process\ProcTreeIconFactory.cs" />
     <Compile Include="Editor\Shell\EditorWorkspace.cs" />
     <Compile Include="Editor\Shell\FrmAppConfig.cs">

@@ -97,6 +97,15 @@ namespace Automation
             }
         }
 
+        public void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
+        {
+            foreach (InspectorFieldControl field in fields)
+            {
+                field.PrewarmSelectionPickers(session);
+            }
+        }
+
         public bool CanRebind(InspectorSectionDefinition definition)
         {
             if (definition == null || fields.Count != definition.Fields.Count)
@@ -223,6 +232,11 @@ namespace Automation
         public abstract void Rebind(InspectorFieldDefinition definition, bool editable);
 
         public virtual void EndEdit()
+        {
+        }
+
+        public virtual void PrewarmSelectionPickers(
+            InspectorSelectionPickerPrewarmSession session)
         {
         }
 

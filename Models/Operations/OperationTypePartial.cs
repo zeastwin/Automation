@@ -227,16 +227,19 @@ namespace Automation
                 ITypeDescriptorContext context)
             {
                 DataStructStore store = GetRuntime(context)?.Stores.DataStructures;
-                SetDataStructItem operation = GetSetDataStructItem(context);
-                if (store == null || operation == null
+                if (store == null
+                    || !TryGetStructAddress(
+                        context,
+                        out string structName,
+                        out int structAddress)
                     || !TrySelectAddressMode(
-                        operation.StructName,
-                        operation.StructIndex,
+                        structName,
+                        structAddress,
                         out bool useName)
                     || !store.TryResolveStructIndex(
                         useName,
-                        operation.StructIndex,
-                        operation.StructName,
+                        structAddress,
+                        structName,
                         out int structIndex,
                         out _)
                     || !store.TryGetStructSnapshotByIndex(
@@ -271,27 +274,34 @@ namespace Automation
                 ITypeDescriptorContext context)
             {
                 DataStructStore store = GetRuntime(context)?.Stores.DataStructures;
-                SetDataStructItem operation = GetSetDataStructItem(context);
-                if (store == null || operation == null
+                if (store == null
+                    || !TryGetStructAddress(
+                        context,
+                        out string structName,
+                        out int structAddress)
                     || !TrySelectAddressMode(
-                        operation.StructName,
-                        operation.StructIndex,
+                        structName,
+                        structAddress,
                         out bool useStructName)
                     || !store.TryResolveStructIndex(
                         useStructName,
-                        operation.StructIndex,
-                        operation.StructName,
+                        structAddress,
+                        structName,
                         out int structIndex,
                         out _)
+                    || !TryGetItemAddress(
+                        context,
+                        out string itemName,
+                        out int itemAddress)
                     || !TrySelectAddressMode(
-                        operation.ItemName,
-                        operation.ItemIndex,
+                        itemName,
+                        itemAddress,
                         out bool useItemName)
                     || !store.TryResolveItemIndex(
                         structIndex,
                         useItemName,
-                        operation.ItemIndex,
-                        operation.ItemName,
+                        itemAddress,
+                        itemName,
                         out int itemIndex,
                         out _)
                     || !store.TryGetStructSnapshotByIndex(
@@ -320,14 +330,100 @@ namespace Automation
             }
         }
 
-        private static SetDataStructItem GetSetDataStructItem(
+        private static OperationType GetDataStructOperation(
             ITypeDescriptorContext context)
         {
-            return context?.Instance as SetDataStructItem
-                ?? EditorServiceRegistry.GetAncestor<SetDataStructItem>(
+            return context?.Instance as OperationType
+                ?? EditorServiceRegistry.GetAncestor<OperationType>(
                     context?.Instance)
                 ?? GetRuntime(context)?.EditorUi?.CurrentOperationContext
-                    as SetDataStructItem;
+                    as OperationType;
+        }
+
+        private static bool TryGetStructAddress(
+            ITypeDescriptorContext context,
+            out string name,
+            out int index)
+        {
+            name = null;
+            index = -1;
+            OperationType operation = GetDataStructOperation(context);
+            bool target = (context?.PropertyDescriptor?.Name ?? string.Empty)
+                .StartsWith("Target", StringComparison.Ordinal);
+            switch (operation)
+            {
+                case SetDataStructItem set:
+                    name = set.StructName;
+                    index = set.StructIndex;
+                    return true;
+                case GetDataStructItem get:
+                    name = get.StructName;
+                    index = get.StructIndex;
+                    return true;
+                case CopyDataStructItem copy when target:
+                    name = copy.TargetStructName;
+                    index = copy.TargetStructIndex;
+                    return true;
+                case CopyDataStructItem copy:
+                    name = copy.SourceStructName;
+                    index = copy.SourceStructIndex;
+                    return true;
+                case InsertDataStructItem insert:
+                    name = insert.TargetStructName;
+                    index = insert.TargetStructIndex;
+                    return true;
+                case DelDataStructItem delete:
+                    name = delete.TargetStructName;
+                    index = delete.TargetStructIndex;
+                    return true;
+                case FindDataStructItem find:
+                    name = find.TargetStructName;
+                    index = find.TargetStructIndex;
+                    return true;
+                case GetDataStructCount count:
+                    name = count.TargetStructName;
+                    index = count.TargetStructIndex;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryGetItemAddress(
+            ITypeDescriptorContext context,
+            out string name,
+            out int index)
+        {
+            name = null;
+            index = -1;
+            OperationType operation = GetDataStructOperation(context);
+            bool target = (context?.PropertyDescriptor?.Name ?? string.Empty)
+                .StartsWith("Target", StringComparison.Ordinal);
+            switch (operation)
+            {
+                case SetDataStructItem set:
+                    name = set.ItemName;
+                    index = set.ItemIndex;
+                    return true;
+                case GetDataStructItem get:
+                    name = get.ItemName;
+                    index = get.ItemIndex;
+                    return true;
+                case CopyDataStructItem copy when target:
+                    name = copy.TargetItemName;
+                    index = copy.TargetItemIndex;
+                    return true;
+                case CopyDataStructItem copy:
+                    name = copy.SourceItemName;
+                    index = copy.SourceItemIndex;
+                    return true;
+                case DelDataStructItem delete:
+                    name = delete.TargetItemName;
+                    index = delete.TargetItemIndex;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool TrySelectAddressMode(
