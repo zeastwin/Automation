@@ -26,6 +26,7 @@ namespace Automation
         Undo,
         Redo,
         Pause,
+        Run,
         Stop,
         Step,
         Locate,
@@ -275,6 +276,14 @@ namespace Automation
                     case UiIconKind.Pause:
                         FillRoundedRectangle(graphics, brush, 5, 4, 5, 16, 1.5F);
                         FillRoundedRectangle(graphics, brush, 14, 4, 5, 16, 1.5F);
+                        break;
+                    case UiIconKind.Run:
+                        graphics.FillPolygon(brush, new[]
+                        {
+                            new PointF(6, 4),
+                            new PointF(19, 12),
+                            new PointF(6, 20)
+                        });
                         break;
                     case UiIconKind.Stop:
                         FillRoundedRectangle(graphics, brush, 5, 5, 14, 14, 2.5F);

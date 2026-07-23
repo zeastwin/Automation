@@ -361,7 +361,8 @@ namespace Automation
         Pause = 3,
         Resume = 4,
         Step = 5,
-        Stop = 6
+        Stop = 6,
+        SetDebugStartPoint = 7
     }
 
     public sealed class EngineCommand
@@ -384,6 +385,7 @@ namespace Automation
         public int OpIndex { get; }
         public ProcRunState StartState { get; }
         public Guid DataBreakpointHitId { get; private set; }
+        internal string FailureReason { get; set; }
         internal long Generation { get; set; }
         internal TaskCompletionSource<bool> Completion { get; } =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -424,6 +426,18 @@ namespace Automation
         public static EngineCommand Stop(int procIndex)
         {
             return new EngineCommand(EngineCommandType.Stop, procIndex, null, 0, 0, ProcRunState.Stopped);
+        }
+
+        public static EngineCommand SetDebugStartPoint(
+            int procIndex, Proc proc, int stepIndex, int opIndex)
+        {
+            return new EngineCommand(
+                EngineCommandType.SetDebugStartPoint,
+                procIndex,
+                proc,
+                stepIndex,
+                opIndex,
+                ProcRunState.SingleStep);
         }
     }
     public sealed class EngineSnapshot

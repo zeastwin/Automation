@@ -676,14 +676,9 @@ namespace Automation
 
             if (frmToolBar?.btnPause != null && procNum == frmProc.SelectedProcNum)
             {
-                bool continueAction = snapshot.State != ProcRunState.Running && snapshot.State != ProcRunState.Alarming;
-                bool allowResume = snapshot.State != ProcRunState.Paused;
-                bool allowSingleStep = snapshot.State == ProcRunState.SingleStep;
                 void ApplyPauseState()
                 {
-                    frmToolBar.SetPauseButtonAction(continueAction);
-                    frmToolBar.btnPause.Enabled = allowResume;
-                    frmToolBar.SingleRun.Enabled = allowSingleStep;
+                    frmToolBar.ApplyProcessRunState(snapshot.State);
                 }
                 if (frmToolBar.btnPause.InvokeRequired)
                 {
@@ -893,7 +888,13 @@ namespace Automation
                     opName = "未命名";
                 }
 
-                if (!Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string stateError))
+                bool started = Runtime.ProcessEngine.TrySetDebugStartPoint(
+                    null,
+                    procIndex,
+                    stepIndex,
+                    opIndex,
+                    out string stateError);
+                if (!started)
                 {
                     if (frmInfo != null && !frmInfo.IsDisposed)
                     {
@@ -903,28 +904,9 @@ namespace Automation
                     return;
                 }
 
-                const ProcRunState startState = ProcRunState.SingleStep;
-                bool started = Runtime.ProcessEngine.StartProcAt(
-                    null,
-                    procIndex,
-                    stepIndex,
-                    opIndex,
-                    startState);
-                if (!started)
-                {
-                    if (frmInfo != null && !frmInfo.IsDisposed)
-                    {
-                        frmInfo.PrintInfo("快捷键：设置启动点失败，请查看流程运行日志。", FrmInfo.Level.Error);
-                    }
-                    e.Handled = true;
-                    return;
-                }
-
                 if (frmToolBar != null && !frmToolBar.IsDisposed)
                 {
-                    frmToolBar.SetPauseButtonAction(true);
-                    frmToolBar.btnPause.Enabled = true;
-                    frmToolBar.SingleRun.Enabled = true;
+                    frmToolBar.ApplyProcessRunState(ProcRunState.SingleStep);
                 }
 
                 if (frmInfo != null && !frmInfo.IsDisposed)

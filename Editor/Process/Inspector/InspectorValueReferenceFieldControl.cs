@@ -80,11 +80,13 @@ namespace Automation
             kindDisplay.Font = InspectorFonts.Bold95;
             kindDisplay.ShowDropDownArrow = true;
             kindDisplay.ActivationRequested += (sender, args) => ActivateKindEditor();
+            kindDisplay.DropDownRequested += (sender, args) => ActivateKindEditor();
             Controls.Add(kindDisplay);
 
             valueDisplay.AccessibleName = definition.Label;
             valueDisplay.Font = InspectorFonts.Bold95;
-            valueDisplay.ActivationRequested += (sender, args) => ActivateValueEditor();
+            valueDisplay.ActivationRequested += (sender, args) => ActivateValueEditor(false);
+            valueDisplay.DropDownRequested += (sender, args) => ActivateValueEditor(true);
             Controls.Add(valueDisplay);
             kindDisplay.BringToFront();
             valueDisplay.BringToFront();
@@ -250,14 +252,16 @@ namespace Automation
                 valueDisplay.Editable = false;
                 return;
             }
-            value.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
-                definition.Owner,
-                property)
-                ? ComboBoxStyle.DropDownList
-                : ComboBoxStyle.DropDown;
             value.UseSelectionPicker = InspectorSelectionPickerResolver.TryResolve(
                 property,
                 out InspectorSelectionPickerKind _);
+            value.DropDownStyle = value.UseSelectionPicker
+                ? ComboBoxStyle.DropDown
+                : InspectorValueConversion.StandardValuesExclusive(
+                    definition.Owner,
+                    property)
+                    ? ComboBoxStyle.DropDownList
+                    : ComboBoxStyle.DropDown;
             valueDisplay.ShowDropDownArrow = value.UseSelectionPicker
                 || InspectorValueConversion.HasStandardValues(definition.Owner, property)
                 || (Nullable.GetUnderlyingType(property.PropertyType)
@@ -298,7 +302,7 @@ namespace Automation
             return true;
         }
 
-        private bool ActivateValueEditor()
+        private bool ActivateValueEditor(bool openDropDown = false)
         {
             InspectorValueReferenceKind selectedKind = CurrentKind();
             PropertyDescriptor property = definition.GetActiveProperty(selectedKind);
@@ -314,7 +318,7 @@ namespace Automation
             value.BringToFront();
             value.Focus();
 
-            if (value.UseSelectionPicker)
+            if (value.UseSelectionPicker && openDropDown)
             {
                 BeginInvoke((Action)(() =>
                 {
@@ -326,9 +330,12 @@ namespace Automation
                 return true;
             }
 
-            if (InspectorValueConversion.HasStandardValues(definition.Owner, property)
-                || (Nullable.GetUnderlyingType(property.PropertyType)
-                    ?? property.PropertyType).IsEnum)
+            bool shouldOpenDropDown = openDropDown
+                || value.DropDownStyle == ComboBoxStyle.DropDownList;
+            if (shouldOpenDropDown
+                && (InspectorValueConversion.HasStandardValues(definition.Owner, property)
+                    || (Nullable.GetUnderlyingType(property.PropertyType)
+                        ?? property.PropertyType).IsEnum))
             {
                 EnsureValueOptionsLoaded();
                 BeginInvoke((Action)(() =>
@@ -376,6 +383,18 @@ namespace Automation
 
         private void Editor_KeyDown(object sender, KeyEventArgs args)
         {
+            if (args.KeyCode == Keys.Enter
+                && ReferenceEquals(sender, value)
+                && value.DropDownStyle != ComboBoxStyle.DropDownList)
+            {
+                if (CommitValue())
+                {
+                    DeactivateEditors(true);
+                }
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
             if (args.KeyCode != Keys.Escape)
             {
                 return;

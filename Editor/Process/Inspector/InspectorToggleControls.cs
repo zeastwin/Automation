@@ -130,7 +130,8 @@ namespace Automation
             Color trackColor;
             if (!Enabled)
             {
-                trackColor = UiPalette.Disabled;
+                // 只读态仍需准确表达当前布尔值，不能让“已开启”和“已关闭”都显示为灰色。
+                trackColor = Checked ? UiPalette.Brand : UiPalette.Disabled;
             }
             else if (Checked)
             {

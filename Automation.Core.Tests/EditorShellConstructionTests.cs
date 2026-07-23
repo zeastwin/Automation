@@ -24,5 +24,49 @@ namespace Automation.Core.Tests
                 }
             }, TimeSpan.FromSeconds(10));
         }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ReturningToProcessWorkspace_RestoresActiveOperationDraftAndSelection()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = TestProcessFactory.CreateEndingProcess("编辑态切页");
+                    form.Runtime.Stores.Processes.Items.Add(process);
+                    form.frmProc.SelectedProcNum = 0;
+                    form.frmProc.SelectedStepNum = 0;
+                    form.frmDataGrid.iSelectedRow = 0;
+
+                    var draft = new EndProcess
+                    {
+                        Id = process.steps[0].Ops[0].Id,
+                        Name = "尚未保存的指令名"
+                    };
+                    form.Runtime.Editor.ModifyKind = ModifyKind.Operation;
+                    form.Runtime.Editor.Begin(new EditSession<OperationType>(
+                        "修改指令",
+                        draft,
+                        null,
+                        value => { }));
+
+                    form.frmMenu.ShowIoConfigurationWorkspace();
+                    form.frmMenu.ShowProcessWorkspace();
+
+                    Assert.AreSame(draft, form.Runtime.Editor.ActiveSession?.Draft);
+                    Assert.AreSame(draft, form.frmDataGrid.OperationTemp);
+                    Assert.AreSame(draft, form.frmInspector.SelectedObject);
+                    Assert.AreEqual(0, form.frmProc.SelectedProcNum);
+                    Assert.AreEqual(0, form.frmProc.SelectedStepNum);
+                    Assert.AreEqual(0, form.frmDataGrid.iSelectedRow);
+                    Assert.IsTrue(form.frmToolBar.btnSave.Enabled);
+                    Assert.IsTrue(form.frmToolBar.btnCancel.Enabled);
+
+                    form.Runtime.Editor.Cancel();
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
     }
 }

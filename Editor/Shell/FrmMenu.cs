@@ -482,12 +482,9 @@ namespace Automation
                     Workspace.Card.BringToFront();
                     Workspace.IO.BringToFront();
 
-                    Workspace.ToolBar.btnPause.Visible = false;
-                    Workspace.ToolBar.btnStop.Visible = false;
+                    Workspace.ToolBar.SetProcessRunControlsVisible(false);
                     Workspace.ToolBar.btnStopAll.Visible = false;
-                    Workspace.ToolBar.SingleRun.Visible = false;
                     Workspace.ToolBar.btnAlarm.Visible = false;
-                    Workspace.ToolBar.btnLocate.Visible = false;
                     Workspace.ToolBar.btnSearch.Visible = false;
                     Workspace.ToolBar.btnIOMonitor.Visible = true;
                     Workspace.ToolBar.btnIOMonitor.Enabled = true;
@@ -540,32 +537,25 @@ namespace Automation
                     {
                         Workspace.Card.Visible = false;
                     }
-                    Workspace.ToolBar.btnPause.Visible = true;
-                    Workspace.ToolBar.btnStop.Visible = true;
+                    Workspace.ToolBar.SetProcessRunControlsVisible(true);
                     Workspace.ToolBar.btnStopAll.Visible = true;
-                    Workspace.ToolBar.SingleRun.Visible = true;
                     Workspace.ToolBar.btnAlarm.Visible = true;
-                    Workspace.ToolBar.btnLocate.Visible = true;
                     Workspace.ToolBar.btnSearch.Visible = true;
 
-                    Workspace.ToolBar.btnPause.Enabled = true;
-                    Workspace.ToolBar.btnStop.Enabled = true;
                     Workspace.ToolBar.btnStopAll.Enabled = true;
-                    Workspace.ToolBar.SingleRun.Enabled = true;
+                    int procIndex = Workspace.Proc.SelectedProcNum;
+                    EngineSnapshot snapshot = procIndex >= 0
+                        ? Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex)
+                        : null;
+                    Workspace.ToolBar.ApplyProcessRunState(
+                        snapshot?.State ?? ProcRunState.Ready);
                     Workspace.ToolBar.btnLocate.Enabled = true;
                     Workspace.ToolBar.btnSearch.Enabled = true;
                     Workspace.ToolBar.btnAlarm.Enabled = true;
                     Workspace.ToolBar.btnIOMonitor.Visible = false;
                     Workspace.IO.StopIOMonitor();
                     Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
-                    if (Workspace.Runtime.Editor.IsAddingOperations)
-                    {
-                        Workspace.Inspector.ShowObject(Workspace.DataGrid.OperationTemp);
-                    }
-                    else
-                    {
-                        Workspace.Inspector.ClearObject();
-                    }
+                    Workspace.RestoreProcessEditorPresentation();
                 });
             }
         }

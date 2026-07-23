@@ -43,6 +43,7 @@ namespace Automation
         private Panel infoTabBar;
         private Panel infoContentFrame;
         private Panel infoContentHost;
+        private TableLayoutPanel infoContentLayout;
         private Button infoTabButton;
         private Button statusTabButton;
         private Panel infoTabIndicator;
@@ -94,6 +95,7 @@ namespace Automation
             infoContentHost = new Panel
             {
                 Dock = DockStyle.Fill,
+                Margin = Padding.Empty,
                 Padding = new Padding(6),
                 BackColor = UiPalette.Background
             };
@@ -101,13 +103,13 @@ namespace Automation
             dgvProcStatus.Dock = DockStyle.Fill;
             infoContentHost.Controls.Add(dgvProcStatus);
             infoContentHost.Controls.Add(lvInfoLog);
-            infoContentFrame.Controls.Add(infoContentHost);
             Controls.Add(infoContentFrame);
 
             infoTabBar = new Panel
             {
                 Dock = DockStyle.Bottom,
                 Height = 35,
+                Margin = Padding.Empty,
                 BackColor = UiPalette.BrandSoft
             };
             infoTabBar.Paint += (sender, args) =>
@@ -136,8 +138,22 @@ namespace Automation
             infoTabBar.Controls.Add(infoTabButton);
             infoTabBar.Controls.Add(statusTabButton);
             infoTabBar.Controls.Add(infoTabIndicator);
-            infoContentFrame.Controls.Add(infoTabBar);
-            infoTabBar.BringToFront();
+            infoContentLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                BackColor = UiPalette.Background,
+                GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            };
+            infoContentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            infoContentLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            infoContentLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, infoTabBar.Height));
+            infoContentLayout.Controls.Add(infoContentHost, 0, 0);
+            infoContentLayout.Controls.Add(infoTabBar, 0, 1);
+            infoContentFrame.Controls.Add(infoContentLayout);
             UpdateInfoTabButtons();
 
             dgvProcStatus.BorderStyle = BorderStyle.None;

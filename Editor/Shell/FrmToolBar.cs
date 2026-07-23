@@ -36,6 +36,7 @@ namespace Automation
         private readonly WinFormsButton btnDataBreakpoints = new WinFormsButton();
         private readonly WinFormsButton btnFlowGraph = new WinFormsButton();
         private readonly WinFormsButton btnPerformanceAnalysis = new WinFormsButton();
+        private readonly WinFormsButton btnContinue = new WinFormsButton();
 
         public FrmToolBar()
         {
@@ -47,6 +48,7 @@ namespace Automation
             ToolBar_Panel.Controls.Add(btnDataBreakpoints);
             ToolBar_Panel.Controls.Add(btnFlowGraph);
             ToolBar_Panel.Controls.Add(btnPerformanceAnalysis);
+            ToolBar_Panel.Controls.Add(btnContinue);
             btnNavigateBack.Click += (sender, args) => Workspace.Main?.NavigateEditorBack();
             btnNavigateForward.Click += (sender, args) => Workspace.Main?.NavigateEditorForward();
             btnUndo.Click += (sender, args) => ExecuteHistoryAction(true);
@@ -54,6 +56,7 @@ namespace Automation
             btnDataBreakpoints.Click += (sender, args) => Workspace.Main?.ShowDataBreakpoints();
             btnFlowGraph.Click += (sender, args) => Workspace.Main?.ShowProcessFlowGraph();
             btnPerformanceAnalysis.Click += (sender, args) => Workspace.Main?.ShowPerformanceAnalysis();
+            btnContinue.Click += btnContinue_Click;
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
@@ -62,6 +65,7 @@ namespace Automation
             btnUndo.Enabled = false;
             btnRedo.Enabled = false;
             btnIOMonitor.Visible = false;
+            ApplyProcessRunState(ProcRunState.Ready);
             Disposed += (sender, args) =>
             {
                 if (editorWorkspace != null)
@@ -89,6 +93,7 @@ namespace Automation
             ConfigureButton(btnUndo, UiIconKind.Undo, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnRedo, UiIconKind.Redo, 42, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnPause, UiIconKind.Pause, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnContinue, UiIconKind.Run, 44, UiPalette.Success, UiPalette.Surface, UiPalette.SuccessSoft);
             ConfigureButton(btnStop, UiIconKind.Stop, 44, UiPalette.Danger, UiPalette.Surface, UiPalette.DangerSoft);
             ConfigureButton(SingleRun, UiIconKind.Step, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnLocate, UiIconKind.Locate, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
@@ -107,6 +112,7 @@ namespace Automation
             ConfigureIconOnlyButton(btnUndo, "撤销（Ctrl+Z）");
             ConfigureIconOnlyButton(btnRedo, "重做（Ctrl+Y）");
             ConfigureIconOnlyButton(btnPause, "暂停");
+            ConfigureIconOnlyButton(btnContinue, "继续运行");
             ConfigureIconOnlyButton(btnStop, "停止");
             ConfigureIconOnlyButton(SingleRun, "单步");
             ConfigureIconOnlyButton(btnLocate, "定位");
@@ -161,7 +167,7 @@ namespace Automation
             toolbarToolTip.SetToolTip(button, accessibleName);
         }
 
-        internal void SetPauseButtonAction(bool continueAction)
+        internal void ApplyProcessRunState(ProcRunState state)
         {
             if (IsDisposed || Disposing)
             {
@@ -169,14 +175,24 @@ namespace Automation
             }
             if (InvokeRequired)
             {
-                BeginInvoke((Action)(() => SetPauseButtonAction(continueAction)));
+                BeginInvoke((Action)(() => ApplyProcessRunState(state)));
                 return;
             }
 
-            string accessibleName = continueAction ? "继续" : "暂停";
-            btnPause.Text = string.Empty;
-            btnPause.AccessibleName = accessibleName;
-            toolbarToolTip.SetToolTip(btnPause, accessibleName);
+            btnPause.Enabled = state == ProcRunState.Running
+                || state == ProcRunState.Alarming;
+            btnContinue.Enabled = state == ProcRunState.SingleStep;
+            SingleRun.Enabled = state == ProcRunState.SingleStep;
+            btnStop.Enabled = !state.IsInactive();
+        }
+
+        internal void SetProcessRunControlsVisible(bool visible)
+        {
+            btnPause.Visible = visible;
+            btnContinue.Visible = visible;
+            btnStop.Visible = visible;
+            SingleRun.Visible = visible;
+            btnLocate.Visible = visible;
         }
 
         private WinFormsButton[] GetToolbarButtons()
@@ -185,7 +201,7 @@ namespace Automation
             {
                 btnNavigateBack, btnNavigateForward,
                 btnUndo, btnRedo,
-                btnPause, btnStop, SingleRun, btnLocate,
+                btnPause, btnContinue, btnStop, SingleRun, btnLocate,
                 btnDataBreakpoints, btnAlarm, btnSearch, btnFlowGraph, btnPerformanceAnalysis, btnIOMonitor,
                 button1, btnAppConfig, btnStopAll
             };
@@ -213,10 +229,12 @@ namespace Automation
                 separatorPositions.Add(left - 8);
             }
 
-            bool hasRunGroup = btnPause.Visible || btnStop.Visible || SingleRun.Visible || btnLocate.Visible;
+            bool hasRunGroup = btnPause.Visible || btnContinue.Visible
+                || btnStop.Visible || SingleRun.Visible || btnLocate.Visible;
             if (hasRunGroup)
             {
                 PlaceFromLeft(btnPause, ref left, top, 2);
+                PlaceFromLeft(btnContinue, ref left, top, 2);
                 PlaceFromLeft(btnStop, ref left, top, 2);
                 PlaceFromLeft(SingleRun, ref left, top, 2);
                 PlaceFromLeft(btnLocate, ref left, top, 16);
@@ -452,7 +470,7 @@ namespace Automation
             toolbarToolTip.SetToolTip(btnIOMonitor, btnIOMonitor.AccessibleName);
         }
 
-        private async void btnPause_Click(object sender, EventArgs e)
+        private void btnPause_Click(object sender, EventArgs e)
         {
             int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex < 0)
@@ -463,69 +481,96 @@ namespace Automation
             if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
             {
                 Workspace.Runtime.ProcessEngine.Pause(procIndex);
-                SetPauseButtonAction(true);
+                ApplyProcessRunState(ProcRunState.Pausing);
             }
-            else if (snapshot != null && snapshot.State == ProcRunState.Paused)
+        }
+
+        private async void btnContinue_Click(object sender, EventArgs e)
+        {
+            int procIndex = Workspace.Proc.SelectedProcNum;
+            if (procIndex < 0)
             {
-                if (Workspace.Info != null && !Workspace.Info.IsDisposed)
-                {
-                    Workspace.Info.PrintInfo("流程已暂停，禁止继续运行。", FrmInfo.Level.Error);
-                }
                 return;
             }
-            else if (snapshot != null && snapshot.State == ProcRunState.SingleStep)
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
+            if (snapshot == null || snapshot.State != ProcRunState.SingleStep)
             {
-                Proc proc = null;
-                if (Workspace.Proc?.procsList != null && procIndex >= 0 && procIndex < Workspace.Proc.procsList.Count)
+                ApplyProcessRunState(snapshot?.State ?? ProcRunState.Ready);
+                return;
+            }
+
+            Proc proc = null;
+            if (Workspace.Proc?.procsList != null
+                && procIndex >= 0
+                && procIndex < Workspace.Proc.procsList.Count)
+            {
+                proc = Workspace.Proc.procsList[procIndex];
+            }
+            string procName = snapshot.ProcName ?? proc?.head?.Name ?? $"索引{procIndex}";
+            int stepIndex = snapshot.StepIndex;
+            int opIndex = snapshot.OpIndex;
+            string position = $"{procIndex}-{stepIndex}-{opIndex}";
+            string opName = null;
+            string opType = null;
+            if (proc?.steps != null && stepIndex >= 0 && stepIndex < proc.steps.Count)
+            {
+                Step step = proc.steps[stepIndex];
+                if (step?.Ops != null && opIndex >= 0 && opIndex < step.Ops.Count)
                 {
-                    proc = Workspace.Proc.procsList[procIndex];
+                    OperationType op = step.Ops[opIndex];
+                    opName = op?.Name;
+                    opType = op?.OperaType;
                 }
-                string procName = snapshot.ProcName ?? proc?.head?.Name ?? $"索引{procIndex}";
-                int stepIndex = snapshot.StepIndex;
-                int opIndex = snapshot.OpIndex;
-                string position = $"{procIndex}-{stepIndex}-{opIndex}";
-                string opName = null;
-                string opType = null;
-                if (proc?.steps != null && stepIndex >= 0 && stepIndex < proc.steps.Count)
+            }
+            string opText = opIndex >= 0
+                ? $"{opIndex}{(string.IsNullOrWhiteSpace(opType) ? "" : $"({opType})")}{(string.IsNullOrWhiteSpace(opName) ? "" : $" {opName}")}"
+                : "未知";
+            string message =
+                $"是否从地址 {position} 开始全速运行？\r\n\r\n流程：{procName}\r\n指令：{opText}";
+            btnContinue.Enabled = false;
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                Message confirmForm = new Message(
+                    Workspace.Runtime.Safety,
+                    Workspace.Runtime.EditorUi,
+                    "继续运行确认",
+                    message,
+                    () => tcs.TrySetResult(true),
+                    () => tcs.TrySetResult(false),
+                    "继续运行",
+                    "取消",
+                    false,
+                    false);
+                confirmForm.txtMsg.Font = new Font("微软雅黑", 16F, FontStyle.Bold);
+                confirmForm.txtMsg.ForeColor = UiPalette.Danger;
+                confirmForm.PresentDeferred(false);
+                bool confirmed = await tcs.Task;
+                if (!confirmed)
                 {
-                    Step step = proc.steps[stepIndex];
-                    if (step?.Ops != null && opIndex >= 0 && opIndex < step.Ops.Count)
-                    {
-                        OperationType op = step.Ops[opIndex];
-                        opName = op?.Name;
-                        opType = op?.OperaType;
-                    }
+                    return;
                 }
-                string opText = opIndex >= 0
-                    ? $"{opIndex}{(string.IsNullOrWhiteSpace(opType) ? "" : $"({opType})")}{(string.IsNullOrWhiteSpace(opName) ? "" : $" {opName}")}"
-                    : "未知";
-                string message = $"位置: {position}\r\n操作: {opText}";
-                btnPause.Enabled = false;
-                try
+                EngineSnapshot current = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
+                if (current == null
+                    || current.State != ProcRunState.SingleStep
+                    || current.RunId != snapshot.RunId
+                    || current.StepIndex != stepIndex
+                    || current.OpIndex != opIndex)
                 {
-                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    Message confirmForm = new Message(Workspace.Runtime,
-                        "继续运行确认",
-                        message,
-                        () => tcs.TrySetResult(true),
-                        () => tcs.TrySetResult(false),
-                        "继续",
-                        "取消",
-                        false);
-                    confirmForm.txtMsg.Font = new Font("微软雅黑", 20F, FontStyle.Bold);
-                    confirmForm.txtMsg.ForeColor = UiPalette.Danger;
-                    bool confirmed = await tcs.Task;
-                    if (!confirmed)
-                    {
-                        return;
-                    }
-                    Workspace.Runtime.ProcessEngine.Resume(procIndex);
-                    SetPauseButtonAction(false);
+                    Workspace.Info?.PrintInfo(
+                        "继续运行已取消：确认期间流程状态或启动地址发生变化。",
+                        FrmInfo.Level.Error);
+                    ApplyProcessRunState(current?.State ?? ProcRunState.Ready);
+                    return;
                 }
-                finally
-                {
-                    btnPause.Enabled = true;
-                }
+                Workspace.Runtime.ProcessEngine.Resume(procIndex);
+                ApplyProcessRunState(ProcRunState.Running);
+            }
+            finally
+            {
+                EngineSnapshot current = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
+                ApplyProcessRunState(current?.State ?? ProcRunState.Ready);
             }
         }
 

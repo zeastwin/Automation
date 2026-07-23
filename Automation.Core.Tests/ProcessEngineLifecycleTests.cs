@@ -142,14 +142,115 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void SetDebugStartPoint_WhenSingleStepIsWaiting_RepositionsCurrentInstance()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("调试跳转",
+                        new EndProcess { Id = Guid.NewGuid(), Name = "不得执行的旧位置" },
+                        new Delay { Id = Guid.NewGuid(), Name = "新启动点", DelayMs = 0 },
+                        new Delay { Id = Guid.NewGuid(), Name = "下一条", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProcAt(
+                        process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 0, TimeSpan.FromSeconds(3));
+                    Guid runId = engine.GetSnapshot(0).RunId;
+
+                    Assert.IsTrue(
+                        engine.TrySetDebugStartPoint(process, 0, 0, 1, out string error),
+                        error);
+
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
+                    Assert.AreEqual(runId, engine.GetSnapshot(0).RunId);
+
+                    Assert.IsTrue(engine.Step(0));
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 2, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void SetDebugStartPoint_WhenSingleStepOperationIsExecuting_RejectsReposition()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("执行中保护",
+                        new Delay { Id = Guid.NewGuid(), Name = "执行中的指令", DelayMs = 1000 },
+                        new Delay { Id = Guid.NewGuid(), Name = "不可跳转", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProcAt(
+                        process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 0, TimeSpan.FromSeconds(3));
+                    Assert.IsTrue(engine.Step(0));
+                    WaitForState(engine, ProcRunState.Running, TimeSpan.FromSeconds(3));
+
+                    Assert.IsFalse(
+                        engine.TrySetDebugStartPoint(process, 0, 0, 1, out string error));
+                    StringAssert.Contains(error, "指令尚未执行");
+                    Assert.AreEqual(0, engine.GetSnapshot(0).OpIndex);
+
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void SetDebugStartPoint_WhenProcessIsInactive_StartsSingleStepAtSelectedPosition()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("初始启动点",
+                        new EndProcess { Id = Guid.NewGuid(), Name = "跳过" },
+                        new Delay { Id = Guid.NewGuid(), Name = "选中位置", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(
+                        engine.TrySetDebugStartPoint(process, 0, 0, 1, out string error),
+                        error);
+
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
         public void RequestStep_WhenSignalIsPending_ReturnsFalseInsteadOfSilentlyDroppingCommand()
         {
             using (var control = new ProcessControl())
             {
                 Assert.IsTrue(control.RequestStep());
                 Assert.IsFalse(control.RequestStep());
+                Assert.IsFalse(control.TryRequestSingleStepReposition(1, 2));
 
                 control.WaitForStep();
+                control.CompleteStepWake();
 
                 Assert.IsTrue(control.RequestStep());
             }
@@ -171,7 +272,11 @@ namespace Automation.Core.Tests
         {
             var process = new Proc
             {
-                head = new ProcHead { Name = "单步位置回归流程" }
+                head = new ProcHead
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "单步位置回归流程"
+                }
             };
             process.steps.AddRange(steps);
             return process;

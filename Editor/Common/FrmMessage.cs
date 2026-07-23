@@ -259,6 +259,22 @@ namespace Automation
             Size measured = TextRenderer.MeasureText(txtMsg.Text.Length == 0 ? " " : txtMsg.Text,
                 txtMsg.Font, new Size(contentMaxWidth, int.MaxValue),
                 TextFormatFlags.TextBoxControl | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            int explicitLineCount = Math.Max(
+                1,
+                (txtMsg.Text ?? string.Empty)
+                    .Replace("\r\n", "\n")
+                    .Replace('\r', '\n')
+                    .Split('\n')
+                    .Length);
+            int renderedLineHeight = TextRenderer.MeasureText(
+                "中Ag",
+                txtMsg.Font,
+                Size.Empty,
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Height;
+            int richTextHeight = explicitLineCount
+                * Math.Max(renderedLineHeight, (int)Math.Ceiling(renderedLineHeight * 1.35F))
+                + (int)(12 * scale);
+            int measuredMessageHeight = Math.Max(measured.Height, richTextHeight);
             int optionWidth = optionCheckBox?.GetPreferredSize(Size.Empty).Width ?? 0;
             int buttonAreaWidth = panelBtn.Padding.Horizontal;
             foreach (Button button in new[] { btn1, btn2, btn3 })
@@ -275,10 +291,23 @@ namespace Automation
             int chromeHeight = (int)(174 * scale) + optionAreaHeight;
             int minHeight = Math.Max((int)(260 * scale) + optionAreaHeight, MinimumSize.Height);
             int maxHeight = Math.Max(minHeight, (int)(workingArea.Height * 0.72));
-            int desiredHeight = Math.Max(minHeight, Math.Min(maxHeight, measured.Height + chromeHeight));
+            int desiredHeight = Math.Max(
+                minHeight,
+                Math.Min(maxHeight, measuredMessageHeight + chromeHeight));
             ClientSize = new Size(desiredWidth, desiredHeight);
             PerformLayout();
-            txtMsg.ScrollBars = measured.Height > txtMsg.ClientSize.Height
+
+            int actualMessageHeight = MeasureActualMessageHeight(renderedLineHeight, scale);
+            int overflowHeight = actualMessageHeight - txtMsg.ClientSize.Height;
+            if (overflowHeight > 0 && ClientSize.Height < maxHeight)
+            {
+                ClientSize = new Size(
+                    desiredWidth,
+                    Math.Min(maxHeight, ClientSize.Height + overflowHeight));
+                PerformLayout();
+                actualMessageHeight = MeasureActualMessageHeight(renderedLineHeight, scale);
+            }
+            txtMsg.ScrollBars = actualMessageHeight > txtMsg.ClientSize.Height
                 ? RichTextBoxScrollBars.Vertical
                 : RichTextBoxScrollBars.None;
             if (Visible)
@@ -286,6 +315,17 @@ namespace Automation
                 Left = oldCenter.X - Width / 2;
                 Top = oldCenter.Y - Height / 2;
             }
+        }
+
+        private int MeasureActualMessageHeight(int lineHeight, float scale)
+        {
+            if (string.IsNullOrEmpty(txtMsg.Text))
+            {
+                return lineHeight;
+            }
+
+            Point lastCharacter = txtMsg.GetPositionFromCharIndex(txtMsg.Text.Length - 1);
+            return lastCharacter.Y + lineHeight + (int)(8 * scale);
         }
 
         private void MessageContentChanged(object sender, EventArgs e)

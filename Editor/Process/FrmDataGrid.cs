@@ -1470,30 +1470,21 @@ namespace Automation
                 return;
             }
             int procIndex = Workspace.ProcessSelection.ProcIndex;
-            if (!Workspace.Runtime.ProcessEngine.TryValidateProcessInactive(procIndex, out string stateError))
+            bool started = Workspace.Runtime.ProcessEngine.TrySetDebugStartPoint(
+                null,
+                procIndex,
+                Workspace.ProcessSelection.StepIndex,
+                iSelectedRow,
+                out string stateError);
+            if (!started)
             {
                 Workspace.Info?.PrintInfo($"设置启动点失败：{stateError}", FrmInfo.Level.Error);
                 return;
             }
 
-            const ProcRunState startState = ProcRunState.SingleStep;
-            bool started = Workspace.Runtime.ProcessEngine.StartProcAt(
-                null,
-                procIndex,
-                Workspace.ProcessSelection.StepIndex,
-                iSelectedRow,
-                startState);
-            if (!started)
-            {
-                Workspace.Info?.PrintInfo("设置启动点失败，请查看流程运行日志。", FrmInfo.Level.Error);
-                return;
-            }
-
             Invoke(new Action(() =>
             {
-                Workspace.ToolBar.SetPauseButtonAction(true);
-                Workspace.ToolBar.btnPause.Enabled = true;
-                Workspace.ToolBar.SingleRun.Enabled = true;
+                Workspace.ToolBar.ApplyProcessRunState(ProcRunState.SingleStep);
             }));
         }
 

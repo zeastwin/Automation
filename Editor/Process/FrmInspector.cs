@@ -136,7 +136,7 @@ namespace Automation
             operationTypeButton.FlatAppearance.MouseOverBackColor = UiPalette.SurfaceHover;
             operationTypeButton.FlatAppearance.MouseDownBackColor = UiPalette.SurfacePressed;
             operationTypeButton.FlatStyle = FlatStyle.Flat;
-            operationTypeButton.Font = InspectorFonts.Regular9;
+            operationTypeButton.Font = InspectorFonts.Bold95;
             operationTypeButton.ForeColor = UiPalette.TextPrimary;
             operationTypeButton.DisabledForeColor = UiPalette.TextPrimary;
             operationTypeButton.IconKind = InspectorIconKind.None;

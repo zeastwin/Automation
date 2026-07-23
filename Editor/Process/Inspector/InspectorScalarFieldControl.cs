@@ -25,7 +25,7 @@ namespace Automation
         private bool refreshing;
         private bool endingEdit;
         private bool standardValuesLoaded;
-        private bool gotoDropConfigured;
+        private readonly HashSet<Control> gotoDropControls = new HashSet<Control>();
         private bool selectionPickerConfigured;
         private ToolStripDropDown activeSelectionPicker;
 
@@ -54,9 +54,11 @@ namespace Automation
                     ShowDropDownArrow = editor is InspectorComboBox,
                     TabIndex = 0
                 };
-                displayCell.ActivationRequested += (sender, args) => ActivateEditor();
+                displayCell.ActivationRequested += (sender, args) => ActivateEditor(false);
+                displayCell.DropDownRequested += (sender, args) => ActivateEditor(true);
                 Controls.Add(displayCell);
                 displayCell.BringToFront();
+                ConfigureGotoDrop(displayCell);
             }
 
             AttachDescription(this, editor, displayCell);
@@ -117,6 +119,10 @@ namespace Automation
             else
             {
                 editor.Enabled = allow;
+            }
+            foreach (Control gotoDropControl in gotoDropControls)
+            {
+                gotoDropControl.AllowDrop = allow && IsGotoProperty();
             }
         }
 
@@ -228,14 +234,11 @@ namespace Automation
             standardValuesLoaded = false;
             if (editor is InspectorComboBox comboBox)
             {
-                comboBox.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
-                    definition.Owner,
-                    definition.Property)
-                    ? ComboBoxStyle.DropDownList
-                    : ComboBoxStyle.DropDown;
+                comboBox.DropDownStyle = GetComboBoxStyle();
                 ConfigureSelectionPicker(comboBox);
             }
             ConfigureGotoDrop(editor);
+            ConfigureGotoDrop(displayCell);
             AttachDescription(this, editor, displayCell);
             SetEditable(editable);
             RefreshValue(true);
@@ -277,11 +280,7 @@ namespace Automation
                     Font = InspectorFonts.Bold95,
                     IntegralHeight = false
                 };
-                comboBox.DropDownStyle = InspectorValueConversion.StandardValuesExclusive(
-                    definition.Owner,
-                    definition.Property)
-                    ? ComboBoxStyle.DropDownList
-                    : ComboBoxStyle.DropDown;
+                comboBox.DropDownStyle = GetComboBoxStyle();
                 comboBox.DropDown += (sender, args) =>
                     EnsureStandardValuesLoaded(comboBox);
                 comboBox.SelectionChangeCommitted += (sender, args) => CommitComboBox(comboBox);
@@ -341,7 +340,23 @@ namespace Automation
             return textEditor;
         }
 
-        private bool ActivateEditor()
+        private ComboBoxStyle GetComboBoxStyle()
+        {
+            if (InspectorSelectionPickerResolver.TryResolve(
+                definition.Property,
+                out InspectorSelectionPickerKind _))
+            {
+                // 变量、IO、点位和地址选择器只提供候选值，不剥夺手工输入能力。
+                return ComboBoxStyle.DropDown;
+            }
+            return InspectorValueConversion.StandardValuesExclusive(
+                definition.Owner,
+                definition.Property)
+                ? ComboBoxStyle.DropDownList
+                : ComboBoxStyle.DropDown;
+        }
+
+        private bool ActivateEditor(bool openDropDown = false)
         {
             if (displayCell == null || !displayCell.Editable
                 || editor.IsDisposed || !editor.Enabled)
@@ -363,25 +378,35 @@ namespace Automation
 
             if (editor is InspectorComboBox comboBox)
             {
-                if (!comboBox.UseSelectionPicker)
+                if (!comboBox.UseSelectionPicker
+                    && (openDropDown || comboBox.DropDownStyle == ComboBoxStyle.DropDownList))
                 {
                     EnsureStandardValuesLoaded(comboBox);
                 }
-                BeginInvoke((Action)(() =>
+                bool shouldOpenDropDown = openDropDown
+                    || comboBox.DropDownStyle == ComboBoxStyle.DropDownList;
+                if (shouldOpenDropDown)
                 {
-                    if (IsDisposed || !comboBox.Visible || !comboBox.Enabled)
+                    BeginInvoke((Action)(() =>
                     {
-                        return;
-                    }
-                    if (comboBox.UseSelectionPicker)
-                    {
-                        ShowSelectionPicker(comboBox);
-                    }
-                    else
-                    {
-                        comboBox.DroppedDown = true;
-                    }
-                }));
+                        if (IsDisposed || !comboBox.Visible || !comboBox.Enabled)
+                        {
+                            return;
+                        }
+                        if (comboBox.UseSelectionPicker)
+                        {
+                            ShowSelectionPicker(comboBox);
+                        }
+                        else
+                        {
+                            comboBox.DroppedDown = true;
+                        }
+                    }));
+                }
+                else
+                {
+                    comboBox.SelectAll();
+                }
             }
             return true;
         }
@@ -412,6 +437,18 @@ namespace Automation
 
         private void Editor_KeyDown(object sender, KeyEventArgs args)
         {
+            if (args.KeyCode == Keys.Enter
+                && sender is ComboBox comboBox
+                && comboBox.DropDownStyle != ComboBoxStyle.DropDownList)
+            {
+                if (CommitComboBox(comboBox))
+                {
+                    DeactivateEditor(true);
+                }
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
             if (args.KeyCode != Keys.Escape)
             {
                 return;
@@ -424,14 +461,15 @@ namespace Automation
 
         private void ConfigureGotoDrop(Control control)
         {
-            bool marked = definition.Property.Attributes[typeof(MarkedGotoAttribute)]
-                is MarkedGotoAttribute;
-            control.AllowDrop = marked;
-            if (gotoDropConfigured)
+            if (control == null)
             {
                 return;
             }
-            gotoDropConfigured = true;
+            control.AllowDrop = Editable && !definition.IsReadOnly && IsGotoProperty();
+            if (!gotoDropControls.Add(control))
+            {
+                return;
+            }
             control.DragEnter += (sender, args) =>
             {
                 args.Effect = control.AllowDrop && args.Data != null
@@ -450,17 +488,33 @@ namespace Automation
                 {
                     return;
                 }
-                if (control is TextBox textBox)
-                {
-                    textBox.Text = address;
-                    CommitText(textBox);
-                }
-                else if (control is ComboBox comboBox)
-                {
-                    comboBox.Text = address;
-                    CommitComboBox(comboBox);
-                }
+                CommitDroppedGotoAddress(address);
             };
+        }
+
+        private bool IsGotoProperty()
+        {
+            return definition.Property.Attributes[typeof(MarkedGotoAttribute)]
+                is MarkedGotoAttribute;
+        }
+
+        private void CommitDroppedGotoAddress(string address)
+        {
+            bool committed = false;
+            if (editor is TextBox textBox)
+            {
+                textBox.Text = address;
+                committed = CommitText(textBox);
+            }
+            else if (editor is ComboBox comboBox)
+            {
+                comboBox.Text = address;
+                committed = CommitComboBox(comboBox);
+            }
+            if (committed)
+            {
+                RefreshValue(true);
+            }
         }
 
         private void ConfigureSelectionPicker(InspectorComboBox comboBox)

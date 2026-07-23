@@ -65,9 +65,7 @@ namespace Automation
                 }
                 editable = value;
                 TabStop = value;
-                Cursor = value
-                    ? ShowDropDownArrow ? Cursors.Hand : Cursors.IBeam
-                    : Cursors.Default;
+                Cursor = value ? Cursors.IBeam : Cursors.Default;
                 if (!value)
                 {
                     pointerOver = false;
@@ -87,12 +85,13 @@ namespace Automation
                     return;
                 }
                 showDropDownArrow = value;
-                Cursor = Editable && value ? Cursors.Hand : Editable ? Cursors.IBeam : Cursors.Default;
+                Cursor = Editable ? Cursors.IBeam : Cursors.Default;
                 Invalidate();
             }
         }
 
         public event EventHandler ActivationRequested;
+        public event EventHandler DropDownRequested;
 
         protected override void OnMouseEnter(EventArgs e)
         {
@@ -105,8 +104,17 @@ namespace Automation
         {
             pointerOver = false;
             pointerDown = false;
+            Cursor = Editable ? Cursors.IBeam : Cursors.Default;
             Invalidate();
             base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            Cursor = Editable && ShowDropDownArrow && e.X >= Width - 26
+                ? Cursors.Hand
+                : Editable ? Cursors.IBeam : Cursors.Default;
+            base.OnMouseMove(e);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -131,16 +139,43 @@ namespace Automation
             base.OnMouseUp(e);
             if (activate)
             {
-                ActivationRequested?.Invoke(this, EventArgs.Empty);
+                if (ShowDropDownArrow && e.X >= Width - 26)
+                {
+                    if (DropDownRequested != null)
+                    {
+                        DropDownRequested.Invoke(this, EventArgs.Empty);
+                    }
+                    else
+                    {
+                        ActivationRequested?.Invoke(this, EventArgs.Empty);
+                    }
+                }
+                else
+                {
+                    ActivationRequested?.Invoke(this, EventArgs.Empty);
+                }
             }
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (Editable && (e.KeyCode == Keys.Enter
-                    || e.KeyCode == Keys.Space
-                    || e.KeyCode == Keys.F2
-                    || e.Alt && e.KeyCode == Keys.Down))
+            if (Editable && ShowDropDownArrow
+                && (e.KeyCode == Keys.F4 || e.Alt && e.KeyCode == Keys.Down))
+            {
+                if (DropDownRequested != null)
+                {
+                    DropDownRequested.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    ActivationRequested?.Invoke(this, EventArgs.Empty);
+                }
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            else if (Editable && (e.KeyCode == Keys.Enter
+                || e.KeyCode == Keys.Space
+                || e.KeyCode == Keys.F2))
             {
                 ActivationRequested?.Invoke(this, EventArgs.Empty);
                 e.Handled = true;

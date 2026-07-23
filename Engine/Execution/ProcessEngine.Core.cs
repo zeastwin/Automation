@@ -843,6 +843,63 @@ namespace Automation
             return EnqueueCommand(procIndex,
                 EngineCommand.Start(procIndex, proc, stepIndex, opIndex, startState));
         }
+
+        public bool TrySetDebugStartPoint(
+            Proc proc,
+            int procIndex,
+            int stepIndex,
+            int opIndex,
+            out string error)
+        {
+            error = null;
+            if (proc == null && Context?.Procs != null
+                && procIndex >= 0 && procIndex < Context.Procs.Count)
+            {
+                proc = Context.Procs[procIndex];
+            }
+            if (proc == null)
+            {
+                error = "流程为空，无法设置调试启动点。";
+                return false;
+            }
+            if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count
+                || proc.steps[stepIndex]?.Ops == null || opIndex < 0
+                || opIndex >= proc.steps[stepIndex].Ops.Count)
+            {
+                error = $"调试启动位置无效:{procIndex}-{stepIndex}-{opIndex}";
+                return false;
+            }
+
+            EngineSnapshot snapshot = GetSnapshot(procIndex);
+            ProcRunState state = snapshot?.State ?? ProcRunState.Ready;
+            if (state.IsInactive())
+            {
+                if (StartProcAt(proc, procIndex, stepIndex, opIndex, ProcRunState.SingleStep))
+                {
+                    return true;
+                }
+                error = "设置调试启动点失败，请查看流程运行日志。";
+                return false;
+            }
+            if (state != ProcRunState.SingleStep)
+            {
+                error = $"流程{procIndex}当前状态为{state}，仅允许在流程未启动或指令尚未执行的SingleStep停留态设置调试启动点。";
+                return false;
+            }
+
+            EngineCommand command = EngineCommand.SetDebugStartPoint(
+                procIndex, proc, stepIndex, opIndex);
+            if (EnqueueCommand(procIndex, command))
+            {
+                return true;
+            }
+            error = string.IsNullOrWhiteSpace(command.FailureReason)
+                ? $"流程{procIndex}未停在可重定位的SingleStep指令等待点。"
+                : command.FailureReason;
+            Logger?.Log($"设置调试启动点失败:{error}", LogLevel.Error);
+            return false;
+        }
+
         public void Pause(int procIndex)
         {
             EnqueueCommand(procIndex, EngineCommand.Pause(procIndex));
@@ -1674,6 +1731,20 @@ namespace Automation
                         // 位置推进、跨步骤和禁用项跳过完成后，只在真正等待单步信号的位置发布停留态。
                         PublishHandleSnapshot(evt);
                         control.WaitForStep();
+                        if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                        {
+                            return false;
+                        }
+                        if (control.TryConsumeSingleStepReposition(
+                            out int targetStepIndex, out int targetOperationIndex))
+                        {
+                            evt.stepNum = targetStepIndex;
+                            evt.opsNum = targetOperationIndex;
+                            evt.isGoto = true;
+                            MarkHandlePositionChanged(evt);
+                            PublishHandleSnapshot(evt);
+                            return true;
+                        }
                         // WaitForStep 返回后需重新检查状态：用户可能在等待期间点击"继续"，
                         // ResumeInternal 已将状态改为 Running，此时不应再切回 SingleStep。
                         singleStepExecution = evt.State == ProcRunState.SingleStep;
@@ -1682,13 +1753,14 @@ namespace Automation
                     {
                         return false;
                     }
-                    if (singleStepExecution)
-                    {
-                        evt.State = ProcRunState.Running;
-                        PublishHandleSnapshot(evt);
-                    }
-                    if (evt.isBreakpoint)
-                    {
+                        if (singleStepExecution)
+                        {
+                            evt.State = ProcRunState.Running;
+                            PublishHandleSnapshot(evt);
+                        }
+                        control.CompleteStepWake();
+                        if (evt.isBreakpoint)
+                        {
                         evt.isBreakpoint = false;
                         PublishHandleSnapshot(evt);
                     }
@@ -2327,8 +2399,80 @@ namespace Automation
                 case EngineCommandType.Stop:
                     RequestStop();
                     return true;
+                case EngineCommandType.SetDebugStartPoint:
+                    return SetDebugStartPointInternal(command);
             }
             return false;
+        }
+
+        private bool SetDebugStartPointInternal(EngineCommand command)
+        {
+            ProcHandle handle;
+            ProcessControl control;
+            lock (sync)
+            {
+                handle = current?.Handle;
+                control = handle?.Control;
+            }
+            if (handle == null || control == null)
+            {
+                command.FailureReason = $"流程{procIndex}没有可重定位的活动单步实例。";
+                return false;
+            }
+            if (handle.State != ProcRunState.SingleStep)
+            {
+                command.FailureReason =
+                    $"流程{procIndex}当前状态为{handle.State}，指令正在执行或流程未停在SingleStep等待点。";
+                return false;
+            }
+
+            Step requestedStep = command.Proc?.steps != null
+                && command.StepIndex >= 0
+                && command.StepIndex < command.Proc.steps.Count
+                    ? command.Proc.steps[command.StepIndex]
+                    : null;
+            OperationType requestedOperation = requestedStep?.Ops != null
+                && command.OpIndex >= 0
+                && command.OpIndex < requestedStep.Ops.Count
+                    ? requestedStep.Ops[command.OpIndex]
+                    : null;
+            if (requestedStep == null || requestedOperation == null)
+            {
+                command.FailureReason =
+                    $"调试启动位置无效:{procIndex}-{command.StepIndex}-{command.OpIndex}";
+                return false;
+            }
+            if (command.Proc?.head?.Id == Guid.Empty
+                || handle.Proc?.head?.Id != command.Proc.head.Id
+                || requestedStep.Id == Guid.Empty
+                || requestedOperation.Id == Guid.Empty)
+            {
+                command.FailureReason =
+                    "所选流程、步骤或指令缺少与当前运行实例一致的稳定身份，无法安全重定位。";
+                return false;
+            }
+
+            int runtimeStepIndex = handle.Proc?.steps?.FindIndex(
+                item => item?.Id == requestedStep.Id) ?? -1;
+            Step runtimeStep = runtimeStepIndex >= 0
+                ? handle.Proc.steps[runtimeStepIndex]
+                : null;
+            int runtimeOperationIndex = runtimeStep?.Ops?.FindIndex(
+                item => item?.Id == requestedOperation.Id) ?? -1;
+            if (runtimeStepIndex < 0 || runtimeOperationIndex < 0)
+            {
+                command.FailureReason =
+                    "所选指令不属于当前运行修订，请先停止流程并应用最新流程配置。";
+                return false;
+            }
+            if (!control.TryRequestSingleStepReposition(
+                runtimeStepIndex, runtimeOperationIndex))
+            {
+                command.FailureReason =
+                    $"流程{procIndex}的单步信号已发出或指令正在执行，请等待下一次SingleStep停留后再设置调试启动点。";
+                return false;
+            }
+            return true;
         }
 
         private bool StartInternal(EngineCommand command)
@@ -2700,9 +2844,21 @@ namespace Automation
 
     internal sealed class ProcessControl : IDisposable
     {
+        private enum StepWaitPhase
+        {
+            NotWaiting = 0,
+            Waiting = 1,
+            WakeIssued = 2
+        }
+
         private readonly ManualResetEventSlim runGate = new ManualResetEventSlim(false);
         private readonly SemaphoreSlim stepGate = new SemaphoreSlim(0, 1);
         private readonly CancellationTokenSource stopCts = new CancellationTokenSource();
+        private readonly object stepSync = new object();
+        private StepWaitPhase stepWaitPhase;
+        private bool singleStepRepositionPending;
+        private int targetStepIndex;
+        private int targetOperationIndex;
         private int disposed;
 
         public bool IsStopRequested => stopCts.IsCancellationRequested;
@@ -2740,22 +2896,91 @@ namespace Automation
 
         public bool RequestStep()
         {
-            if (Volatile.Read(ref disposed) == 1)
+            lock (stepSync)
             {
-                return false;
+                if (Volatile.Read(ref disposed) == 1
+                    || stepWaitPhase == StepWaitPhase.WakeIssued)
+                {
+                    return false;
+                }
+                try
+                {
+                    stepGate.Release();
+                    stepWaitPhase = StepWaitPhase.WakeIssued;
+                    return true;
+                }
+                catch (SemaphoreFullException)
+                {
+                    return false;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return false;
+                }
             }
-            try
+        }
+
+        public bool TryRequestSingleStepReposition(int stepIndex, int operationIndex)
+        {
+            lock (stepSync)
             {
-                stepGate.Release();
+                if (Volatile.Read(ref disposed) == 1
+                    || stepWaitPhase == StepWaitPhase.WakeIssued)
+                {
+                    return false;
+                }
+                StepWaitPhase previousPhase = stepWaitPhase;
+                targetStepIndex = stepIndex;
+                targetOperationIndex = operationIndex;
+                singleStepRepositionPending = true;
+                stepWaitPhase = StepWaitPhase.WakeIssued;
+                try
+                {
+                    stepGate.Release();
+                    return true;
+                }
+                catch (SemaphoreFullException)
+                {
+                    singleStepRepositionPending = false;
+                    stepWaitPhase = previousPhase;
+                    return false;
+                }
+                catch (ObjectDisposedException)
+                {
+                    singleStepRepositionPending = false;
+                    stepWaitPhase = previousPhase;
+                    return false;
+                }
+            }
+        }
+
+        public bool TryConsumeSingleStepReposition(
+            out int stepIndex, out int operationIndex)
+        {
+            lock (stepSync)
+            {
+                if (!singleStepRepositionPending)
+                {
+                    stepIndex = -1;
+                    operationIndex = -1;
+                    return false;
+                }
+                stepIndex = targetStepIndex;
+                operationIndex = targetOperationIndex;
+                singleStepRepositionPending = false;
+                stepWaitPhase = StepWaitPhase.NotWaiting;
                 return true;
             }
-            catch (SemaphoreFullException)
+        }
+
+        public void CompleteStepWake()
+        {
+            lock (stepSync)
             {
-                return false;
-            }
-            catch (ObjectDisposedException)
-            {
-                return false;
+                if (!singleStepRepositionPending)
+                {
+                    stepWaitPhase = StepWaitPhase.NotWaiting;
+                }
             }
         }
 
@@ -2782,7 +3007,11 @@ namespace Automation
             }
             try
             {
-                stepGate.Release();
+                lock (stepSync)
+                {
+                    stepWaitPhase = StepWaitPhase.WakeIssued;
+                    stepGate.Release();
+                }
             }
             catch (SemaphoreFullException)
             {
@@ -2808,6 +3037,19 @@ namespace Automation
 
         public void WaitForStep()
         {
+            lock (stepSync)
+            {
+                if (Volatile.Read(ref disposed) == 1)
+                {
+                    return;
+                }
+                if (stepWaitPhase != StepWaitPhase.WakeIssued)
+                {
+                    stepWaitPhase = stepGate.CurrentCount > 0
+                        ? StepWaitPhase.WakeIssued
+                        : StepWaitPhase.Waiting;
+                }
+            }
             try
             {
                 stepGate.Wait(stopCts.Token);

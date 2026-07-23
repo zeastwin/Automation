@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using Automation.Protocol;
@@ -86,6 +87,9 @@ namespace Automation.Core.Tests
                         Assert.IsTrue(variableGroups
                             .Single(group => group.Title == "公共变量")
                             .Choices.Any(choice => choice.Value == "公共测试变量"));
+                        CollectionAssert.AreEqual(
+                            new[] { "当前流程私有变量", "公共变量", "系统变量" },
+                            variableGroups.Select(group => group.Title).ToArray());
 
                         IReadOnlyList<PickerGroupDefinition> ioGroups =
                             InspectorSelectionPickerData.Build(
@@ -99,6 +103,30 @@ namespace Automation.Core.Tests
                     }
                 }
             }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        public void PickerNearBottom_IsPlacedAboveAndInsideWorkingArea()
+        {
+            Rectangle anchor = new Rectangle(900, 980, 240, 28);
+            Rectangle workingArea = new Rectangle(0, 0, 1200, 1024);
+            Size popup = new Size(360, 420);
+
+            Point location = InspectorSelectionPickerDropDown.CalculatePopupLocation(
+                anchor,
+                workingArea,
+                popup,
+                true);
+            Rectangle popupBounds = new Rectangle(
+                anchor.Left + location.X,
+                anchor.Top + location.Y,
+                popup.Width,
+                popup.Height);
+
+            Assert.IsTrue(popupBounds.Bottom <= anchor.Top);
+            Assert.IsTrue(popupBounds.Left >= workingArea.Left);
+            Assert.IsTrue(popupBounds.Right <= workingArea.Right);
+            Assert.IsTrue(popupBounds.Top >= workingArea.Top);
         }
 
         private static InspectorCollectionFieldControl CreateCollectionControl(

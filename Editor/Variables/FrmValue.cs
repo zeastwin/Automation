@@ -375,6 +375,7 @@ namespace Automation
         private readonly Label lblCommonEmpty;
         private readonly Panel commonViewHost;
         private readonly Panel dataStructViewHost;
+        private TableLayoutPanel variableToolbarLayout;
         private readonly ContextMenuStrip commonVariableMenu;
         private readonly ToolTip uiToolTip;
         private readonly WorkspaceWindowButton workspaceWindowButton;
@@ -576,7 +577,7 @@ namespace Automation
 
             panel1.Controls.Clear();
             panel1.Height = 68;
-            panel1.Padding = new Padding(12, 12, 12, 10);
+            panel1.Padding = Padding.Empty;
 
             var actions = new FlowLayoutPanel
             {
@@ -670,8 +671,7 @@ namespace Automation
             windowButtonHost.Controls.Add(workspaceWindowButton);
             var sideViewHeader = new FlowLayoutPanel
             {
-                Dock = DockStyle.Right,
-                Width = 208,
+                Dock = DockStyle.Fill,
                 WrapContents = false,
                 FlowDirection = FlowDirection.LeftToRight,
                 Padding = new Padding(4, 0, 0, 0),
@@ -682,18 +682,68 @@ namespace Automation
             ConfigureToolbarButton(btnShowDataStruct, "数据结构", 98);
             sideViewHeader.Controls.Add(btnShowCommon);
             sideViewHeader.Controls.Add(btnShowDataStruct);
-            searchPanel.Dock = DockStyle.Fill;
-            var topRightHost = new Panel
+
+            var leftToolbarHost = new Panel
             {
-                Dock = DockStyle.Right,
-                Width = 598,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(12, 12, 0, 10),
                 BackColor = UiPalette.Surface
             };
-            topRightHost.Controls.Add(searchPanel);
-            topRightHost.Controls.Add(windowButtonHost);
-            topRightHost.Controls.Add(sideViewHeader);
-            panel1.Controls.Add(actions);
-            panel1.Controls.Add(topRightHost);
+            var leftToolbarContent = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Surface
+            };
+            searchPanel.Dock = DockStyle.Right;
+            leftToolbarContent.Controls.Add(actions);
+            leftToolbarContent.Controls.Add(searchPanel);
+            leftToolbarHost.Controls.Add(leftToolbarContent);
+
+            var rightToolbarHost = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = Padding.Empty,
+                Padding = new Padding(0, 12, 12, 10),
+                BackColor = UiPalette.Surface,
+                GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            };
+            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50F));
+            rightToolbarHost.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 208F));
+            rightToolbarHost.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            rightToolbarHost.Controls.Add(windowButtonHost, 1, 0);
+            rightToolbarHost.Controls.Add(sideViewHeader, 2, 0);
+
+            var toolbarDivider = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Margin = Padding.Empty,
+                BackColor = UiPalette.Stroke
+            };
+            variableToolbarLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                BackColor = UiPalette.Surface,
+                GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            };
+            variableToolbarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, splitContainerMain.SplitterDistance));
+            variableToolbarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, splitContainerMain.SplitterWidth));
+            variableToolbarLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            variableToolbarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            variableToolbarLayout.Controls.Add(leftToolbarHost, 0, 0);
+            variableToolbarLayout.Controls.Add(toolbarDivider, 1, 0);
+            variableToolbarLayout.Controls.Add(rightToolbarHost, 2, 0);
+            panel1.Controls.Add(variableToolbarLayout);
+
+            splitContainerMain.SplitterMoved += (sender, args) => AlignVariableToolbarWithSplit();
+            splitContainerMain.SizeChanged += (sender, args) => AlignVariableToolbarWithSplit();
+            AlignVariableToolbarWithSplit();
 
             panelCommon.Controls.Clear();
             panelCommon.Width = 180;
@@ -834,6 +884,21 @@ namespace Automation
             splitContainerMain.Panel1.ResumeLayout();
             panel1.ResumeLayout();
             ResumeLayout();
+        }
+
+        private void AlignVariableToolbarWithSplit()
+        {
+            if (variableToolbarLayout == null
+                || variableToolbarLayout.IsDisposed
+                || splitContainerMain == null
+                || splitContainerMain.IsDisposed)
+            {
+                return;
+            }
+            int toolbarLeft = panel1.Left + variableToolbarLayout.Left;
+            int splitterLeft = splitContainerMain.Left + splitContainerMain.SplitterDistance;
+            variableToolbarLayout.ColumnStyles[0].Width = Math.Max(0, splitterLeft - toolbarLeft);
+            variableToolbarLayout.ColumnStyles[1].Width = splitContainerMain.SplitterWidth;
         }
 
         private static void ConfigureToolbarButton(Button button, string text, int width)
@@ -2086,6 +2151,7 @@ namespace Automation
                 targetLeftWidth = maxLeftWidth;
             }
             splitContainerMain.SplitterDistance = targetLeftWidth;
+            AlignVariableToolbarWithSplit();
         }
 
         private void dgvValue_CellValueChanged(object sender, DataGridViewCellEventArgs e)

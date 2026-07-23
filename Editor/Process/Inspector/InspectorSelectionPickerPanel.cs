@@ -538,11 +538,13 @@ namespace Automation
             return new[]
             {
                 CreateVariableGroup(
-                    "系统变量",
+                    "当前流程私有变量",
                     values.Where(value => string.Equals(
-                        value.Scope,
-                        VariableScopeContract.System,
-                        StringComparison.Ordinal))),
+                            value.Scope,
+                            VariableScopeContract.Process,
+                            StringComparison.Ordinal)
+                        && currentProcId != Guid.Empty
+                        && value.OwnerProcId == currentProcId)),
                 CreateVariableGroup(
                     "公共变量",
                     values.Where(value => string.Equals(
@@ -550,13 +552,11 @@ namespace Automation
                         VariableScopeContract.Public,
                         StringComparison.Ordinal))),
                 CreateVariableGroup(
-                    "当前流程私有变量",
+                    "系统变量",
                     values.Where(value => string.Equals(
-                            value.Scope,
-                            VariableScopeContract.Process,
-                            StringComparison.Ordinal)
-                        && currentProcId != Guid.Empty
-                        && value.OwnerProcId == currentProcId))
+                        value.Scope,
+                        VariableScopeContract.System,
+                        StringComparison.Ordinal)))
             };
         }
 
@@ -856,9 +856,18 @@ namespace Automation
                     Math.Max(anchor.Width, panel.PreferredPickerWidth)));
             panel.Size = new Size(width, 80);
             panel.RefreshPickerLayout();
+            int availableBelow = Math.Max(
+                0,
+                workingArea.Bottom - anchorBounds.Bottom - OuterScreenMargin);
+            int availableAbove = Math.Max(
+                0,
+                anchorBounds.Top - workingArea.Top - OuterScreenMargin);
+            bool showAbove = panel.ContentHeight > availableBelow
+                && availableAbove > availableBelow;
+            int availableHeight = showAbove ? availableAbove : availableBelow;
             int maximumHeight = Math.Min(
                 480,
-                Math.Max(160, workingArea.Height - WorkingAreaMargin));
+                Math.Max(70, availableHeight));
             int height = Math.Min(panel.ContentHeight, maximumHeight);
             panel.Size = new Size(width, Math.Max(70, height));
             panel.RefreshPickerLayout();
@@ -901,12 +910,41 @@ namespace Automation
                     dropDown.Dispose();
                 }
             };
-            dropDown.ShowInstant(
-                anchor,
-                new Point(Math.Min(0, anchor.Width - width), anchor.Height),
-                panel);
+            Point location = CalculatePopupLocation(
+                anchorBounds,
+                workingArea,
+                panel.Size,
+                showAbove);
+            dropDown.ShowInstant(anchor, location, panel);
             panel.FocusPicker();
             return dropDown;
+        }
+
+        private const int OuterScreenMargin = 8;
+
+        internal static Point CalculatePopupLocation(
+            Rectangle anchorBounds,
+            Rectangle workingArea,
+            Size popupSize,
+            bool showAbove)
+        {
+            int minimumLeft = workingArea.Left + OuterScreenMargin;
+            int maximumLeft = Math.Max(
+                minimumLeft,
+                workingArea.Right - OuterScreenMargin - popupSize.Width);
+            int screenLeft = Math.Max(
+                minimumLeft,
+                Math.Min(maximumLeft, anchorBounds.Right - popupSize.Width));
+            int screenTop = showAbove
+                ? Math.Max(
+                    workingArea.Top + OuterScreenMargin,
+                    anchorBounds.Top - popupSize.Height)
+                : Math.Min(
+                    workingArea.Bottom - OuterScreenMargin - popupSize.Height,
+                    anchorBounds.Bottom);
+            return new Point(
+                screenLeft - anchorBounds.Left,
+                screenTop - anchorBounds.Top);
         }
     }
 }

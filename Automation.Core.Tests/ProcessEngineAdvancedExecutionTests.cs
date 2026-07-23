@@ -73,6 +73,71 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void CycleTimeProbe_SingleStepReposition_PreservesStartedTask()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    "CT跨段调试流程",
+                    new CycleTimeProbe
+                    {
+                        Id = Guid.NewGuid(),
+                        TaskKey = "123",
+                        SegmentName = "第一段",
+                        StartNewCycle = true
+                    },
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 0 },
+                    new CycleTimeProbe
+                    {
+                        Id = Guid.NewGuid(),
+                        TaskKey = "123",
+                        SegmentName = "最后一段"
+                    },
+                    new EndProcess { Id = Guid.NewGuid() });
+                var runtime = new PlatformRuntime(directory.FullPath);
+                var samples = new ConcurrentQueue<CycleTimeProbeSample>();
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    engine.CycleTimeMeasured += sample => samples.Enqueue(sample);
+                    Assert.IsTrue(engine.StartProcAt(
+                        process, 0, 0, 0, ProcRunState.SingleStep));
+                    WaitForSingleStepPosition(
+                        engine, 0, 0, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.Step(0));
+                    WaitForSingleStepPosition(
+                        engine, 0, 1, TimeSpan.FromSeconds(3));
+                    Guid runId = engine.GetSnapshot(0).RunId;
+
+                    Assert.IsTrue(
+                        engine.TrySetDebugStartPoint(process, 0, 0, 2, out string error),
+                        error);
+                    WaitForSingleStepPosition(
+                        engine, 0, 2, TimeSpan.FromSeconds(3));
+                    Assert.AreEqual(runId, engine.GetSnapshot(0).RunId);
+
+                    Assert.IsTrue(engine.Step(0));
+                    WaitForSingleStepPosition(
+                        engine, 0, 3, TimeSpan.FromSeconds(3));
+                    WaitForCount(samples, 2, TimeSpan.FromSeconds(2));
+
+                    CycleTimeProbeSample[] actual = samples.ToArray();
+                    Assert.AreEqual(2, actual.Length);
+                    Assert.AreEqual(runId, actual[0].RunId);
+                    Assert.AreEqual(runId, actual[1].RunId);
+                    Assert.AreEqual(1, actual[1].SegmentIndex);
+                    Assert.IsFalse(engine.GetSnapshot(0).IsAlarm);
+
+                    engine.Stop(0);
+                    WaitForState(
+                        engine, 0, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
         public async Task CommunicationRetry_ResponseMismatch_RetriesWithFixedIntervalAndCompletes()
         {
             using (var directory = new TemporaryDirectory())
@@ -639,6 +704,30 @@ namespace Automation.Core.Tests
             }
             EngineSnapshot current = engine.GetSnapshot(procIndex);
             Assert.Fail($"等待流程{procIndex}位置超时：{current?.State} {current?.StepIndex}-{current?.OpIndex}。");
+        }
+
+        private static void WaitForSingleStepPosition(
+            ProcessEngine engine,
+            int procIndex,
+            int operationIndex,
+            TimeSpan timeout)
+        {
+            DateTime deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                EngineSnapshot snapshot = engine.GetSnapshot(procIndex);
+                if (snapshot?.State == ProcRunState.SingleStep
+                    && snapshot.StepIndex == 0
+                    && snapshot.OpIndex == operationIndex)
+                {
+                    return;
+                }
+                Thread.Sleep(10);
+            }
+            EngineSnapshot current = engine.GetSnapshot(procIndex);
+            Assert.Fail(
+                $"等待流程{procIndex}单步位置超时：" +
+                $"{current?.State} {current?.StepIndex}-{current?.OpIndex}。");
         }
 
         private static void WaitForCount<T>(

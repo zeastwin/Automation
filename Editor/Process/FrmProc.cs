@@ -1422,34 +1422,12 @@ namespace Automation
                 if (Workspace.Runtime.ProcessEngine != null && Workspace.Proc.SelectedProcNum != -1)
                 {
                     EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(Workspace.Proc.SelectedProcNum);
-                    if (snapshot != null && (snapshot.State == ProcRunState.Running || snapshot.State == ProcRunState.Alarming))
-                    {
-                        Workspace.ToolBar.SetPauseButtonAction(false);
-                    }
-                    else if (snapshot != null && (snapshot.State == ProcRunState.Paused || snapshot.State == ProcRunState.SingleStep))
-                    {
-                        Workspace.ToolBar.SetPauseButtonAction(true);
-                    }
-                    else
-                    {
-                        Workspace.ToolBar.SetPauseButtonAction(false);
-                    }
-                    if (snapshot != null)
-                    {
-                        Workspace.ToolBar.btnPause.Enabled = snapshot.State != ProcRunState.Paused;
-                        Workspace.ToolBar.SingleRun.Enabled = snapshot.State == ProcRunState.SingleStep;
-                    }
-                    else
-                    {
-                        Workspace.ToolBar.btnPause.Enabled = true;
-                        Workspace.ToolBar.SingleRun.Enabled = true;
-                    }
+                    Workspace.ToolBar.ApplyProcessRunState(
+                        snapshot?.State ?? ProcRunState.Ready);
                 }
                 else
                 {
-                    Workspace.ToolBar.SetPauseButtonAction(false);
-                    Workspace.ToolBar.btnPause.Enabled = true;
-                    Workspace.ToolBar.SingleRun.Enabled = true;
+                    Workspace.ToolBar.ApplyProcessRunState(ProcRunState.Ready);
                 }
               
             }

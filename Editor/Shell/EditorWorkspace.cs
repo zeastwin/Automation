@@ -116,6 +116,21 @@ namespace Automation
             return VersionManager;
         }
 
+        public void RestoreProcessEditorPresentation()
+        {
+            if (Runtime.Editor.ActiveSession?.Draft is OperationType operationDraft)
+            {
+                DataGrid.OperationTemp = operationDraft;
+                Inspector.ShowObject(operationDraft);
+                ToolBar.btnSave.Enabled = true;
+                ToolBar.btnCancel.Enabled = true;
+                ToolBar.RefreshHistoryAvailability();
+                return;
+            }
+
+            Inspector.ClearObject();
+        }
+
         private void Attach(IEditorWorkspaceParticipant participant)
         {
             participant?.AttachEditorWorkspace(this);
