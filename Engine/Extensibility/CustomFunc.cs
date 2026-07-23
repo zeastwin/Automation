@@ -41,13 +41,19 @@ namespace Automation
 
         public bool RunFunc(string funcName)
         {
-            if (string.IsNullOrWhiteSpace(funcName)
-                || !functionMap.TryGetValue(funcName, out FunctionDelegate funcToRun))
+            if (!TryGetFunction(funcName, out FunctionDelegate funcToRun))
             {
                 return false;
             }
             funcToRun();
             return true;
+        }
+
+        internal bool TryGetFunction(string name, out FunctionDelegate function)
+        {
+            function = null;
+            return !string.IsNullOrWhiteSpace(name)
+                && functionMap.TryGetValue(name, out function);
         }
     }
 }

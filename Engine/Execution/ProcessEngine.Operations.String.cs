@@ -37,32 +37,47 @@ namespace Automation
             }
             ValueConfigStore valueStore = Context?.ValueStore;
             string source = evt?.GetOperationSource();
-            List<string> values = new List<string>();
-            foreach (var item in stringFormat.Params)
+            StringFormatRuntimeBinding binding =
+                stringFormat.RuntimeBinding as StringFormatRuntimeBinding;
+            string bindError = null;
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, valueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        valueStore, stringFormat, out bindError)))
             {
-                if (!ValueRef.TryCreate(item.ValueSourceIndex, null, item.ValueSourceName, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
-                {
-                    throw CreateAlarmException(evt, sourceError);
-                }
-                if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
+                throw CreateAlarmException(evt, bindError ?? "字符串格式化运行计划未编译");
+            }
+            binding = binding
+                ?? stringFormat.RuntimeBinding as StringFormatRuntimeBinding;
+            if (binding == null || binding.Sources.Length != stringFormat.Params.Count)
+            {
+                throw CreateAlarmException(evt, "字符串格式化运行计划未编译");
+            }
+            var values = new string[binding.Sources.Length];
+            for (int i = 0; i < binding.Sources.Length; i++)
+            {
+                if (!binding.Sources[i].TryResolveValue(
+                        valueStore, "源变量", evt.procId,
+                        out DicValue sourceItem, out string sourceResolveError))
                 {
                     throw CreateAlarmException(evt, sourceResolveError);
                 }
-                values.Add(sourceItem.Value ?? string.Empty);
+                values[i] = sourceItem.Value ?? string.Empty;
             }
             try
             {
-                string formattedStr = string.Format(stringFormat.Format, values.ToArray());
-
-                if (!ValueRef.TryCreate(stringFormat.OutputValueIndex, null, stringFormat.OutputValueName, null, false, "存储变量", out ValueRef outputRef, out string outputError))
-                {
-                    throw CreateAlarmException(evt, outputError);
-                }
-                if (!outputRef.TryResolveValue(valueStore, "存储变量", evt.procId, out DicValue outputItem, out string outputResolveError))
+                string formattedStr = string.Format(stringFormat.Format, values);
+                if (!binding.Output.TryResolveValue(
+                        valueStore, "存储变量", evt.procId,
+                        out DicValue outputItem, out string outputResolveError))
                 {
                     throw CreateAlarmException(evt, outputResolveError);
                 }
-                if (!valueStore.SetValueByIndexForProcess(outputItem.Index, formattedStr, evt.procId, source))
+                if (!valueStore.SetResolvedValueForProcess(
+                        outputItem, formattedStr, evt.procId, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"格式化结果保存失败:{outputName}");
@@ -87,11 +102,26 @@ namespace Automation
                 MarkAlarm(evt, "字符串分割参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!ValueRef.TryCreate(split.SourceValueIndex, null, split.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
+            SplitRuntimeBinding binding = split.RuntimeBinding as SplitRuntimeBinding;
+            string bindError = null;
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, valueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        valueStore, split, out bindError)))
             {
-                throw CreateAlarmException(evt, sourceError);
+                throw CreateAlarmException(evt, bindError ?? "字符串分割运行计划未编译");
             }
-            if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
+            binding = binding ?? split.RuntimeBinding as SplitRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "字符串分割运行计划未编译");
+            }
+            if (!binding.Source.TryResolveValue(
+                    valueStore, "源变量", evt.procId,
+                    out DicValue sourceItem, out string sourceResolveError))
             {
                 throw CreateAlarmException(evt, sourceResolveError);
             }
@@ -106,16 +136,13 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            int SaveIndex = 0;
-            if (!ValueRef.TryCreate(split.OutputIndex, null, split.Output, null, false, "结果变量", out ValueRef outputRef, out string outputError))
-            {
-                throw CreateAlarmException(evt, outputError);
-            }
-            if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
+            if (!binding.Output.TryResolveValue(
+                    valueStore, "结果变量", evt.procId,
+                    out DicValue outputItem, out string outputResolveError))
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
-            SaveIndex = outputItem.Index;
+            int SaveIndex = outputItem.Index;
             int count = split.Count ?? splitArray.Length;
             if (count < 0)
             {
@@ -152,11 +179,27 @@ namespace Automation
                 MarkAlarm(evt, "字符串替换参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            if (!ValueRef.TryCreate(replace.SourceValueIndex, null, replace.SourceValue, null, false, "源变量", out ValueRef sourceRef, out string sourceError))
+            ReplaceRuntimeBinding binding =
+                replace.RuntimeBinding as ReplaceRuntimeBinding;
+            string bindError = null;
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, valueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        valueStore, replace, out bindError)))
             {
-                throw CreateAlarmException(evt, sourceError);
+                throw CreateAlarmException(evt, bindError ?? "字符串替换运行计划未编译");
             }
-            if (!sourceRef.TryResolveValue(valueStore, "源变量", evt.procId, out DicValue sourceItem, out string sourceResolveError))
+            binding = binding ?? replace.RuntimeBinding as ReplaceRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "字符串替换运行计划未编译");
+            }
+            if (!binding.Source.TryResolveValue(
+                    valueStore, "源变量", evt.procId,
+                    out DicValue sourceItem, out string sourceResolveError))
             {
                 throw CreateAlarmException(evt, sourceResolveError);
             }
@@ -166,36 +209,33 @@ namespace Automation
                 throw CreateAlarmException(evt, "找不到源变量");
             }
 
-            string ResolveTextValue(string literal, string index, string name, string label)
+            string replaceStr = binding.ReplaceText;
+            if (!binding.UsesLiteralReplaceText)
             {
-                bool hasLiteral = !string.IsNullOrEmpty(literal);
-                bool hasRef = !string.IsNullOrEmpty(index) || !string.IsNullOrEmpty(name);
-                if (hasLiteral && hasRef)
+                if (!binding.ReplaceTextSource.TryResolveValue(
+                        valueStore, "被替换字符", evt.procId,
+                        out DicValue replaceTextItem, out string replaceTextError))
                 {
-                    throw CreateAlarmException(evt, $"{label}配置冲突");
+                    throw CreateAlarmException(evt, replaceTextError);
                 }
-                if (hasLiteral)
-                {
-                    return literal;
-                }
-                if (!ValueRef.TryCreate(index, null, name, null, false, label, out ValueRef valueRef, out string refError))
-                {
-                    throw CreateAlarmException(evt, refError);
-                }
-                if (!valueRef.TryResolveValue(valueStore, label, evt.procId, out DicValue valueItem, out string resolveError))
-                {
-                    throw CreateAlarmException(evt, resolveError);
-                }
-                return valueItem.Value;
+                replaceStr = replaceTextItem.Value;
             }
-
-            string replaceStr = ResolveTextValue(replace.ReplaceStr, replace.ReplaceStrIndex, replace.ReplaceStrV, "被替换字符");
             if (string.IsNullOrEmpty(replaceStr))
             {
                 throw CreateAlarmException(evt, "找不到被替换字符");
             }
 
-            string newStr = ResolveTextValue(replace.NewStr, replace.NewStrIndex, replace.NewStrV, "新字符");
+            string newStr = binding.NewText;
+            if (!binding.UsesLiteralNewText)
+            {
+                if (!binding.NewTextSource.TryResolveValue(
+                        valueStore, "新字符", evt.procId,
+                        out DicValue newTextItem, out string newTextError))
+                {
+                    throw CreateAlarmException(evt, newTextError);
+                }
+                newStr = newTextItem.Value;
+            }
             if (string.IsNullOrEmpty(newStr))
             {
                 throw CreateAlarmException(evt, "找不到新字符");
@@ -232,15 +272,14 @@ namespace Automation
                 str = beforeSubstring + newStr + afterSubstring;
             }
 
-            if (!ValueRef.TryCreate(replace.OutputIndex, null, replace.Output, null, false, "结果变量", out ValueRef outputRef, out string outputError))
-            {
-                throw CreateAlarmException(evt, outputError);
-            }
-            if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
+            if (!binding.Output.TryResolveValue(
+                    valueStore, "结果变量", evt.procId,
+                    out DicValue outputItem, out string outputResolveError))
             {
                 throw CreateAlarmException(evt, outputResolveError);
             }
-            if (!valueStore.SetValueByIndexForProcess(outputItem.Index, str, evt.procId, source))
+            if (!valueStore.SetResolvedValueForProcess(
+                    outputItem, str, evt.procId, source))
             {
                 string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
                 throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

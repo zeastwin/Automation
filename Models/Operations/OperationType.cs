@@ -1227,6 +1227,7 @@ namespace Automation
         public ModifyValue()
         {
             OperaType = "修改变量";
+            ModifyType = "替换";
         }
 
         [DisplayName("修改模式"), Category("参数"), Description("值修改模式（赋值/增减/拼接等）；决定源值与修改值的计算方式。"), ReadOnly(false), TypeConverter(typeof(ModifyType))]

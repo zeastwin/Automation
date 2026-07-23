@@ -31,11 +31,12 @@ namespace Automation
                     batch.ElementCount, batch.StringByteLength, false, "流程连续读取",
                     out PlcMapConfig request, out string error)) return FailPlc(evt, error);
                 if (!ResolveConsecutiveVariables(batch.FirstVariableName, batch.ElementCount,
-                    batch.DataType, evt.procId, out List<string> variableNames, out error)) return FailPlc(evt, error);
-                request.VariableNames = variableNames.ToList();
+                    batch.DataType, evt.procId, out List<DicValue> targetVariables, out error))
+                    return FailPlc(evt, error);
+                request.VariableNames = targetVariables.Select(value => value.Name).ToList();
                 if (!Context.PlcRuntime.TryRead(operation.DeviceName, request, out object[] values, out error))
                     return FailPlc(evt, $"PLC读取失败:{error}", true);
-                if (!SetReadVariables(batch.DataType, variableNames, values, evt.procId,
+                if (!SetReadVariables(batch.DataType, targetVariables, values, evt.procId,
                     evt.GetOperationSource(), out error, out bool responseInvalid))
                     return FailPlc(evt, error, responseInvalid);
                 return true;
@@ -90,7 +91,7 @@ namespace Automation
                 return FailPlc(evt, "PLC按项读取项数量必须为1..100。");
 
             var requests = new List<PlcMapConfig>(operation.ReadItems.Count);
-            var variableNames = new List<string>(operation.ReadItems.Count);
+            var targetVariables = new List<DicValue>(operation.ReadItems.Count);
             var uniqueVariables = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < operation.ReadItems.Count; i++)
             {
@@ -100,11 +101,13 @@ namespace Automation
                     item.StringByteLength, false, $"流程按项读取{i + 1}", out PlcMapConfig request,
                     out string error)) return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
                 request.Id = $"direct-item-{i}";
-                if (!ValidateVariable(item.VariableName, item.DataType, uniqueVariables, evt.procId, out error))
+                if (!TryResolveVariable(
+                        item.VariableName, item.DataType, uniqueVariables, evt.procId,
+                        out DicValue targetVariable, out error))
                     return FailPlc(evt, $"PLC读取项{i + 1}:{error}");
                 request.VariableNames = new List<string> { item.VariableName };
                 requests.Add(request);
-                variableNames.Add(item.VariableName);
+                targetVariables.Add(targetVariable);
             }
 
             if (!Context.PlcRuntime.TryReadBatch(operation.DeviceName, requests,
@@ -116,7 +119,7 @@ namespace Automation
                 if (!results.TryGetValue(requests[i].Id, out object[] values) || values == null || values.Length != 1)
                     return FailPlc(evt, $"PLC读取项{i + 1}返回数量异常。", true);
                 if (!SetReadVariables(operation.ReadItems[i].DataType,
-                    new[] { variableNames[i] }, values, evt.procId,
+                    new[] { targetVariables[i] }, values, evt.procId,
                     evt.GetOperationSource(), out string error, out bool responseInvalid))
                     return FailPlc(evt, error, responseInvalid);
             }
@@ -172,9 +175,9 @@ namespace Automation
         }
 
         private bool ResolveConsecutiveVariables(string firstVariableName, int count, PlcDataType dataType,
-            Guid procId, out List<string> variableNames, out string error)
+            Guid procId, out List<DicValue> variables, out string error)
         {
-            variableNames = new List<string>();
+            variables = new List<DicValue>(Math.Max(0, count));
             error = null;
             if (Context.ValueStore == null) { error = "平台变量库未初始化。"; return false; }
             if (!Context.ValueStore.TryGetValueByNameForProcess(firstVariableName, procId, out DicValue first))
@@ -184,19 +187,43 @@ namespace Automation
             {
                 if (!Context.ValueStore.TryGetValueByIndexForProcess(first.Index + i, procId, out DicValue value))
                 { error = $"从变量[{firstVariableName}]开始的第{i + 1}个连续变量不存在。"; return false; }
-                if (!ValidateVariable(value.Name, dataType, unique, procId, out error)) return false;
-                variableNames.Add(value.Name);
+                if (!ValidateResolvedVariable(value, dataType, unique, out error)) return false;
+                variables.Add(value);
             }
             return true;
         }
 
-        private bool ValidateVariable(string name, PlcDataType dataType, HashSet<string> unique, Guid procId, out string error)
+        private bool TryResolveVariable(
+            string name,
+            PlcDataType dataType,
+            HashSet<string> unique,
+            Guid procId,
+            out DicValue value,
+            out string error)
+        {
+            value = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(name) || unique.Contains(name))
+            {
+                error = "PLC保存变量为空或重复。";
+                return false;
+            }
+            if (Context.ValueStore == null
+                || !Context.ValueStore.TryGetValueByNameForProcess(name, procId, out value))
+            { error = $"PLC变量不存在:{name}"; return false; }
+            return ValidateResolvedVariable(value, dataType, unique, out error);
+        }
+
+        private static bool ValidateResolvedVariable(
+            DicValue value,
+            PlcDataType dataType,
+            HashSet<string> unique,
+            out string error)
         {
             error = null;
+            string name = value?.Name;
             if (string.IsNullOrWhiteSpace(name) || !unique.Add(name))
             { error = "PLC保存变量为空或重复。"; return false; }
-            if (Context.ValueStore == null || !Context.ValueStore.TryGetValueByNameForProcess(name, procId, out DicValue value))
-            { error = $"PLC变量不存在:{name}"; return false; }
             string expectedType = dataType == PlcDataType.String ? "string" : "double";
             if (!string.Equals(value.Type, expectedType, StringComparison.OrdinalIgnoreCase))
             { error = $"PLC变量[{name}]必须是{expectedType}类型。"; return false; }
@@ -248,23 +275,22 @@ namespace Automation
             }
 
             if (!ResolveConsecutiveVariables(batch.FirstVariableName, batch.ElementCount,
-                batch.DataType, procId, out List<string> variableNames, out error)) return false;
-            values = new object[variableNames.Count];
-            for (int index = 0; index < variableNames.Count; index++)
+                batch.DataType, procId, out List<DicValue> variables, out error)) return false;
+            values = new object[variables.Count];
+            for (int index = 0; index < variables.Count; index++)
             {
-                DicValue variable = Context.ValueStore.GetValueByNameForProcess(variableNames[index], procId);
-                values[index] = variable.Value ?? string.Empty;
+                values[index] = variables[index].Value ?? string.Empty;
             }
             return HslModbusAdapter.TryNormalizeValues(batch.DataType, values, out _, out error);
         }
 
-        private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<string> variableNames,
+        private bool SetReadVariables(PlcDataType dataType, IReadOnlyList<DicValue> targetVariables,
             IReadOnlyList<object> values, Guid procId, string source, out string error,
             out bool responseInvalid)
         {
             error = null;
             responseInvalid = false;
-            if (values == null || values.Count != variableNames.Count)
+            if (values == null || values.Count != targetVariables.Count)
             {
                 error = "PLC返回数量与变量数量不一致。";
                 responseInvalid = true;
@@ -292,16 +318,16 @@ namespace Automation
             var previousValues = new List<KeyValuePair<DicValue, string>>(values.Count);
             for (int i = 0; i < normalizedValues.Count; i++)
             {
-                DicValue target = Context.ValueStore.GetValueByNameForProcess(variableNames[i], procId);
+                DicValue target = targetVariables[i];
                 previousValues.Add(new KeyValuePair<DicValue, string>(target, target.Value));
-                if (Context.ValueStore.SetValueByNameForProcess(
-                    variableNames[i], normalizedValues[i], procId, source)) continue;
+                if (Context.ValueStore.SetResolvedValueForProcess(
+                    target, normalizedValues[i], procId, source)) continue;
                 foreach (KeyValuePair<DicValue, string> previous in previousValues)
                 {
-                    Context.ValueStore.SetValueByIndexForProcess(
-                        previous.Key.Index, previous.Value, procId, source + ":PLC读取回滚");
+                    Context.ValueStore.SetResolvedValueForProcess(
+                        previous.Key, previous.Value, procId, source + ":PLC读取回滚");
                 }
-                error = $"PLC读取结果写入变量失败:{variableNames[i]}";
+                error = $"PLC读取结果写入变量失败:{target.Name}";
                 return false;
             }
             return true;

@@ -1198,6 +1198,49 @@ namespace Automation
 
             lock (item.SyncRoot)
             {
+                // 单字段设置是流程指令最常见的路径。单项本身天然具备原子性，
+                // 无需为批量回滚语义创建去重集合和两张暂存字典。
+                if (updates.Count == 1)
+                {
+                    DataStructFieldValueUpdate update = updates[0];
+                    if (update == null)
+                    {
+                        error = "字段更新项为空";
+                        return false;
+                    }
+                    if (update.Value == null
+                        || !item.FieldNames.ContainsKey(update.FieldIndex)
+                        || !item.FieldTypes.TryGetValue(
+                            update.FieldIndex, out DataStructValueType type))
+                    {
+                        error = $"字段不存在或值为空:{update.FieldIndex}";
+                        return false;
+                    }
+                    if (update.ExpectedType.HasValue && update.ExpectedType.Value != type)
+                    {
+                        error = $"字段类型不一致:{update.FieldIndex}";
+                        return false;
+                    }
+                    if (type == DataStructValueType.Number)
+                    {
+                        if (!double.TryParse(update.Value, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out double number)
+                            || double.IsNaN(number) || double.IsInfinity(number))
+                        {
+                            error = $"字段数值格式错误:{update.FieldIndex}";
+                            return false;
+                        }
+                        item.num[update.FieldIndex] = number;
+                        item.str.Remove(update.FieldIndex);
+                    }
+                    else
+                    {
+                        item.str[update.FieldIndex] = update.Value;
+                        item.num.Remove(update.FieldIndex);
+                    }
+                    return true;
+                }
+
                 var unique = new HashSet<int>();
                 var numbers = new Dictionary<int, double>();
                 var texts = new Dictionary<int, string>();

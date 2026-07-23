@@ -146,9 +146,54 @@ namespace Automation
 
     internal sealed class ParamGotoRuntimeBinding
     {
-        public ValueRef[] Conditions { get; set; } = Array.Empty<ValueRef>();
+        public ParamGotoConditionRuntimeBinding[] Conditions { get; set; } =
+            Array.Empty<ParamGotoConditionRuntimeBinding>();
         public RuntimeGotoTarget TrueTarget { get; set; }
         public RuntimeGotoTarget FalseTarget { get; set; }
+    }
+
+    internal enum ParamGotoJudgeMode
+    {
+        LessThanBoundary,
+        GreaterThanBoundary,
+        InsideRange,
+        EqualText
+    }
+
+    internal enum ParamGotoLogicalOperator
+    {
+        None,
+        And,
+        Or
+    }
+
+    internal readonly struct ParamGotoConditionRuntimeBinding
+    {
+        public ParamGotoConditionRuntimeBinding(
+            ValueRef source,
+            ParamGotoJudgeMode judgeMode,
+            double down,
+            double up,
+            bool includeBoundary,
+            string expectedText,
+            ParamGotoLogicalOperator logicalOperator)
+        {
+            Source = source;
+            JudgeMode = judgeMode;
+            Down = down;
+            Up = up;
+            IncludeBoundary = includeBoundary;
+            ExpectedText = expectedText;
+            LogicalOperator = logicalOperator;
+        }
+
+        public ValueRef Source { get; }
+        public ParamGotoJudgeMode JudgeMode { get; }
+        public double Down { get; }
+        public double Up { get; }
+        public bool IncludeBoundary { get; }
+        public string ExpectedText { get; }
+        public ParamGotoLogicalOperator LogicalOperator { get; }
     }
 
     internal sealed class BranchRuntimeBinding
@@ -177,11 +222,44 @@ namespace Automation
         public bool UsesLiteralChangeValue { get; set; }
         public ValueRef ChangeValue { get; set; }
         public ValueRef Output { get; set; }
+        public bool NeedsNumericValues { get; set; }
+        public bool LiteralNumericValueValidated { get; set; }
+        public Func<string, string, string> Calculate { get; set; }
     }
 
     internal sealed class CommunicationResponseRuntimeBinding
     {
         public ValueRef[] Sources { get; set; } = Array.Empty<ValueRef>();
+    }
+
+    internal sealed class StringFormatRuntimeBinding
+    {
+        public ValueRef[] Sources { get; set; } = Array.Empty<ValueRef>();
+        public ValueRef Output { get; set; }
+    }
+
+    internal sealed class SplitRuntimeBinding
+    {
+        public ValueRef Source { get; set; }
+        public ValueRef Output { get; set; }
+    }
+
+    internal sealed class ReplaceRuntimeBinding
+    {
+        public ValueRef Source { get; set; }
+        public bool UsesLiteralReplaceText { get; set; }
+        public string ReplaceText { get; set; }
+        public ValueRef ReplaceTextSource { get; set; }
+        public bool UsesLiteralNewText { get; set; }
+        public string NewText { get; set; }
+        public ValueRef NewTextSource { get; set; }
+        public ValueRef Output { get; set; }
+    }
+
+    internal sealed class GetDataStructRuntimeBinding
+    {
+        public ValueRef FirstOutput { get; set; }
+        public ValueRef[] Outputs { get; set; } = Array.Empty<ValueRef>();
     }
 
     internal static class ProcessRuntimeBinder
@@ -222,6 +300,21 @@ namespace Automation
             return true;
         }
 
+        internal static bool TryBindStandalone(
+            Guid procId,
+            ValueConfigStore valueStore,
+            OperationType operation,
+            out string error)
+        {
+            if (operation == null)
+            {
+                error = "指令为空";
+                return false;
+            }
+            return TryBindOperation(
+                null, 0, procId, valueStore, operation, out error);
+        }
+
         private static bool TryBindOperation(
             Proc proc,
             int procIndex,
@@ -246,6 +339,15 @@ namespace Automation
                     return TryBindGetValue(procId, valueStore, getValue, out error);
                 case ModifyValue modifyValue:
                     return TryBindModifyValue(procId, valueStore, modifyValue, out error);
+                case StringFormat stringFormat:
+                    return TryBindStringFormat(procId, valueStore, stringFormat, out error);
+                case Split split:
+                    return TryBindSplit(procId, valueStore, split, out error);
+                case Replace replace:
+                    return TryBindReplace(procId, valueStore, replace, out error);
+                case GetDataStructItem getDataStructItem:
+                    return TryBindGetDataStructItem(
+                        procId, valueStore, getDataStructItem, out error);
                 case ResponseCommunicationOperationType communication:
                     return TryBindCommunicationResponse(procId, valueStore, communication, out error);
                 default:
@@ -407,20 +509,70 @@ namespace Automation
                 error = "逻辑判断参数为空";
                 return false;
             }
-            var conditions = new ValueRef[count];
+            var conditions = new ParamGotoConditionRuntimeBinding[count];
             for (int i = 0; i < count; i++)
             {
                 ParamGotoParam item = operation.Params[i];
+                if (item == null)
+                {
+                    error = $"逻辑判断参数{i}为空";
+                    return false;
+                }
                 if (!ValueRef.TryCreate(item.ValueIndex, item.ValueIndex2Index, item.ValueName,
-                    item.ValueName2Index, false, "判断变量", out conditions[i], out error))
+                    item.ValueName2Index, false, "判断变量", out ValueRef source, out error))
                 {
                     return false;
                 }
-                if (!conditions[i].TryBindStatic(
-                    valueStore, procId, "判断变量", out conditions[i], out error))
+                if (!source.TryBindStatic(
+                    valueStore, procId, "判断变量", out source, out error))
                 {
                     return false;
                 }
+                ParamGotoJudgeMode judgeMode;
+                switch (item.JudgeMode)
+                {
+                    case "值在区间左":
+                        judgeMode = ParamGotoJudgeMode.LessThanBoundary;
+                        break;
+                    case "值在区间右":
+                        judgeMode = ParamGotoJudgeMode.GreaterThanBoundary;
+                        break;
+                    case "值在区间内":
+                        judgeMode = ParamGotoJudgeMode.InsideRange;
+                        break;
+                    case "等于特征字符":
+                        judgeMode = ParamGotoJudgeMode.EqualText;
+                        break;
+                    default:
+                        error = $"判断模式无效:{item.JudgeMode ?? "空"}";
+                        return false;
+                }
+                ParamGotoLogicalOperator logicalOperator =
+                    ParamGotoLogicalOperator.None;
+                if (i > 0)
+                {
+                    if (item.Operator == "且")
+                    {
+                        logicalOperator = ParamGotoLogicalOperator.And;
+                    }
+                    else if (item.Operator == "或")
+                    {
+                        logicalOperator = ParamGotoLogicalOperator.Or;
+                    }
+                    else
+                    {
+                        error = $"逻辑运算符无效:{item.Operator ?? "空"}";
+                        return false;
+                    }
+                }
+                conditions[i] = new ParamGotoConditionRuntimeBinding(
+                    source,
+                    judgeMode,
+                    item.Down,
+                    item.Up,
+                    item.IncludeBoundary,
+                    item.ExpectedText,
+                    logicalOperator);
             }
             if (!RuntimeGotoTarget.TryCreate(operation.TrueGoto, procIndex, proc,
                 out RuntimeGotoTarget trueTarget, out error)
@@ -535,13 +687,263 @@ namespace Automation
             {
                 return false;
             }
+            bool needsNumericValues = operation.ModifyType == "叠加"
+                || operation.ModifyType == "乘法"
+                || operation.ModifyType == "除法"
+                || operation.ModifyType == "求余"
+                || operation.ModifyType == "绝对值";
+            bool literalNumericValueValidated = false;
+            if (needsNumericValues
+                && operation.ModifyType != "绝对值"
+                && usesLiteral)
+            {
+                if (!double.TryParse(operation.ChangeValue, out _))
+                {
+                    error = "修改值不是有效数字";
+                    return false;
+                }
+                literalNumericValueValidated = true;
+            }
+            Func<string, string, string> calculate;
+            switch (operation.ModifyType)
+            {
+                case "替换":
+                    calculate = (sourceText, changeText) => changeText;
+                    break;
+                case "叠加":
+                    double addSourceSign = operation.NegateSource ? -1d : 1d;
+                    double addOperandSign = operation.NegateOperand ? -1d : 1d;
+                    calculate = (sourceText, changeText) =>
+                        (addSourceSign * double.Parse(sourceText)
+                            + addOperandSign * double.Parse(changeText)).ToString();
+                    break;
+                case "乘法":
+                    double multiplySourceSign = operation.NegateSource ? -1d : 1d;
+                    double multiplyOperandSign = operation.NegateOperand ? -1d : 1d;
+                    calculate = (sourceText, changeText) =>
+                        (multiplySourceSign * double.Parse(sourceText)
+                            * multiplyOperandSign * double.Parse(changeText)).ToString();
+                    break;
+                case "除法":
+                    double divideSourceSign = operation.NegateSource ? -1d : 1d;
+                    double divideOperandSign = operation.NegateOperand ? -1d : 1d;
+                    calculate = (sourceText, changeText) =>
+                        ((divideSourceSign * double.Parse(sourceText))
+                            / (divideOperandSign * double.Parse(changeText))).ToString();
+                    break;
+                case "求余":
+                    calculate = (sourceText, changeText) =>
+                        (double.Parse(sourceText) % double.Parse(changeText)).ToString();
+                    break;
+                case "绝对值":
+                    calculate = (sourceText, changeText) =>
+                        Math.Abs(double.Parse(sourceText)).ToString();
+                    break;
+                default:
+                    error = $"修改模式无效:{operation.ModifyType ?? "空"}";
+                    return false;
+            }
             operation.RuntimeBinding = new ModifyValueRuntimeBinding
             {
                 Source = source,
                 UsesLiteralChangeValue = usesLiteral,
                 ChangeValue = changeValue,
+                Output = output,
+                NeedsNumericValues = needsNumericValues,
+                LiteralNumericValueValidated = literalNumericValueValidated,
+                Calculate = calculate
+            };
+            return true;
+        }
+
+        private static bool TryBindStringFormat(
+            Guid procId, ValueConfigStore valueStore, StringFormat operation, out string error)
+        {
+            error = null;
+            int count = operation.Params?.Count ?? 0;
+            if (count == 0)
+            {
+                error = "字符串格式化参数为空";
+                return false;
+            }
+            var sources = new ValueRef[count];
+            for (int i = 0; i < count; i++)
+            {
+                StringFormatParam item = operation.Params[i];
+                if (item == null
+                    || !ValueRef.TryCreate(
+                        item.ValueSourceIndex, null, item.ValueSourceName, null,
+                        false, "源变量", out sources[i], out error)
+                    || !sources[i].TryBindStatic(
+                        valueStore, procId, "源变量", out sources[i], out error))
+                {
+                    error = error ?? $"字符串格式化参数{i}为空";
+                    return false;
+                }
+            }
+            if (!ValueRef.TryCreate(
+                    operation.OutputValueIndex, null, operation.OutputValueName, null,
+                    false, "存储变量", out ValueRef output, out error)
+                || !output.TryBindStatic(
+                    valueStore, procId, "存储变量", out output, out error))
+            {
+                return false;
+            }
+            operation.RuntimeBinding = new StringFormatRuntimeBinding
+            {
+                Sources = sources,
                 Output = output
             };
+            return true;
+        }
+
+        private static bool TryBindSplit(
+            Guid procId, ValueConfigStore valueStore, Split operation, out string error)
+        {
+            error = null;
+            if (!ValueRef.TryCreate(
+                    operation.SourceValueIndex, null, operation.SourceValue, null,
+                    false, "源变量", out ValueRef source, out error)
+                || !source.TryBindStatic(
+                    valueStore, procId, "源变量", out source, out error)
+                || !ValueRef.TryCreate(
+                    operation.OutputIndex, null, operation.Output, null,
+                    false, "结果变量", out ValueRef output, out error)
+                || !output.TryBindStatic(
+                    valueStore, procId, "结果变量", out output, out error))
+            {
+                return false;
+            }
+            operation.RuntimeBinding = new SplitRuntimeBinding
+            {
+                Source = source,
+                Output = output
+            };
+            return true;
+        }
+
+        private static bool TryBindReplace(
+            Guid procId, ValueConfigStore valueStore, Replace operation, out string error)
+        {
+            error = null;
+            if (!ValueRef.TryCreate(
+                    operation.SourceValueIndex, null, operation.SourceValue, null,
+                    false, "源变量", out ValueRef source, out error)
+                || !source.TryBindStatic(
+                    valueStore, procId, "源变量", out source, out error)
+                || !TryBindTextValue(
+                    procId, valueStore, operation.ReplaceStr,
+                    operation.ReplaceStrIndex, operation.ReplaceStrV,
+                    "被替换字符", out bool usesLiteralReplaceText,
+                    out string replaceText, out ValueRef replaceTextSource, out error)
+                || !TryBindTextValue(
+                    procId, valueStore, operation.NewStr,
+                    operation.NewStrIndex, operation.NewStrV,
+                    "新字符", out bool usesLiteralNewText,
+                    out string newText, out ValueRef newTextSource, out error)
+                || !ValueRef.TryCreate(
+                    operation.OutputIndex, null, operation.Output, null,
+                    false, "结果变量", out ValueRef output, out error)
+                || !output.TryBindStatic(
+                    valueStore, procId, "结果变量", out output, out error))
+            {
+                return false;
+            }
+            operation.RuntimeBinding = new ReplaceRuntimeBinding
+            {
+                Source = source,
+                UsesLiteralReplaceText = usesLiteralReplaceText,
+                ReplaceText = replaceText,
+                ReplaceTextSource = replaceTextSource,
+                UsesLiteralNewText = usesLiteralNewText,
+                NewText = newText,
+                NewTextSource = newTextSource,
+                Output = output
+            };
+            return true;
+        }
+
+        private static bool TryBindTextValue(
+            Guid procId,
+            ValueConfigStore valueStore,
+            string literal,
+            string index,
+            string name,
+            string label,
+            out bool usesLiteral,
+            out string literalValue,
+            out ValueRef source,
+            out string error)
+        {
+            usesLiteral = !string.IsNullOrEmpty(literal);
+            literalValue = literal;
+            source = default;
+            error = null;
+            bool hasReference = !string.IsNullOrEmpty(index) || !string.IsNullOrEmpty(name);
+            if (usesLiteral == hasReference)
+            {
+                error = usesLiteral ? $"{label}配置冲突" : $"{label}不能为空";
+                return false;
+            }
+            if (usesLiteral)
+            {
+                return true;
+            }
+            return ValueRef.TryCreate(
+                    index, null, name, null, false, label, out source, out error)
+                && source.TryBindStatic(
+                    valueStore, procId, label, out source, out error);
+        }
+
+        private static bool TryBindGetDataStructItem(
+            Guid procId,
+            ValueConfigStore valueStore,
+            GetDataStructItem operation,
+            out string error)
+        {
+            error = null;
+            var binding = new GetDataStructRuntimeBinding();
+            if (operation.IsAllItem)
+            {
+                if (!ValueRef.TryCreate(
+                        null, null, operation.FirstResultVariableName, null,
+                        false, "首个结果变量",
+                        out ValueRef firstOutput, out error)
+                    || !firstOutput.TryBindStatic(
+                        valueStore, procId, "首个结果变量",
+                        out firstOutput, out error))
+                {
+                    return false;
+                }
+                binding.FirstOutput = firstOutput;
+                operation.RuntimeBinding = binding;
+                return true;
+            }
+
+            int count = operation.Params?.Count ?? 0;
+            if (count == 0)
+            {
+                error = "数据结构读取参数为空";
+                return false;
+            }
+            var outputs = new ValueRef[count];
+            for (int i = 0; i < count; i++)
+            {
+                GetDataStructItemParam item = operation.Params[i];
+                if (item == null
+                    || !ValueRef.TryCreate(
+                        item.OutputValueIndex, null, item.OutputValueName, null,
+                        false, "结果变量", out outputs[i], out error)
+                    || !outputs[i].TryBindStatic(
+                        valueStore, procId, "结果变量",
+                        out outputs[i], out error))
+                {
+                    error = error ?? $"数据结构读取参数{i}为空";
+                    return false;
+                }
+            }
+            binding.Outputs = outputs;
+            operation.RuntimeBinding = binding;
             return true;
         }
     }

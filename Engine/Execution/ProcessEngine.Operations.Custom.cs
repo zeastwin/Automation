@@ -33,12 +33,16 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            bool success = Context.CustomFunc.RunFunc(funcName);
-            if (!success)
+            CustomFunc.FunctionDelegate function =
+                callCustomFunc.RuntimeBinding as CustomFunc.FunctionDelegate;
+            if (function == null
+                && !Context.CustomFunc.TryGetFunction(funcName, out function))
             {
                 MarkAlarm(evt, $"找不到自定义函数:{funcName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            callCustomFunc.RuntimeBinding = function;
+            function();
             return true;
         }
     }

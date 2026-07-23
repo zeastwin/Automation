@@ -861,7 +861,20 @@ namespace Automation
 
         private bool TryValidateCurrentValue(DicValue value, string currentValue, out string error)
         {
+            return TryValidateCurrentValue(
+                value, currentValue, out error, out _, out _);
+        }
+
+        private bool TryValidateCurrentValue(
+            DicValue value,
+            string currentValue,
+            out string error,
+            out bool hasParsedDouble,
+            out double parsedDouble)
+        {
             error = null;
+            hasParsedDouble = false;
+            parsedDouble = 0d;
             if (value == null || string.IsNullOrEmpty(value.Name))
             {
                 error = "变量不存在";
@@ -872,9 +885,10 @@ namespace Automation
                 error = "当前值为空";
                 return false;
             }
+            hasParsedDouble = double.TryParse(currentValue, out parsedDouble);
             if (string.Equals(value.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(currentValue) || !double.TryParse(currentValue, out _))
+                if (string.IsNullOrWhiteSpace(currentValue) || !hasParsedDouble)
                 {
                     error = $"变量{value.Name}当前值不是有效数字";
                     return false;
@@ -891,13 +905,44 @@ namespace Automation
 
         public bool TryModifyValueByIndex(int index, Func<string, string> updater, out string error, string source = null)
         {
+            return TryModifyValueByIndexCore(
+                index, updater, null, null, null,
+                false, false, out error, source);
+        }
+
+        internal bool TryModifyValueByIndex(
+            int index,
+            string sourceValue,
+            string changeValue,
+            bool sourceFromCurrent,
+            bool changeFromCurrent,
+            Func<string, string, string> updater,
+            out string error,
+            string source = null)
+        {
+            return TryModifyValueByIndexCore(
+                index, null, updater, sourceValue, changeValue,
+                sourceFromCurrent, changeFromCurrent, out error, source);
+        }
+
+        private bool TryModifyValueByIndexCore(
+            int index,
+            Func<string, string> unaryUpdater,
+            Func<string, string, string> binaryUpdater,
+            string sourceValue,
+            string changeValue,
+            bool sourceFromCurrent,
+            bool changeFromCurrent,
+            out string error,
+            string source)
+        {
             error = null;
             if (index < 0 || index >= ValueCapacity)
             {
                 error = $"索引超出范围:{index}";
                 return false;
             }
-            if (updater == null)
+            if (unaryUpdater == null && binaryUpdater == null)
             {
                 error = "更新函数为空";
                 return false;
@@ -920,7 +965,11 @@ namespace Automation
                 current = value.Value;
                 try
                 {
-                    updated = updater(current);
+                    updated = binaryUpdater != null
+                        ? binaryUpdater(
+                            sourceFromCurrent ? current : sourceValue,
+                            changeFromCurrent ? current : changeValue)
+                        : unaryUpdater(current);
                 }
                 catch (Exception ex)
                 {
@@ -931,11 +980,12 @@ namespace Automation
                 {
                     return true;
                 }
-                if (!TryValidateCurrentValue(value, updated, out error))
+                if (!TryValidateCurrentValue(
+                        value, updated, out error, out bool hasParsedDouble, out double parsedDouble))
                 {
                     return false;
                 }
-                value.Value = updated;
+                value.SetValidatedValue(updated, hasParsedDouble, parsedDouble);
             }
             RaiseValueChanged(value, current, updated, source);
             return true;
@@ -962,17 +1012,33 @@ namespace Automation
             {
                 return false;
             }
-            return setValueByIndex(value.Index, newValue, source);
+            return SetResolvedValueForProcess(
+                value, newValue, procId, source);
         }
 
         public bool SetValueByIndexForProcess(
             int index, object newValue, Guid procId, string source = null)
         {
-            if (!TryGetValueByIndexForProcess(index, procId, out _))
+            if (!TryGetValueByIndexForProcess(index, procId, out DicValue value))
             {
                 return false;
             }
-            return setValueByIndex(index, newValue, source);
+            return SetResolvedValueForProcess(
+                value, newValue, procId, source);
+        }
+
+        internal bool SetResolvedValueForProcess(
+            DicValue value, object newValue, Guid procId, string source = null)
+        {
+            if (value == null
+                || value.Index < 0
+                || value.Index >= ValueCapacity
+                || !ReferenceEquals(values[value.Index], value)
+                || !CanProcessAccess(value, procId))
+            {
+                return false;
+            }
+            return SetValue(value, newValue, source);
         }
 
         public bool setValueByIndex(int index, object newValue, string source = null)
@@ -982,7 +1048,12 @@ namespace Automation
                 return false;
             }
             DicValue value = values[index];
-            if (value == null || string.IsNullOrEmpty(value.Name))
+            return SetValue(value, newValue, source);
+        }
+
+        private bool SetValue(DicValue value, object newValue, string source)
+        {
+            if (value == null || string.IsNullOrEmpty(value.Name) || newValue == null)
             {
                 return false;
             }
@@ -999,11 +1070,12 @@ namespace Automation
                 {
                     return true;
                 }
-                if (!TryValidateCurrentValue(value, currentValue, out _))
+                if (!TryValidateCurrentValue(
+                        value, currentValue, out _, out bool hasParsedDouble, out double parsedDouble))
                 {
                     return false;
                 }
-                value.Value = currentValue;
+                value.SetValidatedValue(currentValue, hasParsedDouble, parsedDouble);
             }
             RaiseValueChanged(value, current, currentValue, source);
             return true;
@@ -1122,17 +1194,25 @@ namespace Automation
             get => Volatile.Read(ref currentValue);
             set
             {
-                if (double.TryParse(value, out double parsed))
-                {
-                    Interlocked.Exchange(ref currentDoubleBits, BitConverter.DoubleToInt64Bits(parsed));
-                    Volatile.Write(ref hasCurrentDouble, 1);
-                }
-                else
-                {
-                    Volatile.Write(ref hasCurrentDouble, 0);
-                }
-                Volatile.Write(ref currentValue, value);
+                bool hasParsedDouble = double.TryParse(value, out double parsedDouble);
+                SetValidatedValue(value, hasParsedDouble, parsedDouble);
             }
+        }
+
+        internal void SetValidatedValue(
+            string value, bool hasParsedDouble, double parsedDouble)
+        {
+            if (hasParsedDouble)
+            {
+                Interlocked.Exchange(
+                    ref currentDoubleBits, BitConverter.DoubleToInt64Bits(parsedDouble));
+                Volatile.Write(ref hasCurrentDouble, 1);
+            }
+            else
+            {
+                Volatile.Write(ref hasCurrentDouble, 0);
+            }
+            Volatile.Write(ref currentValue, value);
         }
 
         [JsonIgnore]

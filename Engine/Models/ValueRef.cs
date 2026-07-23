@@ -279,13 +279,61 @@ namespace Automation
         {
             value = null;
             error = null;
+            string labelText = NormalizeLabel(label);
+            if (store == null)
+            {
+                error = $"{labelText}变量库未初始化";
+                return false;
+            }
+
+            // 直接引用和预绑定引用是指令热路径。一次读取同时完成存在性、作用域和
+            // 稳定身份校验，避免先解析索引后再重复访问同一变量槽位。
+            if (BoundVariableId != Guid.Empty
+                && (Kind == ValueRefKind.Index || Kind == ValueRefKind.Name))
+            {
+                if (!TryGetByIndex(store, BoundIndex, procId, out value)
+                    || value == null
+                    || value.Id != BoundVariableId)
+                {
+                    value = null;
+                    error = $"{labelText}预绑定变量已失效:{Token}";
+                    return false;
+                }
+                return true;
+            }
+            if (Kind == ValueRefKind.Index)
+            {
+                if (!TryGetByIndex(store, ParsedIndex, procId, out value) || value == null)
+                {
+                    value = null;
+                    error = $"{labelText}变量不存在:索引{ParsedIndex}";
+                    return false;
+                }
+                return true;
+            }
+            if (Kind == ValueRefKind.Name)
+            {
+                if (string.IsNullOrEmpty(Token))
+                {
+                    error = $"{labelText}名称为空";
+                    return false;
+                }
+                if (!TryGetByName(store, Token, procId, out value) || value == null)
+                {
+                    value = null;
+                    error = $"{labelText}变量不存在:{Token}";
+                    return false;
+                }
+                return true;
+            }
+
             if (!TryResolveIndex(store, label, procId, out int index, out error))
             {
                 return false;
             }
             if (!TryGetByIndex(store, index, procId, out value) || value == null)
             {
-                error = $"{NormalizeLabel(label)}变量不存在:索引{index}";
+                error = $"{labelText}变量不存在:索引{index}";
                 return false;
             }
             return true;

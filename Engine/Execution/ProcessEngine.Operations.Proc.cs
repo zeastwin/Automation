@@ -395,75 +395,53 @@ namespace Automation
                 bool isFirst = true;
                 bool outPut = true;
                 ValueConfigStore valueStore = Context?.ValueStore;
-                for (int conditionIndex = 0; conditionIndex < paramGoto.Params.Count; conditionIndex++)
+                for (int conditionIndex = 0;
+                    conditionIndex < binding.Conditions.Length;
+                    conditionIndex++)
                 {
-                    ParamGotoParam item = paramGoto.Params[conditionIndex];
-                    bool isNumericJudge = item.JudgeMode != "等于特征字符";
-                    double numericValue = 0;
-                    string textValue = null;
-                    if (!binding.Conditions[conditionIndex].TryResolveValue(valueStore, "判断变量", evt.procId, out DicValue valueItem, out string valueResolveError))
+                    ParamGotoConditionRuntimeBinding condition =
+                        binding.Conditions[conditionIndex];
+                    if (!condition.Source.TryResolveValue(
+                            valueStore, "判断变量", evt.procId,
+                            out DicValue valueItem, out string valueResolveError))
                     {
                         throw CreateAlarmException(evt, valueResolveError);
                     }
-                    if (isNumericJudge)
+                    bool tempValue;
+                    try
                     {
-                        try
+                        if (condition.JudgeMode == ParamGotoJudgeMode.EqualText)
                         {
-                            numericValue = valueItem.GetDValue();
-                        }
-                        catch (Exception ex)
-                        {
-                            throw CreateAlarmException(evt, ex.Message);
-                        }
-                    }
-                    else
-                    {
-                        try
-                        {
-                            textValue = valueItem.GetCValue();
-                        }
-                        catch (Exception ex)
-                        {
-                            throw CreateAlarmException(evt, ex.Message);
-                        }
-                    }
-                    bool tempValue = false;
-                    if (item.JudgeMode == "值在区间左")
-                    {
-                        if (item.IncludeBoundary)
-                        {
-                            tempValue = item.Down >= numericValue ? true : false;
+                            tempValue = valueItem.GetCValue() == condition.ExpectedText;
                         }
                         else
                         {
-                            tempValue = item.Down > numericValue ? true : false;
+                            double numericValue = valueItem.GetDValue();
+                            switch (condition.JudgeMode)
+                            {
+                                case ParamGotoJudgeMode.LessThanBoundary:
+                                    tempValue = condition.IncludeBoundary
+                                        ? numericValue <= condition.Down
+                                        : numericValue < condition.Down;
+                                    break;
+                                case ParamGotoJudgeMode.GreaterThanBoundary:
+                                    tempValue = condition.IncludeBoundary
+                                        ? numericValue >= condition.Down
+                                        : numericValue > condition.Down;
+                                    break;
+                                default:
+                                    tempValue = condition.IncludeBoundary
+                                        ? condition.Down <= numericValue
+                                            && numericValue <= condition.Up
+                                        : condition.Down < numericValue
+                                            && numericValue < condition.Up;
+                                    break;
+                            }
                         }
                     }
-                    else if (item.JudgeMode == "值在区间右")
+                    catch (Exception ex)
                     {
-                        if (item.IncludeBoundary)
-                        {
-                            tempValue = item.Down <= numericValue ? true : false;
-                        }
-                        else
-                        {
-                            tempValue = item.Down < numericValue ? true : false;
-                        }
-                    }
-                    else if (item.JudgeMode == "值在区间内")
-                    {
-                        if (item.IncludeBoundary)
-                        {
-                            tempValue = item.Down <= numericValue && numericValue <= item.Up ? true : false;
-                        }
-                        else
-                        {
-                            tempValue = item.Down < numericValue && numericValue < item.Up ? true : false;
-                        }
-                    }
-                    else if (item.JudgeMode == "等于特征字符")
-                    {
-                        tempValue = textValue == item.ExpectedText ? true : false;
+                        throw CreateAlarmException(evt, ex.Message);
                     }
                     if (isFirst)
                     {
@@ -472,7 +450,8 @@ namespace Automation
                     }
                     else
                     {
-                        if (item.Operator == "且")
+                        if (condition.LogicalOperator
+                            == ParamGotoLogicalOperator.And)
                         {
                             outPut = tempValue && outPut;
                         }

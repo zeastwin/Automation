@@ -262,9 +262,9 @@ namespace Automation
                     + operationTypeLabel.Padding.Horizontal + 20;
                 operationTypeLabel.SetBounds(8, 4, labelWidth, 30);
                 operationTypeButton.SetBounds(
-                    8 + labelWidth + 4,
+                    8 + labelWidth + 8,
                     4,
-                    Math.Max(100, width - 20 - labelWidth),
+                    Math.Max(100, width - 24 - labelWidth),
                     30);
             }
 

@@ -34,9 +34,13 @@ namespace Automation
             }
             GetValueRuntimeBinding binding = getValue.RuntimeBinding as GetValueRuntimeBinding;
             string bindError = null;
-            if (binding == null && (evt?.Proc == null
-                || !ProcessRuntimeBinder.TryBind(
-                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, Context?.ValueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        Context?.ValueStore, getValue, out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "获取变量运行计划未编译");
             }
@@ -57,7 +61,8 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, saveResolveError);
                 }
-                if (!valueStore.SetValueByIndexForProcess(saveItem.Index, value, evt.procId, source))
+                if (!valueStore.SetResolvedValueForProcess(
+                        saveItem, value, evt.procId, source))
                 {
                     string saveName = string.IsNullOrWhiteSpace(saveItem.Name) ? $"索引{saveItem.Index}" : saveItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{saveName}");
@@ -72,9 +77,13 @@ namespace Automation
             string source = evt?.GetOperationSource();
             ModifyValueRuntimeBinding binding = ops?.RuntimeBinding as ModifyValueRuntimeBinding;
             string bindError = null;
-            if (binding == null && (evt?.Proc == null
-                || !ProcessRuntimeBinder.TryBind(
-                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, Context?.ValueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        Context?.ValueStore, ops, out bindError)))
             {
                 throw CreateAlarmException(evt, bindError ?? "修改变量运行计划未编译");
             }
@@ -115,11 +124,7 @@ namespace Automation
                 throw CreateAlarmException(evt, "找不到修改变量");
             }
 
-            bool needNumeric = ops.ModifyType == "叠加"
-                || ops.ModifyType == "乘法"
-                || ops.ModifyType == "除法"
-                || ops.ModifyType == "求余"
-                || ops.ModifyType == "绝对值";
+            bool needNumeric = binding.NeedsNumericValues;
             if (needNumeric)
             {
                 if (!string.Equals(sourceItem.Type, "double", StringComparison.OrdinalIgnoreCase))
@@ -137,7 +142,8 @@ namespace Automation
                             throw CreateAlarmException(evt, $"变量类型不匹配:{changeName}");
                         }
                     }
-                    else if (!double.TryParse(changeValue, out _))
+                    else if (!binding.LiteralNumericValueValidated
+                        && !double.TryParse(changeValue, out _))
                     {
                         throw CreateAlarmException(evt, "修改值不是有效数字");
                     }
@@ -155,68 +161,29 @@ namespace Automation
                 throw CreateAlarmException(evt, $"变量类型不匹配:{outputName}");
             }
 
-            string CalculateOutput(string sourceText, string changeText)
-            {
-                if (ops.ModifyType == "替换")
-                {
-                    return changeText;
-                }
-
-                double sourceNumber = double.Parse(sourceText);
-                double changeNumber = 0;
-                if (ops.ModifyType != "绝对值")
-                {
-                    changeNumber = double.Parse(changeText);
-                }
-
-                if (ops.ModifyType == "叠加")
-                {
-                    double negateSource = ops.NegateSource ? -1 : 1;
-                    double operandSign = ops.NegateOperand ? -1 : 1;
-
-                    return (negateSource * sourceNumber + operandSign * changeNumber).ToString();
-                }
-                if (ops.ModifyType == "乘法")
-                {
-                    double negateSource = ops.NegateSource ? -1 : 1;
-                    double operandSign = ops.NegateOperand ? -1 : 1;
-
-                    return (negateSource * sourceNumber * operandSign * changeNumber).ToString();
-                }
-                if (ops.ModifyType == "除法")
-                {
-                    double negateSource = ops.NegateSource ? -1 : 1;
-                    double operandSign = ops.NegateOperand ? -1 : 1;
-
-                    return ((negateSource * sourceNumber) / (operandSign * changeNumber)).ToString();
-                }
-                if (ops.ModifyType == "求余")
-                {
-                    return (sourceNumber % changeNumber).ToString();
-                }
-
-                return Math.Abs(sourceNumber).ToString();
-            }
-
             bool useOutputLock = outputIndex >= 0 && (outputIndex == sourceIndex || outputIndex == changeIndex);
             if (useOutputLock)
             {
-                if (!valueStore.TryModifyValueByIndex(outputIndex, current =>
-                {
-                    string actualSource = sourceIndex == outputIndex ? current : sourceValue;
-                    string actualChange = changeIndex == outputIndex ? current : changeValue;
-                    return CalculateOutput(actualSource, actualChange);
-                }, out string modifyError, source))
+                if (!valueStore.TryModifyValueByIndex(
+                        outputIndex,
+                        sourceValue,
+                        changeValue,
+                        sourceIndex == outputIndex,
+                        changeIndex == outputIndex,
+                        binding.Calculate,
+                        out string modifyError,
+                        source))
                 {
                     throw CreateAlarmException(evt, string.IsNullOrWhiteSpace(modifyError) ? "保存变量失败" : modifyError);
                 }
                 return true;
             }
 
-            string output = CalculateOutput(sourceValue, changeValue);
+            string output = binding.Calculate(sourceValue, changeValue);
             if (outputIndex >= 0)
             {
-                if (!valueStore.SetValueByIndexForProcess(outputIndex, output, evt.procId, source))
+                if (!valueStore.SetResolvedValueForProcess(
+                        outputItem, output, evt.procId, source))
                 {
                     string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputIndex}" : outputItem.Name;
                     throw CreateAlarmException(evt, $"保存变量失败:{outputName}");

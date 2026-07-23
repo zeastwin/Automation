@@ -605,19 +605,30 @@ namespace Automation
             private void MappingLoop(CancellationToken token)
             {
                 uint cycle = 0;
+                var dueMaps = new List<MapState>(mapStates.Count);
+                var readMaps = new List<PlcMapConfig>(mapStates.Count);
                 try
                 {
                     while (!token.IsCancellationRequested)
                     {
                         Stopwatch watch = Stopwatch.StartNew();
-                        List<MapState> dueMaps = mapStates.Values.Where(mapState =>
-                            mapState.Config.Enabled
-                            && mapState.State != PlcMapRuntimeState.Conflict
-                            && mapState.State != PlcMapRuntimeState.Faulted
-                            && IsDue(mapState.Config.Priority, cycle)).ToList();
-                        List<PlcMapConfig> readMaps = dueMaps
-                            .Where(item => item.Config.Direction != PlcMapDirection.WriteToPlc)
-                            .Select(item => item.Config).ToList();
+                        dueMaps.Clear();
+                        readMaps.Clear();
+                        foreach (MapState mapState in mapStates.Values)
+                        {
+                            if (!mapState.Config.Enabled
+                                || mapState.State == PlcMapRuntimeState.Conflict
+                                || mapState.State == PlcMapRuntimeState.Faulted
+                                || !IsDue(mapState.Config.Priority, cycle))
+                            {
+                                continue;
+                            }
+                            dueMaps.Add(mapState);
+                            if (mapState.Config.Direction != PlcMapDirection.WriteToPlc)
+                            {
+                                readMaps.Add(mapState.Config);
+                            }
+                        }
                         if (!ReadBatchAdapter(readMaps,
                             out IReadOnlyDictionary<string, object[]> batchValues, out string batchError))
                         {

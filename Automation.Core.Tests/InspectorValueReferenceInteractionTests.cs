@@ -62,6 +62,13 @@ namespace Automation.Core.Tests
                         "inspectorView");
                     Panel actionBar = GetPrivateField<Panel>(form, "actionBar");
                     Panel header = GetPrivateField<Panel>(form, "header");
+                    Label operationTypeLabel = GetPrivateField<Label>(
+                        form,
+                        "operationTypeLabel");
+                    InspectorIconButton operationTypeButton =
+                        GetPrivateField<InspectorIconButton>(
+                            form,
+                            "operationTypeButton");
                     var operation = new ModifyValue();
                     inspectorView.SetObject(operation, true);
                     typeof(FrmInspector).GetMethod(
@@ -75,6 +82,10 @@ namespace Automation.Core.Tests
                     Assert.AreEqual(header.Bottom, inspectorView.Top,
                         "Inspector 内容应排列在指令类型之后。");
                     Assert.AreEqual(form.ClientSize.Height, inspectorView.Bottom);
+                    Assert.AreEqual(
+                        operationTypeLabel.Right + 8,
+                        operationTypeButton.Left,
+                        "指令类型选择框应与属性值列的起始线对齐。");
                 }
             }, TimeSpan.FromSeconds(10));
         }

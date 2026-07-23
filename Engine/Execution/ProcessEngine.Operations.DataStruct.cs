@@ -80,6 +80,27 @@ namespace Automation
                 setDataStructItem.ItemIndex,
                 setDataStructItem.ItemName,
                 "设置数据结构失败:");
+            if (setDataStructItem.Params.Count == 1)
+            {
+                SetDataStructItemParam parameter = setDataStructItem.Params[0];
+                if (parameter == null)
+                {
+                    throw CreateAlarmException(evt, "设置数据结构失败:参数0为空");
+                }
+                int fieldIndex = ResolveDataStructFieldIndex(
+                    evt, structIndex, itemIndex,
+                    setDataStructItem.UseNameAddressing,
+                    parameter.FieldIndex,
+                    parameter.FieldName,
+                    "设置数据结构失败:");
+                if (!GetDataStructStore(evt).TrySetItemValueByIndex(
+                        structIndex, itemIndex, fieldIndex, parameter.Value))
+                {
+                    throw CreateAlarmException(evt,
+                        $"设置数据结构失败:结构{structIndex},项{itemIndex},字段不存在、类型不匹配或值无效:{fieldIndex}");
+                }
+                return true;
+            }
             var updates = new List<DataStructFieldValueUpdate>();
             for (int i = 0; i < setDataStructItem.Params.Count; i++)
             {
@@ -120,6 +141,26 @@ namespace Automation
                 MarkAlarm(evt, "数据结构读取参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            GetDataStructRuntimeBinding binding =
+                getDataStructItem.RuntimeBinding as GetDataStructRuntimeBinding;
+            string bindError = null;
+            if (binding == null
+                && !(evt?.Proc != null
+                    ? ProcessRuntimeBinder.TryBind(
+                        evt.Proc, evt.procNum, valueStore, out bindError)
+                    : ProcessRuntimeBinder.TryBindStandalone(
+                        evt?.procId ?? Guid.Empty,
+                        valueStore, getDataStructItem, out bindError)))
+            {
+                throw CreateAlarmException(
+                    evt, bindError ?? "数据结构读取运行计划未编译");
+            }
+            binding = binding
+                ?? getDataStructItem.RuntimeBinding as GetDataStructRuntimeBinding;
+            if (binding == null)
+            {
+                throw CreateAlarmException(evt, "数据结构读取运行计划未编译");
+            }
             string source = evt?.GetOperationSource();
             DataStructStore dataStructStore = GetDataStructStore(evt);
             int structIndex = ResolveDataStructIndex(evt,
@@ -134,11 +175,12 @@ namespace Automation
                 "读取数据结构失败:");
             if (getDataStructItem.IsAllItem)
             {
-                if (!valueStore.TryGetValueByNameForProcess(
-                        getDataStructItem.FirstResultVariableName, evt.procId, out DicValue firstResult))
+                if (!binding.FirstOutput.TryResolveValue(
+                        valueStore, "首个结果变量", evt.procId,
+                        out DicValue firstResult, out string firstResultError))
                 {
                     throw CreateAlarmException(evt,
-                        $"首个结果变量不存在或当前流程无权访问:{getDataStructItem.FirstResultVariableName}");
+                        firstResultError);
                 }
                 List<int> fieldIndexes = dataStructStore.GetItemValueIndexes(structIndex, itemIndex);
                 if (!dataStructStore.TryGetItemValuesByIndex(
@@ -175,8 +217,52 @@ namespace Automation
                     MarkAlarm(evt, "数据结构读取参数为空");
                     throw CreateAlarmException(evt, evt?.alarmMsg);
                 }
+                if (getDataStructItem.Params.Count == 1)
+                {
+                    GetDataStructItemParam parameter = getDataStructItem.Params[0];
+                    if (parameter == null)
+                    {
+                        throw CreateAlarmException(evt, "读取数据结构失败:参数0为空");
+                    }
+                    int fieldIndex = ResolveDataStructFieldIndex(
+                        evt, structIndex, itemIndex,
+                        getDataStructItem.UseNameAddressing,
+                        parameter.FieldIndex,
+                        parameter.FieldName,
+                        "读取数据结构失败:");
+                    if (binding.Outputs.Length != 1)
+                    {
+                        throw CreateAlarmException(
+                            evt, "数据结构读取运行计划未编译");
+                    }
+                    if (!binding.Outputs[0].TryResolveValue(
+                            valueStore, "结果变量", evt.procId,
+                            out DicValue outputItem, out string outputResolveError))
+                    {
+                        throw CreateAlarmException(evt, outputResolveError);
+                    }
+                    if (!dataStructStore.TryGetItemValueByIndex(
+                            structIndex, itemIndex, fieldIndex, out object outputValue))
+                    {
+                        throw CreateAlarmException(evt,
+                            $"读取数据结构失败:结构{structIndex},项{itemIndex},字段{fieldIndex}");
+                    }
+                    if (!valueStore.SetResolvedValueForProcess(
+                            outputItem, outputValue, evt.procId, source))
+                    {
+                        string outputName = string.IsNullOrWhiteSpace(outputItem.Name)
+                            ? $"索引{outputItem.Index}"
+                            : outputItem.Name;
+                        throw CreateAlarmException(evt, $"保存变量失败:{outputName}");
+                    }
+                    return true;
+                }
                 var outputItems = new List<DicValue>();
                 var fieldIndexes = new List<int>();
+                if (binding.Outputs.Length != getDataStructItem.Params.Count)
+                {
+                    throw CreateAlarmException(evt, "数据结构读取运行计划未编译");
+                }
                 for (int i = 0; i < getDataStructItem.Params.Count; i++)
                 {
                     GetDataStructItemParam parameter = getDataStructItem.Params[i];
@@ -189,13 +275,9 @@ namespace Automation
                         parameter.FieldIndex,
                         parameter.FieldName,
                         "读取数据结构失败:");
-                    if (!ValueRef.TryCreate(parameter.OutputValueIndex, null,
-                            parameter.OutputValueName, null, false, "结果变量",
-                            out ValueRef outputRef, out string outputError))
-                    {
-                        throw CreateAlarmException(evt, outputError);
-                    }
-                    if (!outputRef.TryResolveValue(valueStore, "结果变量", evt.procId, out DicValue outputItem, out string outputResolveError))
+                    if (!binding.Outputs[i].TryResolveValue(
+                            valueStore, "结果变量", evt.procId,
+                            out DicValue outputItem, out string outputResolveError))
                     {
                         throw CreateAlarmException(evt, outputResolveError);
                     }
@@ -212,8 +294,8 @@ namespace Automation
                 }
                 for (int i = 0; i < outputValues.Count; i++)
                 {
-                    if (!valueStore.SetValueByIndexForProcess(
-                            outputItems[i].Index, outputValues[i].Value, evt.procId, source))
+                    if (!valueStore.SetResolvedValueForProcess(
+                            outputItems[i], outputValues[i].Value, evt.procId, source))
                     {
                         string outputName = string.IsNullOrWhiteSpace(outputItems[i].Name)
                             ? $"索引{outputItems[i].Index}"
