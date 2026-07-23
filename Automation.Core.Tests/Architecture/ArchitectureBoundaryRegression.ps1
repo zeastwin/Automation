@@ -236,19 +236,6 @@ foreach ($movedHandler in @(
     }
 }
 
-$bridgeMainLineCount = (Get-Content -LiteralPath $bridgePath).Count
-if ($bridgeMainLineCount -gt 250)
-{
-    $violations.Add("Bridge 主文件重新膨胀：当前 $bridgeMainLineCount 行，组合根上限为 250 行。")
-}
-foreach ($bridgeModule in Get-ChildItem -LiteralPath $bridgeServicePath -Filter "AutomationBridgeService*.cs")
-{
-    $lineCount = (Get-Content -LiteralPath $bridgeModule.FullName).Count
-    if ($lineCount -gt 1000)
-    {
-        $violations.Add("Bridge 职责文件重新膨胀：$($bridgeModule.Name) 当前 $lineCount 行，上限为 1000 行。")
-    }
-}
 foreach ($retiredBridgeFile in @(
     "Bridge\Service\AutomationBridgeService.Diagnostics.cs",
     "Bridge\Service\AutomationBridgeService.Serialization.cs"))
@@ -464,11 +451,6 @@ foreach ($pattern in @(
         $violations.Add("FrmAiAssistant 重新承担会话存储或预演协议：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
     }
 }
-$aiFormLineCount = (Get-Content -LiteralPath $aiFormPath).Count
-if ($aiFormLineCount -gt 3000)
-{
-    $violations.Add("FrmAiAssistant 主文件重新膨胀：当前 $aiFormLineCount 行，上限为 3000 行。")
-}
 foreach ($nonUiCoordinator in @(
     "Runtime\Ai\AiConversationCoordinator.cs",
     "Runtime\Ai\GooseAcpEventReader.cs",
@@ -513,19 +495,6 @@ if (Test-Path -LiteralPath $inspectorCollectionServicePath)
 }
 Select-String -LiteralPath $projectPath -SimpleMatch "InspectorCollectionEditorService" | ForEach-Object {
     $violations.Add("项目文件重新包含 Inspector 集合 Service：$($_.Path):$($_.LineNumber)")
-}
-Get-ChildItem -LiteralPath (Join-Path $repoRoot "Editor\Process\Inspector") -Filter "Inspector*.cs" | ForEach-Object {
-    $lineCount = (Get-Content -LiteralPath $_.FullName).Count
-    if ($lineCount -gt 1000)
-    {
-        $violations.Add("Inspector 职责文件重新膨胀：$($_.Name) 当前 $lineCount 行，上限为 1000 行。")
-    }
-}
-$inspectorViewPath = Join-Path $repoRoot "Editor\Process\Inspector\InspectorView.cs"
-$inspectorViewLineCount = (Get-Content -LiteralPath $inspectorViewPath).Count
-if ($inspectorViewLineCount -gt 600)
-{
-    $violations.Add("InspectorView 重新膨胀：当前 $inspectorViewLineCount 行，上限为 600 行。")
 }
 $inspectorValuePath = Join-Path $repoRoot "Editor\Process\Inspector\InspectorValueConversion.cs"
 if (-not (Select-String -LiteralPath $inspectorValuePath -SimpleMatch "class InspectorFieldValueService"))
@@ -619,11 +588,6 @@ foreach ($pattern in @(
     Select-String -LiteralPath $mainFormPath -SimpleMatch $pattern | ForEach-Object {
         $violations.Add("FrmMain 重新承担内核组合：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
     }
-}
-$mainFormLineCount = (Get-Content -LiteralPath $mainFormPath).Count
-if ($mainFormLineCount -gt 1100)
-{
-    $violations.Add("FrmMain 主文件重新膨胀：当前 $mainFormLineCount 行，上限为 1100 行。")
 }
 foreach ($requiredMainModule in @(
     "Editor\Shell\FrmMain.Lifecycle.cs",

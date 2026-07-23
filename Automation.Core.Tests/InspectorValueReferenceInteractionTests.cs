@@ -2,6 +2,7 @@
 // 职责范围：验证变量引用方式切换与下拉字体不会被刷新逻辑破坏。
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
@@ -15,6 +16,309 @@ namespace Automation.Core.Tests
     [DoNotParallelize]
     public sealed class InspectorValueReferenceInteractionTests
     {
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void EditableComboBox_AllowsFullMouseSelection()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var comboBox = new InspectorComboBox
+                {
+                    DropDownStyle = ComboBoxStyle.DropDown,
+                    Text = "从右向左完整选择",
+                    Size = new Size(240, 28)
+                })
+                using (var form = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000)
+                })
+                {
+                    form.Controls.Add(comboBox);
+                    form.Show();
+                    comboBox.Focus();
+                    comboBox.SelectionStart = 0;
+                    comboBox.SelectionLength = comboBox.Text.Length;
+
+                    InvokeProtected(
+                        comboBox,
+                        "OnMouseUp",
+                        new MouseEventArgs(MouseButtons.Left, 1, 4, 12, 0));
+
+                    Assert.AreEqual(comboBox.Text.Length, comboBox.SelectionLength,
+                        "鼠标完成整段选择后不得擅自清除选区。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ModifyValue_CombinesAlternativesAndFragmentedSections()
+        {
+            var operation = new ModifyValue
+            {
+                ChangeValue = "1"
+            };
+
+            InspectorDocument document = InspectorDefinitionBuilder.Build(operation);
+            InspectorSectionDefinition parameterSection = document.Sections.Single(section =>
+                section.Key == "参数");
+            Assert.IsFalse(document.Sections.Any(section =>
+                section.Key == "源变量"
+                || section.Key == "修改参数"
+                || section.Key == "保存参数"));
+
+            InspectorValueReferenceFieldDefinition changeValue =
+                parameterSection.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Single(field => field.Label == "修改值");
+            CollectionAssert.Contains(
+                changeValue.AvailableKinds.ToList(),
+                InspectorValueReferenceKind.Fixed);
+            CollectionAssert.Contains(
+                changeValue.AvailableKinds.ToList(),
+                InspectorValueReferenceKind.Name);
+            Assert.AreEqual(
+                InspectorValueReferenceKind.Fixed,
+                changeValue.GetCurrentKind());
+
+            changeValue.SetValue(InspectorValueReferenceKind.Name, "计数");
+            Assert.IsNull(operation.ChangeValue);
+            Assert.AreEqual("计数", operation.ChangeValueName);
+            Assert.AreEqual(
+                InspectorValueReferenceKind.Name,
+                changeValue.GetCurrentKind());
+
+            changeValue.SetValue(InspectorValueReferenceKind.Fixed, "2");
+            Assert.AreEqual("2", operation.ChangeValue);
+            Assert.IsNull(operation.ChangeValueName);
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void OtherAlternativeSources_UseSameCompactPresentation()
+        {
+            InspectorDocument replaceDocument =
+                InspectorDefinitionBuilder.Build(new Replace());
+            InspectorSectionDefinition replaceParameters =
+                replaceDocument.Sections.Single(section => section.Key == "参数");
+            Assert.AreEqual(
+                1,
+                replaceParameters.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.Label == "被替换字符串"));
+            Assert.AreEqual(
+                1,
+                replaceParameters.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.Label == "新字符串"));
+
+            InspectorDocument trayDocument =
+                InspectorDefinitionBuilder.Build(new TrayRunPos());
+            InspectorSectionDefinition trayParameters =
+                trayDocument.Sections.Single(section => section.Key == "参数");
+            Assert.IsFalse(trayDocument.Sections.Any(section =>
+                section.Key.Contains("固定值")
+                || section.Key.Contains("变量读取")));
+            Assert.AreEqual(
+                2,
+                trayParameters.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.AvailableKinds.Contains(
+                        InspectorValueReferenceKind.Fixed)));
+
+            InspectorDocument speedDocument =
+                InspectorDefinitionBuilder.Build(new SetStationVel());
+            InspectorSectionDefinition speedSection =
+                speedDocument.Sections.Single(section => section.Key == "速度设置");
+            Assert.AreEqual(
+                3,
+                speedSection.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.AvailableKinds.Contains(
+                        InspectorValueReferenceKind.Fixed)));
+
+            var gotoFields =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    new GotoParam(),
+                    "Params[0]");
+            Assert.AreEqual(
+                1,
+                gotoFields.OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.Label == "匹配值"));
+
+            var insertFields =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    new InsertDataStructItemParam(),
+                    "Params[0]");
+            Assert.AreEqual(
+                1,
+                insertFields.OfType<InspectorValueReferenceFieldDefinition>()
+                    .Count(field => field.Label == "数据来源"));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void SetDataStructItem_UsesCascadingNameFirstLayoutAndFullValueSources()
+        {
+            var runtime = new PlatformRuntime();
+            Assert.IsTrue(
+                runtime.Stores.DataStructures.AddStruct("产品结构", out string error),
+                error);
+            Assert.IsTrue(
+                runtime.Stores.DataStructures.CreateItem(
+                    0, "当前产品", 0, out int itemIndex, out error),
+                error);
+            Assert.IsTrue(
+                runtime.Stores.DataStructures.AddField(
+                    0,
+                    itemIndex,
+                    "计数",
+                    DataStructValueType.Number,
+                    "0",
+                    0,
+                    out _,
+                    out error),
+                error);
+
+            var operation = new SetDataStructItem();
+            EditorServiceRegistry.AttachGraph(operation, runtime);
+            InspectorDocument initial = InspectorDefinitionBuilder.Build(operation);
+            InspectorSectionDefinition initialParameters =
+                initial.Sections.Single(section => section.Key == "参数");
+            Assert.AreEqual(2, initialParameters.Fields.Count);
+            Assert.AreEqual("结构体", initialParameters.Fields[0].Label);
+            Assert.AreEqual("数据项", initialParameters.Fields[1].Label);
+            Assert.IsFalse(initialParameters.Fields
+                .OfType<InspectorCollectionFieldDefinition>().Any(),
+                "目标结构体和数据项尚未确定时，不应先展示字段写入配置。");
+
+            foreach (InspectorValueReferenceFieldDefinition address
+                in initialParameters.Fields
+                    .OfType<InspectorValueReferenceFieldDefinition>())
+            {
+                Assert.AreEqual(
+                    InspectorValueReferenceKind.Name,
+                    address.GetDefaultKind(),
+                    "结构体和数据项地址应默认使用名称。");
+            }
+
+            operation.StructName = "产品结构";
+            operation.ItemName = "当前产品";
+            InspectorDocument configured =
+                InspectorDefinitionBuilder.Build(operation);
+            InspectorSectionDefinition configuredParameters =
+                configured.Sections.Single(section => section.Key == "参数");
+            Assert.IsInstanceOfType(
+                configuredParameters.Fields[0],
+                typeof(InspectorValueReferenceFieldDefinition));
+            Assert.IsInstanceOfType(
+                configuredParameters.Fields[1],
+                typeof(InspectorValueReferenceFieldDefinition));
+            Assert.IsInstanceOfType(
+                configuredParameters.Fields[2],
+                typeof(InspectorCollectionFieldDefinition));
+
+            SetDataStructItemParam parameter = operation.Params[0];
+            IReadOnlyList<InspectorFieldDefinition> itemFields =
+                InspectorDefinitionBuilder.BuildItemFields(
+                    parameter,
+                    "Params[0]");
+            InspectorValueReferenceFieldDefinition fieldAddress =
+                itemFields.OfType<InspectorValueReferenceFieldDefinition>()
+                    .Single(field => field.Label == "字段");
+            Assert.AreEqual(
+                InspectorValueReferenceKind.Name,
+                fieldAddress.GetDefaultKind());
+            InspectorValueReferenceFieldDefinition writeValue =
+                itemFields.OfType<InspectorValueReferenceFieldDefinition>()
+                    .Single(field => field.Label == "写入值");
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    InspectorValueReferenceKind.Fixed,
+                    InspectorValueReferenceKind.Name,
+                    InspectorValueReferenceKind.Name2,
+                    InspectorValueReferenceKind.Index,
+                    InspectorValueReferenceKind.Index2
+                },
+                writeValue.AvailableKinds.ToArray());
+
+            PropertyDescriptor itemNameProperty =
+                TypeDescriptor.GetProperties(operation)[
+                    nameof(SetDataStructItem.ItemName)];
+            CollectionAssert.Contains(
+                InspectorValueConversion.GetStandardValues(
+                    operation,
+                    itemNameProperty)
+                    .Select(option => option.Text)
+                    .ToList(),
+                "当前产品");
+            PropertyDescriptor fieldNameProperty =
+                TypeDescriptor.GetProperties(parameter)[
+                    nameof(SetDataStructItemParam.FieldName)];
+            CollectionAssert.Contains(
+                InspectorValueConversion.GetStandardValues(
+                    parameter,
+                    fieldNameProperty)
+                    .Select(option => option.Text)
+                    .ToList(),
+                "计数");
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void EditableTextField_UsesRealTextBoxForEntireEditSession()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var operation = new ModifyValue { ChangeValue = "12345" };
+                var definition = new InspectorScalarFieldDefinition
+                {
+                    Label = "修改值",
+                    Owner = operation,
+                    Property = TypeDescriptor.GetProperties(operation)[
+                        nameof(ModifyValue.ChangeValue)]
+                };
+
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorScalarFieldControl(
+                    definition,
+                    true,
+                    toolTip))
+                using (var form = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(360, 80)
+                })
+                {
+                    control.Dock = DockStyle.Top;
+                    form.Controls.Add(control);
+                    form.Show();
+                    Application.DoEvents();
+
+                    InspectorTextBox editor =
+                        GetPrivateField<InspectorTextBox>(control, "editor");
+                    InspectorValueCell displayCell =
+                        GetPrivateField<InspectorValueCell>(control, "displayCell");
+
+                    Assert.IsTrue(editor.Visible,
+                        "进入编辑态后应全程显示真实文本框。");
+                    Assert.IsFalse(displayCell.Visible,
+                        "编辑态不应再用展示层覆盖真实文本框。");
+
+                    editor.Text = "123456";
+                    InvokeProtected(editor, "OnValidated");
+                    Assert.IsTrue(editor.Visible,
+                        "字段提交后仍处于编辑会话时应保持真实文本框。");
+                    Assert.IsFalse(displayCell.Visible);
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
         [TestMethod]
         [TestCategory("Desktop")]
         public void InspectorHeader_UsesBorderlessLabelAndWhiteContentCanvas()
@@ -92,7 +396,7 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
-        public void SelectingSecondLevelIndex_KeepsFullSelectionAndUsesRegularOptionFont()
+        public void SelectingSecondLevelReference_KeepsUserChoiceAcrossCancelAndRefresh()
         {
             StaTestRunner.Run(() =>
             {
@@ -103,6 +407,7 @@ namespace Automation.Core.Tests
                 PropertyDescriptorCollection properties = TypeDescriptor.GetProperties(owner);
                 var definition = new InspectorValueReferenceFieldDefinition
                 {
+                    Key = "ValueSource.reference",
                     Label = "源变量",
                     Owner = owner
                 };
@@ -137,22 +442,61 @@ namespace Automation.Core.Tests
                     form.Show();
                     Application.DoEvents();
 
+                    int changeNotifications = 0;
+                    control.FieldValueChanged += (sender, args) => changeNotifications++;
                     InspectorComboBox kind = GetPrivateField<InspectorComboBox>(control, "kind");
                     InspectorValueCell kindDisplay = GetPrivateField<InspectorValueCell>(
                         control,
                         "kindDisplay");
-                    object indexItem = kind.Items.Cast<object>()
-                        .Single(item => item.ToString() == "索引二级");
-                    kind.SelectedItem = indexItem;
+                    object secondLevelItem = kind.Items.Cast<object>()
+                        .Single(item => item.ToString() == "变量二级");
+                    kind.SelectedItem = secondLevelItem;
                     InvokeProtected(kind, "OnSelectionChangeCommitted");
 
-                    Assert.AreEqual("索引二级", kindDisplay.DisplayText);
+                    Assert.AreEqual("变量二级", kindDisplay.DisplayText);
                     InvokeProtected(kind, "OnDropDownClosed");
                     Application.DoEvents();
 
-                    Assert.AreEqual("索引二级", kindDisplay.DisplayText,
-                        "空二级索引尚未填写时，下拉关闭不应把引用方式刷新回变量。");
+                    Assert.AreEqual("变量二级", kindDisplay.DisplayText,
+                        "二级变量尚未填写时，下拉关闭不应把引用方式刷新回变量。");
                     Assert.IsNull(owner.ValueSourceName);
+                    Assert.AreEqual(1, changeNotifications,
+                        "切换引用方式清空旧值时必须记录为明确的编辑变更。");
+
+                    typeof(InspectorValueReferenceFieldControl).GetMethod(
+                        "DeactivateEditors",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?.Invoke(control, new object[] { true });
+                    Assert.AreEqual("变量二级", kindDisplay.DisplayText,
+                        "关闭变量选择器后应保留用户选择的引用方式。");
+
+                    var reboundDefinition = new InspectorValueReferenceFieldDefinition
+                    {
+                        Key = "ValueSource.reference",
+                        Label = "源变量",
+                        Owner = owner
+                    };
+                    reboundDefinition.Add(
+                        InspectorValueReferenceKind.Name,
+                        properties[nameof(ModifyValue.ValueSourceName)]);
+                    reboundDefinition.Add(
+                        InspectorValueReferenceKind.Name2,
+                        properties[nameof(ModifyValue.ValueSourceName2Index)]);
+                    reboundDefinition.Add(
+                        InspectorValueReferenceKind.Index,
+                        properties[nameof(ModifyValue.ValueSourceIndex)]);
+                    reboundDefinition.Add(
+                        InspectorValueReferenceKind.Index2,
+                        properties[nameof(ModifyValue.ValueSourceIndex2Index)]);
+                    control.Rebind(reboundDefinition, true);
+                    Assert.AreEqual("变量二级", kindDisplay.DisplayText,
+                        "同一草稿刷新后应继续保留尚未填写的引用方式。");
+
+                    owner.ValueSourceName = "撤销恢复变量";
+                    control.RefreshValue();
+                    Assert.AreEqual("变量", kindDisplay.DisplayText,
+                        "撤销或外部刷新恢复真实值后，应以恢复后的模型事实为准。");
+
                     AssertFontEquals(
                         InspectorFonts.Bold95,
                         kind.Font,

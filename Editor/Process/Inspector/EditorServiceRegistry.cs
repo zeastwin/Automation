@@ -25,6 +25,16 @@ namespace Automation
             public PlatformRuntime Runtime { get; }
         }
 
+        private sealed class ParentHolder
+        {
+            public ParentHolder(object parent)
+            {
+                Parent = parent;
+            }
+
+            public object Parent { get; }
+        }
+
         private sealed class ReferenceComparer : IEqualityComparer<object>
         {
             public static readonly ReferenceComparer Instance = new ReferenceComparer();
@@ -42,6 +52,8 @@ namespace Automation
 
         private static readonly ConditionalWeakTable<object, RuntimeHolder> runtimes =
             new ConditionalWeakTable<object, RuntimeHolder>();
+        private static readonly ConditionalWeakTable<object, ParentHolder> parents =
+            new ConditionalWeakTable<object, ParentHolder>();
 
         public static void AttachGraph(object root, PlatformRuntime runtime)
         {
@@ -49,7 +61,12 @@ namespace Automation
             {
                 return;
             }
-            AttachRecursive(root, runtime, new HashSet<object>(ReferenceComparer.Instance), 0);
+            AttachRecursive(
+                root,
+                null,
+                runtime,
+                new HashSet<object>(ReferenceComparer.Instance),
+                0);
         }
 
         public static PlatformRuntime GetRuntime(object instance)
@@ -67,7 +84,24 @@ namespace Automation
                 : null;
         }
 
-        private static void AttachRecursive(object value, PlatformRuntime runtime,
+        public static T GetAncestor<T>(object instance) where T : class
+        {
+            object current = instance;
+            var visited = new HashSet<object>(ReferenceComparer.Instance);
+            while (current != null && visited.Add(current))
+            {
+                if (current is T match)
+                {
+                    return match;
+                }
+                current = parents.TryGetValue(current, out ParentHolder holder)
+                    ? holder.Parent
+                    : null;
+            }
+            return null;
+        }
+
+        private static void AttachRecursive(object value, object parent, PlatformRuntime runtime,
             HashSet<object> visited, int depth)
         {
             if (value == null || depth > 10 || value is string || value is Delegate)
@@ -81,12 +115,17 @@ namespace Automation
             }
             runtimes.Remove(value);
             runtimes.Add(value, new RuntimeHolder(runtime));
+            parents.Remove(value);
+            if (parent != null)
+            {
+                parents.Add(value, new ParentHolder(parent));
+            }
 
             if (value is IEnumerable enumerable)
             {
                 foreach (object item in enumerable)
                 {
-                    AttachRecursive(item, runtime, visited, depth + 1);
+                    AttachRecursive(item, value, runtime, visited, depth + 1);
                 }
                 return;
             }
@@ -102,7 +141,12 @@ namespace Automation
                 }
                 try
                 {
-                    AttachRecursive(property.GetValue(value), runtime, visited, depth + 1);
+                    AttachRecursive(
+                        property.GetValue(value),
+                        value,
+                        runtime,
+                        visited,
+                        depth + 1);
                 }
                 catch
                 {

@@ -149,15 +149,6 @@ namespace Automation
             ClearTextSelection();
         }
 
-        protected override void OnMouseUp(MouseEventArgs e)
-        {
-            base.OnMouseUp(e);
-            if (SelectionLength == (Text?.Length ?? 0))
-            {
-                ClearTextSelection();
-            }
-        }
-
         protected override void OnEnabledChanged(EventArgs e)
         {
             if (!Enabled)

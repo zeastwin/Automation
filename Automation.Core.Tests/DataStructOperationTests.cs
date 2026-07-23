@@ -26,16 +26,12 @@ namespace Automation.Core.Tests
             {
                 var setByName = new SetDataStructItem
                 {
-                    UseNameAddressing = true,
-                    StructIndex = 99,
-                    ItemIndex = 99,
                     StructName = "测试结构",
                     ItemName = "测试项",
                     Params = new OperationTypePartial.CustomList<SetDataStructItemParam>
                     {
                         new SetDataStructItemParam
                         {
-                            FieldIndex = 99,
                             FieldName = "字段二",
                             Value = "8.5"
                         }
@@ -47,9 +43,6 @@ namespace Automation.Core.Tests
 
                 var setByIndex = new SetDataStructItem
                 {
-                    UseNameAddressing = false,
-                    StructName = "不存在的结构",
-                    ItemName = "不存在的数据项",
                     StructIndex = 0,
                     ItemIndex = 0,
                     Params = new OperationTypePartial.CustomList<SetDataStructItemParam>
@@ -57,7 +50,6 @@ namespace Automation.Core.Tests
                         new SetDataStructItemParam
                         {
                             FieldIndex = 0,
-                            FieldName = "不存在的字段",
                             Value = "3.25"
                         }
                     }
@@ -75,6 +67,82 @@ namespace Automation.Core.Tests
                 Assert.IsTrue(engine.RunGetDataStructItem(new ProcHandle(), getAll));
                 Assert.AreEqual(3.25, values.get_D_ValueByIndex(10), 0.000001);
                 Assert.AreEqual(8.5, values.get_D_ValueByIndex(11), 0.000001);
+            }
+        }
+
+        [TestMethod]
+        public void Set_WriteValueSupportsAllVariableReferenceKinds()
+        {
+            PlatformRuntime runtime = CreateRuntimeWithSparseStruct();
+            DataStructStore store = runtime.Stores.DataStructures;
+            ValueConfigStore values = runtime.Stores.Values;
+            Assert.IsTrue(values.TrySetValue(
+                30, "写入源", "double", "7.25", string.Empty));
+            Assert.IsTrue(values.TrySetValue(
+                31, "写入指针", "double", "30", string.Empty));
+
+            using (var engine = CreateEngine(store, values))
+            {
+                void Run(SetDataStructItemParam parameter)
+                {
+                    parameter.FieldName = "字段零";
+                    var operation = new SetDataStructItem
+                    {
+                        StructName = "测试结构",
+                        ItemName = "测试项",
+                        Params = new OperationTypePartial.CustomList<SetDataStructItemParam>
+                        {
+                            parameter
+                        }
+                    };
+                    Assert.IsTrue(engine.RunSetDataStructItem(
+                        new ProcHandle(), operation));
+                    Assert.IsTrue(store.TryGetItemValueByIndex(
+                        0, 0, 0, out object actual));
+                    Assert.AreEqual(7.25, (double)actual, 0.000001);
+                }
+
+                Run(new SetDataStructItemParam { ValueName = "写入源" });
+                Run(new SetDataStructItemParam { ValueIndex = "30" });
+                Run(new SetDataStructItemParam { ValueName2Index = "写入指针" });
+                Run(new SetDataStructItemParam { ValueIndex2Index = "31" });
+            }
+        }
+
+        [TestMethod]
+        public void Set_WhenLaterVariableSourceIsInvalid_DoesNotPartiallyWrite()
+        {
+            PlatformRuntime runtime = CreateRuntimeWithSparseStruct();
+            DataStructStore store = runtime.Stores.DataStructures;
+            using (var engine = CreateEngine(store, runtime.Stores.Values))
+            {
+                var operation = new SetDataStructItem
+                {
+                    StructName = "测试结构",
+                    ItemName = "测试项",
+                    Params = new OperationTypePartial.CustomList<SetDataStructItemParam>
+                    {
+                        new SetDataStructItemParam
+                        {
+                            FieldName = "字段零",
+                            Value = "100"
+                        },
+                        new SetDataStructItemParam
+                        {
+                            FieldName = "字段二",
+                            ValueName = "不存在的变量"
+                        }
+                    }
+                };
+
+                Assert.ThrowsExactly<InvalidOperationException>(() =>
+                    engine.RunSetDataStructItem(new ProcHandle(), operation));
+                Assert.IsTrue(store.TryGetItemValueByIndex(
+                    0, 0, 0, out object first));
+                Assert.IsTrue(store.TryGetItemValueByIndex(
+                    0, 0, 2, out object second));
+                Assert.AreEqual(1.0, (double)first, 0.000001);
+                Assert.AreEqual(2.0, (double)second, 0.000001);
             }
         }
 
@@ -289,22 +357,38 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void NativeContract_ExposesBothIndexAndNameAddressing()
+        public void NativeContract_ExposesCompactAddressAndWriteValueAlternatives()
         {
             JObject contract = StructuredOperationCompiler.BuildContract("设置结构体数据项");
             var fields = (JObject)contract["fields"];
-            Assert.IsNotNull(fields[nameof(SetDataStructItem.UseNameAddressing)]);
+            Assert.IsNull(fields["UseNameAddressing"]);
             Assert.IsNotNull(fields[nameof(SetDataStructItem.StructIndex)]);
             Assert.IsNotNull(fields[nameof(SetDataStructItem.ItemIndex)]);
             Assert.IsNotNull(fields[nameof(SetDataStructItem.StructName)]);
             Assert.IsNotNull(fields[nameof(SetDataStructItem.ItemName)]);
+            var defaults = new SetDataStructItem();
+            Assert.AreEqual(-1, defaults.StructIndex);
+            Assert.AreEqual(-1, defaults.ItemIndex);
+
+            JObject itemFields =
+                fields[nameof(SetDataStructItem.Params)]?["items"]?["fields"] as JObject;
+            Assert.IsNotNull(itemFields);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.FieldName)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.FieldIndex)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.Value)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.ValueIndex)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.ValueIndex2Index)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.ValueName)]);
+            Assert.IsNotNull(itemFields[nameof(SetDataStructItemParam.ValueName2Index)]);
 
             var behavior = (JObject)contract["behavior"];
             Assert.AreEqual(OperationBehaviorCatalog.ContractVersion,
                 behavior["contractVersion"]?.Value<int>());
             var fieldRules = (JObject)behavior["fieldRules"];
-            Assert.IsNotNull(fieldRules[nameof(SetDataStructItem.StructIndex)]?["requiredWhenForRun"]);
-            Assert.IsNotNull(fieldRules[nameof(SetDataStructItem.StructName)]?["requiredWhenForRun"]);
+            Assert.IsNotNull(fieldRules[nameof(SetDataStructItem.Params)]?["requiredForRun"]);
+            StringAssert.Contains(
+                behavior["constraints"]?.ToString() ?? string.Empty,
+                "ValueName2Index");
         }
 
         private static PlatformRuntime CreateRuntimeWithSparseStruct()

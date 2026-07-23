@@ -75,7 +75,8 @@ namespace Automation
                 OldValue = e.OldValue,
                 NewValue = e.NewValue,
                 Source = e.Source,
-                ChangedAt = e.ChangedAt
+                ChangedAt = e.ChangedAt,
+                Sequence = e.Sequence
             });
         }
 

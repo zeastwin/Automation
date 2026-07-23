@@ -332,16 +332,45 @@ namespace Automation
                 }
             }
 
+            bool SelectAddressMode(
+                string name,
+                int index,
+                string role,
+                out bool useName)
+            {
+                bool hasName = !string.IsNullOrWhiteSpace(name);
+                bool hasIndex = index >= 0;
+                useName = hasName;
+                if (hasName == hasIndex)
+                {
+                    errors.Add(hasName
+                        ? $"{location} 的{role}名称与索引不能同时配置。"
+                        : $"{location} 的{role}尚未配置。");
+                    return false;
+                }
+                return true;
+            }
+
             if (operation is SetDataStructItem set)
             {
-                if (!ResolveStruct(set.UseNameAddressing, set.StructIndex,
+                if (!SelectAddressMode(
+                        set.StructName,
+                        set.StructIndex,
+                        "目标结构体",
+                        out bool useStructName)
+                    || !ResolveStruct(useStructName, set.StructIndex,
                         set.StructName, "目标", out int structIndex)
-                    || !ResolveItem(structIndex, set.UseNameAddressing,
+                    || !SelectAddressMode(
+                        set.ItemName,
+                        set.ItemIndex,
+                        "目标数据项",
+                        out bool useItemName)
+                    || !ResolveItem(structIndex, useItemName,
                         set.ItemIndex, set.ItemName, "目标", out int itemIndex))
                 {
                     return;
                 }
-                if (set.Params == null)
+                if (set.Params == null || set.Params.Count == 0)
                 {
                     errors.Add($"{location} 的数据结构设置参数为空。");
                     return;
@@ -354,8 +383,44 @@ namespace Automation
                         errors.Add($"{location} 的 Params[{i}] 为空。");
                         continue;
                     }
-                    ResolveField(structIndex, itemIndex, set.UseNameAddressing,
-                        parameter.FieldIndex, parameter.FieldName, $"Params[{i}] ");
+                    if (SelectAddressMode(
+                        parameter.FieldName,
+                        parameter.FieldIndex,
+                        $"Params[{i}] 字段",
+                        out bool useFieldName))
+                    {
+                        ResolveField(
+                            structIndex,
+                            itemIndex,
+                            useFieldName,
+                            parameter.FieldIndex,
+                            parameter.FieldName,
+                            $"Params[{i}] ");
+                    }
+                    bool hasLiteral = !string.IsNullOrEmpty(parameter.Value);
+                    bool hasReference = !string.IsNullOrEmpty(parameter.ValueIndex)
+                        || !string.IsNullOrEmpty(parameter.ValueIndex2Index)
+                        || !string.IsNullOrEmpty(parameter.ValueName)
+                        || !string.IsNullOrEmpty(parameter.ValueName2Index);
+                    if (hasLiteral == hasReference)
+                    {
+                        errors.Add(hasLiteral
+                            ? $"{location} 的 Params[{i}] 固定写入值与变量来源不能同时配置。"
+                            : $"{location} 的 Params[{i}] 尚未配置写入值。");
+                    }
+                    else if (hasReference
+                        && !ValueRef.TryCreate(
+                            parameter.ValueIndex,
+                            parameter.ValueIndex2Index,
+                            parameter.ValueName,
+                            parameter.ValueName2Index,
+                            false,
+                            $"Params[{i}] 写入值",
+                            out _,
+                            out string valueError))
+                    {
+                        errors.Add($"{location}：{valueError}。");
+                    }
                 }
                 return;
             }

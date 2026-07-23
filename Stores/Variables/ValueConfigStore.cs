@@ -783,6 +783,7 @@ namespace Automation
             }
             DicValue changedValue = null;
             string oldRuntime = null;
+            long changeSequence = 0;
             lock (valueLock)
             {
                 if (nameIndex.TryGetValue(name, out int existIndex) && existIndex != index)
@@ -820,12 +821,14 @@ namespace Automation
                     if (!string.Equals(oldRuntime, value, StringComparison.Ordinal))
                     {
                         changedValue = currentValue;
+                        changeSequence = currentValue.AdvanceChangeSequenceNoLock();
                     }
                 }
             }
             if (changedValue != null)
             {
-                RaiseValueChanged(changedValue, oldRuntime, value, source);
+                RaiseValueChanged(
+                    changedValue, oldRuntime, value, source, changeSequence);
             }
             return true;
         }
@@ -955,6 +958,7 @@ namespace Automation
             }
             string current;
             string updated;
+            long changeSequence;
             lock (value.SyncRoot)
             {
                 if (string.IsNullOrEmpty(value.Name))
@@ -986,8 +990,9 @@ namespace Automation
                     return false;
                 }
                 value.SetValidatedValue(updated, hasParsedDouble, parsedDouble);
+                changeSequence = value.AdvanceChangeSequenceNoLock();
             }
-            RaiseValueChanged(value, current, updated, source);
+            RaiseValueChanged(value, current, updated, source, changeSequence);
             return true;
         }
 
@@ -1059,6 +1064,7 @@ namespace Automation
             }
             string currentValue = newValue.ToString();
             string current;
+            long changeSequence;
             lock (value.SyncRoot)
             {
                 if (string.IsNullOrEmpty(value.Name))
@@ -1076,12 +1082,19 @@ namespace Automation
                     return false;
                 }
                 value.SetValidatedValue(currentValue, hasParsedDouble, parsedDouble);
+                changeSequence = value.AdvanceChangeSequenceNoLock();
             }
-            RaiseValueChanged(value, current, currentValue, source);
+            RaiseValueChanged(
+                value, current, currentValue, source, changeSequence);
             return true;
         }
 
-        private void RaiseValueChanged(DicValue value, string oldValue, string newValue, string source)
+        private void RaiseValueChanged(
+            DicValue value,
+            string oldValue,
+            string newValue,
+            string source,
+            long changeSequence)
         {
             if (value == null)
             {
@@ -1089,7 +1102,8 @@ namespace Automation
             }
             try
             {
-                DataBreakpointSink?.OnVariableChanged(value, oldValue, newValue, source);
+                DataBreakpointSink?.OnVariableChanged(
+                    value, oldValue, newValue, source, changeSequence);
             }
             catch
             {
@@ -1101,10 +1115,17 @@ namespace Automation
             }
             string resolvedSource = ResolveSource(value.Index, source);
             DateTime time = DateTime.Now;
-            value.LastChangedAt = time;
-            value.LastChangedBy = resolvedSource;
-            value.LastChangedOldValue = oldValue;
-            value.LastChangedNewValue = newValue;
+            lock (value.SyncRoot)
+            {
+                if (changeSequence >= value.LastChangedSequence)
+                {
+                    value.LastChangedSequence = changeSequence;
+                    value.LastChangedAt = time;
+                    value.LastChangedBy = resolvedSource;
+                    value.LastChangedOldValue = oldValue;
+                    value.LastChangedNewValue = newValue;
+                }
+            }
             EventHandler<ValueChangedEventArgs> handler = ValueChanged;
             if (handler == null)
             {
@@ -1122,7 +1143,8 @@ namespace Automation
                     OldValue = oldValue,
                     NewValue = newValue,
                     Source = resolvedSource,
-                    ChangedAt = time
+                    ChangedAt = time,
+                    Sequence = changeSequence
                 });
             }
             catch
@@ -1204,7 +1226,7 @@ namespace Automation
         {
             if (hasParsedDouble)
             {
-                Interlocked.Exchange(
+                Volatile.Write(
                     ref currentDoubleBits, BitConverter.DoubleToInt64Bits(parsedDouble));
                 Volatile.Write(ref hasCurrentDouble, 1);
             }
@@ -1239,6 +1261,20 @@ namespace Automation
         [JsonIgnore]
         public string LastChangedNewValue { get; set; }
 
+        [JsonIgnore]
+        internal long ChangeSequence { get; set; }
+
+        [JsonIgnore]
+        internal long LastChangedSequence { get; set; }
+
+        internal long AdvanceChangeSequenceNoLock()
+        {
+            ChangeSequence = ChangeSequence == long.MaxValue
+                ? 1
+                : ChangeSequence + 1;
+            return ChangeSequence;
+        }
+
         public double GetDValue()
         {
             if (!string.Equals(Type, "double", StringComparison.OrdinalIgnoreCase))
@@ -1247,7 +1283,7 @@ namespace Automation
             }
             if (Volatile.Read(ref hasCurrentDouble) == 1)
             {
-                return BitConverter.Int64BitsToDouble(Interlocked.Read(ref currentDoubleBits));
+                return BitConverter.Int64BitsToDouble(Volatile.Read(ref currentDoubleBits));
             }
             string current = Value;
             if (string.IsNullOrWhiteSpace(current))
@@ -1292,5 +1328,6 @@ namespace Automation
         public string NewValue { get; set; }
         public string Source { get; set; }
         public DateTime ChangedAt { get; set; }
+        public long Sequence { get; set; }
     }
 }

@@ -262,6 +262,12 @@ namespace Automation
         public ValueRef[] Outputs { get; set; } = Array.Empty<ValueRef>();
     }
 
+    internal sealed class SetDataStructRuntimeBinding
+    {
+        public bool[] UsesLiteralValues { get; set; } = Array.Empty<bool>();
+        public ValueRef[] ValueSources { get; set; } = Array.Empty<ValueRef>();
+    }
+
     internal static class ProcessRuntimeBinder
     {
         public static bool TryBind(
@@ -345,6 +351,9 @@ namespace Automation
                     return TryBindSplit(procId, valueStore, split, out error);
                 case Replace replace:
                     return TryBindReplace(procId, valueStore, replace, out error);
+                case SetDataStructItem setDataStructItem:
+                    return TryBindSetDataStructItem(
+                        procId, valueStore, setDataStructItem, out error);
                 case GetDataStructItem getDataStructItem:
                     return TryBindGetDataStructItem(
                         procId, valueStore, getDataStructItem, out error);
@@ -944,6 +953,73 @@ namespace Automation
             }
             binding.Outputs = outputs;
             operation.RuntimeBinding = binding;
+            return true;
+        }
+
+        private static bool TryBindSetDataStructItem(
+            Guid procId,
+            ValueConfigStore valueStore,
+            SetDataStructItem operation,
+            out string error)
+        {
+            error = null;
+            int count = operation.Params?.Count ?? 0;
+            if (count == 0)
+            {
+                error = "数据结构设置参数为空";
+                return false;
+            }
+            var usesLiteralValues = new bool[count];
+            var valueSources = new ValueRef[count];
+            for (int i = 0; i < count; i++)
+            {
+                SetDataStructItemParam item = operation.Params[i];
+                if (item == null)
+                {
+                    error = $"数据结构设置参数{i}为空";
+                    return false;
+                }
+                bool usesLiteral = !string.IsNullOrEmpty(item.Value);
+                bool hasReference = !string.IsNullOrEmpty(item.ValueIndex)
+                    || !string.IsNullOrEmpty(item.ValueIndex2Index)
+                    || !string.IsNullOrEmpty(item.ValueName)
+                    || !string.IsNullOrEmpty(item.ValueName2Index);
+                if (usesLiteral == hasReference)
+                {
+                    error = usesLiteral
+                        ? $"写入值[{i}]配置冲突"
+                        : $"写入值[{i}]不能为空";
+                    return false;
+                }
+                usesLiteralValues[i] = usesLiteral;
+                if (!hasReference)
+                {
+                    continue;
+                }
+                if (!ValueRef.TryCreate(
+                        item.ValueIndex,
+                        item.ValueIndex2Index,
+                        item.ValueName,
+                        item.ValueName2Index,
+                        false,
+                        $"写入值[{i}]",
+                        out valueSources[i],
+                        out error)
+                    || !valueSources[i].TryBindStatic(
+                        valueStore,
+                        procId,
+                        $"写入值[{i}]",
+                        out valueSources[i],
+                        out error))
+                {
+                    return false;
+                }
+            }
+            operation.RuntimeBinding = new SetDataStructRuntimeBinding
+            {
+                UsesLiteralValues = usesLiteralValues,
+                ValueSources = valueSources
+            };
             return true;
         }
     }

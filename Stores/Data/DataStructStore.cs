@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Globalization;
+using System.Threading;
 
 namespace Automation
 {
@@ -31,6 +32,29 @@ namespace Automation
 
     public class DataStructStore
     {
+        private sealed class PreparedFieldWrite
+        {
+            internal DataStructFieldSlot Field { get; set; }
+            internal double Number { get; set; }
+            internal string Text { get; set; }
+        }
+
+        private sealed class FieldLockScope : IDisposable
+        {
+            private readonly IReadOnlyList<DataStructFieldSlot> fields;
+
+            internal FieldLockScope(IEnumerable<DataStructFieldSlot> fields)
+            {
+                this.fields = GetOrderedUniqueFields(fields);
+                EnterFieldLocks(this.fields);
+            }
+
+            public void Dispose()
+            {
+                ExitFieldLocks(fields);
+            }
+        }
+
         private readonly PlatformRuntime runtime;
         private readonly object dataLock = new object();
         private readonly List<DataStruct> dataStructs = new List<DataStruct>();
@@ -243,7 +267,11 @@ namespace Automation
                 }
                 lock (item.SyncRoot)
                 {
-                    clone.dataStructItems.Add(item.Clone());
+                    using (LockRuntimeFields(item))
+                    {
+                        SyncRuntimeValuesToModelNoLock(item);
+                        clone.dataStructItems.Add(item.Clone());
+                    }
                 }
             }
             return clone;
@@ -414,6 +442,95 @@ namespace Automation
             {
                 item.num = new Dictionary<int, double>();
             }
+        }
+
+        private static void PublishRuntimeStateNoLock(DataStructItem item)
+        {
+            var fields = new Dictionary<int, DataStructFieldSlot>();
+            foreach (KeyValuePair<int, DataStructValueType> field in item.FieldTypes)
+            {
+                if (!item.FieldNames.TryGetValue(field.Key, out string name))
+                {
+                    continue;
+                }
+                bool hasValue;
+                double number = 0;
+                string text = null;
+                if (field.Value == DataStructValueType.Number)
+                {
+                    hasValue = item.num.TryGetValue(field.Key, out number);
+                }
+                else
+                {
+                    hasValue = item.str.TryGetValue(field.Key, out text);
+                }
+                fields[field.Key] = new DataStructFieldSlot(
+                    field.Key, name, field.Value, hasValue, number, text);
+            }
+            item.PublishRuntimeState(new DataStructRuntimeState(fields));
+        }
+
+        private static void SyncRuntimeValuesToModelNoLock(DataStructItem item)
+        {
+            DataStructRuntimeState state = item.RuntimeState;
+            if (state == null)
+            {
+                return;
+            }
+            foreach (DataStructFieldSlot field in state.Fields)
+            {
+                if (!field.HasValue)
+                {
+                    item.num.Remove(field.Index);
+                    item.str.Remove(field.Index);
+                    continue;
+                }
+                if (field.ValueType == DataStructValueType.Number)
+                {
+                    item.num[field.Index] = field.ReadNumber();
+                    item.str.Remove(field.Index);
+                }
+                else
+                {
+                    item.str[field.Index] = field.ReadText();
+                    item.num.Remove(field.Index);
+                }
+            }
+        }
+
+        private static List<DataStructFieldSlot> GetOrderedUniqueFields(
+            IEnumerable<DataStructFieldSlot> fields)
+        {
+            return fields
+                .GroupBy(field => field.Index)
+                .Select(group => group.First())
+                .OrderBy(field => field.Index)
+                .ToList();
+        }
+
+        private static void EnterFieldLocks(
+            IReadOnlyList<DataStructFieldSlot> fields)
+        {
+            for (int i = 0; i < fields.Count; i++)
+            {
+                Monitor.Enter(fields[i].SyncRoot);
+            }
+        }
+
+        private static void ExitFieldLocks(
+            IReadOnlyList<DataStructFieldSlot> fields)
+        {
+            for (int i = fields.Count - 1; i >= 0; i--)
+            {
+                Monitor.Exit(fields[i].SyncRoot);
+            }
+        }
+
+        private static FieldLockScope LockRuntimeFields(DataStructItem item)
+        {
+            return new FieldLockScope(
+                item.RuntimeState?.Fields
+                ?? Enumerable.Empty<DataStructFieldSlot>());
         }
 
         public int Count
@@ -589,56 +706,47 @@ namespace Automation
         {
             resolvedIndex = -1;
             error = string.Empty;
+            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem runtimeItem))
+            {
+                error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                return false;
+            }
+            DataStructRuntimeState state = runtimeItem.RuntimeState;
+            if (state == null)
+            {
+                error = $"数据项运行描述不存在:结构{structIndex},项{itemIndex}";
+                return false;
+            }
             if (!useName)
             {
-                if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem runtimeItem))
+                if (!state.TryGetField(configuredIndex, out _))
                 {
-                    error = $"数据项不存在:结构{structIndex},项{itemIndex}";
+                    error = $"字段索引无效:{configuredIndex}";
                     return false;
                 }
-                lock (runtimeItem.SyncRoot)
-                {
-                    if (!runtimeItem.FieldNames.ContainsKey(configuredIndex)
-                        || !runtimeItem.FieldTypes.ContainsKey(configuredIndex))
-                    {
-                        error = $"字段索引无效:{configuredIndex}";
-                        return false;
-                    }
-                    resolvedIndex = configuredIndex;
-                    return true;
-                }
+                resolvedIndex = configuredIndex;
+                return true;
             }
 
-            lock (dataLock)
+            if (string.IsNullOrWhiteSpace(configuredName))
             {
-                if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
-                {
-                    error = $"数据项不存在:结构{structIndex},项{itemIndex}";
-                    return false;
-                }
-                NormalizeItem(item);
-                lock (item.SyncRoot)
-                {
-                    if (string.IsNullOrWhiteSpace(configuredName))
-                    {
-                        error = "字段名称不能为空";
-                        return false;
-                    }
-                    List<int> matches = item.FieldNames
-                        .Where(pair => string.Equals(pair.Value, configuredName, StringComparison.Ordinal))
-                        .Select(pair => pair.Key)
-                        .ToList();
-                    if (matches.Count == 1)
-                    {
-                        resolvedIndex = matches[0];
-                        return true;
-                    }
-                    error = matches.Count == 0
-                        ? $"字段不存在:{configuredName}"
-                        : $"字段名称重复，无法按名称寻址:{configuredName}";
-                    return false;
-                }
+                error = "字段名称不能为空";
+                return false;
             }
+            List<int> matches = state.Fields
+                .Where(field => string.Equals(
+                    field.Name, configuredName, StringComparison.Ordinal))
+                .Select(field => field.Index)
+                .ToList();
+            if (matches.Count == 1)
+            {
+                resolvedIndex = matches[0];
+                return true;
+            }
+            error = matches.Count == 0
+                ? $"字段不存在:{configuredName}"
+                : $"字段名称重复，无法按名称寻址:{configuredName}";
+            return false;
         }
 
         public bool AddStruct(string name, out string error)
@@ -856,49 +964,54 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    HashSet<int> used = new HashSet<int>();
-                    used.UnionWith(item.FieldNames.Keys);
-                    used.UnionWith(item.FieldTypes.Keys);
-                    used.UnionWith(item.str.Keys);
-                    used.UnionWith(item.num.Keys);
+                    using (LockRuntimeFields(item))
+                    {
+                        SyncRuntimeValuesToModelNoLock(item);
+                        HashSet<int> used = new HashSet<int>();
+                        used.UnionWith(item.FieldNames.Keys);
+                        used.UnionWith(item.FieldTypes.Keys);
+                        used.UnionWith(item.str.Keys);
+                        used.UnionWith(item.num.Keys);
 
-                    if (index < 0)
-                    {
-                        int candidate = 0;
-                        while (used.Contains(candidate))
+                        if (index < 0)
                         {
-                            candidate++;
+                            int candidate = 0;
+                            while (used.Contains(candidate))
+                            {
+                                candidate++;
+                            }
+                            actualIndex = candidate;
                         }
-                        actualIndex = candidate;
-                    }
-                    else
-                    {
-                        if (used.Contains(index))
+                        else
                         {
-                            error = "字段索引已存在";
-                            return false;
+                            if (used.Contains(index))
+                            {
+                                error = "字段索引已存在";
+                                return false;
+                            }
+                            actualIndex = index;
                         }
-                        actualIndex = index;
-                    }
 
-                    if (fieldType == DataStructValueType.Number)
-                    {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
-                            || double.IsNaN(number) || double.IsInfinity(number))
+                        if (fieldType == DataStructValueType.Number)
                         {
-                            error = "数值格式错误";
-                            return false;
+                            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                                || double.IsNaN(number) || double.IsInfinity(number))
+                            {
+                                error = "数值格式错误";
+                                return false;
+                            }
+                            item.num[actualIndex] = number;
+                            item.str.Remove(actualIndex);
                         }
-                        item.num[actualIndex] = number;
-                        item.str.Remove(actualIndex);
+                        else
+                        {
+                            item.str[actualIndex] = value;
+                            item.num.Remove(actualIndex);
+                        }
+                        item.FieldNames[actualIndex] = fieldName.Trim();
+                        item.FieldTypes[actualIndex] = fieldType;
+                        PublishRuntimeStateNoLock(item);
                     }
-                    else
-                    {
-                        item.str[actualIndex] = value;
-                        item.num.Remove(actualIndex);
-                    }
-                    item.FieldNames[actualIndex] = fieldName.Trim();
-                    item.FieldTypes[actualIndex] = fieldType;
                 }
 
                 MarkChangedNoLock();
@@ -925,12 +1038,17 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    if (!item.FieldNames.ContainsKey(fieldIndex))
+                    using (LockRuntimeFields(item))
                     {
-                        error = "字段不存在";
-                        return false;
+                        SyncRuntimeValuesToModelNoLock(item);
+                        if (!item.FieldNames.ContainsKey(fieldIndex))
+                        {
+                            error = "字段不存在";
+                            return false;
+                        }
+                        item.FieldNames[fieldIndex] = newFieldName.Trim();
+                        PublishRuntimeStateNoLock(item);
                     }
-                    item.FieldNames[fieldIndex] = newFieldName.Trim();
                 }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -951,42 +1069,47 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType oldType))
+                    using (LockRuntimeFields(item))
                     {
-                        message = "字段不存在";
-                        return false;
-                    }
-                    if (oldType == newType)
-                    {
-                        return true;
-                    }
-
-                    if (newType == DataStructValueType.Text)
-                    {
-                        if (item.num.TryGetValue(fieldIndex, out double number))
+                        SyncRuntimeValuesToModelNoLock(item);
+                        if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType oldType))
                         {
-                            item.str[fieldIndex] = number.ToString("G17", CultureInfo.InvariantCulture);
-                            item.num.Remove(fieldIndex);
+                            message = "字段不存在";
+                            return false;
                         }
-                    }
-                    else
-                    {
-                        if (item.str.TryGetValue(fieldIndex, out string strValue))
+                        if (oldType == newType)
                         {
-                            if (double.TryParse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                            return true;
+                        }
+
+                        if (newType == DataStructValueType.Text)
+                        {
+                            if (item.num.TryGetValue(fieldIndex, out double number))
                             {
-                                item.num[fieldIndex] = number;
-                            }
-                            else
-                            {
+                                item.str[fieldIndex] = number.ToString("G17", CultureInfo.InvariantCulture);
                                 item.num.Remove(fieldIndex);
-                                message = "文本无法转换为数值，已清空字段值";
                             }
-                            item.str.Remove(fieldIndex);
                         }
-                    }
+                        else
+                        {
+                            if (item.str.TryGetValue(fieldIndex, out string strValue))
+                            {
+                                if (double.TryParse(strValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                                {
+                                    item.num[fieldIndex] = number;
+                                }
+                                else
+                                {
+                                    item.num.Remove(fieldIndex);
+                                    message = "文本无法转换为数值，已清空字段值";
+                                }
+                                item.str.Remove(fieldIndex);
+                            }
+                        }
 
-                    item.FieldTypes[fieldIndex] = newType;
+                        item.FieldTypes[fieldIndex] = newType;
+                        PublishRuntimeStateNoLock(item);
+                    }
                 }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -1012,32 +1135,37 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType existType))
+                    using (LockRuntimeFields(item))
                     {
-                        error = "字段不存在";
-                        return false;
-                    }
-                    if (existType != type)
-                    {
-                        error = "字段类型不一致";
-                        return false;
-                    }
-
-                    if (type == DataStructValueType.Number)
-                    {
-                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
-                            || double.IsNaN(number) || double.IsInfinity(number))
+                        SyncRuntimeValuesToModelNoLock(item);
+                        if (!item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType existType))
                         {
-                            error = "数值格式错误";
+                            error = "字段不存在";
                             return false;
                         }
-                        item.num[fieldIndex] = number;
-                        item.str.Remove(fieldIndex);
-                    }
-                    else
-                    {
-                        item.str[fieldIndex] = value;
-                        item.num.Remove(fieldIndex);
+                        if (existType != type)
+                        {
+                            error = "字段类型不一致";
+                            return false;
+                        }
+
+                        if (type == DataStructValueType.Number)
+                        {
+                            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                                || double.IsNaN(number) || double.IsInfinity(number))
+                            {
+                                error = "数值格式错误";
+                                return false;
+                            }
+                            item.num[fieldIndex] = number;
+                            item.str.Remove(fieldIndex);
+                        }
+                        else
+                        {
+                            item.str[fieldIndex] = value;
+                            item.num.Remove(fieldIndex);
+                        }
+                        PublishRuntimeStateNoLock(item);
                     }
                 }
                 MarkChangedNoLock();
@@ -1082,23 +1210,28 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    if (!item.FieldNames.ContainsKey(fieldIndex)
-                        || !item.FieldTypes.ContainsKey(fieldIndex))
+                    using (LockRuntimeFields(item))
                     {
-                        error = "字段不存在";
-                        return false;
-                    }
-                    item.FieldNames[fieldIndex] = fieldName;
-                    item.FieldTypes[fieldIndex] = type;
-                    if (type == DataStructValueType.Number)
-                    {
-                        item.num[fieldIndex] = number;
-                        item.str.Remove(fieldIndex);
-                    }
-                    else
-                    {
-                        item.str[fieldIndex] = value;
-                        item.num.Remove(fieldIndex);
+                        SyncRuntimeValuesToModelNoLock(item);
+                        if (!item.FieldNames.ContainsKey(fieldIndex)
+                            || !item.FieldTypes.ContainsKey(fieldIndex))
+                        {
+                            error = "字段不存在";
+                            return false;
+                        }
+                        item.FieldNames[fieldIndex] = fieldName;
+                        item.FieldTypes[fieldIndex] = type;
+                        if (type == DataStructValueType.Number)
+                        {
+                            item.num[fieldIndex] = number;
+                            item.str.Remove(fieldIndex);
+                        }
+                        else
+                        {
+                            item.str[fieldIndex] = value;
+                            item.num.Remove(fieldIndex);
+                        }
+                        PublishRuntimeStateNoLock(item);
                     }
                 }
                 MarkChangedNoLock();
@@ -1120,15 +1253,20 @@ namespace Automation
                 NormalizeItem(item);
                 lock (item.SyncRoot)
                 {
-                    if (!item.FieldNames.ContainsKey(fieldIndex) && !item.FieldTypes.ContainsKey(fieldIndex))
+                    using (LockRuntimeFields(item))
                     {
-                        error = "字段不存在";
-                        return false;
+                        SyncRuntimeValuesToModelNoLock(item);
+                        if (!item.FieldNames.ContainsKey(fieldIndex) && !item.FieldTypes.ContainsKey(fieldIndex))
+                        {
+                            error = "字段不存在";
+                            return false;
+                        }
+                        item.FieldNames.Remove(fieldIndex);
+                        item.FieldTypes.Remove(fieldIndex);
+                        item.str.Remove(fieldIndex);
+                        item.num.Remove(fieldIndex);
+                        PublishRuntimeStateNoLock(item);
                     }
-                    item.FieldNames.Remove(fieldIndex);
-                    item.FieldTypes.Remove(fieldIndex);
-                    item.str.Remove(fieldIndex);
-                    item.num.Remove(fieldIndex);
                 }
                 MarkChangedNoLock();
                 MarkStructChangedNoLock(structIndex);
@@ -1151,15 +1289,16 @@ namespace Automation
             {
                 return false;
             }
-            lock (item.SyncRoot)
+            while (true)
             {
-                if (!item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType existType)
-                    || !item.FieldNames.ContainsKey(ValueIndex)
-                    || valueType.HasValue && valueType.Value != existType)
+                DataStructRuntimeState state = item.RuntimeState;
+                if (state == null
+                    || !state.TryGetField(ValueIndex, out DataStructFieldSlot field)
+                    || valueType.HasValue && valueType.Value != field.ValueType)
                 {
                     return false;
                 }
-                if (existType == DataStructValueType.Number)
+                if (field.ValueType == DataStructValueType.Number)
                 {
                     if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
                     {
@@ -1169,13 +1308,35 @@ namespace Automation
                     {
                         return false;
                     }
-                    item.num[ValueIndex] = number;
-                    item.str.Remove(ValueIndex);
+                    lock (field.SyncRoot)
+                    {
+                        if (!ReferenceEquals(item.RuntimeState, state))
+                        {
+                            continue;
+                        }
+                        if (!IsCurrentRuntimeItem(
+                                structIndex, itemIndex, item))
+                        {
+                            return false;
+                        }
+                        field.WriteNumber(number);
+                    }
                 }
                 else
                 {
-                    item.str[ValueIndex] = value;
-                    item.num.Remove(ValueIndex);
+                    lock (field.SyncRoot)
+                    {
+                        if (!ReferenceEquals(item.RuntimeState, state))
+                        {
+                            continue;
+                        }
+                        if (!IsCurrentRuntimeItem(
+                                structIndex, itemIndex, item))
+                        {
+                            return false;
+                        }
+                        field.WriteText(value);
+                    }
                 }
                 return true;
             }
@@ -1196,10 +1357,8 @@ namespace Automation
                 return false;
             }
 
-            lock (item.SyncRoot)
+            while (true)
             {
-                // 单字段设置是流程指令最常见的路径。单项本身天然具备原子性，
-                // 无需为批量回滚语义创建去重集合和两张暂存字典。
                 if (updates.Count == 1)
                 {
                     DataStructFieldValueUpdate update = updates[0];
@@ -1208,20 +1367,22 @@ namespace Automation
                         error = "字段更新项为空";
                         return false;
                     }
+                    DataStructRuntimeState singleState = item.RuntimeState;
                     if (update.Value == null
-                        || !item.FieldNames.ContainsKey(update.FieldIndex)
-                        || !item.FieldTypes.TryGetValue(
-                            update.FieldIndex, out DataStructValueType type))
+                        || singleState == null
+                        || !singleState.TryGetField(
+                            update.FieldIndex, out DataStructFieldSlot singleField))
                     {
                         error = $"字段不存在或值为空:{update.FieldIndex}";
                         return false;
                     }
-                    if (update.ExpectedType.HasValue && update.ExpectedType.Value != type)
+                    if (update.ExpectedType.HasValue
+                        && update.ExpectedType.Value != singleField.ValueType)
                     {
                         error = $"字段类型不一致:{update.FieldIndex}";
                         return false;
                     }
-                    if (type == DataStructValueType.Number)
+                    if (singleField.ValueType == DataStructValueType.Number)
                     {
                         if (!double.TryParse(update.Value, NumberStyles.Float,
                                 CultureInfo.InvariantCulture, out double number)
@@ -1230,20 +1391,49 @@ namespace Automation
                             error = $"字段数值格式错误:{update.FieldIndex}";
                             return false;
                         }
-                        item.num[update.FieldIndex] = number;
-                        item.str.Remove(update.FieldIndex);
+                        lock (singleField.SyncRoot)
+                        {
+                            if (!ReferenceEquals(item.RuntimeState, singleState))
+                            {
+                                continue;
+                            }
+                            if (!IsCurrentRuntimeItem(
+                                    structIndex, itemIndex, item))
+                            {
+                                error = $"数据项运行代际已变更:结构{structIndex},项{itemIndex}";
+                                return false;
+                            }
+                            singleField.WriteNumber(number);
+                        }
                     }
                     else
                     {
-                        item.str[update.FieldIndex] = update.Value;
-                        item.num.Remove(update.FieldIndex);
+                        lock (singleField.SyncRoot)
+                        {
+                            if (!ReferenceEquals(item.RuntimeState, singleState))
+                            {
+                                continue;
+                            }
+                            if (!IsCurrentRuntimeItem(
+                                    structIndex, itemIndex, item))
+                            {
+                                error = $"数据项运行代际已变更:结构{structIndex},项{itemIndex}";
+                                return false;
+                            }
+                            singleField.WriteText(update.Value);
+                        }
                     }
                     return true;
                 }
 
                 var unique = new HashSet<int>();
-                var numbers = new Dictionary<int, double>();
-                var texts = new Dictionary<int, string>();
+                var prepared = new List<PreparedFieldWrite>(updates.Count);
+                DataStructRuntimeState state = item.RuntimeState;
+                if (state == null)
+                {
+                    error = $"数据项运行描述不存在:结构{structIndex},项{itemIndex}";
+                    return false;
+                }
                 foreach (DataStructFieldValueUpdate update in updates)
                 {
                     if (update == null)
@@ -1257,18 +1447,24 @@ namespace Automation
                         return false;
                     }
                     if (update.Value == null
-                        || !item.FieldNames.ContainsKey(update.FieldIndex)
-                        || !item.FieldTypes.TryGetValue(update.FieldIndex, out DataStructValueType type))
+                        || !state.TryGetField(
+                            update.FieldIndex, out DataStructFieldSlot field))
                     {
                         error = $"字段不存在或值为空:{update.FieldIndex}";
                         return false;
                     }
-                    if (update.ExpectedType.HasValue && update.ExpectedType.Value != type)
+                    if (update.ExpectedType.HasValue
+                        && update.ExpectedType.Value != field.ValueType)
                     {
                         error = $"字段类型不一致:{update.FieldIndex}";
                         return false;
                     }
-                    if (type == DataStructValueType.Number)
+                    var preparedWrite = new PreparedFieldWrite
+                    {
+                        Field = field,
+                        Text = update.Value
+                    };
+                    if (field.ValueType == DataStructValueType.Number)
                     {
                         if (!double.TryParse(update.Value, NumberStyles.Float,
                                 CultureInfo.InvariantCulture, out double number)
@@ -1277,23 +1473,41 @@ namespace Automation
                             error = $"字段数值格式错误:{update.FieldIndex}";
                             return false;
                         }
-                        numbers[update.FieldIndex] = number;
+                        preparedWrite.Number = number;
                     }
-                    else
-                    {
-                        texts[update.FieldIndex] = update.Value;
-                    }
+                    prepared.Add(preparedWrite);
                 }
 
-                foreach (KeyValuePair<int, double> number in numbers)
+                List<DataStructFieldSlot> lockedFields =
+                    GetOrderedUniqueFields(prepared.Select(write => write.Field));
+                EnterFieldLocks(lockedFields);
+                try
                 {
-                    item.num[number.Key] = number.Value;
-                    item.str.Remove(number.Key);
+                    if (!ReferenceEquals(item.RuntimeState, state))
+                    {
+                        continue;
+                    }
+                    if (!IsCurrentRuntimeItem(
+                            structIndex, itemIndex, item))
+                    {
+                        error = $"数据项运行代际已变更:结构{structIndex},项{itemIndex}";
+                        return false;
+                    }
+                    foreach (PreparedFieldWrite write in prepared)
+                    {
+                        if (write.Field.ValueType == DataStructValueType.Number)
+                        {
+                            write.Field.WriteNumber(write.Number);
+                        }
+                        else
+                        {
+                            write.Field.WriteText(write.Text);
+                        }
+                    }
                 }
-                foreach (KeyValuePair<int, string> text in texts)
+                finally
                 {
-                    item.str[text.Key] = text.Value;
-                    item.num.Remove(text.Key);
+                    ExitFieldLocks(lockedFields);
                 }
                 return true;
             }
@@ -1316,78 +1530,74 @@ namespace Automation
                 return false;
             }
 
-            lock (item.SyncRoot)
+            while (true)
             {
-                var result = new List<DataStructFieldValueSnapshot>(fieldIndexes.Count);
+                DataStructRuntimeState state = item.RuntimeState;
+                if (state == null)
+                {
+                    error = $"数据项运行描述不存在:结构{structIndex},项{itemIndex}";
+                    return false;
+                }
+                var requestedFields =
+                    new List<DataStructFieldSlot>(fieldIndexes.Count);
                 foreach (int fieldIndex in fieldIndexes)
                 {
-                    if (!item.FieldNames.ContainsKey(fieldIndex)
-                        || !item.FieldTypes.TryGetValue(fieldIndex, out DataStructValueType type))
+                    if (!state.TryGetField(fieldIndex, out DataStructFieldSlot field))
                     {
                         error = $"字段不存在:{fieldIndex}";
                         return false;
                     }
-
-                    object value;
-                    if (type == DataStructValueType.Number)
-                    {
-                        if (!item.num.TryGetValue(fieldIndex, out double number))
-                        {
-                            error = $"数值字段没有值:{fieldIndex}";
-                            return false;
-                        }
-                        value = number;
-                    }
-                    else
-                    {
-                        if (!item.str.TryGetValue(fieldIndex, out string text))
-                        {
-                            error = $"文本字段没有值:{fieldIndex}";
-                            return false;
-                        }
-                        value = text;
-                    }
-                    result.Add(new DataStructFieldValueSnapshot
-                    {
-                        FieldIndex = fieldIndex,
-                        Value = value,
-                        ValueType = type
-                    });
+                    requestedFields.Add(field);
                 }
-                snapshots = result;
-                return true;
+                List<DataStructFieldSlot> lockedFields =
+                    GetOrderedUniqueFields(requestedFields);
+                EnterFieldLocks(lockedFields);
+                var result = new List<DataStructFieldValueSnapshot>(fieldIndexes.Count);
+                try
+                {
+                    if (!ReferenceEquals(item.RuntimeState, state))
+                    {
+                        continue;
+                    }
+                    if (!IsCurrentRuntimeItem(
+                            structIndex, itemIndex, item))
+                    {
+                        error = $"数据项运行代际已变更:结构{structIndex},项{itemIndex}";
+                        return false;
+                    }
+                    foreach (DataStructFieldSlot field in requestedFields)
+                    {
+                        if (!field.HasValue)
+                        {
+                            error = field.ValueType == DataStructValueType.Number
+                                ? $"数值字段没有值:{field.Index}"
+                                : $"文本字段没有值:{field.Index}";
+                            return false;
+                        }
+                        object value = field.ValueType == DataStructValueType.Number
+                            ? (object)field.ReadNumber()
+                            : field.ReadText();
+                        result.Add(new DataStructFieldValueSnapshot
+                        {
+                            FieldIndex = field.Index,
+                            Value = value,
+                            ValueType = field.ValueType
+                        });
+                    }
+                    snapshots = result;
+                    return true;
+                }
+                finally
+                {
+                    ExitFieldLocks(lockedFields);
+                }
             }
         }
 
         public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, out object value)
         {
-            value = null;
-            if (!TryGetRuntimeItem(structIndex, itemIndex, out DataStructItem item))
-            {
-                return false;
-            }
-            lock (item.SyncRoot)
-            {
-                if (item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType type))
-                {
-                    if (type == DataStructValueType.Number)
-                    {
-                        if (item.num.TryGetValue(ValueIndex, out double number))
-                        {
-                            value = number;
-                            return true;
-                        }
-                        return false;
-                    }
-                    if (item.str.TryGetValue(ValueIndex, out string strValue))
-                    {
-                        value = strValue;
-                        return true;
-                    }
-                    return false;
-                }
-                return false;
-            }
+            return TryGetItemValueByIndex(
+                structIndex, itemIndex, ValueIndex, out value, out _);
         }
 
         public bool TryGetItemValueByIndex(int structIndex, int itemIndex, int ValueIndex, out object value, out DataStructValueType valueType)
@@ -1398,29 +1608,27 @@ namespace Automation
             {
                 return false;
             }
-            lock (item.SyncRoot)
+            DataStructRuntimeState state = item.RuntimeState;
+            if (state == null
+                || !state.TryGetField(ValueIndex, out DataStructFieldSlot field))
             {
-                if (item.FieldTypes.TryGetValue(ValueIndex, out DataStructValueType type))
-                {
-                    valueType = type;
-                    if (type == DataStructValueType.Number)
-                    {
-                        if (item.num.TryGetValue(ValueIndex, out double number))
-                        {
-                            value = number;
-                            return true;
-                        }
-                        return false;
-                    }
-                    if (item.str.TryGetValue(ValueIndex, out string strValue))
-                    {
-                        value = strValue;
-                        return true;
-                    }
-                    return false;
-                }
                 return false;
             }
+            valueType = field.ValueType;
+            if (!field.HasValue)
+            {
+                return false;
+            }
+            value = field.ValueType == DataStructValueType.Number
+                ? (object)field.ReadNumber()
+                : field.ReadText();
+            if (IsCurrentRuntimeItem(structIndex, itemIndex, item))
+            {
+                return true;
+            }
+            value = null;
+            valueType = DataStructValueType.Text;
+            return false;
         }
 
         public int GetItemValueCount(int structIndex, int itemIndex)
@@ -1429,15 +1637,7 @@ namespace Automation
             {
                 return 0;
             }
-            lock (item.SyncRoot)
-            {
-                HashSet<int> indexes = new HashSet<int>();
-                indexes.UnionWith(item.FieldNames.Keys);
-                indexes.UnionWith(item.FieldTypes.Keys);
-                indexes.UnionWith(item.num.Keys);
-                indexes.UnionWith(item.str.Keys);
-                return indexes.Count;
-            }
+            return item.RuntimeState?.SortedFieldIndexes.Length ?? 0;
         }
 
         public int GetItemCount(int structIndex)
@@ -1498,7 +1698,11 @@ namespace Automation
                 DataStructItem copy;
                 lock (sourceItem.SyncRoot)
                 {
-                    copy = sourceItem.Clone();
+                    using (LockRuntimeFields(sourceItem))
+                    {
+                        SyncRuntimeValuesToModelNoLock(sourceItem);
+                        copy = sourceItem.Clone();
+                    }
                 }
                 DataStruct targetStruct = dataStructs[targetStructIndex];
                 NormalizeStruct(targetStruct);
@@ -1564,71 +1768,65 @@ namespace Automation
             {
                 return false;
             }
-            lock (dataLock)
+            DataStructItem[][] snapshot = runtimeItems;
+            if (structIndex < 0 || structIndex >= snapshot.Length)
             {
-                if (structIndex < 0 || structIndex >= dataStructs.Count)
-                {
-                    return false;
-                }
-                foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
-                {
-                    if (item == null)
-                    {
-                        continue;
-                    }
-                    lock (item.SyncRoot)
-                    {
-                        if (item.str == null)
-                        {
-                            continue;
-                        }
-                        foreach (string candidate in item.str.Values)
-                        {
-                            if (candidate == key)
-                            {
-                                value = candidate;
-                                return true;
-                            }
-                        }
-                    }
-                }
                 return false;
             }
+            foreach (DataStructItem item in snapshot[structIndex])
+            {
+                DataStructRuntimeState state = item?.RuntimeState;
+                if (state == null)
+                {
+                    continue;
+                }
+                foreach (DataStructFieldSlot field in state.Fields)
+                {
+                    if (field.ValueType == DataStructValueType.Text
+                        && field.HasValue)
+                    {
+                        string candidate = field.ReadText();
+                        if (candidate == key)
+                        {
+                            value = candidate;
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
         public bool TryFindItemByNumberValue(int structIndex, double key, out double value)
         {
             value = 0;
-            lock (dataLock)
+            DataStructItem[][] snapshot = runtimeItems;
+            if (structIndex < 0 || structIndex >= snapshot.Length)
             {
-                if (structIndex < 0 || structIndex >= dataStructs.Count)
-                {
-                    return false;
-                }
-                foreach (DataStructItem item in dataStructs[structIndex].dataStructItems)
-                {
-                    if (item == null)
-                    {
-                        continue;
-                    }
-                    lock (item.SyncRoot)
-                    {
-                        if (item.num == null)
-                        {
-                            continue;
-                        }
-                        foreach (double candidate in item.num.Values)
-                        {
-                            if (candidate == key)
-                            {
-                                value = candidate;
-                                return true;
-                            }
-                        }
-                    }
-                }
                 return false;
             }
+            foreach (DataStructItem item in snapshot[structIndex])
+            {
+                DataStructRuntimeState state = item?.RuntimeState;
+                if (state == null)
+                {
+                    continue;
+                }
+                foreach (DataStructFieldSlot field in state.Fields)
+                {
+                    if (field.ValueType == DataStructValueType.Number
+                        && field.HasValue)
+                    {
+                        double candidate = field.ReadNumber();
+                        if (candidate == key)
+                        {
+                            value = candidate;
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
         private bool TryGetItemNoLock(int structIndex, int itemIndex, out DataStructItem item)
@@ -1657,13 +1855,10 @@ namespace Automation
             {
                 return new List<int>();
             }
-            lock (item.SyncRoot)
-            {
-                return item.FieldNames.Keys
-                    .Where(index => item.FieldTypes.ContainsKey(index))
-                    .OrderBy(index => index)
-                    .ToList();
-            }
+            int[] indexes = item.RuntimeState?.SortedFieldIndexes;
+            return indexes == null
+                ? new List<int>()
+                : new List<int>(indexes);
         }
 
         private bool TryGetRuntimeItem(int structIndex, int itemIndex, out DataStructItem item)
@@ -1683,13 +1878,61 @@ namespace Automation
             return item != null;
         }
 
+        private bool IsCurrentRuntimeItem(
+            int structIndex,
+            int itemIndex,
+            DataStructItem expected)
+        {
+            DataStructItem[][] snapshot = runtimeItems;
+            return structIndex >= 0
+                && structIndex < snapshot.Length
+                && snapshot[structIndex] != null
+                && itemIndex >= 0
+                && itemIndex < snapshot[structIndex].Length
+                && ReferenceEquals(snapshot[structIndex][itemIndex], expected);
+        }
+
         private void RebuildRuntimeItemsNoLock()
         {
+            DataStructItem[][] previous = runtimeItems;
             var next = new DataStructItem[dataStructs.Count][];
             for (int i = 0; i < dataStructs.Count; i++)
             {
                 List<DataStructItem> items = dataStructs[i]?.dataStructItems;
                 next[i] = items?.ToArray() ?? Array.Empty<DataStructItem>();
+                foreach (DataStructItem item in next[i])
+                {
+                    if (item == null)
+                    {
+                        continue;
+                    }
+                    NormalizeItem(item);
+                    lock (item.SyncRoot)
+                    {
+                        using (LockRuntimeFields(item))
+                        {
+                            SyncRuntimeValuesToModelNoLock(item);
+                            PublishRuntimeStateNoLock(item);
+                        }
+                    }
+                }
+            }
+            var retainedItems = new HashSet<DataStructItem>(
+                next.SelectMany(items => items)
+                    .Where(item => item != null));
+            foreach (DataStructItem retiredItem in previous
+                .SelectMany(items => items ?? Array.Empty<DataStructItem>())
+                .Where(item => item != null && !retainedItems.Contains(item)))
+            {
+                lock (retiredItem.SyncRoot)
+                {
+                    using (LockRuntimeFields(retiredItem))
+                    {
+                        retiredItem.PublishRuntimeState(
+                            new DataStructRuntimeState(
+                                new Dictionary<int, DataStructFieldSlot>()));
+                    }
+                }
             }
             runtimeItems = next;
         }

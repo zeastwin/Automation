@@ -84,16 +84,25 @@ namespace Automation
     {
         private readonly Dictionary<InspectorValueReferenceKind, PropertyDescriptor> properties
             = new Dictionary<InspectorValueReferenceKind, PropertyDescriptor>();
+        private readonly Dictionary<InspectorValueReferenceKind, string> emptyValues
+            = new Dictionary<InspectorValueReferenceKind, string>();
 
         public object Owner { get; set; }
 
         public IEnumerable<InspectorValueReferenceKind> AvailableKinds => properties.Keys;
 
-        public void Add(InspectorValueReferenceKind kind, PropertyDescriptor property)
+        public void Add(
+            InspectorValueReferenceKind kind,
+            PropertyDescriptor property,
+            string emptyValue = null)
         {
             if (property != null)
             {
                 properties[kind] = property;
+                if (emptyValue != null)
+                {
+                    emptyValues[kind] = emptyValue;
+                }
             }
         }
 
@@ -108,7 +117,11 @@ namespace Automation
             int populated = 0;
             foreach (KeyValuePair<InspectorValueReferenceKind, PropertyDescriptor> item in properties)
             {
-                if (!HasValue(item.Value.GetValue(Owner), item.Value.PropertyType))
+                emptyValues.TryGetValue(item.Key, out string emptyValue);
+                if (!HasValue(
+                    item.Value.GetValue(Owner),
+                    item.Value.PropertyType,
+                    emptyValue))
                 {
                     continue;
                 }
@@ -118,10 +131,29 @@ namespace Automation
             return populated > 1 ? InspectorValueReferenceKind.Conflict : current;
         }
 
+        public bool HasAnyValue()
+        {
+            return properties.Keys.Any(HasValue);
+        }
+
+        public bool HasValue(InspectorValueReferenceKind kind)
+        {
+            if (!properties.TryGetValue(kind, out PropertyDescriptor property))
+            {
+                return false;
+            }
+            emptyValues.TryGetValue(kind, out string emptyValue);
+            return HasValue(
+                property.GetValue(Owner),
+                property.PropertyType,
+                emptyValue);
+        }
+
         public InspectorValueReferenceKind GetDefaultKind()
         {
             InspectorValueReferenceKind[] order =
             {
+                InspectorValueReferenceKind.Fixed,
                 InspectorValueReferenceKind.Name,
                 InspectorValueReferenceKind.Name2,
                 InspectorValueReferenceKind.Index,
@@ -141,13 +173,16 @@ namespace Automation
             return GetActiveProperty(kind)?.GetValue(Owner);
         }
 
-        public void SetKind(InspectorValueReferenceKind kind)
+        public bool SetKind(InspectorValueReferenceKind kind)
         {
-            ClearAll();
-            if (kind != InspectorValueReferenceKind.Conflict && !properties.ContainsKey(kind))
+            if (kind == InspectorValueReferenceKind.Conflict
+                || !properties.ContainsKey(kind))
             {
                 throw new InvalidOperationException("引用方式与当前字段不匹配。");
             }
+            bool changed = HasAnyValue();
+            ClearAll();
+            return changed;
         }
 
         public void SetValue(InspectorValueReferenceKind kind, object value)
@@ -161,7 +196,8 @@ namespace Automation
             {
                 if (item.Key != kind)
                 {
-                    ClearValue(item.Value);
+                    emptyValues.TryGetValue(item.Key, out string emptyValue);
+                    ClearValue(item.Value, emptyValue);
                 }
             }
             property.SetValue(Owner, value);
@@ -173,6 +209,8 @@ namespace Automation
                 property.Converter?.GetType() == typeof(OperationTypePartial.ValueItem));
             switch (kind)
             {
+                case InspectorValueReferenceKind.Fixed:
+                    return "固定值";
                 case InspectorValueReferenceKind.Name:
                     return variable ? "变量" : "名称";
                 case InspectorValueReferenceKind.Name2:
@@ -190,16 +228,25 @@ namespace Automation
 
         private void ClearAll()
         {
-            foreach (PropertyDescriptor property in properties.Values)
+            foreach (KeyValuePair<InspectorValueReferenceKind, PropertyDescriptor> item
+                in properties)
             {
-                ClearValue(property);
+                emptyValues.TryGetValue(item.Key, out string emptyValue);
+                ClearValue(item.Value, emptyValue);
             }
         }
 
-        private void ClearValue(PropertyDescriptor property)
+        private void ClearValue(PropertyDescriptor property, string emptyValue)
         {
             Type propertyType = property.PropertyType;
             Type targetType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+            if (emptyValue != null)
+            {
+                property.SetValue(
+                    Owner,
+                    Convert.ChangeType(emptyValue, targetType, CultureInfo.InvariantCulture));
+                return;
+            }
             if (targetType == typeof(string) || Nullable.GetUnderlyingType(propertyType) != null)
             {
                 property.SetValue(Owner, null);
@@ -213,11 +260,27 @@ namespace Automation
             property.SetValue(Owner, Activator.CreateInstance(targetType));
         }
 
-        private static bool HasValue(object value, Type propertyType)
+        private static bool HasValue(
+            object value,
+            Type propertyType,
+            string emptyValue)
         {
             if (value == null)
             {
                 return false;
+            }
+            if (emptyValue != null)
+            {
+                Type emptyTargetType =
+                    Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+                object empty = Convert.ChangeType(
+                    emptyValue,
+                    emptyTargetType,
+                    CultureInfo.InvariantCulture);
+                if (Equals(value, empty))
+                {
+                    return false;
+                }
             }
             if (value is string text)
             {
@@ -251,6 +314,7 @@ namespace Automation
 
     internal enum InspectorValueReferenceKind
     {
+        Fixed,
         Name,
         Name2,
         Index,
@@ -439,10 +503,75 @@ namespace Automation
             List<Tuple<PropertyDescriptor, string, string>> leaves,
             List<InspectorSectionDefinition> sections)
         {
+            var explicitGroupsByProperty =
+                new Dictionary<PropertyDescriptor, InspectorValueReferenceFieldDefinition>();
+            var explicitCategories =
+                new Dictionary<InspectorValueReferenceFieldDefinition, string>();
+            foreach (Tuple<PropertyDescriptor, string, string> fixedLeaf in leaves)
+            {
+                PropertyDescriptor fixedProperty = fixedLeaf.Item1;
+                ValueSourceAlternativeAttribute alternative =
+                    fixedProperty.Attributes[typeof(ValueSourceAlternativeAttribute)]
+                        as ValueSourceAlternativeAttribute;
+                if (alternative == null
+                    || string.IsNullOrWhiteSpace(alternative.ReferencePrefix))
+                {
+                    continue;
+                }
+
+                var referenceParts =
+                    new List<Tuple<PropertyDescriptor, InspectorValueReferenceKind>>();
+                foreach (Tuple<PropertyDescriptor, string, string> candidate in leaves)
+                {
+                    if (ReferenceEquals(candidate.Item1, fixedProperty)
+                        || !candidate.Item1.Name.StartsWith(
+                            alternative.ReferencePrefix,
+                            StringComparison.Ordinal)
+                        || !TryGetAlternativeReferenceKind(
+                            candidate.Item1,
+                            out InspectorValueReferenceKind kind))
+                    {
+                        continue;
+                    }
+                    referenceParts.Add(Tuple.Create(candidate.Item1, kind));
+                }
+                if (referenceParts.Count == 0)
+                {
+                    continue;
+                }
+
+                var field = new InspectorValueReferenceFieldDefinition
+                {
+                    Key = fixedLeaf.Item2 + ".source",
+                    Label = string.IsNullOrWhiteSpace(alternative.DisplayName)
+                        ? fixedProperty.DisplayName
+                        : alternative.DisplayName,
+                    Description = fixedProperty.Description,
+                    IsReadOnly = fixedProperty.IsReadOnly,
+                    Owner = owner
+                };
+                field.Add(
+                    InspectorValueReferenceKind.Fixed,
+                    fixedProperty,
+                    alternative.EmptyValue);
+                explicitGroupsByProperty[fixedProperty] = field;
+                foreach (Tuple<PropertyDescriptor, InspectorValueReferenceKind> part
+                    in referenceParts)
+                {
+                    field.Add(part.Item2, part.Item1);
+                    explicitGroupsByProperty[part.Item1] = field;
+                }
+                explicitCategories[field] = fixedLeaf.Item3;
+            }
+
             var groups = new Dictionary<string, InspectorValueReferenceFieldDefinition>(StringComparer.Ordinal);
             for (int index = 0; index < leaves.Count; index++)
             {
                 PropertyDescriptor property = leaves[index].Item1;
+                if (explicitGroupsByProperty.ContainsKey(property))
+                {
+                    continue;
+                }
                 if (!TryGetReferencePart(property, out string baseLabel, out InspectorValueReferenceKind kind))
                 {
                     continue;
@@ -466,6 +595,10 @@ namespace Automation
             foreach (Tuple<PropertyDescriptor, string, string> leaf in leaves)
             {
                 PropertyDescriptor property = leaf.Item1;
+                if (explicitGroupsByProperty.ContainsKey(property))
+                {
+                    continue;
+                }
                 if (property.Converter?.GetType() != typeof(OperationTypePartial.ValueItem))
                 {
                     continue;
@@ -483,12 +616,20 @@ namespace Automation
             foreach (Tuple<PropertyDescriptor, string, string> leaf in leaves)
             {
                 PropertyDescriptor property = leaf.Item1;
-                InspectorValueReferenceFieldDefinition reference = usableGroups.Values
-                    .FirstOrDefault(field => field.Contains(property));
+                InspectorValueReferenceFieldDefinition reference;
+                if (!explicitGroupsByProperty.TryGetValue(property, out reference))
+                {
+                    reference = usableGroups.Values
+                        .FirstOrDefault(field => field.Contains(property));
+                }
+                string sectionName = reference != null
+                    && explicitCategories.TryGetValue(reference, out string explicitCategory)
+                        ? explicitCategory
+                        : leaf.Item3;
                 InspectorSectionDefinition section = GetOrAddSection(
                     sections,
-                    leaf.Item3,
-                    leaf.Item3);
+                    sectionName,
+                    sectionName);
                 if (reference != null)
                 {
                     if (addedGroups.Add(reference))
@@ -507,6 +648,35 @@ namespace Automation
                     Property = property
                 });
             }
+        }
+
+        private static bool TryGetAlternativeReferenceKind(
+            PropertyDescriptor property,
+            out InspectorValueReferenceKind kind)
+        {
+            string name = property.Name ?? string.Empty;
+            if (name.EndsWith("Index2Index", StringComparison.Ordinal))
+            {
+                kind = InspectorValueReferenceKind.Index2;
+                return true;
+            }
+            if (name.EndsWith("Name2Index", StringComparison.Ordinal))
+            {
+                kind = InspectorValueReferenceKind.Name2;
+                return true;
+            }
+            if (name.EndsWith("Index", StringComparison.Ordinal))
+            {
+                kind = InspectorValueReferenceKind.Index;
+                return true;
+            }
+            if (property.Converter?.GetType() == typeof(OperationTypePartial.ValueItem))
+            {
+                kind = InspectorValueReferenceKind.Name;
+                return true;
+            }
+            kind = InspectorValueReferenceKind.Name;
+            return false;
         }
 
         private static bool TryGetReferencePart(
@@ -642,9 +812,13 @@ namespace Automation
                                     break;
                                 case nameof(ParamGoto.InvalidDelayMs):
                                     priority = 12;
-                                    break;
+                                break;
                             }
                         }
+                        priority = InspectorOperationPresentationPolicy.AdjustPriority(
+                            instance,
+                            rootName,
+                            priority);
                     }
                     else if (string.Equals(rootName, "Name", StringComparison.Ordinal))
                     {
@@ -673,6 +847,8 @@ namespace Automation
                     && string.Equals(section.Key, "指令信息", StringComparison.Ordinal));
             }
 
+            MergeFragmentedOperationSections(instance, sections);
+
             List<InspectorSectionDefinition> orderedSections = sections
                 .Select((section, index) => new { section, index })
                 .OrderBy(item => item.section.Priority)
@@ -683,9 +859,68 @@ namespace Automation
             sections.AddRange(orderedSections);
         }
 
+        private static void MergeFragmentedOperationSections(
+            object instance,
+            List<InspectorSectionDefinition> sections)
+        {
+            if (!(instance is OperationType))
+            {
+                return;
+            }
+
+            bool IsSystemSection(InspectorSectionDefinition section)
+            {
+                return string.Equals(section.Key, "指令信息", StringComparison.Ordinal)
+                    || string.Equals(section.Key, "报警配置", StringComparison.Ordinal)
+                    || string.Equals(section.Key, "运行与调试", StringComparison.Ordinal);
+            }
+
+            List<InspectorSectionDefinition> fragments = sections
+                .Where(section => !IsSystemSection(section)
+                    && section.Fields.Count == 1
+                    && !(section.Fields[0] is InspectorCollectionFieldDefinition))
+                .ToList();
+            InspectorSectionDefinition target = sections.FirstOrDefault(section =>
+                string.Equals(section.Key, "参数", StringComparison.Ordinal));
+            if (target == null && fragments.Count < 2)
+            {
+                return;
+            }
+            if (target == null)
+            {
+                target = fragments[0];
+                target.Key = "参数";
+                target.Title = "参数";
+            }
+
+            foreach (InspectorSectionDefinition fragment in fragments.ToList())
+            {
+                if (ReferenceEquals(fragment, target))
+                {
+                    continue;
+                }
+                target.Fields.AddRange(fragment.Fields);
+                sections.Remove(fragment);
+            }
+            List<InspectorFieldDefinition> ordered = target.Fields
+                .Select((field, index) => new { field, index })
+                .OrderBy(item => item.field.Priority)
+                .ThenBy(item => item.index)
+                .Select(item => item.field)
+                .ToList();
+            target.Fields.Clear();
+            target.Fields.AddRange(ordered);
+            target.Priority = target.Fields.Count == 0
+                ? int.MaxValue
+                : target.Fields.Min(field => field.Priority);
+        }
+
         private static bool IsVisible(object instance, PropertyDescriptor descriptor)
         {
-            bool visible = descriptor.IsBrowsable;
+            bool visible = InspectorOperationPresentationPolicy.IsVisible(
+                instance,
+                descriptor,
+                descriptor.IsBrowsable);
             if (instance is IPropertyVisibilityProvider provider)
             {
                 visible = provider.IsPropertyVisible(descriptor.Name, visible);

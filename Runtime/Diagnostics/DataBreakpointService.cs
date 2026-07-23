@@ -16,7 +16,12 @@ namespace Automation
 
     internal interface IDataBreakpointRuntimeSink
     {
-        void OnVariableChanged(DicValue variable, string oldValue, string newValue, string source);
+        void OnVariableChanged(
+            DicValue variable,
+            string oldValue,
+            string newValue,
+            string source,
+            long changeSequence);
         void OnProcessStateChanged(EngineSnapshot previous, EngineSnapshot current);
     }
 
@@ -44,6 +49,7 @@ namespace Automation
         public string VariableName { get; set; }
         public string OldValue { get; set; }
         public string NewValue { get; set; }
+        public long VariableSequence { get; set; }
         public ProcRunState? PreviousState { get; set; }
         public ProcRunState? CurrentState { get; set; }
         public string RawSource { get; set; }
@@ -351,7 +357,12 @@ namespace Automation
             RaiseRulesChanged();
         }
 
-        public void OnVariableChanged(DicValue variable, string oldValue, string newValue, string source)
+        public void OnVariableChanged(
+            DicValue variable,
+            string oldValue,
+            string newValue,
+            string source,
+            long changeSequence)
         {
             if (Volatile.Read(ref disposed) != 0 || variable == null || variable.Id == Guid.Empty)
             {
@@ -380,6 +391,7 @@ namespace Automation
                     VariableName = variable.Name,
                     OldValue = oldValue,
                     NewValue = newValue,
+                    VariableSequence = changeSequence,
                     RawSource = source,
                     PauseProcId = rule.PauseProcId
                 };

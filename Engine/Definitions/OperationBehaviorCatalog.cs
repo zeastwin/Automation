@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 11;
+        public const int ContractVersion = 12;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -395,17 +395,28 @@ namespace Automation
 
                 case "设置结构体数据项":
                     contract = CreateContract(
-                        "把 Params 中的固定值写入指定结构体项的指定字段。",
-                        new[] { "UseNameAddressing=false 时严格按 StructIndex/ItemIndex/FieldIndex 寻址", "UseNameAddressing=true 时严格按 StructName/ItemName/FieldName 寻址", "全部字段解析和校验成功后一次提交固定 Value" },
+                        "把 Params 中的固定值或变量值写入指定结构体项的指定字段。",
+                        new[]
+                        {
+                            "结构体、数据项和每个字段分别在名称与索引中严格选择一种寻址方式",
+                            "每个 Params 项从固定 Value 或 ValueIndex/ValueIndex2Index/ValueName/ValueName2Index 变量引用中严格选择一种写入值来源",
+                            "全部目标字段和写入值解析成功后一次提交"
+                        },
                         true);
-                    AddRequiredField(contract, "UseNameAddressing", "false按索引寻址，true按精确名称寻址");
-                    AddConditionalField(contract, "StructIndex", "UseNameAddressing", new[] { "False" }, "目标结构体非负索引");
-                    AddConditionalField(contract, "ItemIndex", "UseNameAddressing", new[] { "False" }, "目标结构项非负索引");
-                    AddConditionalField(contract, "StructName", "UseNameAddressing", new[] { "True" }, "目标结构体精确名称");
-                    AddConditionalField(contract, "ItemName", "UseNameAddressing", new[] { "True" }, "目标数据项精确名称");
-                    AddRequiredField(contract, "Params", "字段索引与固定值集合");
-                    contract["constraints"] = new JArray("名称模式下每个 Params 项必须填写 FieldName；索引模式下使用 FieldIndex", "名称解析失败不回退索引", "任一字段失败时目标项不产生部分写入");
-                    contract["failureModes"] = new JArray("任一索引或名称无效时报警", "结构体字段写入失败时报警");
+                    AddRequiredField(
+                        contract,
+                        "Params",
+                        "字段地址与写入值来源集合；至少包含一项");
+                    contract["constraints"] = new JArray(
+                        "编辑器默认使用 StructName、ItemName 和 FieldName，下拉中可显式切换为对应索引",
+                        "StructName/StructIndex、ItemName/ItemIndex、每项 FieldName/FieldIndex 均恰好配置一个",
+                        "每项固定 Value 与 ValueIndex、ValueIndex2Index、ValueName、ValueName2Index 四种变量引用恰好配置一个",
+                        "名称解析失败不回退索引",
+                        "任一目标或写入值失败时不产生部分写入");
+                    contract["failureModes"] = new JArray(
+                        "任一地址缺失、冲突或不存在时报警",
+                        "写入值来源缺失、冲突或变量无效时报警",
+                        "结构体字段类型不匹配或写入失败时报警");
                     break;
 
                 case "获取结构体数据项":

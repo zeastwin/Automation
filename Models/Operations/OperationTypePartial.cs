@@ -216,6 +216,130 @@ namespace Automation
                 return true;
             }
         }
+        public class DataStructItemName : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(
+                ITypeDescriptorContext context)
+            {
+                DataStructStore store = GetRuntime(context)?.Stores.DataStructures;
+                SetDataStructItem operation = GetSetDataStructItem(context);
+                if (store == null || operation == null
+                    || !TrySelectAddressMode(
+                        operation.StructName,
+                        operation.StructIndex,
+                        out bool useName)
+                    || !store.TryResolveStructIndex(
+                        useName,
+                        operation.StructIndex,
+                        operation.StructName,
+                        out int structIndex,
+                        out _)
+                    || !store.TryGetStructSnapshotByIndex(
+                        structIndex,
+                        out DataStruct dataStruct))
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
+                List<string> names = (dataStruct.dataStructItems
+                        ?? new List<DataStructItem>())
+                    .Where(item => !string.IsNullOrWhiteSpace(item?.Name))
+                    .Select(item => item.Name)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                return new StandardValuesCollection(names);
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
+
+        public class DataStructFieldName : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(
+                ITypeDescriptorContext context)
+            {
+                DataStructStore store = GetRuntime(context)?.Stores.DataStructures;
+                SetDataStructItem operation = GetSetDataStructItem(context);
+                if (store == null || operation == null
+                    || !TrySelectAddressMode(
+                        operation.StructName,
+                        operation.StructIndex,
+                        out bool useStructName)
+                    || !store.TryResolveStructIndex(
+                        useStructName,
+                        operation.StructIndex,
+                        operation.StructName,
+                        out int structIndex,
+                        out _)
+                    || !TrySelectAddressMode(
+                        operation.ItemName,
+                        operation.ItemIndex,
+                        out bool useItemName)
+                    || !store.TryResolveItemIndex(
+                        structIndex,
+                        useItemName,
+                        operation.ItemIndex,
+                        operation.ItemName,
+                        out int itemIndex,
+                        out _)
+                    || !store.TryGetStructSnapshotByIndex(
+                        structIndex,
+                        out DataStruct dataStruct)
+                    || dataStruct.dataStructItems == null
+                    || itemIndex < 0
+                    || itemIndex >= dataStruct.dataStructItems.Count)
+                {
+                    return new StandardValuesCollection(new List<string>());
+                }
+                DataStructItem item = dataStruct.dataStructItems[itemIndex];
+                List<string> names = (item?.FieldNames
+                        ?? new Dictionary<int, string>())
+                    .OrderBy(field => field.Key)
+                    .Where(field => !string.IsNullOrWhiteSpace(field.Value))
+                    .Select(field => field.Value)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                return new StandardValuesCollection(names);
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+        }
+
+        private static SetDataStructItem GetSetDataStructItem(
+            ITypeDescriptorContext context)
+        {
+            return context?.Instance as SetDataStructItem
+                ?? EditorServiceRegistry.GetAncestor<SetDataStructItem>(
+                    context?.Instance)
+                ?? GetRuntime(context)?.EditorUi?.CurrentOperationContext
+                    as SetDataStructItem;
+        }
+
+        private static bool TrySelectAddressMode(
+            string name,
+            int index,
+            out bool useName)
+        {
+            bool hasName = !string.IsNullOrWhiteSpace(name);
+            bool hasIndex = index >= 0;
+            useName = hasName;
+            return hasName != hasIndex;
+        }
         public class ProcItem : StringConverter
         {
             public override bool GetStandardValuesSupported(ITypeDescriptorContext context)

@@ -196,6 +196,13 @@ namespace Automation
 
         private void RebuildItems()
         {
+            PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(definition.Owner);
+            if (runtime != null)
+            {
+                // 集合新增项也必须重新进入当前草稿对象图，确保级联候选值能够
+                // 从子项稳定找到所属指令，而不是依赖窗体级“当前对象”猜测。
+                EditorServiceRegistry.AttachGraph(definition.Owner, runtime);
+            }
             itemsPanel.SuspendLayout();
             try
             {

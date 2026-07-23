@@ -471,13 +471,13 @@ namespace Automation
             commonViewHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 8, 0, 0),
+                Padding = new Padding(0, 4, 0, 0),
                 BackColor = UiPalette.Surface
             };
             dataStructViewHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 8, 0, 0),
+                Padding = new Padding(0, 4, 0, 0),
                 BackColor = UiPalette.Surface
             };
             lblCommonEmpty = new Label
@@ -576,7 +576,7 @@ namespace Automation
             splitContainerMain.Panel2.SuspendLayout();
 
             panel1.Controls.Clear();
-            panel1.Height = 68;
+            panel1.Height = 56;
             panel1.Padding = Padding.Empty;
 
             var actions = new FlowLayoutPanel
@@ -686,7 +686,7 @@ namespace Automation
             var leftToolbarHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 12, 0, 10),
+                Padding = new Padding(12, 8, 0, 8),
                 BackColor = UiPalette.Surface
             };
             var leftToolbarContent = new Panel
@@ -705,7 +705,7 @@ namespace Automation
                 ColumnCount = 3,
                 RowCount = 1,
                 Margin = Padding.Empty,
-                Padding = new Padding(0, 12, 12, 10),
+                Padding = new Padding(0, 8, 12, 8),
                 BackColor = UiPalette.Surface,
                 GrowStyle = TableLayoutPanelGrowStyle.FixedSize
             };
@@ -797,7 +797,7 @@ namespace Automation
             splitContainerMain.Panel1.Controls.Add(panelCommon);
 
             panelStructHost.Dock = DockStyle.Fill;
-            panelStructHost.Padding = new Padding(8, 8, 8, 12);
+            panelStructHost.Padding = new Padding(8, 4, 8, 8);
             panelStructHost.BackColor = UiPalette.Surface;
 
             listCommon.Dock = DockStyle.Fill;

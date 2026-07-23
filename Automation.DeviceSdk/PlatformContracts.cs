@@ -57,6 +57,7 @@ namespace Automation.DeviceSdk
         public string NewValue { get; set; }
         public string Source { get; set; }
         public DateTime ChangedAt { get; set; }
+        public long Sequence { get; set; }
     }
 
     /// <summary>流程当前执行位置、报警和可选性能采样的只读快照。</summary>

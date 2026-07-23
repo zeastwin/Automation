@@ -27,6 +27,7 @@ namespace Automation
         private bool refreshing;
         private bool endingEdit;
         private bool valueOptionsLoaded;
+        private InspectorValueReferenceKind? pendingKind;
         private ToolStripDropDown activeSelectionPicker;
 
         public InspectorValueReferenceFieldControl(
@@ -134,6 +135,7 @@ namespace Automation
             bool allow = editable && !definition.IsReadOnly;
             if (!allow)
             {
+                pendingKind = null;
                 DeactivateEditors(true);
             }
             kind.Enabled = allow;
@@ -156,7 +158,16 @@ namespace Automation
             refreshing = true;
             try
             {
-                InspectorValueReferenceKind current = definition.GetCurrentKind();
+                if (pendingKind.HasValue && definition.HasAnyValue())
+                {
+                    // 撤销、重做或外部刷新恢复了真实值时，以模型事实为准，
+                    // 避免无值的临时选择遮住已经恢复的配置。
+                    pendingKind = null;
+                }
+                InspectorValueReferenceKind current = pendingKind.HasValue
+                    && definition.AvailableKinds.Contains(pendingKind.Value)
+                        ? pendingKind.Value
+                        : definition.GetCurrentKind();
                 kind.Items.Clear();
                 if (current == InspectorValueReferenceKind.Conflict)
                 {
@@ -203,8 +214,15 @@ namespace Automation
 
         public override void Rebind(InspectorFieldDefinition next, bool editable)
         {
+            var nextDefinition = (InspectorValueReferenceFieldDefinition)next;
+            bool sameField = ReferenceEquals(definition.Owner, nextDefinition.Owner)
+                && string.Equals(definition.Key, nextDefinition.Key, StringComparison.Ordinal);
             DeactivateEditors(false);
-            definition = (InspectorValueReferenceFieldDefinition)next;
+            if (!sameField)
+            {
+                pendingKind = null;
+            }
+            definition = nextDefinition;
             Definition = next;
             AccessibleName = definition.Label;
             kindDisplay.AccessibleName = definition.Label + "引用方式";
@@ -225,11 +243,14 @@ namespace Automation
             }
             try
             {
-                definition.SetKind(selected.Kind);
+                pendingKind = selected.Kind;
+                bool changed = definition.SetKind(selected.Kind);
                 kindDisplay.DisplayText = selected.Text;
                 ConfigureValueEditor(selected.Kind);
-                // 引用方式只有在写入新值后才可由模型事实反推；此处不触发整页刷新，
-                // 避免空值状态立即回落到默认方式，导致用户无法继续输入索引。
+                if (changed)
+                {
+                    OnFieldValueChanged();
+                }
             }
             catch (Exception ex)
             {
@@ -266,18 +287,21 @@ namespace Automation
                 || InspectorValueConversion.HasStandardValues(definition.Owner, property)
                 || (Nullable.GetUnderlyingType(property.PropertyType)
                     ?? property.PropertyType).IsEnum;
+            object currentValue = definition.HasValue(selectedKind)
+                ? definition.GetValue(selectedKind)
+                : null;
             PopulateStandardValues(
                 value,
                 definition.Owner,
                 property,
-                definition.GetValue(selectedKind),
+                currentValue,
                 false);
             value.Enabled = Editable && !definition.IsReadOnly;
             valueDisplay.Editable = value.Enabled;
             valueDisplay.DisplayText = InspectorValueConversion.ToDisplayText(
                 definition.Owner,
                 property,
-                definition.GetValue(selectedKind));
+                currentValue);
         }
 
         private bool ActivateKindEditor()
@@ -440,6 +464,9 @@ namespace Automation
             if (InspectorFieldValueService.TrySetReference(
                 definition, selectedKind, selectedValue, out bool changed, out string error))
             {
+                pendingKind = definition.GetCurrentKind() == selectedKind
+                    ? null
+                    : selectedKind;
                 ShowMessage(definition.Description, false);
                 if (changed) OnFieldValueChanged();
                 return;
@@ -467,7 +494,9 @@ namespace Automation
                     value,
                     definition.Owner,
                     property,
-                    definition.GetValue(selectedKind),
+                    definition.HasValue(selectedKind)
+                        ? definition.GetValue(selectedKind)
+                        : null,
                     true);
                 valueOptionsLoaded = true;
             }
@@ -504,6 +533,9 @@ namespace Automation
             }
             if (success)
             {
+                pendingKind = definition.GetCurrentKind() == selectedKind
+                    ? null
+                    : selectedKind;
                 ShowMessage(definition.Description, false);
                 if (changed) OnFieldValueChanged();
                 return true;

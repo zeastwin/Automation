@@ -11,7 +11,6 @@ using System.Drawing.Text;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -103,13 +102,17 @@ namespace Automation
         {
             Editable = editable;
             bool allow = editable && !definition.IsReadOnly;
+            if (displayCell != null)
+            {
+                displayCell.Editable = allow;
+            }
             if (!allow)
             {
                 DeactivateEditor(true);
             }
-            if (displayCell != null)
+            else if (editor is InspectorTextBox)
             {
-                displayCell.Editable = allow;
+                ShowPersistentTextEditor();
             }
             if (editor is TextBox textBox)
             {
@@ -424,6 +427,11 @@ namespace Automation
                 {
                     RefreshValue(true);
                 }
+                if (editor is InspectorTextBox && displayCell.Editable)
+                {
+                    ShowPersistentTextEditor();
+                    return;
+                }
                 editor.Visible = false;
                 editor.TabStop = false;
                 displayCell.Visible = true;
@@ -433,6 +441,14 @@ namespace Automation
             {
                 endingEdit = false;
             }
+        }
+
+        private void ShowPersistentTextEditor()
+        {
+            displayCell.Visible = false;
+            editor.Visible = true;
+            editor.TabStop = true;
+            editor.BringToFront();
         }
 
         private void Editor_KeyDown(object sender, KeyEventArgs args)

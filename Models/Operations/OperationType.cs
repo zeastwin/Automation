@@ -94,6 +94,23 @@ namespace Automation
         }
     }
 
+    /// <summary>
+    /// 标记同一业务值的固定值字段及其变量引用字段前缀，供编辑器合并为单一来源选择控件。
+    /// EmptyValue 仅用于现有数值哨兵契约；字符串默认以 null 或空串表示未选择固定值。
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public sealed class ValueSourceAlternativeAttribute : Attribute
+    {
+        public ValueSourceAlternativeAttribute(string referencePrefix)
+        {
+            ReferencePrefix = referencePrefix;
+        }
+
+        public string ReferencePrefix { get; }
+        public string DisplayName { get; set; }
+        public string EmptyValue { get; set; }
+    }
+
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
     public class InlineGroupAttribute : Attribute
     {
@@ -121,6 +138,7 @@ namespace Automation
 
         [DisplayName("超时"), Category("参数"), Description("超时时间（ms）；超过该时长仍未满足条件会触发报警。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时", EmptyValue = "0")]
         public int TimeoutMs { get; set; } = DefaultTimeoutMs;
         [DisplayName("超时变量"), Category("参数"), Description("超时时间变量名；当固定超时小于等于0时从该变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TimeoutVariableName { get; set; }
@@ -655,6 +673,7 @@ namespace Automation
         public string TargetState { get; set; }
 
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
+        [ValueSourceAlternative("DelayAfter", DisplayName = "操作后延时", EmptyValue = "0")]
         public int DelayAfterMs { get; set; }
         [DisplayName("操作后延时变量"), Category("参数"), Description("附加延时变量名；固定延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
@@ -692,6 +711,7 @@ namespace Automation
         }
 
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
+        [ValueSourceAlternative("DelayAfter", DisplayName = "操作后延时", EmptyValue = "0")]
         public int DelayAfterMs { get; set; }
         [DisplayName("操作后延时变量"), Category("参数"), Description("附加延时变量名；固定延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
@@ -818,6 +838,7 @@ namespace Automation
     public class GotoParam
     {
         [DisplayName("匹配值"), Category("参数"), Description("用于条件匹配的固定值。"), ReadOnly(false)]
+        [ValueSourceAlternative("MatchValue", DisplayName = "匹配值")]
         public string MatchValue { get; set; }
 
         [DisplayName("匹配值索引"), Category("参数"), Description("匹配值索引地址；用于按索引读取匹配目标。"), ReadOnly(false)]
@@ -938,6 +959,7 @@ namespace Automation
         }
         [DisplayName("延时时间(ms)"), Category("参数"), Description("固定延时时长（ms）。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("Delay", DisplayName = "延时时间")]
         public int? DelayMs { get; set; }
 
         [DisplayName("延时时间变量"), Category("参数"), Description("延时时间变量名；用于运行时动态延时。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -1258,6 +1280,7 @@ namespace Automation
 
 
         [DisplayName("修改值"), Category("B修改参数"), Description("参与运算的修改值；与“修改模式”共同决定结果。"), ReadOnly(false)]
+        [ValueSourceAlternative("ChangeValue", DisplayName = "修改值")]
         public string ChangeValue { get; set; }
 
         [DisplayName("修改变量索引"), Category("B修改参数"), Description("变量索引地址；运行时按索引读取或写入数据。"), ReadOnly(false)]
@@ -1367,6 +1390,7 @@ namespace Automation
         }
         [DisplayName("被替换字符串"), Category("A被替换字符串"), Description("待替换目标文本。"), ReadOnly(false)]
         [Browsable(true)]
+        [ValueSourceAlternative("ReplaceStr", DisplayName = "被替换字符串")]
         public string ReplaceStr { get; set; }
         [DisplayName("被替换字符串索引"), Category("A被替换字符串"), Description("待替换文本索引地址；用于按索引读取目标文本。"), ReadOnly(false)]
         [Browsable(true)]
@@ -1377,6 +1401,7 @@ namespace Automation
 
         [DisplayName("新字符串"), Category("B新字符串"), Description("替换后写入的新文本。"), ReadOnly(false)]
         [Browsable(true)]
+        [ValueSourceAlternative("NewStr", DisplayName = "新字符串")]
         public string NewStr { get; set; }
 
         [DisplayName("新字符串索引"), Category("B新字符串"), Description("新文本索引地址；用于按索引读取替换文本。"), ReadOnly(false)]
@@ -1462,22 +1487,20 @@ namespace Automation
                 new SetDataStructItemParam()
             };
         }
-        [DisplayName("按名称寻址"), Category("参数"), Description("启用后严格使用结构体名称、数据项名称和字段名称；关闭时继续使用原索引。"), ReadOnly(false)]
-        public bool UseNameAddressing { get; set; }
 
-        [DisplayName("结构体名称"), Category("参数"), Description("按名称寻址时使用的结构体精确名称。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
+        [DisplayName("结构体名称"), Category("参数"), Description("目标结构体；默认按名称选择，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStItem))]
         public string StructName { get; set; }
 
-        [DisplayName("数据项名称"), Category("参数"), Description("按名称寻址时使用的数据项精确名称。"), ReadOnly(false)]
+        [DisplayName("数据项名称"), Category("参数"), Description("目标数据项；候选项随结构体联动，也可切换为索引。"), ReadOnly(false), TypeConverter(typeof(DataStructItemName))]
         public string ItemName { get; set; }
 
         [DisplayName("结构体索引"), Category("参数"), Description("目标结构体索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int StructIndex { get; set; }
+        public int StructIndex { get; set; } = -1;
 
         [DisplayName("数据项索引"), Category("参数"), Description("目标数据项索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int ItemIndex { get; set; }
+        public int ItemIndex { get; set; } = -1;
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("数据", "参数")]
@@ -1490,15 +1513,28 @@ namespace Automation
     [Serializable]
     public class SetDataStructItemParam
     {
-        [DisplayName("值索引"), Category("参数"), Description("值来源索引地址。"), ReadOnly(false)]
+        [DisplayName("字段索引"), Category("参数"), Description("目标字段索引；默认按名称选择，也可切换为索引。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int FieldIndex { get; set; }
+        public int FieldIndex { get; set; } = -1;
 
-        [DisplayName("字段名称"), Category("参数"), Description("按名称寻址时使用的字段精确名称。"), ReadOnly(false)]
+        [DisplayName("字段名称"), Category("参数"), Description("目标字段；候选项随结构体和数据项联动。"), ReadOnly(false), TypeConverter(typeof(DataStructFieldName))]
         public string FieldName { get; set; }
 
-        [DisplayName("值"), Category("参数"), Description("固定值内容。"), ReadOnly(false)]
+        [DisplayName("写入值"), Category("参数"), Description("写入字段的固定值。"), ReadOnly(false)]
+        [ValueSourceAlternative("Value", DisplayName = "写入值")]
         public string Value { get; set; }
+
+        [DisplayName("写入变量索引"), Category("参数"), Description("按变量索引读取写入值。"), ReadOnly(false)]
+        public string ValueIndex { get; set; }
+
+        [DisplayName("写入变量索引二级"), Category("参数"), Description("读取指定索引变量的值，并把该值作为二级变量索引。"), ReadOnly(false)]
+        public string ValueIndex2Index { get; set; }
+
+        [DisplayName("写入变量名称"), Category("参数"), Description("按变量名称读取写入值。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ValueName { get; set; }
+
+        [DisplayName("写入变量名称二级"), Category("参数"), Description("读取指定名称变量的值，并把该值作为二级变量索引。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string ValueName2Index { get; set; }
 
         public override string ToString()
         {
@@ -1698,6 +1734,7 @@ namespace Automation
         public string ValueVariableName { get; set; }
 
         [DisplayName("数据值"), Category("参数"), Description("固定数据值。"), ReadOnly(false)]
+        [ValueSourceAlternative("Value", DisplayName = "数据来源")]
         public string Value { get; set; }
 
         public override string ToString()
@@ -2351,6 +2388,7 @@ namespace Automation
 
         [DisplayName("固定料盘号"), Category("C.料盘号-固定值"), Description("直接填写目标料盘号；如使用变量读取料盘号，此处必须保持 0。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("TrayId", DisplayName = "料盘号", EmptyValue = "0")]
         public int TrayId { get; set; }
 
         [DisplayName("料盘号变量索引"), Category("D.料盘号-变量读取"), Description("按变量索引读取目标料盘号；与固定料盘号二选一。"), ReadOnly(false)]
@@ -2367,6 +2405,7 @@ namespace Automation
 
         [DisplayName("固定料盘位置"), Category("E.料盘位置-固定值"), Description("直接填写目标料盘位置，必须大于 0；如使用变量读取料盘位置，此处必须保持 0。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("TrayPos", DisplayName = "料盘位置", EmptyValue = "0")]
         public int TrayPos { get; set; }
 
         [DisplayName("料盘位置变量索引"), Category("F.料盘位置-变量读取"), Description("按变量索引读取目标料盘位置；与固定料盘位置二选一。"), ReadOnly(false)]
@@ -2439,6 +2478,7 @@ namespace Automation
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时时间", EmptyValue = "0")]
         public int TimeoutMs { get; set; }
 
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -2515,6 +2555,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Vel", DisplayName = "速度", EmptyValue = "0")]
         public double Vel
         {
             get { return vel; }
@@ -2528,6 +2569,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Acc", DisplayName = "加速度", EmptyValue = "0")]
         public double Acc
         {
             get { return acc; }
@@ -2541,6 +2583,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Dec", DisplayName = "减速度", EmptyValue = "0")]
         public double Dec
         {
             get { return dec; }
@@ -2912,6 +2955,7 @@ namespace Automation
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时时间", EmptyValue = "0")]
         public int TimeoutMs { get; set; }
 
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
@@ -2945,31 +2989,37 @@ namespace Automation
         }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis1", EmptyValue = "0")]
         public double Axis1 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis1V { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis2", EmptyValue = "0")]
         public double Axis2 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis2V { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis3", EmptyValue = "0")]
         public double Axis3 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis3V { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis4", EmptyValue = "0")]
         public double Axis4 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis4V { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis5", EmptyValue = "0")]
         public double Axis5 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis5V { get; set; }
         [Browsable(false)]
         [DisplayName("轴设置"), Category("轴设置"), Description("轴使能/参与设置；决定该轴是否参与本次动作。"), ReadOnly(false)]
+        [ValueSourceAlternative("Axis6", EmptyValue = "0")]
         public double Axis6 { get; set; }
         [DisplayName("轴设置变量"), Category("轴设置"), Description("轴设置变量名；用于动态控制该轴参与状态。"), ReadOnly(false), TypeConverter(typeof(ValueItem)), Browsable(false)]
         public string Axis6V { get; set; }
@@ -2995,6 +3045,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("自动生产运动速度百分比，必须在1到100之间。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Vel", DisplayName = "速度", EmptyValue = "0")]
         public double Vel
         {
             get { return vel; }
@@ -3007,6 +3058,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("自动生产加速能力百分比；数值越小，加速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Acc", DisplayName = "加速度", EmptyValue = "0")]
         public double Acc
         {
             get { return acc; }
@@ -3019,6 +3071,7 @@ namespace Automation
         [Browsable(false)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("自动生产减速能力百分比；数值越小，减速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Dec", DisplayName = "减速度", EmptyValue = "0")]
         public double Dec
         {
             get { return dec; }
@@ -3122,6 +3175,7 @@ namespace Automation
         [Browsable(true)]
         [DisplayName("生产速度能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴的自动生产速度百分比，必须在1到100之间。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Vel", DisplayName = "速度", EmptyValue = "0")]
         public double Vel
         {
             get { return vel; }
@@ -3134,6 +3188,7 @@ namespace Automation
         [Browsable(true)]
         [DisplayName("生产加速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，加速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Acc", DisplayName = "加速度", EmptyValue = "0")]
         public double Acc
         {
             get { return acc; }
@@ -3146,6 +3201,7 @@ namespace Automation
         [Browsable(true)]
         [DisplayName("生产减速能力(%)"), Category("速度设置"), Description("持续作用于目标物理轴；数值越小，减速时间越长。"), ReadOnly(false)]
         [NumericRange(0, 100)]
+        [ValueSourceAlternative("Dec", DisplayName = "减速度", EmptyValue = "0")]
         public double Dec
         {
             get { return dec; }
@@ -3280,6 +3336,7 @@ namespace Automation
 
         [DisplayName("超时时间(ms)"), Category("参数"), Description("等待超时时间（ms）；超时后按报警策略处理。"), ReadOnly(false)]
         [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时时间", EmptyValue = "0")]
         public int TimeoutMs { get; set; }
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TimeoutVariableName { get; set; }
