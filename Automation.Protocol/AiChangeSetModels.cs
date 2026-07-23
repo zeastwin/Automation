@@ -255,7 +255,7 @@ namespace Automation.Protocol
         [Description("variable.set 的固定字面量；double 变量填写数字文本。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
         public string Value { get; set; }
 
-        [Description("variable.add 对 double 变量累加的固定数值。")]
+        [Description("variable.add 对 double 变量累加的固定数值，只接受数字字面量；按另一个变量累加使用 variable.compute。")]
         public double? Amount { get; set; }
 
         [Description("variable.compute 的源 double 变量。")]

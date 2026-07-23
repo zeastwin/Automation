@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
@@ -278,7 +279,8 @@ namespace Automation.McpServer
                 }
                 catch (JsonException ex)
                 {
-                    throw new ArgumentException($"参数 {parameter.Name} 反序列化失败:{ex.Message}", ex);
+                    throw new ArgumentException(
+                        $"参数 {parameter.Name} 反序列化失败:{DescribeJsonTypeMismatch(ex, value)}", ex);
                 }
             }
 
@@ -287,6 +289,100 @@ namespace Automation.McpServer
                 throw new ArgumentException($"缺少必填参数:{string.Join(", ", missing)}");
             }
             return bound;
+        }
+
+        /// <summary>
+        /// 把 System.Text.Json 的 .NET 类型名错误翻译为 JSON 层事实：
+        /// 字段路径、期望的 JSON 类型和实际收到的值，避免模型从
+        /// "System.Nullable`1[System.Double]" 这类实现细节猜测契约。
+        /// </summary>
+        private static string DescribeJsonTypeMismatch(JsonException ex, JsonNode argumentRoot)
+        {
+            string? expected = MapExpectedJsonType(ex.Message);
+            if (expected == null || string.IsNullOrEmpty(ex.Path))
+            {
+                return ex.Message;
+            }
+            JsonNode? node = ResolveJsonPath(argumentRoot, ex.Path);
+            string received = node switch
+            {
+                null => "null",
+                JsonValue value when value.TryGetValue<string>(out string? text)
+                    => $"string \"{(text.Length <= 40 ? text : text.Substring(0, 40) + "...")}\"",
+                JsonValue => node.ToJsonString(),
+                JsonArray => "array",
+                JsonObject => "object",
+                _ => "null"
+            };
+            return $"字段 {ex.Path} 期望 {expected}，收到 {received}。";
+        }
+
+        private static string? MapExpectedJsonType(string message)
+        {
+            const string marker = "could not be converted to ";
+            int start = message.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return null;
+            }
+            string typeName = message.Substring(start + marker.Length);
+            int end = typeName.IndexOf(". Path:", StringComparison.Ordinal);
+            typeName = (end >= 0 ? typeName.Substring(0, end) : typeName).TrimEnd('.');
+            // 展开 Nullable<T> 并去掉命名空间前缀。
+            Match nullable = Regex.Match(typeName, @"^System\.Nullable`1\[(.+)\]$");
+            if (nullable.Success)
+            {
+                typeName = nullable.Groups[1].Value;
+            }
+            int lastDot = typeName.LastIndexOf('.');
+            if (lastDot >= 0)
+            {
+                typeName = typeName.Substring(lastDot + 1);
+            }
+            return typeName switch
+            {
+                "Double" or "Single" or "Decimal" => "number",
+                "Int16" or "Int32" or "Int64" or "UInt16" or "UInt32" or "UInt64" or "Byte" => "integer",
+                "String" => "string",
+                "Boolean" => "boolean",
+                _ => null
+            };
+        }
+
+        /// <summary>按 System.Text.Json 的 $.a[0].b 路径格式取回出错字段的原始节点。</summary>
+        private static JsonNode? ResolveJsonPath(JsonNode root, string path)
+        {
+            if (path == "$")
+            {
+                return root;
+            }
+            JsonNode? current = root;
+            foreach (string segment in path.Substring(2).Split('.'))
+            {
+                string name = segment;
+                int bracket = segment.IndexOf('[');
+                if (bracket >= 0)
+                {
+                    name = segment.Substring(0, bracket);
+                }
+                if (name.Length > 0)
+                {
+                    current = current is JsonObject obj ? obj[name] : null;
+                }
+                if (bracket >= 0 && current != null)
+                {
+                    foreach (Match index in Regex.Matches(segment.Substring(bracket), @"\[(\d+)\]"))
+                    {
+                        int position = int.Parse(index.Groups[1].Value);
+                        current = current is JsonArray array && position < array.Count ? array[position] : null;
+                    }
+                }
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+            return current;
         }
 
         private static McpServerTool? FindTool(IReadOnlyList<McpServerTool> tools, string toolName)
