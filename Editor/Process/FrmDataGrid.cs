@@ -1692,7 +1692,7 @@ namespace Automation
             Modify_Click(sender, EventArgs.Empty);
         }
 
-        private void ShowOperationProperties(int rowIndex)
+        internal void ShowOperationProperties(int rowIndex, bool manageInspectorUpdate = true)
         {
             int procIndex = Workspace.ProcessSelection.ProcIndex;
             int stepIndex = Workspace.ProcessSelection.StepIndex;
@@ -1718,7 +1718,10 @@ namespace Automation
                 return;
             }
             OperationTemp = operation;
-            inspector.BeginUpdate();
+            if (manageInspectorUpdate)
+            {
+                inspector.BeginUpdate();
+            }
             try
             {
                 EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
@@ -1728,7 +1731,10 @@ namespace Automation
             }
             finally
             {
-                inspector.EndUpdate();
+                if (manageInspectorUpdate)
+                {
+                    inspector.EndUpdate();
+                }
             }
         }
 

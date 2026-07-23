@@ -217,6 +217,28 @@ namespace Automation
                 runtime.Paths.ConfigPath, draft, out error, historyDescription: "清空变量");
         }
 
+        public bool TrySetCommonVariable(int index, bool isCommon, out string error)
+        {
+            Dictionary<string, DicValue> draft = runtime.Stores.Values.BuildSaveData();
+            DicValue variable = draft.Values.FirstOrDefault(value => value?.Index == index);
+            if (variable == null)
+            {
+                error = $"槽位{index}尚未配置变量。";
+                return false;
+            }
+            if (variable.isMark == isCommon)
+            {
+                error = null;
+                return true;
+            }
+            variable.isMark = isCommon;
+            return runtime.Stores.Values.TryCommitConfiguration(
+                runtime.Paths.ConfigPath,
+                draft,
+                out error,
+                historyDescription: isCommon ? "加入常用变量" : "移除常用变量");
+        }
+
         public static string BuildScopeOptionKey(string scope, Guid? ownerProcId)
         {
             return string.Equals(scope, VariableScopeContract.Process, StringComparison.Ordinal)

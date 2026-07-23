@@ -1070,75 +1070,81 @@ namespace Automation
             inspector?.BeginUpdate();
             try
             {
-            OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
-            Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
-            int firstVisibleRow = -1;
-            if (grid != null && grid.OperationCount > 0)
-            {
-                try
-                {
-                    firstVisibleRow = grid.FirstVisibleIndex;
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
-            {
-                bindingSource.DataSource = null;
-                if (grid != null)
-                {
-                    grid.SetFlowContext(-1, -1, null);
-                }
-                return;
-            }
-            if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
-            {
-                grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
-                bindingSource.DataSource = procsList[SelectedProcNum].steps[SelectedStepNum].Ops;
-                if (Workspace.Inspector != null && !Workspace.Inspector.IsDisposed)
-                {
-                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].steps[SelectedStepNum]);
-                }
-            }
-            else
-            {
-                grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
-                bindingSource.DataSource = null;
-                if (Workspace.Inspector != null && !Workspace.Inspector.IsDisposed)
-                {
-                    Workspace.Inspector.ShowObject(procsList[SelectedProcNum].head);
-                }
-            }
-            bindingSource.ResetBindings(false);
-            if (grid != null && !grid.IsDisposed)
-            {
-                if (!ReferenceEquals(grid.DataSource, bindingSource))
-                {
-                    grid.DataSource = bindingSource;
-                }
-                if (selectedOpId != Guid.Empty)
-                {
-                    int selectedRowIndex = Enumerable.Range(0, grid.OperationCount)
-                        .FirstOrDefault(index => grid.GetOperation(index)?.Id == selectedOpId);
-                    if (selectedRowIndex >= 0 && selectedRowIndex < grid.OperationCount
-                        && grid.GetOperation(selectedRowIndex)?.Id == selectedOpId)
-                    {
-                        grid.SelectSingle(selectedRowIndex);
-                        Workspace.DataGrid.iSelectedRow = selectedRowIndex;
-                    }
-                }
-                if (firstVisibleRow >= 0 && firstVisibleRow < grid.OperationCount)
+                OperationType selectedOp = grid?.GetOperation(grid.CurrentIndex);
+                Guid selectedOpId = selectedOp?.Id ?? Guid.Empty;
+                int firstVisibleRow = -1;
+                if (grid != null && grid.OperationCount > 0)
                 {
                     try
                     {
-                        grid.SetFirstVisibleIndex(firstVisibleRow);
+                        firstVisibleRow = grid.FirstVisibleIndex;
                     }
                     catch (InvalidOperationException)
                     {
                     }
                 }
-            }
+                if (SelectedProcNum < 0 || SelectedProcNum >= procsList.Count)
+                {
+                    bindingSource.DataSource = null;
+                    if (grid != null)
+                    {
+                        grid.SetFlowContext(-1, -1, null);
+                    }
+                    return;
+                }
+                object fallbackInspectorObject;
+                if (SelectedStepNum >= 0 && SelectedStepNum < procsList[SelectedProcNum].steps.Count)
+                {
+                    Step selectedStep = procsList[SelectedProcNum].steps[SelectedStepNum];
+                    grid?.SetFlowContext(SelectedProcNum, SelectedStepNum, procsList[SelectedProcNum]);
+                    bindingSource.DataSource = selectedStep.Ops;
+                    fallbackInspectorObject = selectedStep;
+                }
+                else
+                {
+                    grid?.SetFlowContext(SelectedProcNum, -1, procsList[SelectedProcNum]);
+                    bindingSource.DataSource = null;
+                    fallbackInspectorObject = procsList[SelectedProcNum].head;
+                }
+                bindingSource.ResetBindings(false);
+                bool restoredOperation = false;
+                if (grid != null && !grid.IsDisposed)
+                {
+                    if (!ReferenceEquals(grid.DataSource, bindingSource))
+                    {
+                        grid.DataSource = bindingSource;
+                    }
+                    if (selectedOpId != Guid.Empty)
+                    {
+                        int selectedRowIndex = Enumerable.Range(0, grid.OperationCount)
+                            .FirstOrDefault(index => grid.GetOperation(index)?.Id == selectedOpId);
+                        if (selectedRowIndex >= 0 && selectedRowIndex < grid.OperationCount
+                            && grid.GetOperation(selectedRowIndex)?.Id == selectedOpId)
+                        {
+                            if (grid.CurrentIndex != selectedRowIndex)
+                            {
+                                grid.SelectSingle(selectedRowIndex);
+                            }
+                            Workspace.DataGrid.iSelectedRow = selectedRowIndex;
+                            Workspace.DataGrid.ShowOperationProperties(selectedRowIndex, false);
+                            restoredOperation = true;
+                        }
+                    }
+                    if (firstVisibleRow >= 0 && firstVisibleRow < grid.OperationCount)
+                    {
+                        try
+                        {
+                            grid.SetFirstVisibleIndex(firstVisibleRow);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                        }
+                    }
+                }
+                if (!restoredOperation && inspector != null && !inspector.IsDisposed)
+                {
+                    inspector.ShowObject(fallbackInspectorObject);
+                }
             }
             finally
             {

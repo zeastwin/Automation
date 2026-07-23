@@ -448,8 +448,85 @@ namespace Automation
                 return;
             }
             InfoLogEntry entry = infoLogBuffer[index];
-            string content = $"{entry.TimeText}{entry.Message}";
-            MessageBox.Show(this, content, "日志全文", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            string content = FormatInfoLogDetail(entry.TimeText, entry.Message, entry.Level);
+            using (var dialog = new Message(
+                Workspace.Runtime.Safety,
+                Workspace.Runtime.EditorUi,
+                "日志详情",
+                content,
+                null,
+                "关闭",
+                true,
+                false))
+            {
+                dialog.PresentDeferred(true);
+            }
+        }
+
+        internal static string FormatInfoLogDetail(string timeText, string message, Level level)
+        {
+            string normalizedTime = (timeText ?? string.Empty).Trim().Trim('[', ']');
+            string normalizedMessage = (message ?? string.Empty).Trim();
+            normalizedMessage = normalizedMessage.TrimStart('：', ':').TrimStart();
+
+            var builder = new StringBuilder();
+            builder.Append("时间    ");
+            builder.AppendLine(string.IsNullOrWhiteSpace(normalizedTime) ? "未知" : normalizedTime);
+            builder.Append("级别    ");
+            builder.AppendLine(level == Level.Error ? "错误" : "信息");
+
+            int detailStart = FindOperationDetailStart(normalizedMessage);
+            if (detailStart < 0)
+            {
+                builder.AppendLine();
+                builder.AppendLine("日志内容");
+                builder.AppendLine(normalizedMessage);
+                return builder.ToString().TrimEnd();
+            }
+
+            string summary = normalizedMessage.Substring(0, detailStart).Trim().TrimEnd('；');
+            string detailText = normalizedMessage.Substring(detailStart);
+            string[] details = detailText.Split(
+                new[] { "；", "\r\n", "\n" },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            builder.AppendLine();
+            builder.AppendLine("摘要");
+            builder.AppendLine(summary);
+            builder.AppendLine();
+            builder.AppendLine($"问题明细（{details.Length}）");
+            for (int i = 0; i < details.Length; i++)
+            {
+                builder.Append(i + 1);
+                builder.Append(". ");
+                builder.AppendLine(details[i].Trim());
+            }
+            return builder.ToString().TrimEnd();
+        }
+
+        private static int FindOperationDetailStart(string message)
+        {
+            int searchStart = 0;
+            while (searchStart < message.Length)
+            {
+                int stepIndex = message.IndexOf("步骤 ", searchStart, StringComparison.Ordinal);
+                if (stepIndex < 0)
+                {
+                    return -1;
+                }
+                int itemEnd = message.IndexOf('；', stepIndex);
+                if (itemEnd < 0)
+                {
+                    itemEnd = message.Length;
+                }
+                int operationIndex = message.IndexOf("指令 ", stepIndex, itemEnd - stepIndex, StringComparison.Ordinal);
+                if (operationIndex >= 0)
+                {
+                    return stepIndex;
+                }
+                searchStart = stepIndex + 3;
+            }
+            return -1;
         }
 
         private void OnInfoStreamUserInteraction()

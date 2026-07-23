@@ -178,10 +178,11 @@ namespace Automation
                 ? selectedCardIndex
                 : -1;
             IoGridViewState viewState = CaptureIoGridViewState(cardIndex);
+            bool rebuildRows = displayedCardIndex != cardIndex || dgvIO.Rows.Count != totalCount;
             dgvIO.SuspendLayout();
             try
             {
-                if (Workspace.Runtime.Editor.ModifyKind != ModifyKind.IO)
+                if (rebuildRows)
                 {
                     dgvIO.Rows.Clear();
                     if (totalCount > 0)
@@ -298,9 +299,14 @@ namespace Automation
             int columnIndex = Math.Min(
                 Math.Max(0, viewState.ColumnIndex),
                 dgvIO.Columns.Count - 1);
-            dgvIO.ClearSelection();
-            dgvIO.CurrentCell = dgvIO.Rows[rowIndex].Cells[columnIndex];
-            dgvIO.Rows[rowIndex].Selected = true;
+            if (dgvIO.CurrentCell?.RowIndex != rowIndex
+                || dgvIO.CurrentCell.ColumnIndex != columnIndex
+                || !dgvIO.Rows[rowIndex].Selected)
+            {
+                dgvIO.ClearSelection();
+                dgvIO.CurrentCell = dgvIO.Rows[rowIndex].Cells[columnIndex];
+                dgvIO.Rows[rowIndex].Selected = true;
+            }
             iSelectedIORow = rowIndex;
             return true;
         }
@@ -363,6 +369,12 @@ namespace Automation
                         }
                         dgvIO.Enabled = true;
                         RefreshIODgv();
+                        if (cardIndex >= 0 && cardIndex < IOMap.Count
+                            && IOMap[cardIndex] != null
+                            && rowIndex >= 0 && rowIndex < IOMap[cardIndex].Count)
+                        {
+                            Workspace.Inspector?.ShowObject(IOMap[cardIndex][rowIndex]);
+                        }
                     },
                     () => dgvIO.Enabled = true));
                 RefreshIoMonitorRequest();

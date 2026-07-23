@@ -908,10 +908,11 @@ namespace Automation
         private void InstructionListView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             using (SolidBrush background = new SolidBrush(UiPalette.SurfaceSubtle))
-            using (SolidBrush separator = new SolidBrush(UiPalette.Divider))
+            using (SolidBrush separator = new SolidBrush(UiPalette.Stroke))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 e.Graphics.FillRectangle(separator, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Width, 1);
+                e.Graphics.FillRectangle(separator, e.Bounds.Right - 1, e.Bounds.Top, 1, e.Bounds.Height);
             }
             if (e.ColumnIndex == 0)
             {
@@ -956,12 +957,11 @@ namespace Automation
                 : UiPalette.TextPrimary;
 
             using (SolidBrush background = new SolidBrush(backColor))
-            using (SolidBrush separator = new SolidBrush(operation?.Disable == true
-                ? UiPalette.TextMuted
-                : UiPalette.DisabledSoft))
+            using (SolidBrush separator = new SolidBrush(UiPalette.Stroke))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 e.Graphics.FillRectangle(separator, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Width, 1);
+                e.Graphics.FillRectangle(separator, e.Bounds.Right - 1, e.Bounds.Top, 1, e.Bounds.Height);
             }
 
             if (e.ColumnIndex == 0)

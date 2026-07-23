@@ -367,8 +367,15 @@ namespace Automation
         private readonly TreeView scopeTree;
         private readonly DataGridViewTextBoxColumn scopeColumn;
         private readonly Button btnClearSearch;
+        private readonly Button btnAddCommon;
+        private readonly Button btnShowCommon;
+        private readonly Button btnShowDataStruct;
         private readonly TextBox txtVariableSearch;
         private readonly Label lblEmptyState;
+        private readonly Label lblCommonEmpty;
+        private readonly Panel commonViewHost;
+        private readonly Panel dataStructViewHost;
+        private readonly ContextMenuStrip commonVariableMenu;
         private readonly ToolTip uiToolTip;
         private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
@@ -393,6 +400,7 @@ namespace Automation
         private bool refreshScopeTreePending;
         private bool isScopeSelectionApplyPending;
         private bool suppressScopeSelectionChanged;
+        private bool suppressCommonSelectionChanged;
         private bool hasVariableSnapshot;
         private bool variableGridRowsInitialized;
         private bool isRebuildingVariableRows;
@@ -434,6 +442,8 @@ namespace Automation
             btnMonitor.Click += btnMonitor_Click;
             btnMonitorAdd = new MaterialButton();
             btnMonitorAdd.Click += btnMonitorAdd_Click;
+            btnAddCommon = new MaterialButton { Text = "加入常用" };
+            btnAddCommon.Click += btnAddCommon_Click;
             btnCopy = new MaterialButton();
             btnCopy.Click += btnCopy_Click;
             btnPaste = new MaterialButton();
@@ -453,7 +463,35 @@ namespace Automation
             };
             dgvValue.Columns.Add(scopeColumn);
 
-            listCommon.Visible = false;
+            btnShowCommon = new MaterialButton { Text = "常用变量" };
+            btnShowCommon.Click += (sender, args) => ShowVariableSideView(false);
+            btnShowDataStruct = new MaterialButton { Text = "数据结构" };
+            btnShowDataStruct.Click += (sender, args) => ShowVariableSideView(true);
+            commonViewHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(0, 8, 0, 0),
+                BackColor = UiPalette.Surface
+            };
+            dataStructViewHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(0, 8, 0, 0),
+                BackColor = UiPalette.Surface
+            };
+            lblCommonEmpty = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "暂无常用变量\r\n请在变量表中选中变量后加入",
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                ForeColor = UiPalette.TextSecondary,
+                BackColor = UiPalette.SurfaceStrong
+            };
+            commonVariableMenu = new ContextMenuStrip();
+            commonVariableMenu.Items.Add("移出常用变量", null, RemoveSelectedCommonVariable);
+            listCommon.ContextMenuStrip = commonVariableMenu;
+            listCommon.MouseDown += listCommon_MouseDown;
             scopeTree = new BufferedTreeView
             {
                 Dock = DockStyle.Fill,
@@ -552,12 +590,14 @@ namespace Automation
             };
 
             ConfigureToolbarButton(btnMonitorAdd, "加入监控", 96);
+            ConfigureToolbarButton(btnAddCommon, "加入常用", 96);
             ConfigureToolbarButton(btnMonitor, "监控记录", 96);
             ConfigureToolbarButton(btnCopy, "复制", 68);
             ConfigureToolbarButton(btnPaste, "粘贴", 68);
             ConfigureToolbarButton(btnClearData, "清空变量", 92);
 
             actions.Controls.Add(btnMonitorAdd);
+            actions.Controls.Add(btnAddCommon);
             actions.Controls.Add(btnMonitor);
             actions.Controls.Add(btnCopy);
             actions.Controls.Add(btnPaste);
@@ -628,9 +668,32 @@ namespace Automation
             };
             workspaceWindowButton.Dock = DockStyle.Fill;
             windowButtonHost.Controls.Add(workspaceWindowButton);
+            var sideViewHeader = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                Width = 208,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(4, 0, 0, 0),
+                Margin = Padding.Empty,
+                BackColor = UiPalette.Surface
+            };
+            ConfigureToolbarButton(btnShowCommon, "常用变量", 98);
+            ConfigureToolbarButton(btnShowDataStruct, "数据结构", 98);
+            sideViewHeader.Controls.Add(btnShowCommon);
+            sideViewHeader.Controls.Add(btnShowDataStruct);
+            searchPanel.Dock = DockStyle.Fill;
+            var topRightHost = new Panel
+            {
+                Dock = DockStyle.Right,
+                Width = 598,
+                BackColor = UiPalette.Surface
+            };
+            topRightHost.Controls.Add(searchPanel);
+            topRightHost.Controls.Add(windowButtonHost);
+            topRightHost.Controls.Add(sideViewHeader);
             panel1.Controls.Add(actions);
-            panel1.Controls.Add(searchPanel);
-            panel1.Controls.Add(windowButtonHost);
+            panel1.Controls.Add(topRightHost);
 
             panelCommon.Controls.Clear();
             panelCommon.Width = 180;
@@ -684,13 +747,30 @@ namespace Automation
             splitContainerMain.Panel1.Controls.Add(panelCommon);
 
             panelStructHost.Dock = DockStyle.Fill;
-            panelStructHost.Padding = new Padding(8);
+            panelStructHost.Padding = new Padding(8, 8, 8, 12);
             panelStructHost.BackColor = UiPalette.Surface;
+
+            listCommon.Dock = DockStyle.Fill;
+            listCommon.Visible = true;
+            commonViewHost.Controls.Clear();
+            commonViewHost.Controls.Add(listCommon);
+            commonViewHost.Controls.Add(lblCommonEmpty);
+            dataStructViewHost.Controls.Clear();
+            var sideViewContent = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiPalette.Surface
+            };
+            sideViewContent.Controls.Add(commonViewHost);
+            sideViewContent.Controls.Add(dataStructViewHost);
+            panelStructHost.Controls.Clear();
+            panelStructHost.Controls.Add(sideViewContent);
             splitContainerMain.Panel2.Controls.Clear();
             splitContainerMain.Panel2.Controls.Add(panelStructHost);
             splitContainerMain.SplitterWidth = 6;
             splitContainerMain.BorderStyle = BorderStyle.None;
             Text = "变量管理";
+            ShowVariableSideView(false);
 
             index.HeaderText = "槽位";
             index.MinimumWidth = 48;
@@ -789,6 +869,9 @@ namespace Automation
             ApplyButtonStyle(btnCancel, false, true);
             ApplyButtonStyle(btnMonitor, false, false);
             ApplyButtonStyle(btnMonitorAdd, false, false);
+            ApplyButtonStyle(btnAddCommon, false, false);
+            ApplyButtonStyle(btnShowCommon, true, false);
+            ApplyButtonStyle(btnShowDataStruct, false, false);
             ApplyButtonStyle(btnMonitorRemove, false, false);
             ApplyButtonStyle(btnCopy, false, false);
             ApplyButtonStyle(btnPaste, false, false);
@@ -953,6 +1036,7 @@ namespace Automation
             monitorForm = null;
             scopeGroupFont?.Dispose();
             scopeChevronFont?.Dispose();
+            commonVariableMenu?.Dispose();
             uiToolTip?.Dispose();
         }
         //从文件更新变量表
@@ -980,6 +1064,7 @@ namespace Automation
             {
                 RefreshVariableSnapshot();
                 RefreshVariableScopeOptions();
+                RefreshCommonList();
                 EnsureVariableGridRowsInitialized();
                 RefreshScopeTree();
                 ApplyScopeFilter();
@@ -1041,6 +1126,7 @@ namespace Automation
                 }
                 RefreshVariableSnapshot();
                 RefreshVariableScopeOptions();
+                RefreshCommonList();
                 RefreshScopeTree();
                 ApplyScopeFilter();
                 RefreshMonitorTitle();
@@ -1959,7 +2045,7 @@ namespace Automation
 
         private void AttachDataStructView()
         {
-            if (isStructViewAttached || panelStructHost == null)
+            if (isStructViewAttached || dataStructViewHost == null)
             {
                 return;
             }
@@ -1972,9 +2058,9 @@ namespace Automation
             Workspace.DataStruct.FormBorderStyle = FormBorderStyle.None;
             Workspace.DataStruct.Dock = DockStyle.Fill;
 
-            if (!panelStructHost.Controls.Contains(Workspace.DataStruct))
+            if (!dataStructViewHost.Controls.Contains(Workspace.DataStruct))
             {
-                panelStructHost.Controls.Add(Workspace.DataStruct);
+                dataStructViewHost.Controls.Add(Workspace.DataStruct);
             }
 
             Workspace.DataStruct.Show();
@@ -2699,7 +2785,41 @@ namespace Automation
 
         private void RefreshCommonList()
         {
-            ApplyScopeFilter();
+            int selectedIndex = listCommon.SelectedItem is CommonValueItem selected
+                ? selected.Index
+                : -1;
+            List<CommonValueItem> items = variableSnapshot
+                .Where(variable => variable != null && variable.isMark)
+                .OrderBy(variable => variable.Index)
+                .Select(variable => new CommonValueItem
+                {
+                    Index = variable.Index,
+                    Name = variable.Name
+                })
+                .ToList();
+            suppressCommonSelectionChanged = true;
+            try
+            {
+                listCommon.BeginUpdate();
+                listCommon.Items.Clear();
+                listCommon.Items.AddRange(items.Cast<object>().ToArray());
+                int restoredIndex = items.FindIndex(item => item.Index == selectedIndex);
+                listCommon.SelectedIndex = restoredIndex;
+            }
+            finally
+            {
+                listCommon.EndUpdate();
+                suppressCommonSelectionChanged = false;
+            }
+            lblCommonEmpty.Visible = items.Count == 0;
+            if (items.Count == 0)
+            {
+                lblCommonEmpty.BringToFront();
+            }
+            else
+            {
+                listCommon.BringToFront();
+            }
         }
 
         private void EnsureValueStoreHooked()
@@ -2877,6 +2997,31 @@ namespace Automation
             }
         }
 
+        private void btnAddCommon_Click(object sender, EventArgs e)
+        {
+            int slotIndex = GetSelectedVariableSlotIndex();
+            if (slotIndex < 0
+                || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out _))
+            {
+                MessageBox.Show("请先选择已配置的变量。", "加入常用变量",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!VariableEditor.TrySetCommonVariable(slotIndex, true, out string error))
+            {
+                MessageBox.Show(error, "加入常用变量失败",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            RefreshVariableSnapshot();
+            RefreshCommonList();
+            if (dgvValue.CurrentCell != null)
+            {
+                dgvValue.InvalidateRow(dgvValue.CurrentCell.RowIndex);
+            }
+            ShowVariableSideView(false);
+        }
+
         private void btnMonitorRemove_Click(object sender, EventArgs e)
         {
             if (dgvValue.CurrentCell == null)
@@ -2928,19 +3073,66 @@ namespace Automation
 
         private void listCommon_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (suppressCommonSelectionChanged)
+            {
+                return;
+            }
             if (listCommon.SelectedItem is CommonValueItem item)
             {
-                int index = item.Index;
-                int rowIndex = GetVariableDisplayRowIndex(index);
-                if (rowIndex >= 0)
-                {
-                    currentIndex = index;
-                    dgvValue.ClearSelection();
-                    dgvValue.CurrentCell = dgvValue.Rows[rowIndex].Cells[0];
-                    dgvValue.Rows[rowIndex].Selected = true;
-                    dgvValue.FirstDisplayedScrollingRowIndex = rowIndex;
-                    RefreshViewportRows();
-                }
+                currentIndex = item.Index;
+                LocateValueIndex(item.Index);
+            }
+        }
+
+        private void listCommon_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right)
+            {
+                return;
+            }
+            int itemIndex = listCommon.IndexFromPoint(e.Location);
+            if (itemIndex >= 0)
+            {
+                listCommon.SelectedIndex = itemIndex;
+            }
+        }
+
+        private void RemoveSelectedCommonVariable(object sender, EventArgs e)
+        {
+            if (!(listCommon.SelectedItem is CommonValueItem item))
+            {
+                return;
+            }
+            if (!VariableEditor.TrySetCommonVariable(item.Index, false, out string error))
+            {
+                MessageBox.Show(error, "移出常用变量失败",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            RefreshVariableSnapshot();
+            RefreshCommonList();
+            int rowIndex = GetVariableDisplayRowIndex(item.Index);
+            if (rowIndex >= 0)
+            {
+                dgvValue.InvalidateRow(rowIndex);
+            }
+        }
+
+        private void ShowVariableSideView(bool showDataStruct)
+        {
+            commonViewHost.Visible = !showDataStruct;
+            dataStructViewHost.Visible = showDataStruct;
+            ApplyButtonStyle(btnShowCommon, !showDataStruct, false);
+            ApplyButtonStyle(btnShowDataStruct, showDataStruct, false);
+            if (showDataStruct)
+            {
+                AttachDataStructView();
+                dataStructViewHost.BringToFront();
+                Workspace.DataStruct?.BringToFront();
+            }
+            else
+            {
+                commonViewHost.BringToFront();
             }
         }
 
