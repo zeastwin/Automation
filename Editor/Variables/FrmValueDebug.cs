@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace Automation
@@ -32,6 +33,8 @@ namespace Automation
         private bool isConfigLoaded;
         private bool hasRendered;
         private bool refreshScheduled;
+        private long loadedDebugConfigurationVersion = -1;
+        private long renderedValueConfigurationVersion = -1;
         public FrmValueDebug()
         {
             InitializeComponent();
@@ -62,28 +65,25 @@ namespace Automation
             dgvEdit.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvEdit.RowTemplate.Height = 28;
             dgvEdit.ReadOnly = false;
+            dgvEdit.EditMode = DataGridViewEditMode.EditOnEnter;
             ApplyColumnTheme(groupEdit, panelEditBottom, dgvEdit, UiPalette.SuccessSoft, UiPalette.SuccessSoft);
 
             cboCheckVar.Font = uiFont;
             cboEditVar.Font = uiFont;
             cboCheckVar.DropDownStyle = ComboBoxStyle.DropDownList;
             cboEditVar.DropDownStyle = ComboBoxStyle.DropDownList;
-            txtEditValue.Font = uiFont;
             btnCheckAdd.Font = uiFont;
             btnCheckRemove.Font = uiFont;
             btnCheckRefresh.Font = uiFont;
             btnEditAdd.Font = uiFont;
             btnEditRemove.Font = uiFont;
-            btnEditApply.Font = uiFont;
             btnEditRefresh.Font = uiFont;
             lblCheckStatus.Font = uiFont;
             lblEditStatus.Font = uiFont;
             lblCheckIndex.Font = uiFont;
             lblEditIndex.Font = uiFont;
-            lblEditValue.Font = uiFont;
             ApplyButtonStyle(btnCheckAdd, true);
             ApplyButtonStyle(btnEditAdd, true);
-            ApplyButtonStyle(btnEditApply, true);
             ApplyButtonStyle(btnCheckRemove, false);
             ApplyButtonStyle(btnEditRemove, false);
             ApplyButtonStyle(btnCheckRefresh, false);
@@ -95,7 +95,7 @@ namespace Automation
             groupCheck.Margin = new Padding(4);
             groupEdit.Margin = new Padding(4);
             panelCheckBottom.Height = 106;
-            panelEditBottom.Height = 132;
+            panelEditBottom.Height = 106;
 
             var checkLayout = CreateActionLayout(2);
             checkLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48F));
@@ -115,14 +115,13 @@ namespace Automation
             checkLayout.SetColumnSpan(lblCheckStatus, 5);
             panelCheckBottom.Controls.Add(checkLayout);
 
-            var editLayout = CreateActionLayout(3);
+            var editLayout = CreateActionLayout(2);
             editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48F));
             editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
             editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
             editLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82F));
-            editLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
-            editLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
+            editLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
             editLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             panelEditBottom.Controls.Clear();
             editLayout.Controls.Add(lblEditIndex, 0, 0);
@@ -130,25 +129,20 @@ namespace Automation
             editLayout.Controls.Add(btnEditAdd, 2, 0);
             editLayout.Controls.Add(btnEditRemove, 3, 0);
             editLayout.Controls.Add(btnEditRefresh, 4, 0);
-            editLayout.Controls.Add(lblEditValue, 0, 1);
-            editLayout.Controls.Add(txtEditValue, 1, 1);
-            editLayout.SetColumnSpan(txtEditValue, 3);
-            editLayout.Controls.Add(btnEditApply, 4, 1);
-            editLayout.Controls.Add(lblEditStatus, 0, 2);
+            editLayout.Controls.Add(lblEditStatus, 0, 1);
             editLayout.SetColumnSpan(lblEditStatus, 5);
             panelEditBottom.Controls.Add(editLayout);
 
             foreach (Control control in new Control[]
             {
                 cboCheckVar, btnCheckAdd, btnCheckRemove, btnCheckRefresh,
-                cboEditVar, btnEditAdd, btnEditRemove, btnEditRefresh,
-                txtEditValue, btnEditApply
+                cboEditVar, btnEditAdd, btnEditRemove, btnEditRefresh
             })
             {
                 control.Dock = DockStyle.Fill;
                 control.Margin = new Padding(3, 4, 3, 4);
             }
-            foreach (Label label in new[] { lblCheckIndex, lblEditIndex, lblEditValue })
+            foreach (Label label in new[] { lblCheckIndex, lblEditIndex })
             {
                 label.Dock = DockStyle.Fill;
                 label.TextAlign = ContentAlignment.MiddleLeft;
@@ -216,6 +210,12 @@ namespace Automation
             }
         }
 
+        private sealed class ValueDebugRowIdentity
+        {
+            public int Index { get; set; }
+            public Guid VariableId { get; set; }
+        }
+
         private void ScheduleVisibleRefresh()
         {
             if (refreshScheduled || !Visible || IsDisposed || Disposing || !IsHandleCreated)
@@ -266,7 +266,7 @@ namespace Automation
                 return;
             }
             EnsureDebugConfigLoaded();
-            RefreshValueOptions();
+            RefreshValueOptionsIfChanged();
             RefreshCheckRows();
             RefreshEditRows();
             hasRendered = true;
@@ -280,7 +280,7 @@ namespace Automation
                 return;
             }
             EnsureDebugConfigLoaded();
-            RefreshValueOptions();
+            RefreshValueOptionsIfChanged();
             RefreshCheckRows();
             hasRendered = true;
         }
@@ -291,15 +291,10 @@ namespace Automation
             dgvCheck.SuspendLayout();
             try
             {
-                dgvCheck.Rows.Clear();
-                foreach (int index in checkIndexSet)
-                {
-                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
-                    {
-                        continue;
-                    }
-                    AddCheckRow(index, value);
-                }
+                ReconcileRows(
+                    dgvCheck,
+                    checkIndexSet,
+                    PopulateCheckRow);
             }
             finally
             {
@@ -316,7 +311,7 @@ namespace Automation
                 return;
             }
             EnsureDebugConfigLoaded();
-            RefreshValueOptions();
+            RefreshValueOptionsIfChanged();
             RefreshEditRows();
             hasRendered = true;
         }
@@ -327,15 +322,10 @@ namespace Automation
             dgvEdit.SuspendLayout();
             try
             {
-                dgvEdit.Rows.Clear();
-                foreach (int index in editIndexSet)
-                {
-                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
-                    {
-                        continue;
-                    }
-                    AddEditRow(index, value);
-                }
+                ReconcileRows(
+                    dgvEdit,
+                    editIndexSet,
+                    PopulateEditRow);
             }
             finally
             {
@@ -415,18 +405,19 @@ namespace Automation
                 return;
             }
             DataGridViewRow row = dgvCheck.Rows[e.RowIndex];
-            if (!TryGetCheckRowIndex(row, out int index, out string error))
+            if (!TryGetCheckRowIdentity(row, out ValueDebugRowIdentity identity, out string error))
             {
                 ShowCheckError(error);
                 return;
             }
+            int index = identity.Index;
             bool isChecked = false;
             if (row.Cells[colCheckValue.Index].Value is bool checkedValue)
             {
                 isChecked = checkedValue;
             }
             string newValue = isChecked ? "1" : "0";
-            if (!TryApplyValue(index, newValue, "变量调试-复选框列表", out string applyError))
+            if (!TryApplyValue(identity, newValue, "变量调试-复选框列表", out string applyError))
             {
                 ShowCheckError(applyError);
                 RefreshCheckRow(row, index);
@@ -518,45 +509,56 @@ namespace Automation
             SaveDebugConfig();
         }
 
-        private void btnEditApply_Click(object sender, EventArgs e)
-        {
-            ApplyEditValue("变量调试-应用按钮");
-        }
-
         private void btnEditRefresh_Click(object sender, EventArgs e)
         {
             RefreshEditList();
         }
 
-        private void txtEditValue_KeyDown(object sender, KeyEventArgs e)
+        private void dgvEdit_EditingControlShowing(
+            object sender,
+            DataGridViewEditingControlShowingEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter)
+            if (e.Control is TextBox editor)
             {
-                e.SuppressKeyPress = true;
-                ApplyEditValue("变量调试-回车");
+                editor.KeyDown -= dgvEditValueEditor_KeyDown;
+                editor.KeyDown += dgvEditValueEditor_KeyDown;
             }
         }
 
-        private void ApplyEditValue(string source)
+        private void dgvEditValueEditor_KeyDown(object sender, KeyEventArgs e)
         {
-            if (dgvEdit.CurrentRow == null)
+            if (e.KeyCode != Keys.Enter
+                || dgvEdit.CurrentCell == null
+                || dgvEdit.CurrentCell.ColumnIndex != colEditValue.Index)
             {
-                ShowEditError("未选择编辑框调试项");
                 return;
             }
-            if (!TryGetEditRowIndex(dgvEdit.CurrentRow, out int index, out string error))
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            DataGridViewRow row = dgvEdit.CurrentRow;
+            if (!TryGetEditRowIdentity(
+                row,
+                out ValueDebugRowIdentity identity,
+                out string error))
             {
                 ShowEditError(error);
                 return;
             }
-            string newValue = txtEditValue.Text;
-            if (!TryApplyValue(index, newValue, source, out string applyError))
+            int index = identity.Index;
+            string newValue = (sender as TextBox)?.Text ?? string.Empty;
+            if (!TryApplyValue(
+                identity,
+                newValue,
+                "变量调试-当前值回车",
+                out string applyError))
             {
                 ShowEditError(applyError);
-                RefreshEditRow(dgvEdit.CurrentRow, index);
+                dgvEdit.CancelEdit();
+                RefreshEditRow(row, index);
                 return;
             }
-            dgvEdit.CurrentRow.Cells[colEditValue.Index].Value = newValue;
+            dgvEdit.EndEdit();
+            row.Cells[colEditValue.Index].Value = newValue;
             ShowEditSuccess("修改成功");
         }
 
@@ -564,25 +566,19 @@ namespace Automation
         {
             if (dgvEdit.CurrentRow == null)
             {
-                txtEditValue.Text = string.Empty;
                 lblEditStatus.Text = "未选择变量";
                 lblEditStatus.ForeColor = UiPalette.TextMuted;
                 return;
             }
             if (!TryGetEditRowIndex(dgvEdit.CurrentRow, out int index, out _))
             {
-                txtEditValue.Text = string.Empty;
                 return;
             }
             if (Workspace.Runtime.Stores.Values == null || !Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
-                txtEditValue.Text = string.Empty;
                 return;
             }
-            isSyncing = true;
-            txtEditValue.Text = value.Value;
-            isSyncing = false;
-            lblEditStatus.Text = "已选择变量";
+            lblEditStatus.Text = "在当前值单元格中输入，按 Enter 生效";
             lblEditStatus.ForeColor = UiPalette.TextMuted;
         }
 
@@ -592,11 +588,7 @@ namespace Automation
             isSyncing = true;
             int rowIndex = dgvCheck.Rows.Add();
             DataGridViewRow row = dgvCheck.Rows[rowIndex];
-            row.Cells[colCheckNote.Index].Value = GetDebugNote(index);
-            row.Cells[colCheckIndex.Index].Value = index.ToString("D3");
-            row.Cells[colCheckName.Index].Value = value.Name;
-            row.Cells[colCheckType.Index].Value = value.Type;
-            row.Cells[colCheckValue.Index].Value = ResolveChecked(value);
+            PopulateCheckRow(row, index, value);
             isSyncing = wasSyncing;
         }
 
@@ -604,11 +596,126 @@ namespace Automation
         {
             int rowIndex = dgvEdit.Rows.Add();
             DataGridViewRow row = dgvEdit.Rows[rowIndex];
-            row.Cells[colEditNote.Index].Value = GetDebugNote(index);
-            row.Cells[colEditIndex.Index].Value = index.ToString("D3");
-            row.Cells[colEditName.Index].Value = value.Name;
-            row.Cells[colEditType.Index].Value = value.Type;
-            row.Cells[colEditValue.Index].Value = value.Value;
+            PopulateEditRow(row, index, value);
+        }
+
+        private void ReconcileRows(
+            DataGridView grid,
+            IEnumerable<int> configuredIndexes,
+            Action<DataGridViewRow, int, DicValue> populate)
+        {
+            int selectedIndex = TryReadRowIndex(grid.CurrentRow, out int current)
+                ? current
+                : -1;
+            int firstDisplayedIndex = grid.FirstDisplayedScrollingRowIndex;
+            var existing = grid.Rows.Cast<DataGridViewRow>()
+                .Where(row => TryReadRowIndex(row, out _))
+                .GroupBy(row =>
+                {
+                    TryReadRowIndex(row, out int index);
+                    return index;
+                })
+                .ToDictionary(group => group.Key, group => group.First());
+            var retained = new HashSet<DataGridViewRow>();
+            int targetRowIndex = 0;
+            foreach (int index in configuredIndexes.OrderBy(value => value))
+            {
+                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                    index,
+                    out DicValue value))
+                {
+                    continue;
+                }
+                if (!existing.TryGetValue(index, out DataGridViewRow row))
+                {
+                    grid.Rows.Insert(targetRowIndex, 1);
+                    row = grid.Rows[targetRowIndex];
+                }
+                else if (row.Index != targetRowIndex)
+                {
+                    grid.Rows.Remove(row);
+                    grid.Rows.Insert(targetRowIndex, row);
+                }
+                retained.Add(row);
+                populate(row, index, value);
+                targetRowIndex++;
+            }
+            foreach (DataGridViewRow stale in grid.Rows.Cast<DataGridViewRow>()
+                .Where(row => !retained.Contains(row)).ToList())
+            {
+                grid.Rows.Remove(stale);
+            }
+            if (selectedIndex >= 0
+                && existing.TryGetValue(selectedIndex, out DataGridViewRow selected)
+                && retained.Contains(selected))
+            {
+                grid.CurrentCell = selected.Cells
+                    .Cast<DataGridViewCell>()
+                    .FirstOrDefault(cell => cell.Visible);
+            }
+            if (grid.Rows.Count > 0 && firstDisplayedIndex >= 0)
+            {
+                grid.FirstDisplayedScrollingRowIndex = Math.Min(
+                    firstDisplayedIndex,
+                    grid.Rows.Count - 1);
+            }
+        }
+
+        private static bool TryReadRowIndex(
+            DataGridViewRow row,
+            out int index)
+        {
+            if (row?.Tag is ValueDebugRowIdentity identity)
+            {
+                index = identity.Index;
+                return true;
+            }
+            index = -1;
+            return false;
+        }
+
+        private void PopulateCheckRow(
+            DataGridViewRow row,
+            int index,
+            DicValue value)
+        {
+            row.Tag = new ValueDebugRowIdentity
+            {
+                Index = index,
+                VariableId = value?.Id ?? Guid.Empty
+            };
+            SetCellValue(row.Cells[colCheckNote.Index], GetDebugNote(index));
+            SetCellValue(row.Cells[colCheckIndex.Index], index.ToString("D3"));
+            SetCellValue(row.Cells[colCheckName.Index], value.Name);
+            SetCellValue(row.Cells[colCheckType.Index], value.Type);
+            SetCellValue(row.Cells[colCheckValue.Index], ResolveChecked(value));
+        }
+
+        private void PopulateEditRow(
+            DataGridViewRow row,
+            int index,
+            DicValue value)
+        {
+            row.Tag = new ValueDebugRowIdentity
+            {
+                Index = index,
+                VariableId = value?.Id ?? Guid.Empty
+            };
+            SetCellValue(row.Cells[colEditNote.Index], GetDebugNote(index));
+            SetCellValue(row.Cells[colEditIndex.Index], index.ToString("D3"));
+            SetCellValue(row.Cells[colEditName.Index], value.Name);
+            SetCellValue(row.Cells[colEditType.Index], value.Type);
+            SetCellValue(row.Cells[colEditValue.Index], value.Value);
+        }
+
+        private static void SetCellValue(
+            DataGridViewCell cell,
+            object value)
+        {
+            if (!Equals(cell.Value, value))
+            {
+                cell.Value = value;
+            }
         }
 
         private void RefreshCheckRow(DataGridViewRow row, int index)
@@ -622,6 +729,11 @@ namespace Automation
                 return;
             }
             isSyncing = true;
+            row.Tag = new ValueDebugRowIdentity
+            {
+                Index = index,
+                VariableId = value.Id
+            };
             row.Cells[colCheckNote.Index].Value = GetDebugNote(index);
             row.Cells[colCheckType.Index].Value = value.Type;
             row.Cells[colCheckValue.Index].Value = ResolveChecked(value);
@@ -639,10 +751,14 @@ namespace Automation
                 return;
             }
             isSyncing = true;
+            row.Tag = new ValueDebugRowIdentity
+            {
+                Index = index,
+                VariableId = value.Id
+            };
             row.Cells[colEditNote.Index].Value = GetDebugNote(index);
             row.Cells[colEditType.Index].Value = value.Type;
             row.Cells[colEditValue.Index].Value = value.Value;
-            txtEditValue.Text = value.Value;
             isSyncing = false;
         }
 
@@ -652,7 +768,7 @@ namespace Automation
             {
                 return;
             }
-            if (e.RowIndex < 0 || e.ColumnIndex != colEditNote.Index)
+            if (e.RowIndex < 0)
             {
                 return;
             }
@@ -660,6 +776,16 @@ namespace Automation
             if (!TryGetEditRowIndex(row, out int index, out string error))
             {
                 ShowEditError(error);
+                return;
+            }
+            if (e.ColumnIndex == colEditValue.Index)
+            {
+                // 当前值只有按 Enter 才会写入；其他结束编辑方式恢复运行时值。
+                RefreshEditRow(row, index);
+                return;
+            }
+            if (e.ColumnIndex != colEditNote.Index)
+            {
                 return;
             }
             string newNote = row.Cells[colEditNote.Index].Value?.ToString() ?? string.Empty;
@@ -701,6 +827,17 @@ namespace Automation
             valueOptions = options;
         }
 
+        private void RefreshValueOptionsIfChanged()
+        {
+            long version = Workspace.Runtime.Stores.Values.ConfigurationVersion;
+            if (hasRendered && renderedValueConfigurationVersion == version)
+            {
+                return;
+            }
+            RefreshValueOptions();
+            renderedValueConfigurationVersion = version;
+        }
+
         private bool HasSameValueOptions(List<ValueOption> options)
         {
             if (options == null || valueOptions.Count != options.Count)
@@ -723,7 +860,9 @@ namespace Automation
 
         private void EnsureDebugConfigLoaded()
         {
-            if (isConfigLoaded)
+            long storeVersion = Workspace.Runtime.Stores.ValueDebug.Version;
+            if (isConfigLoaded
+                && loadedDebugConfigurationVersion == storeVersion)
             {
                 return;
             }
@@ -733,16 +872,19 @@ namespace Automation
             }
             try
             {
-                if (!Workspace.Runtime.Stores.ValueDebug.Load(
-                    Workspace.Runtime.Paths.ConfigPath,
-                    Workspace.Runtime.Stores.Values,
-                    out string error))
+                if (!isConfigLoaded
+                    && !Workspace.Runtime.Stores.ValueDebug.Load(
+                        Workspace.Runtime.Paths.ConfigPath,
+                        Workspace.Runtime.Stores.Values,
+                        out string error))
                 {
                     checkIndexSet.Clear();
                     editIndexSet.Clear();
                     debugNotes.Clear();
                     LogError($"变量调试配置无效:{error}");
                     isConfigLoaded = true;
+                    loadedDebugConfigurationVersion =
+                        Workspace.Runtime.Stores.ValueDebug.Version;
                     return;
                 }
                 ValueDebugConfiguration config = Workspace.Runtime.Stores.ValueDebug.Current;
@@ -762,6 +904,8 @@ namespace Automation
                     debugNotes[noteItem.Key] = noteItem.Value ?? string.Empty;
                 }
                 isConfigLoaded = true;
+                loadedDebugConfigurationVersion =
+                    Workspace.Runtime.Stores.ValueDebug.Version;
             }
             catch (Exception ex)
             {
@@ -770,6 +914,8 @@ namespace Automation
                 debugNotes.Clear();
                 LogError($"变量调试配置加载失败:{ex.Message}");
                 isConfigLoaded = true;
+                loadedDebugConfigurationVersion =
+                    Workspace.Runtime.Stores.ValueDebug.Version;
             }
         }
 
@@ -871,9 +1017,19 @@ namespace Automation
             return false;
         }
 
-        private bool TryApplyValue(int index, string newValue, string source, out string error)
+        private bool TryApplyValue(
+            ValueDebugRowIdentity identity,
+            string newValue,
+            string source,
+            out string error)
         {
             error = null;
+            if (identity == null)
+            {
+                error = "变量调试项身份无效";
+                return false;
+            }
+            int index = identity.Index;
             if (Workspace.Runtime.Stores.Values == null)
             {
                 error = "变量库未初始化";
@@ -884,12 +1040,22 @@ namespace Automation
                 error = $"变量不存在:{index:D3}";
                 return false;
             }
+            if (identity.VariableId == Guid.Empty || value.Id != identity.VariableId)
+            {
+                error = $"变量[{index:D3}]已被替换，请刷新后重试";
+                return false;
+            }
             if (!TryValidateValue(value, newValue, out error))
             {
                 return false;
             }
             string oldValue = value.Value;
-            if (!Workspace.Runtime.Stores.Values.TryModifyValueByIndex(index, _ => newValue, out string updateError, source))
+            if (!Workspace.Runtime.Stores.Values.TryModifyValueByIndex(
+                index,
+                value,
+                _ => newValue,
+                out string updateError,
+                source))
             {
                 error = string.IsNullOrWhiteSpace(updateError) ? "变量写入失败" : updateError;
                 return false;
@@ -1054,64 +1220,55 @@ namespace Automation
             return true;
         }
 
-        private static bool TryParseIndex(string text, out int index, out string error)
-        {
-            index = -1;
-            error = null;
-            if (string.IsNullOrEmpty(text))
-            {
-                error = "索引不能为空";
-                return false;
-            }
-            if (!IsStrictDigits(text))
-            {
-                error = "索引格式非法";
-                return false;
-            }
-            if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out index))
-            {
-                error = "索引格式非法";
-                return false;
-            }
-            if (index < 0 || index >= ValueConfigStore.ValueCapacity)
-            {
-                error = "索引超出范围";
-                return false;
-            }
-            return true;
-        }
-
         private bool TryGetCheckRowIndex(DataGridViewRow row, out int index, out string error)
         {
+            if (TryGetCheckRowIdentity(row, out ValueDebugRowIdentity identity, out error))
+            {
+                index = identity.Index;
+                return true;
+            }
             index = -1;
+            return false;
+        }
+
+        private bool TryGetCheckRowIdentity(
+            DataGridViewRow row,
+            out ValueDebugRowIdentity identity,
+            out string error)
+        {
+            identity = row?.Tag as ValueDebugRowIdentity;
+            if (identity == null)
+            {
+                error = "变量调试项身份无效，请刷新后重试";
+                return false;
+            }
             error = null;
-            if (row == null)
-            {
-                error = "未选择变量";
-                return false;
-            }
-            string text = row.Cells[colCheckIndex.Index].Value?.ToString();
-            if (!TryParseIndex(text, out index, out error))
-            {
-                return false;
-            }
             return true;
         }
 
         private bool TryGetEditRowIndex(DataGridViewRow row, out int index, out string error)
         {
+            if (TryGetEditRowIdentity(row, out ValueDebugRowIdentity identity, out error))
+            {
+                index = identity.Index;
+                return true;
+            }
             index = -1;
+            return false;
+        }
+
+        private bool TryGetEditRowIdentity(
+            DataGridViewRow row,
+            out ValueDebugRowIdentity identity,
+            out string error)
+        {
+            identity = row?.Tag as ValueDebugRowIdentity;
+            if (identity == null)
+            {
+                error = "变量调试项身份无效，请刷新后重试";
+                return false;
+            }
             error = null;
-            if (row == null)
-            {
-                error = "未选择变量";
-                return false;
-            }
-            string text = row.Cells[colEditIndex.Index].Value?.ToString();
-            if (!TryParseIndex(text, out index, out error))
-            {
-                return false;
-            }
             return true;
         }
 

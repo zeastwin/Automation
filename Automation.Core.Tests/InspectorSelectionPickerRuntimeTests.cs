@@ -322,6 +322,61 @@ namespace Automation.Core.Tests
             }, TimeSpan.FromSeconds(15));
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void CollectionRefresh_ReusesItemControlsAcrossAddAndReorder()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var processHead = new ProcHead();
+                var first = new PauseIoParam { IoName = "输入一" };
+                var second = new PauseIoParam { IoName = "输入二" };
+                processHead.PauseIoParams.Add(first);
+                processHead.PauseIoParams.Add(second);
+
+                using (var toolTip = new ToolTip())
+                using (InspectorCollectionFieldControl control =
+                    CreateCollectionControl(
+                        processHead,
+                        nameof(ProcHead.PauseIoParams),
+                        "暂停IO",
+                        toolTip))
+                {
+                    InspectorFlowPanel itemsPanel =
+                        GetPrivateField<InspectorFlowPanel>(
+                            control,
+                            "itemsPanel");
+                    InspectorCollectionItemControl firstControl =
+                        itemsPanel.Controls
+                            .OfType<InspectorCollectionItemControl>()
+                            .ElementAt(0);
+                    InspectorCollectionItemControl secondControl =
+                        itemsPanel.Controls
+                            .OfType<InspectorCollectionItemControl>()
+                            .ElementAt(1);
+
+                    processHead.PauseIoParams.RemoveAt(0);
+                    processHead.PauseIoParams.Add(first);
+                    control.RefreshValue();
+
+                    Assert.AreSame(
+                        secondControl,
+                        itemsPanel.Controls[0],
+                        "集合项移动时应移动既有控件。");
+                    Assert.AreSame(firstControl, itemsPanel.Controls[1]);
+
+                    processHead.PauseIoParams.Insert(
+                        1,
+                        new PauseIoParam { IoName = "输入三" });
+                    control.RefreshValue();
+
+                    Assert.AreSame(secondControl, itemsPanel.Controls[0]);
+                    Assert.AreSame(firstControl, itemsPanel.Controls[2]);
+                    Assert.AreEqual(3, itemsPanel.Controls.Count);
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
         private static InspectorCollectionFieldControl CreateCollectionControl(
             ProcHead owner,
             string propertyName,

@@ -52,12 +52,9 @@ namespace Automation
             this.colEditValue = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.panelEditBottom = new System.Windows.Forms.Panel();
             this.btnEditRefresh = new System.Windows.Forms.Button();
-            this.btnEditApply = new System.Windows.Forms.Button();
             this.btnEditRemove = new System.Windows.Forms.Button();
             this.btnEditAdd = new System.Windows.Forms.Button();
-            this.txtEditValue = new System.Windows.Forms.TextBox();
             this.cboEditVar = new System.Windows.Forms.ComboBox();
-            this.lblEditValue = new System.Windows.Forms.Label();
             this.lblEditIndex = new System.Windows.Forms.Label();
             this.lblEditStatus = new System.Windows.Forms.Label();
             this.tableLayoutPanel1.SuspendLayout();
@@ -288,6 +285,7 @@ namespace Automation
             this.dgvEdit.TabIndex = 0;
             this.dgvEdit.SelectionChanged += new System.EventHandler(this.dgvEdit_SelectionChanged);
             this.dgvEdit.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvEdit_CellEndEdit);
+            this.dgvEdit.EditingControlShowing += new System.Windows.Forms.DataGridViewEditingControlShowingEventHandler(this.dgvEdit_EditingControlShowing);
             // 
             // colEditNote
             // 
@@ -322,18 +320,14 @@ namespace Automation
             this.colEditValue.HeaderText = "当前值";
             this.colEditValue.MinimumWidth = 120;
             this.colEditValue.Name = "colEditValue";
-            this.colEditValue.ReadOnly = true;
             // 
             // panelEditBottom
             // 
             this.panelEditBottom.BackColor = global::Automation.UiPalette.SurfaceSubtle;
             this.panelEditBottom.Controls.Add(this.btnEditRefresh);
-            this.panelEditBottom.Controls.Add(this.btnEditApply);
             this.panelEditBottom.Controls.Add(this.btnEditRemove);
             this.panelEditBottom.Controls.Add(this.btnEditAdd);
-            this.panelEditBottom.Controls.Add(this.txtEditValue);
             this.panelEditBottom.Controls.Add(this.cboEditVar);
-            this.panelEditBottom.Controls.Add(this.lblEditValue);
             this.panelEditBottom.Controls.Add(this.lblEditIndex);
             this.panelEditBottom.Controls.Add(this.lblEditStatus);
             this.panelEditBottom.Dock = System.Windows.Forms.DockStyle.Bottom;
@@ -357,22 +351,6 @@ namespace Automation
             this.btnEditRefresh.Text = "刷新";
             this.btnEditRefresh.UseVisualStyleBackColor = false;
             this.btnEditRefresh.Click += new System.EventHandler(this.btnEditRefresh_Click);
-            // 
-            // btnEditApply
-            // 
-            this.btnEditApply.BackColor = global::Automation.UiPalette.Surface;
-            this.btnEditApply.FlatAppearance.BorderColor = global::Automation.UiPalette.SurfaceStrong;
-            this.btnEditApply.FlatAppearance.BorderSize = 2;
-            this.btnEditApply.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.btnEditApply.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
-            this.btnEditApply.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnEditApply.Location = new System.Drawing.Point(496, 56);
-            this.btnEditApply.Name = "btnEditApply";
-            this.btnEditApply.Size = new System.Drawing.Size(90, 32);
-            this.btnEditApply.TabIndex = 8;
-            this.btnEditApply.Text = "应用";
-            this.btnEditApply.UseVisualStyleBackColor = false;
-            this.btnEditApply.Click += new System.EventHandler(this.btnEditApply_Click);
             // 
             // btnEditRemove
             // 
@@ -406,14 +384,6 @@ namespace Automation
             this.btnEditAdd.UseVisualStyleBackColor = false;
             this.btnEditAdd.Click += new System.EventHandler(this.btnEditAdd_Click);
             // 
-            // txtEditValue
-            // 
-            this.txtEditValue.Location = new System.Drawing.Point(68, 60);
-            this.txtEditValue.Name = "txtEditValue";
-            this.txtEditValue.Size = new System.Drawing.Size(396, 25);
-            this.txtEditValue.TabIndex = 4;
-            this.txtEditValue.KeyDown += new System.Windows.Forms.KeyEventHandler(this.txtEditValue_KeyDown);
-            // 
             // cboEditVar
             // 
             this.cboEditVar.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
@@ -422,15 +392,6 @@ namespace Automation
             this.cboEditVar.Name = "cboEditVar";
             this.cboEditVar.Size = new System.Drawing.Size(200, 23);
             this.cboEditVar.TabIndex = 3;
-            // 
-            // lblEditValue
-            // 
-            this.lblEditValue.AutoSize = true;
-            this.lblEditValue.Location = new System.Drawing.Point(20, 64);
-            this.lblEditValue.Name = "lblEditValue";
-            this.lblEditValue.Size = new System.Drawing.Size(35, 15);
-            this.lblEditValue.TabIndex = 2;
-            this.lblEditValue.Text = "值";
             // 
             // lblEditIndex
             // 
@@ -487,14 +448,11 @@ namespace Automation
         private System.Windows.Forms.Button btnCheckRefresh;
         private System.Windows.Forms.Button btnEditAdd;
         private System.Windows.Forms.Button btnEditRemove;
-        private System.Windows.Forms.Button btnEditApply;
         private System.Windows.Forms.Button btnEditRefresh;
         private System.Windows.Forms.ComboBox cboCheckVar;
         private System.Windows.Forms.ComboBox cboEditVar;
-        private System.Windows.Forms.TextBox txtEditValue;
         private System.Windows.Forms.Label lblCheckIndex;
         private System.Windows.Forms.Label lblEditIndex;
-        private System.Windows.Forms.Label lblEditValue;
         private System.Windows.Forms.Label lblCheckStatus;
         private System.Windows.Forms.Label lblEditStatus;
         private System.Windows.Forms.DataGridViewTextBoxColumn colCheckNote;

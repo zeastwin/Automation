@@ -228,6 +228,134 @@ namespace Automation.Core.Tests
             }
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void RefreshProcessView_ReusesStableStepNodesAcrossInsertAndReorder()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = CreateProcessWithSteps(
+                        "原位刷新",
+                        "步骤一",
+                        "步骤二");
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { process });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    TreeNode processNode = main.frmProc.proc_treeView.Nodes[0];
+                    TreeNode firstStepNode = processNode.Nodes[0];
+                    TreeNode secondStepNode = processNode.Nodes[1];
+                    processNode.Expand();
+                    main.frmProc.proc_treeView.SelectedNode = firstStepNode;
+                    main.frmProc.SelectedProcNum = 0;
+                    main.frmProc.SelectedStepNum = 0;
+
+                    Proc changed = ObjectGraphCloner.Clone(process);
+                    Step inserted = new Step
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = "新增步骤"
+                    };
+                    Step first = changed.steps[0];
+                    Step second = changed.steps[1];
+                    changed.steps.Clear();
+                    changed.steps.Add(second);
+                    changed.steps.Add(inserted);
+                    changed.steps.Add(first);
+                    main.Runtime.Stores.Processes.ReplaceAt(0, changed);
+
+                    main.frmProc.RefreshProcView(0);
+
+                    Assert.AreSame(processNode, main.frmProc.proc_treeView.Nodes[0]);
+                    Assert.AreSame(secondStepNode, processNode.Nodes[0]);
+                    Assert.AreSame(firstStepNode, processNode.Nodes[2]);
+                    Assert.AreSame(
+                        firstStepNode,
+                        main.frmProc.proc_treeView.SelectedNode,
+                        "步骤插入或重排后应按稳定 ID 保留原选中节点。");
+                    Assert.AreEqual(2, main.frmProc.SelectedStepNum);
+                    Assert.IsTrue(processNode.IsExpanded);
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void RefreshProcessList_ReusesProcessAndStepNodesWhenOrderChanges()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc retained = CreateProcessWithSteps(
+                        "保留流程",
+                        "稳定步骤");
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { retained });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    TreeNode retainedProcessNode =
+                        main.frmProc.proc_treeView.Nodes[0];
+                    TreeNode retainedStepNode =
+                        retainedProcessNode.Nodes[0];
+                    retainedProcessNode.Expand();
+                    main.frmProc.proc_treeView.SelectedNode =
+                        retainedStepNode;
+
+                    Proc inserted = CreateProcessWithSteps(
+                        "插入流程",
+                        "插入步骤");
+                    main.Runtime.Stores.Processes.ReplaceAll(new[]
+                    {
+                        inserted,
+                        ObjectGraphCloner.Clone(retained)
+                    });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    Assert.AreSame(
+                        retainedProcessNode,
+                        main.frmProc.proc_treeView.Nodes[1],
+                        "流程顺序变化时应移动既有节点，不应重新创建。");
+                    Assert.AreSame(
+                        retainedStepNode,
+                        retainedProcessNode.Nodes[0]);
+                    Assert.AreSame(
+                        retainedStepNode,
+                        main.frmProc.proc_treeView.SelectedNode);
+                    Assert.IsTrue(retainedProcessNode.IsExpanded);
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        private static Proc CreateProcessWithSteps(
+            string processName,
+            params string[] stepNames)
+        {
+            var process = new Proc
+            {
+                head = new ProcHead
+                {
+                    Id = Guid.NewGuid(),
+                    Name = processName
+                }
+            };
+            foreach (string stepName in stepNames)
+            {
+                process.steps.Add(new Step
+                {
+                    Id = Guid.NewGuid(),
+                    Name = stepName
+                });
+            }
+            return process;
+        }
+
         private static int FindFirstMarkerColumn(Bitmap bitmap)
         {
             for (int x = 0; x < bitmap.Width; x++)

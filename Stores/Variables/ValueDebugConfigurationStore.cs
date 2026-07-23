@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Newtonsoft.Json;
 
 namespace Automation
@@ -28,6 +29,9 @@ namespace Automation
         };
 
         public ValueDebugConfiguration Current { get; private set; } = new ValueDebugConfiguration();
+        private long version;
+
+        public long Version => Interlocked.Read(ref version);
 
         public bool Load(string configPath, ValueConfigStore valueStore, out string error)
         {
@@ -53,6 +57,7 @@ namespace Automation
                 return false;
             }
             Current = ObjectGraphCloner.Clone(loaded);
+            Interlocked.Increment(ref version);
             return true;
         }
 
@@ -78,6 +83,7 @@ namespace Automation
                 return false;
             }
             Current = snapshot;
+            Interlocked.Increment(ref version);
             return true;
         }
 

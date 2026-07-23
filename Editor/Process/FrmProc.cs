@@ -693,83 +693,42 @@ namespace Automation
             proc_treeView.BeginUpdate();
             try
             {
-            proc_treeView.Nodes.Clear();
-            lock (procNodeMapLock)
-            {
-                procNodeMap.Clear();
-                procIndexMap.Clear();
-            }
-            Workspace.Runtime.Readiness.ProcConfigFaulted = false;
+                Workspace.Runtime.Readiness.ProcConfigFaulted = false;
 
-            string recoveryMessage = null;
-            if (reloadConfiguration)
-            {
-                procsListTemp = ProcessWorkDirectoryTransaction.Load(
-                    Workspace.Runtime.Paths.WorkPath,
-                    Workspace.Runtime.CreateProcessValidationContext(),
-                    out loadErrors,
-                    out recoveryMessage);
-            }
-            else
-            {
-                procsListTemp = processDefinitionRepository.Items.ToList();
-                loadErrors = new List<string>();
-            }
-            if (!string.IsNullOrWhiteSpace(recoveryMessage) && Workspace.Info != null && !Workspace.Info.IsDisposed)
-            {
-                Workspace.Info.PrintInfo(recoveryMessage, FrmInfo.Level.Error);
-            }
-            for (int i = 0; i < procsListTemp.Count; i++)
-            {
-                Proc proc = procsListTemp[i];
-
-                EngineSnapshot procSnapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(i);
-                TreeNode treeNode = new TreeNode(BuildProcNodeText(i, proc))
+                string recoveryMessage = null;
+                if (reloadConfiguration)
                 {
-                    NodeFont = procNodeFont
-                };
-                SetNodeImage(treeNode, GetProcImageKey(proc, procSnapshot));
-                if (proc?.head?.Disable == true)
-                {
-                    treeNode.ForeColor = UiPalette.DisabledSoft;
+                    procsListTemp = ProcessWorkDirectoryTransaction.Load(
+                        Workspace.Runtime.Paths.WorkPath,
+                        Workspace.Runtime.CreateProcessValidationContext(),
+                        out loadErrors,
+                        out recoveryMessage);
                 }
-                Guid procId = proc?.head?.Id ?? Guid.Empty;
-                if (procId != Guid.Empty)
+                else
                 {
-                    treeNode.Tag = procId;
-                    lock (procNodeMapLock)
-                    {
-                        procNodeMap[procId] = treeNode;
-                        procIndexMap[procId] = i;
-                    }
+                    procsListTemp = processDefinitionRepository.Items.ToList();
+                    loadErrors = new List<string>();
                 }
-                proc_treeView.Nodes.Add(treeNode);
-
-                if (proc.steps != null)
+                if (!string.IsNullOrWhiteSpace(recoveryMessage)
+                    && Workspace.Info != null
+                    && !Workspace.Info.IsDisposed)
                 {
-                    for (int j = 0; j < proc.steps.Count; j++)
-                    {
-                        Step step = proc.steps[j];
-                        TreeNode chnode = new TreeNode(BuildStepNodeText(i, j, step))
-                        {
-                            NodeFont = stepNodeFont
-                        };
-                        chnode.Tag = step?.Id ?? Guid.Empty;
-                        SetNodeImage(chnode, GetStepImageKey(proc, step, j, procSnapshot));
-                        if (proc?.head?.Disable == true || proc.steps[j]?.Disable == true)
-                        {
-                            chnode.ForeColor = UiPalette.DisabledSoft;
-                        }
-                        proc_treeView.Nodes[i].Nodes.Add(chnode);
-                    }
+                    Workspace.Info.PrintInfo(
+                        recoveryMessage,
+                        FrmInfo.Level.Error);
                 }
-            }
-            if (reloadConfiguration)
-            {
-                processDefinitionRepository.ReplaceAll(procsListTemp);
-            }
-            editorWorkspace?.DataGrid?.dataGridView1?.RebuildJumpLinkCaches(procsList);
-            RestoreTreeState(selectedProcId, selectedStepId, topProcId, expandedProcIds);
+                if (reloadConfiguration)
+                {
+                    processDefinitionRepository.ReplaceAll(procsListTemp);
+                }
+                ReconcileProcessTree(procsListTemp);
+                editorWorkspace?.DataGrid?.dataGridView1
+                    ?.RebuildJumpLinkCaches(procsList);
+                RestoreTreeState(
+                    selectedProcId,
+                    selectedStepId,
+                    topProcId,
+                    expandedProcIds);
             }
             finally
             {
@@ -836,7 +795,11 @@ namespace Automation
             }
 
             bool wasExpanded = procNode.IsExpanded;
-            Guid selectedStepId = GetStepId(SelectedProcNum, SelectedStepNum);
+            Guid selectedStepId = ReferenceEquals(
+                proc_treeView.SelectedNode?.Parent,
+                procNode)
+                ? ReadNodeId(proc_treeView.SelectedNode)
+                : GetStepId(SelectedProcNum, SelectedStepNum);
             proc_treeView.BeginUpdate();
             try
             {
@@ -844,49 +807,9 @@ namespace Automation
                 procNode.Tag = proc?.head?.Id ?? Guid.Empty;
                 procNode.NodeFont = procNodeFont;
                 procNode.ForeColor = proc?.head?.Disable == true ? UiPalette.DisabledSoft : proc_treeView.ForeColor;
-
-                int stepCount = proc?.steps?.Count ?? 0;
-                bool structureChanged = procNode.Nodes.Count != stepCount;
-                if (!structureChanged)
-                {
-                    for (int i = 0; i < stepCount; i++)
-                    {
-                        if (ReadNodeId(procNode.Nodes[i]) != (proc.steps[i]?.Id ?? Guid.Empty))
-                        {
-                            structureChanged = true;
-                            break;
-                        }
-                    }
-                }
-                if (structureChanged)
-                {
-                    procNode.Nodes.Clear();
-                    for (int i = 0; i < stepCount; i++)
-                    {
-                        Step step = proc.steps[i];
-                        var stepNode = new TreeNode(BuildStepNodeText(procIndex, i, step))
-                        {
-                            Tag = step?.Id ?? Guid.Empty,
-                            NodeFont = stepNodeFont,
-                            ForeColor = proc?.head?.Disable == true || step?.Disable == true
-                                ? UiPalette.DisabledSoft
-                                : proc_treeView.ForeColor
-                        };
-                        procNode.Nodes.Add(stepNode);
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < stepCount; i++)
-                    {
-                        Step step = proc.steps[i];
-                        procNode.Nodes[i].Text = BuildStepNodeText(procIndex, i, step);
-                        procNode.Nodes[i].NodeFont = stepNodeFont;
-                        procNode.Nodes[i].ForeColor = proc?.head?.Disable == true || step?.Disable == true
-                            ? UiPalette.DisabledSoft
-                            : proc_treeView.ForeColor;
-                    }
-                }
+                EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
+                SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
+                ReconcileStepNodes(procNode, procIndex, proc, snapshot);
                 if (wasExpanded)
                 {
                     procNode.Expand();
@@ -914,6 +837,118 @@ namespace Automation
             }
             UpdateProcStateIcons(procIndex, Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex));
             Workspace.Main?.RefreshProcessFlowGraph();
+        }
+
+        private void ReconcileProcessTree(IReadOnlyList<Proc> processes)
+        {
+            var available = proc_treeView.Nodes
+                .Cast<TreeNode>()
+                .Where(node => ReadNodeId(node) != Guid.Empty)
+                .GroupBy(ReadNodeId)
+                .ToDictionary(group => group.Key, group => new Queue<TreeNode>(group));
+            var retained = new HashSet<TreeNode>();
+            lock (procNodeMapLock)
+            {
+                procNodeMap.Clear();
+                procIndexMap.Clear();
+            }
+            for (int procIndex = 0; procIndex < processes.Count; procIndex++)
+            {
+                Proc proc = processes[procIndex];
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                TreeNode procNode = procId != Guid.Empty
+                    && available.TryGetValue(procId, out Queue<TreeNode> candidates)
+                    && candidates.Count > 0
+                        ? candidates.Dequeue()
+                        : new TreeNode();
+                retained.Add(procNode);
+                EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
+                procNode.Text = BuildProcNodeText(procIndex, proc);
+                procNode.Tag = procId;
+                procNode.NodeFont = procNodeFont;
+                procNode.ForeColor = proc?.head?.Disable == true
+                    ? UiPalette.DisabledSoft
+                    : proc_treeView.ForeColor;
+                SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
+                ReconcileStepNodes(procNode, procIndex, proc, snapshot);
+                MoveTreeNode(proc_treeView.Nodes, procNode, procIndex);
+                if (procId != Guid.Empty)
+                {
+                    lock (procNodeMapLock)
+                    {
+                        procNodeMap[procId] = procNode;
+                        procIndexMap[procId] = procIndex;
+                    }
+                }
+            }
+            foreach (TreeNode stale in proc_treeView.Nodes
+                .Cast<TreeNode>()
+                .Where(node => !retained.Contains(node))
+                .ToList())
+            {
+                stale.Remove();
+            }
+        }
+
+        private void ReconcileStepNodes(
+            TreeNode procNode,
+            int procIndex,
+            Proc proc,
+            EngineSnapshot snapshot)
+        {
+            IReadOnlyList<Step> steps = proc?.steps
+                ?? (IReadOnlyList<Step>)Array.Empty<Step>();
+            var available = procNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => ReadNodeId(node) != Guid.Empty)
+                .GroupBy(ReadNodeId)
+                .ToDictionary(group => group.Key, group => new Queue<TreeNode>(group));
+            var retained = new HashSet<TreeNode>();
+            for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                Step step = steps[stepIndex];
+                Guid stepId = step?.Id ?? Guid.Empty;
+                TreeNode stepNode = stepId != Guid.Empty
+                    && available.TryGetValue(stepId, out Queue<TreeNode> candidates)
+                    && candidates.Count > 0
+                        ? candidates.Dequeue()
+                        : new TreeNode();
+                retained.Add(stepNode);
+                stepNode.Text = BuildStepNodeText(procIndex, stepIndex, step);
+                stepNode.Tag = stepId;
+                stepNode.NodeFont = stepNodeFont;
+                stepNode.ForeColor = proc?.head?.Disable == true || step?.Disable == true
+                    ? UiPalette.DisabledSoft
+                    : proc_treeView.ForeColor;
+                SetNodeImage(
+                    stepNode,
+                    GetStepImageKey(proc, step, stepIndex, snapshot));
+                MoveTreeNode(procNode.Nodes, stepNode, stepIndex);
+            }
+            foreach (TreeNode stale in procNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => !retained.Contains(node))
+                .ToList())
+            {
+                stale.Remove();
+            }
+        }
+
+        private static void MoveTreeNode(
+            TreeNodeCollection collection,
+            TreeNode node,
+            int targetIndex)
+        {
+            bool alreadyInCollection = collection.Contains(node);
+            if (alreadyInCollection && node.Index == targetIndex)
+            {
+                return;
+            }
+            if (alreadyInCollection)
+            {
+                node.Remove();
+            }
+            collection.Insert(Math.Min(targetIndex, collection.Count), node);
         }
 
         private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)

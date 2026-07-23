@@ -1541,20 +1541,7 @@ namespace Automation
 
         public void SetConnectItemm()
         {
-            // 初始化右键菜单
-            ContextMenuStrip contextMenu = new ContextMenuStrip();
-            listView3.ContextMenuStrip = contextMenu;
-            contextMenu.Items.Clear();
-            ToolStripMenuItem configItem = new ToolStripMenuItem("配置显示");
-            configItem.Click += ConnectConfigItem_Click;
-            ToolStripMenuItem remarkItem = new ToolStripMenuItem("添加备注");
-            remarkItem.Click += ConnectRemarkItem_Click;
-            contextMenu.Items.Add(configItem);
-            contextMenu.Items.Add(remarkItem);
-            listView3.Items.Clear();
-            listView4.Items.Clear();
-            listView5.Items.Clear();
-            listView6.Items.Clear();
+            EnsureConnectContextMenu(listView3);
             EnsureListViewSingleColumn(listView3, "通用输出1", 220);
             EnsureListViewSingleColumn(listView4, "通用输入", 220);
             EnsureListViewSingleColumn(listView5, "通用输入", 220);
@@ -1565,83 +1552,199 @@ namespace Automation
 
             if (cacheIOs == null)
             {
+                ReconcileIoNameItems(listView4, Enumerable.Empty<string>());
+                ReconcileIoNameItems(listView5, Enumerable.Empty<string>());
+                ReconcileIoNameItems(listView6, Enumerable.Empty<string>());
                 UpdateIoUnavailableState();
                 return;
             }
-
-
-            IO cacheIO;
-
-            for (int j = 0; j < cacheIOs.Count; j++)
-            {
-                cacheIO = cacheIOs[j];
-                if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输出")
-                {
-                    string copiedString = string.Copy(cacheIO.Name);
-                    ListViewItem item = new ListViewItem(copiedString);
-                    item.Text = copiedString;
-                    item.Font = font;
-                    listView6.Items.Add(item);
-                }
-                if (cacheIO != null && cacheIO.Name != "" && cacheIO.IOType == "通用输入")
-                {
-
-                    string copiedString = string.Copy(cacheIO.Name);
-                    ListViewItem item = new ListViewItem(copiedString);
-
-                    item.Text = copiedString;
-                    item.Font = font;
-
-                    listView4.Items.Add(item);
-
-                    ListViewItem item2 = new ListViewItem(copiedString);
-
-                    item2.Text = copiedString;
-                    item2.Font = font;
-                    listView5.Items.Add(item2);
-                }
-            }
-
+            List<string> outputNames = cacheIOs
+                .Where(io => io != null
+                    && !string.IsNullOrWhiteSpace(io.Name)
+                    && io.IOType == "通用输出")
+                .Select(io => io.Name)
+                .ToList();
+            List<string> inputNames = cacheIOs
+                .Where(io => io != null
+                    && !string.IsNullOrWhiteSpace(io.Name)
+                    && io.IOType == "通用输入")
+                .Select(io => io.Name)
+                .ToList();
+            ReconcileIoNameItems(listView6, outputNames);
+            ReconcileIoNameItems(listView4, inputNames);
+            ReconcileIoNameItems(listView5, inputNames);
         }
+
         public void RefleshConnecdt()
         {
-            listView3.Items.Clear();
             EnsureListViewSingleColumn(listView3, "通用输出1", 220);
             IoMonitor.RefreshCatalog();
             List<IOConnect> IOConnects = GetConnectListForConfig();
-            IOConnect iOConnect = null;
-            for (int j = 0; j < IOConnects.Count; j++)
+            var available = listView3.Items.Cast<ListViewItem>()
+                .GroupBy(item => GetConnectionListKey(item.Tag as IOConnect))
+                .ToDictionary(group => group.Key, group => new Queue<ListViewItem>(group));
+            var retained = new HashSet<ListViewItem>();
+            ListViewItem selectedItem = listView3.SelectedItems
+                .Cast<ListViewItem>().FirstOrDefault();
+            ListViewItem topItem = listView3.TopItem;
+            listView3.BeginUpdate();
+            try
             {
-                iOConnect = IOConnects[j];
-                if (iOConnect == null || iOConnect.Output == null)
+                int targetIndex = 0;
+                foreach (IOConnect iOConnect in IOConnects)
                 {
-                    continue;
-                }
-                string name = iOConnect.Output.Name;
-                ListViewItem item = new ListViewItem(name);
-                item.Text = name;
-                item.Font = font;
-                item.Tag = iOConnect;
-                if (iOConnect.Output.IsRemark)
-                {
-                    item.ForeColor = UiPalette.TextMuted;
-                }
-                else
-                {
-                    if (!IoMonitor.TryResolveIo(name, "通用输出", out _, false))
+                    if (iOConnect?.Output == null)
+                    {
+                        continue;
+                    }
+                    string key = GetConnectionListKey(iOConnect);
+                    ListViewItem item = available.TryGetValue(
+                        key,
+                        out Queue<ListViewItem> candidates)
+                        && candidates.Count > 0
+                            ? candidates.Dequeue()
+                            : new ListViewItem();
+                    item.Text = iOConnect.Output.Name;
+                    item.Font = font;
+                    item.Tag = iOConnect;
+                    item.ForeColor = iOConnect.Output.IsRemark
+                        ? UiPalette.TextMuted
+                        : UiPalette.TextPrimary;
+                    if (!iOConnect.Output.IsRemark
+                        && (!IoMonitor.TryResolveIo(
+                                item.Text,
+                                "通用输出",
+                                out _,
+                                false)
+                            || iOConnect.Output2 != null
+                                && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
+                                && !IoMonitor.TryResolveIo(
+                                    iOConnect.Output2.Name,
+                                    "通用输出",
+                                    out _,
+                                    false)))
                     {
                         item.ForeColor = UiPalette.Danger;
                     }
-                    if (iOConnect.Output2 != null
-                        && !string.IsNullOrWhiteSpace(iOConnect.Output2.Name)
-                        && !IoMonitor.TryResolveIo(iOConnect.Output2.Name, "通用输出", out _, false))
-                    {
-                        item.ForeColor = UiPalette.Danger;
-                    }
+                    MoveListViewItem(listView3, item, targetIndex++);
+                    retained.Add(item);
                 }
-                listView3.Items.Add(item);
-
+                foreach (ListViewItem stale in listView3.Items
+                    .Cast<ListViewItem>()
+                    .Where(item => !retained.Contains(item)).ToList())
+                {
+                    listView3.Items.Remove(stale);
+                }
+                if (selectedItem != null && retained.Contains(selectedItem))
+                {
+                    selectedItem.Selected = true;
+                    selectedItem.Focused = true;
+                }
+                if (topItem != null && retained.Contains(topItem))
+                {
+                    listView3.TopItem = topItem;
+                }
             }
+            finally
+            {
+                listView3.EndUpdate();
+            }
+        }
+
+        private void EnsureConnectContextMenu(ListView listView)
+        {
+            if (listView.ContextMenuStrip != null)
+            {
+                return;
+            }
+            var contextMenu = new ContextMenuStrip();
+            var configItem = new ToolStripMenuItem("配置显示");
+            configItem.Click += ConnectConfigItem_Click;
+            var remarkItem = new ToolStripMenuItem("添加备注");
+            remarkItem.Click += ConnectRemarkItem_Click;
+            contextMenu.Items.Add(configItem);
+            contextMenu.Items.Add(remarkItem);
+            listView.ContextMenuStrip = contextMenu;
+        }
+
+        private void ReconcileIoNameItems(
+            ListView listView,
+            IEnumerable<string> names)
+        {
+            var available = listView.Items.Cast<ListViewItem>()
+                .GroupBy(item => item.Text ?? string.Empty)
+                .ToDictionary(group => group.Key, group => new Queue<ListViewItem>(group));
+            var retained = new HashSet<ListViewItem>();
+            ListViewItem selectedItem = listView.SelectedItems
+                .Cast<ListViewItem>().FirstOrDefault();
+            ListViewItem topItem = listView.TopItem;
+            listView.BeginUpdate();
+            try
+            {
+                int targetIndex = 0;
+                foreach (string name in names)
+                {
+                    string key = name ?? string.Empty;
+                    ListViewItem item = available.TryGetValue(
+                        key,
+                        out Queue<ListViewItem> candidates)
+                        && candidates.Count > 0
+                            ? candidates.Dequeue()
+                            : new ListViewItem();
+                    item.Text = key;
+                    item.Font = font;
+                    MoveListViewItem(listView, item, targetIndex++);
+                    retained.Add(item);
+                }
+                foreach (ListViewItem stale in listView.Items
+                    .Cast<ListViewItem>()
+                    .Where(item => !retained.Contains(item)).ToList())
+                {
+                    listView.Items.Remove(stale);
+                }
+                if (selectedItem != null && retained.Contains(selectedItem))
+                {
+                    selectedItem.Selected = true;
+                    selectedItem.Focused = true;
+                }
+                if (topItem != null && retained.Contains(topItem))
+                {
+                    listView.TopItem = topItem;
+                }
+            }
+            finally
+            {
+                listView.EndUpdate();
+            }
+        }
+
+        private static string GetConnectionListKey(IOConnect connection)
+        {
+            if (connection?.Output == null)
+            {
+                return string.Empty;
+            }
+            return (connection.Output.IsRemark ? "备注:" : "输出:")
+                + (connection.Output.Name ?? string.Empty);
+        }
+
+        private static void MoveListViewItem(
+            ListView listView,
+            ListViewItem item,
+            int targetIndex)
+        {
+            if (ReferenceEquals(item.ListView, listView)
+                && item.Index == targetIndex)
+            {
+                return;
+            }
+            if (item.ListView != null)
+            {
+                item.Remove();
+            }
+            listView.Items.Insert(
+                Math.Min(targetIndex, listView.Items.Count),
+                item);
         }
         private void FrmIODebug_FormClosing(object sender, FormClosingEventArgs e)
         {

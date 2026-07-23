@@ -16,6 +16,7 @@ namespace Automation
         {
             if (e.Action != TreeViewAction.Unknown)
             {
+                uiWarmupCoordinator.NotifyInteraction();
                 RecordCurrentEditorLocation();
             }
         }
@@ -31,6 +32,7 @@ namespace Automation
 
         private void EditorOperationListKeyUp(object sender, KeyEventArgs e)
         {
+            uiWarmupCoordinator.NotifyInteraction();
             switch (e.KeyCode)
             {
                 case Keys.Up:
@@ -438,18 +440,58 @@ namespace Automation
 
         internal void PrewarmProcessFlowGraphs()
         {
-            if (frmProcessFlow != null && !frmProcessFlow.IsDisposed)
+            if (frmProcessFlow == null || frmProcessFlow.IsDisposed)
             {
-                frmProcessFlow.PrewarmProcessGraphs();
+                if (platformInitialized && !flowGraphUnavailable)
+                {
+                    QueueProcessFlowHostPrewarm();
+                }
+                return;
+            }
+            foreach (Proc process in Runtime.Stores.Processes.Items.ToList())
+            {
+                Guid procId = process?.head?.Id ?? Guid.Empty;
+                if (procId != Guid.Empty)
+                {
+                    ScheduleProcessFlowGraphPrewarm(procId);
+                }
             }
         }
 
         internal void PrewarmProcessFlowGraph(int procIndex)
         {
-            if (frmProcessFlow != null && !frmProcessFlow.IsDisposed)
+            if (procIndex < 0
+                || procIndex >= Runtime.Stores.Processes.Items.Count)
             {
-                frmProcessFlow.PrewarmProcessGraph(procIndex);
+                return;
             }
+            Guid procId = Runtime.Stores.Processes.Items[procIndex]?.head?.Id
+                ?? Guid.Empty;
+            if (procId == Guid.Empty)
+            {
+                return;
+            }
+            ScheduleProcessFlowGraphPrewarm(procId);
+        }
+
+        private void ScheduleProcessFlowGraphPrewarm(Guid procId)
+        {
+            uiWarmupCoordinator.Schedule(
+                "process-flow:" + procId.ToString("N"),
+                30,
+                () =>
+                {
+                    if (frmProcessFlow == null || frmProcessFlow.IsDisposed)
+                    {
+                        return;
+                    }
+                    int currentIndex = Runtime.Stores.Processes.Items
+                        .FindIndex(process => process?.head?.Id == procId);
+                    if (currentIndex >= 0)
+                    {
+                        frmProcessFlow.PrewarmProcessGraph(currentIndex);
+                    }
+                });
         }
 
         public void ShowDataBreakpoints()

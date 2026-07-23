@@ -63,6 +63,130 @@ namespace Automation
             return true;
         }
 
+        /// <summary>
+        /// 变量定义使用原子快照发布，新增、删除、改名、类型及作用域调整
+        /// 不会再暴露半张变量表，因此不复用会改变 procIndex 的流程列表门禁。
+        /// 运行流程若继续访问已删除或身份发生变化的变量，会由稳定ID校验明确失败。
+        /// </summary>
+        public bool CanEditVariableConfiguration()
+        {
+            if (runtime.Maintenance.Active)
+            {
+                Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
+                return false;
+            }
+            if (runtime.Safety.IsLocked)
+            {
+                runtime.EditorUi?.ShowMessage(
+                    runtime.Safety.LockReason,
+                    "系统已安全锁定",
+                    true);
+                return false;
+            }
+            return true;
+        }
+
+        public bool CanApplyVariableConfiguration(
+            IEnumerable<DicValue> currentVariables,
+            IEnumerable<DicValue> candidateVariables,
+            out string error)
+        {
+            error = null;
+            if (!CanEditVariableConfiguration())
+            {
+                error = runtime.Maintenance.Active
+                    ? runtime.Maintenance.Reason ?? "系统正在执行配置维护。"
+                    : runtime.Safety.IsLocked
+                        ? runtime.Safety.LockReason ?? "系统已安全锁定。"
+                        : "变量配置当前不可编辑。";
+                return false;
+            }
+
+            var candidatesById = (candidateVariables ?? Enumerable.Empty<DicValue>())
+                .Where(value => value != null && value.Id != Guid.Empty)
+                .GroupBy(value => value.Id)
+                .ToDictionary(group => group.Key, group => group.First());
+            List<DicValue> affected = (currentVariables ?? Enumerable.Empty<DicValue>())
+                .Where(value => value != null && value.Id != Guid.Empty)
+                .Where(value =>
+                    !candidatesById.TryGetValue(value.Id, out DicValue candidate)
+                    || !HasSameRuntimeContract(value, candidate))
+                .ToList();
+            if (affected.Count == 0)
+            {
+                return true;
+            }
+
+            var affectedNames = new HashSet<string>(
+                affected.Select(value => value.Name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.Ordinal);
+            var affectedIndexes = new HashSet<int>(
+                affected.Select(value => value.Index));
+            var affectedOwnerIds = new HashSet<Guid>(
+                affected.Where(ValueConfigStore.IsProcessValue)
+                    .Select(value => value.OwnerProcId ?? Guid.Empty)
+                    .Where(id => id != Guid.Empty));
+            var activeProcessNames = new List<string>();
+            for (int procIndex = 0; procIndex < runtime.Stores.Processes.Items.Count; procIndex++)
+            {
+                EngineSnapshot snapshot = runtime.ProcessEngine?.GetSnapshot(procIndex);
+                if (snapshot == null || snapshot.State.IsInactive())
+                {
+                    continue;
+                }
+                Proc process = runtime.Stores.Processes.Items[procIndex];
+                Guid processId = process?.head?.Id ?? Guid.Empty;
+                bool privateVariableMayBeUsed = affectedOwnerIds.Contains(processId);
+                bool hasKnownReference = process?.steps != null
+                    && process.steps.Where(step => step?.Ops != null)
+                        .SelectMany(step => step.Ops)
+                        .Where(operation => operation != null)
+                        .SelectMany(VariableReferenceCatalog.Enumerate)
+                        .Any(reference =>
+                            reference.Kind == VariableReferenceKind.Name
+                                ? affectedNames.Contains(reference.Value)
+                                : int.TryParse(reference.Value, out int index)
+                                    && affectedIndexes.Contains(index));
+                if (privateVariableMayBeUsed || hasKnownReference)
+                {
+                    activeProcessNames.Add(
+                        process?.head?.Name
+                        ?? snapshot.ProcName
+                        ?? $"流程{procIndex}");
+                }
+            }
+            if (activeProcessNames.Count == 0)
+            {
+                return true;
+            }
+
+            string variableNames = string.Join(
+                "、",
+                affected.Select(value => value.Name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.Ordinal)
+                    .Take(5));
+            string processNames = string.Join(
+                "、",
+                activeProcessNames.Distinct(StringComparer.Ordinal).Take(5));
+            error = $"变量[{variableNames}]正在被运行中的流程[{processNames}]引用。"
+                + "请只停止受影响流程后再修改变量定义，其他流程无需停止；当前值调试仍可在线修改。";
+            return false;
+        }
+
+        private static bool HasSameRuntimeContract(DicValue current, DicValue candidate)
+        {
+            return current != null
+                && candidate != null
+                && current.Id == candidate.Id
+                && current.Index == candidate.Index
+                && string.Equals(current.Name, candidate.Name, StringComparison.Ordinal)
+                && string.Equals(current.Type, candidate.Type, StringComparison.Ordinal)
+                && string.Equals(current.Scope, candidate.Scope, StringComparison.Ordinal)
+                && current.OwnerProcId == candidate.OwnerProcId;
+        }
+
         private void Warn(string message, string title)
         {
             runtime.EditorUi?.ShowMessage(message, title, false);

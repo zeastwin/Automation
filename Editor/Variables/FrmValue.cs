@@ -2279,7 +2279,7 @@ namespace Automation
 
         private void PasteToSelectedValueRow()
         {
-            if (!Workspace.Runtime.ProcessEditing.CanEditStructure()) return;
+            if (!Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration()) return;
             if (clipboardItem == null)
             {
                 MessageBox.Show("没有可粘贴的数据");
@@ -2344,7 +2344,7 @@ namespace Automation
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
         {
-            if (!Workspace.Runtime.ProcessEditing.CanEditStructure()) return;
+            if (!Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration()) return;
             List<int> indexes = GetSelectedSlotIndexes();
             if (indexes.Count == 0)
             {
@@ -2468,7 +2468,7 @@ namespace Automation
                         isValueEditValid = true;
                         return;
                     }
-                    if (!Workspace.Runtime.ProcessEditing.CanEditStructure())
+                    if (!Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration())
                     {
                         isValueEditValid = false;
                         FreshFrmValue();

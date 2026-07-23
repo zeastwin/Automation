@@ -39,8 +39,9 @@ namespace Automation
         private CancellationTokenSource buildCancellation;
         private readonly Dictionary<string, CachedGraphSnapshot> graphCache =
             new Dictionary<string, CachedGraphSnapshot>(StringComparer.Ordinal);
+        private readonly SemaphoreSlim graphPrewarmGate =
+            new SemaphoreSlim(1, 1);
         private Task webInitializationTask;
-        private int prewarmGeneration;
         private bool pageReady;
         private bool webAvailable = true;
 
@@ -232,81 +233,26 @@ namespace Automation
             webView.CreateControl();
             _ = EnsureWebViewInitializedAsync();
             RefreshCurrentGraph();
-            PrewarmProcessGraphs();
-        }
-
-        internal async void PrewarmProcessGraphs()
-        {
-            if (IsDisposed || Disposing)
-            {
-                return;
-            }
-            int generation = Interlocked.Increment(ref prewarmGeneration);
-            long repositoryVersion = owner.Runtime.Stores.Processes.Version;
-            List<Proc> processes = owner.Runtime.Stores.Processes.CreateSnapshot();
-            var revisions = processes.Select(process =>
-            {
-                Guid id = process?.head?.Id ?? Guid.Empty;
-                return owner.Runtime.Stores.Processes.GetRevision(id);
-            }).ToArray();
-            try
-            {
-                List<ProcessFlowGraphSnapshot> built = await Task.Run(() =>
-                {
-                    var result = new List<ProcessFlowGraphSnapshot>(processes.Count);
-                    for (int index = 0; index < processes.Count; index++)
-                    {
-                        result.Add(ProcessFlowGraphService.BuildProcess(
-                            processes,
-                            index,
-                            null));
-                    }
-                    return result;
-                });
-                if (generation != prewarmGeneration
-                    || repositoryVersion != owner.Runtime.Stores.Processes.Version
-                    || IsDisposed)
-                {
-                    return;
-                }
-                for (int index = 0; index < built.Count; index++)
-                {
-                    Guid id = processes[index]?.head?.Id ?? Guid.Empty;
-                    string key = id == Guid.Empty
-                        ? "process-index:" + index
-                        : "process:" + id.ToString("N");
-                    graphCache[key] = new CachedGraphSnapshot
-                    {
-                        Revision = revisions[index],
-                        Snapshot = built[index]
-                    };
-                }
-            }
-            catch (Exception ex)
-            {
-                owner.dataRun?.Logger?.Log(
-                    $"流程图缓存预热失败:{ex}",
-                    LogLevel.Error);
-            }
         }
 
         internal async void PrewarmProcessGraph(int procIndex)
         {
-            if (IsDisposed || Disposing
-                || procIndex < 0
-                || procIndex >= owner.Runtime.Stores.Processes.Items.Count)
-            {
-                return;
-            }
-            Proc process = ObjectGraphCloner.Clone(
-                owner.Runtime.Stores.Processes.Items[procIndex]);
-            Guid id = process?.head?.Id ?? Guid.Empty;
-            long revision = owner.Runtime.Stores.Processes.GetRevision(id);
-            var processes = new List<Proc>(
-                Enumerable.Repeat<Proc>(null, procIndex + 1));
-            processes[procIndex] = process;
+            await graphPrewarmGate.WaitAsync();
             try
             {
+                if (IsDisposed || Disposing
+                    || procIndex < 0
+                    || procIndex >= owner.Runtime.Stores.Processes.Items.Count)
+                {
+                    return;
+                }
+                Proc process = ObjectGraphCloner.Clone(
+                    owner.Runtime.Stores.Processes.Items[procIndex]);
+                Guid id = process?.head?.Id ?? Guid.Empty;
+                long revision = owner.Runtime.Stores.Processes.GetRevision(id);
+                var processes = new List<Proc>(
+                    Enumerable.Repeat<Proc>(null, procIndex + 1));
+                processes[procIndex] = process;
                 ProcessFlowGraphSnapshot built = await Task.Run(() =>
                     ProcessFlowGraphService.BuildProcess(
                         processes,
@@ -331,6 +277,10 @@ namespace Automation
                 owner.dataRun?.Logger?.Log(
                     $"流程图局部缓存预热失败:{ex}",
                     LogLevel.Error);
+            }
+            finally
+            {
+                graphPrewarmGate.Release();
             }
         }
 

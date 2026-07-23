@@ -84,13 +84,17 @@ namespace Automation
         public override void RefreshValue()
         {
             IList items = definition.Items;
-            if (itemsPanel.Controls.Count != (items?.Count ?? 0))
+            List<InspectorCollectionItemControl> itemControls = itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>().ToList();
+            if (itemControls.Count != (items?.Count ?? 0)
+                || items != null && itemControls
+                    .Where((control, index) => !control.IsBoundTo(items[index]))
+                    .Any())
             {
                 RebuildItems();
                 return;
             }
-            foreach (InspectorCollectionItemControl item in itemsPanel.Controls
-                .OfType<InspectorCollectionItemControl>())
+            foreach (InspectorCollectionItemControl item in itemControls)
             {
                 item.RefreshValues();
             }
@@ -129,21 +133,9 @@ namespace Automation
             {
                 return false;
             }
-            IList items = ((InspectorCollectionFieldDefinition)next).Items;
-            List<InspectorCollectionItemControl> itemControls = itemsPanel.Controls
-                .OfType<InspectorCollectionItemControl>().ToList();
-            if (items == null || itemControls.Count != items.Count)
-            {
-                return false;
-            }
-            for (int index = 0; index < items.Count; index++)
-            {
-                if (!itemControls[index].CanRebind(items[index]))
-                {
-                    return false;
-                }
-            }
-            return true;
+            var current = Definition as InspectorCollectionFieldDefinition;
+            var candidate = next as InspectorCollectionFieldDefinition;
+            return current?.ItemType == candidate?.ItemType;
         }
 
         public override void Rebind(InspectorFieldDefinition next, bool editable)
@@ -160,47 +152,10 @@ namespace Automation
             addButton.Visible = showAddButton;
             addButton.Enabled = definition.Items == null
                 || definition.Items.Count < GetMaxItems(definition);
-            if (!TryRebindItems())
-            {
-                RebuildItems();
-                return;
-            }
+            RebuildItems();
             if (layoutChanged)
             {
                 LayoutControls();
-            }
-        }
-
-        private bool TryRebindItems()
-        {
-            IList items = definition.Items;
-            List<InspectorCollectionItemControl> itemControls = itemsPanel.Controls
-                .OfType<InspectorCollectionItemControl>().ToList();
-            if (items == null || itemControls.Count != items.Count)
-            {
-                return false;
-            }
-            itemsPanel.SuspendLayout();
-            try
-            {
-                for (int index = 0; index < items.Count; index++)
-                {
-                    if (!itemControls[index].TryRebind(
-                        definition.Label,
-                        index,
-                        items.Count,
-                        items[index],
-                        Editable && !definition.IsReadOnly))
-                    {
-                        return false;
-                    }
-                }
-                title.Text = $"{definition.Label}（{items.Count}）";
-                return true;
-            }
-            finally
-            {
-                itemsPanel.ResumeLayout(false);
             }
         }
 
@@ -216,44 +171,95 @@ namespace Automation
             itemsPanel.SuspendLayout();
             try
             {
-                foreach (Control control in itemsPanel.Controls.Cast<Control>().ToArray())
-                {
-                    control.Dispose();
-                }
-                itemsPanel.Controls.Clear();
                 IList items = definition.Items;
                 title.Text = $"{definition.Label}（{items?.Count ?? 0}）";
                 addButton.Enabled = items == null
                     || items.Count < GetMaxItems(definition);
-                if (items == null)
+                var available = itemsPanel.Controls
+                    .OfType<InspectorCollectionItemControl>().ToList();
+                var retained = new HashSet<InspectorCollectionItemControl>();
+                int itemCount = items?.Count ?? 0;
+                var exactAssignments =
+                    new Dictionary<int, InspectorCollectionItemControl>();
+                var reserved = new HashSet<InspectorCollectionItemControl>();
+                for (int index = 0; index < itemCount; index++)
                 {
-                    return;
+                    InspectorCollectionItemControl exact = available
+                        .FirstOrDefault(candidate =>
+                            !reserved.Contains(candidate)
+                            && candidate.IsBoundTo(items[index]));
+                    if (exact != null)
+                    {
+                        exactAssignments[index] = exact;
+                        reserved.Add(exact);
+                    }
                 }
-                var itemControls = new List<Control>(items.Count);
-                for (int index = 0; index < items.Count; index++)
+                for (int index = 0; index < itemCount; index++)
                 {
                     object item = items[index];
-                    var itemControl = new InspectorCollectionItemControl(
-                        definition.Label,
+                    exactAssignments.TryGetValue(
                         index,
-                        items.Count,
-                        item,
-                        Editable && !definition.IsReadOnly,
-                        items.Count <= 6 || index == 0,
-                        DescriptionToolTip);
-                    itemControl.DeleteRequested += (sender, args) => DeleteItem(itemControl.ItemIndex);
-                    itemControl.MoveRequested += (sender, offset) => MoveItem(itemControl.ItemIndex, offset);
-                    itemControl.FieldValueChanged += (sender, args) => OnFieldValueChanged();
-                    itemControl.SizeChanged += (sender, args) => LayoutControls();
-                    itemControls.Add(itemControl);
+                        out InspectorCollectionItemControl itemControl);
+                    if (itemControl == null)
+                    {
+                        itemControl = available.FirstOrDefault(candidate =>
+                            !retained.Contains(candidate)
+                            && !reserved.Contains(candidate)
+                            && candidate.CanRebind(item));
+                    }
+                    if (itemControl == null
+                        || !itemControl.TryRebind(
+                            definition.Label,
+                            index,
+                            itemCount,
+                            item,
+                            Editable && !definition.IsReadOnly))
+                    {
+                        itemControl = CreateItemControl(
+                            index,
+                            itemCount,
+                            item);
+                        itemsPanel.Controls.Add(itemControl);
+                    }
+                    retained.Add(itemControl);
+                    itemsPanel.Controls.SetChildIndex(itemControl, index);
                 }
-                itemsPanel.Controls.AddRange(itemControls.ToArray());
+                foreach (InspectorCollectionItemControl stale in available
+                    .Where(candidate => !retained.Contains(candidate)))
+                {
+                    itemsPanel.Controls.Remove(stale);
+                    stale.Dispose();
+                }
             }
             finally
             {
                 itemsPanel.ResumeLayout(true);
                 LayoutControls();
             }
+        }
+
+        private InspectorCollectionItemControl CreateItemControl(
+            int index,
+            int itemCount,
+            object item)
+        {
+            var itemControl = new InspectorCollectionItemControl(
+                definition.Label,
+                index,
+                itemCount,
+                item,
+                Editable && !definition.IsReadOnly,
+                itemCount <= 6 || index == 0,
+                DescriptionToolTip);
+            itemControl.DeleteRequested += (sender, args) =>
+                DeleteItem(itemControl.ItemIndex);
+            itemControl.MoveRequested += (sender, offset) =>
+                MoveItem(itemControl.ItemIndex, offset);
+            itemControl.FieldValueChanged += (sender, args) =>
+                OnFieldValueChanged();
+            itemControl.SizeChanged += (sender, args) =>
+                LayoutControls();
+            return itemControl;
         }
 
         private void AddItem()
@@ -626,6 +632,11 @@ namespace Automation
         public event EventHandler DeleteRequested;
         public event Action<object, int> MoveRequested;
         public event EventHandler FieldValueChanged;
+
+        public bool IsBoundTo(object candidate)
+        {
+            return ReferenceEquals(item, candidate);
+        }
 
         public void SetEditable(bool allowEdit)
         {

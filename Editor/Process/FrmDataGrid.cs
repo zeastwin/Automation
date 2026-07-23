@@ -1809,6 +1809,26 @@ namespace Automation
             int procIndex = Workspace.ProcessSelection.ProcIndex;
             int stepIndex = Workspace.ProcessSelection.StepIndex;
             int selectedRow = iSelectedRow;
+            if (!Workspace.Runtime.OperationEditing.TryCreateCommitTarget(
+                procIndex,
+                stepIndex,
+                selectedRow,
+                isAdd,
+                out OperationEditCommitTarget commitTarget,
+                out string targetError))
+            {
+                Workspace.Runtime.Editor.IsAddingOperations = false;
+                Workspace.Runtime.Editor.ModifyKind = ModifyKind.None;
+                OperationTemp = null;
+                dataGridView1.Enabled = true;
+                Workspace.Proc.Enabled = true;
+                MessageBox.Show(
+                    targetError,
+                    isAdd ? "新增指令失败" : "修改指令失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
             Workspace.Runtime.Editor.IsAddingOperations = isAdd;
             Workspace.Runtime.Editor.ModifyKind = isAdd ? ModifyKind.None : ModifyKind.Operation;
             Workspace.Runtime.Editor.Begin(new EditSession<OperationType>(isAdd ? "新增指令" : "修改指令", OperationTemp,
@@ -1828,10 +1848,7 @@ namespace Automation
                 draft =>
                 {
                     if (!Workspace.Runtime.OperationEditing.TrySave(
-                        procIndex,
-                        stepIndex,
-                        selectedRow,
-                        isAdd,
+                        commitTarget,
                         draft,
                         out int targetIndex,
                         out string commitError))

@@ -191,6 +191,7 @@
     <Compile Include="Editor\Common\UiIconFactory.cs" />
     <Compile Include="Editor\Common\UiPalette.cs" />
     <Compile Include="Editor\Common\UiStatusImages.cs" />
+    <Compile Include="Editor\Common\UiWarmupCoordinator.cs" />
     <Compile Include="Editor\Common\WinFormsProcessInteractionCoordinator.cs" />
     <Compile Include="Editor\Communication\FrmCommunication.cs">
       <SubType>Form</SubType>

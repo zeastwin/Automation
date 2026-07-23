@@ -27,9 +27,7 @@ namespace Automation
         };
 
         private readonly object valueLock = new object();
-        private readonly DicValue[] values = new DicValue[ValueCapacity];
-        private readonly Dictionary<string, int> nameIndex = new Dictionary<string, int>();
-        private volatile Dictionary<string, int> nameIndexSnapshot = new Dictionary<string, int>();
+        private ValueTableState valueTable;
         private readonly object monitorLock = new object();
         private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
         private volatile bool monitorEnabled;
@@ -57,6 +55,20 @@ namespace Automation
             public string LastChangedOldValue { get; set; }
             public string LastChangedNewValue { get; set; }
         }
+
+        private sealed class ValueTableState
+        {
+            public ValueTableState(DicValue[] values, Dictionary<string, int> nameIndex)
+            {
+                Values = values;
+                NameIndex = nameIndex;
+            }
+
+            public DicValue[] Values { get; }
+            public Dictionary<string, int> NameIndex { get; }
+        }
+
+        private ValueTableState CurrentTable => Volatile.Read(ref valueTable);
 
         public event EventHandler<ValueChangedEventArgs> ValueChanged;
 
@@ -93,6 +105,18 @@ namespace Automation
             return !IsProcessValue(value) || procId != Guid.Empty && value.OwnerProcId == procId;
         }
 
+        private static bool HasSameRuntimeContract(DicValue current, DicValue candidate)
+        {
+            return current != null
+                && candidate != null
+                && current.Id == candidate.Id
+                && current.Index == candidate.Index
+                && string.Equals(current.Name, candidate.Name, StringComparison.Ordinal)
+                && string.Equals(current.Type, candidate.Type, StringComparison.Ordinal)
+                && string.Equals(current.Scope, candidate.Scope, StringComparison.Ordinal)
+                && current.OwnerProcId == candidate.OwnerProcId;
+        }
+
         public void SetMonitorFlag(int index, bool isMonitored)
         {
             if (index < 0 || index >= ValueCapacity)
@@ -100,7 +124,7 @@ namespace Automation
                 return;
             }
             Guid id;
-            lock (valueLock) id = values[index]?.Id ?? Guid.Empty;
+            lock (valueLock) id = CurrentTable.Values[index]?.Id ?? Guid.Empty;
             SetMonitorFlag(id, isMonitored);
         }
 
@@ -126,7 +150,7 @@ namespace Automation
                 return false;
             }
             Guid id;
-            lock (valueLock) id = values[index]?.Id ?? Guid.Empty;
+            lock (valueLock) id = CurrentTable.Values[index]?.Id ?? Guid.Empty;
             lock (monitorLock) return id != Guid.Empty && monitoredVariableIds.Contains(id);
         }
 
@@ -189,6 +213,12 @@ namespace Automation
 
         private void ResetValues()
         {
+            Volatile.Write(ref valueTable, CreateEmptyValueTable());
+        }
+
+        private static ValueTableState CreateEmptyValueTable()
+        {
+            var values = new DicValue[ValueCapacity];
             for (int i = 0; i < ValueCapacity; i++)
             {
                 values[i] = new DicValue
@@ -201,8 +231,9 @@ namespace Automation
                         : VariableScopeContract.Public
                 };
             }
-            nameIndex.Clear();
-            nameIndexSnapshot = new Dictionary<string, int>();
+            return new ValueTableState(
+                values,
+                new Dictionary<string, int>(StringComparer.Ordinal));
         }
 
         private void LoadFromDictionary(
@@ -211,12 +242,14 @@ namespace Automation
         {
             lock (valueLock)
             {
-                ResetValues();
-                if (source == null)
-                {
-                    return;
-                }
-                foreach (var item in source)
+                ValueTableState currentTable = CurrentTable;
+                var currentById = currentTable.NameIndex.Values
+                    .Select(index => currentTable.Values[index])
+                    .Where(value => value != null && value.Id != Guid.Empty)
+                    .GroupBy(value => value.Id)
+                    .ToDictionary(group => group.Key, group => group.First());
+                ValueTableState next = CreateEmptyValueTable();
+                foreach (var item in source ?? new Dictionary<string, DicValue>())
                 {
                     if (item.Value == null)
                     {
@@ -237,7 +270,7 @@ namespace Automation
                             $"系统保留变量[{item.Key}]必须位于索引范围 [{SystemValueStartIndex}, {ValueCapacity})。");
                     }
                     ValidateScope(item.Key, item.Value);
-                    if (!string.IsNullOrEmpty(values[index].Name))
+                    if (!string.IsNullOrEmpty(next.Values[index].Name))
                     {
                         continue;
                     }
@@ -245,6 +278,19 @@ namespace Automation
                     if (item.Value.Type != "double" && item.Value.Type != "string")
                     {
                         item.Value.Type = "string";
+                    }
+                    if (item.Value.Id != Guid.Empty
+                        && currentById.TryGetValue(item.Value.Id, out DicValue current)
+                        && HasSameRuntimeContract(current, item.Value))
+                    {
+                        lock (current.SyncRoot)
+                        {
+                            current.Note = item.Value.Note;
+                            current.isMark = item.Value.isMark;
+                        }
+                        next.Values[index] = current;
+                        next.NameIndex[item.Key] = index;
+                        continue;
                     }
                     if (preservedCurrentValues != null
                         && item.Value.Id != Guid.Empty
@@ -256,10 +302,12 @@ namespace Automation
                         item.Value.LastChangedOldValue = currentState.LastChangedOldValue;
                         item.Value.LastChangedNewValue = currentState.LastChangedNewValue;
                     }
-                    values[index] = item.Value;
-                    nameIndex[item.Key] = index;
+                    next.Values[index] = item.Value;
+                    next.NameIndex[item.Key] = index;
                 }
-                nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                // 数组和名称索引作为同一不可分割快照发布，运行线程不会观察到
+                // “变量数组已切换、名称索引仍是旧版”或整表暂时为空的中间状态。
+                Volatile.Write(ref valueTable, next);
             }
             MarkConfigurationChanged();
         }
@@ -270,7 +318,7 @@ namespace Automation
             {
                 throw new ArgumentOutOfRangeException(nameof(index), $"索引超出范围:{index}");
             }
-            DicValue value = values[index];
+            DicValue value = CurrentTable.Values[index];
             if (value == null || string.IsNullOrEmpty(value.Name))
             {
                 throw new KeyNotFoundException($"未找到索引变量:{index}");
@@ -284,12 +332,17 @@ namespace Automation
             {
                 throw new ArgumentException("变量名不能为空", nameof(key));
             }
-            Dictionary<string, int> snapshot = nameIndexSnapshot;
-            if (!snapshot.TryGetValue(key, out int index))
+            ValueTableState table = CurrentTable;
+            if (!table.NameIndex.TryGetValue(key, out int index))
             {
                 throw new KeyNotFoundException($"未找到变量:{key}");
             }
-            return GetValueByIndex(index);
+            DicValue value = table.Values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
+            {
+                throw new KeyNotFoundException($"未找到变量:{key}");
+            }
+            return value;
         }
 
         public DicValue GetValueByNameForProcess(string key, Guid procId)
@@ -310,7 +363,7 @@ namespace Automation
             {
                 return false;
             }
-            value = values[index];
+            value = CurrentTable.Values[index];
             if (value == null || string.IsNullOrEmpty(value.Name))
             {
                 value = null;
@@ -326,12 +379,18 @@ namespace Automation
             {
                 return false;
             }
-            Dictionary<string, int> snapshot = nameIndexSnapshot;
-            if (!snapshot.TryGetValue(key, out int index))
+            ValueTableState table = CurrentTable;
+            if (!table.NameIndex.TryGetValue(key, out int index))
             {
                 return false;
             }
-            return TryGetValueByIndex(index, out value);
+            value = table.Values[index];
+            if (value == null || string.IsNullOrEmpty(value.Name))
+            {
+                value = null;
+                return false;
+            }
+            return true;
         }
 
         public bool TryGetValueByNameForProcess(string key, Guid procId, out DicValue value)
@@ -356,8 +415,7 @@ namespace Automation
 
         public List<string> GetValueNames()
         {
-            Dictionary<string, int> snapshot = nameIndexSnapshot;
-            return snapshot.Keys.ToList();
+            return CurrentTable.NameIndex.Keys.ToList();
         }
 
         public Dictionary<string, DicValue> BuildSaveData()
@@ -365,9 +423,10 @@ namespace Automation
             Dictionary<string, DicValue> data = new Dictionary<string, DicValue>();
             lock (valueLock)
             {
-                foreach (var item in nameIndex)
+                ValueTableState table = CurrentTable;
+                foreach (var item in table.NameIndex)
                 {
-                    DicValue value = values[item.Value];
+                    DicValue value = table.Values[item.Value];
                     if (value == null || string.IsNullOrEmpty(value.Name))
                     {
                         continue;
@@ -382,8 +441,9 @@ namespace Automation
         {
             lock (valueLock)
             {
-                return nameIndex.Values
-                    .Select(index => values[index])
+                ValueTableState table = CurrentTable;
+                return table.NameIndex.Values
+                    .Select(index => table.Values[index])
                     .Where(value => value != null && !string.IsNullOrEmpty(value.Name))
                     .Select(ObjectGraphCloner.Clone)
                     .OrderBy(value => value.Index)
@@ -402,30 +462,53 @@ namespace Automation
             lock (valueLock)
             {
                 var preservedCurrentValues = new Dictionary<string, CurrentValueState>(StringComparer.Ordinal);
-                foreach (KeyValuePair<string, int> currentEntry in nameIndex)
+                ValueTableState table = CurrentTable;
+                var incomingById = snapshot.Values
+                    .Where(value => value != null && value.Id != Guid.Empty)
+                    .GroupBy(value => value.Id)
+                    .ToDictionary(group => group.Key, group => group.First());
+                List<DicValue> changedVariables = table.NameIndex.Values
+                    .Select(index => table.Values[index])
+                    .Where(current => current != null
+                        && current.Id != Guid.Empty
+                        && incomingById.TryGetValue(current.Id, out DicValue incoming)
+                        && !HasSameRuntimeContract(current, incoming))
+                    .OrderBy(current => current.Index)
+                    .ToList();
+                foreach (DicValue current in changedVariables)
                 {
-                    DicValue current = values[currentEntry.Value];
-                    if (current == null
-                        || current.Id == Guid.Empty)
-                    {
-                        continue;
-                    }
-                    DicValue incoming = snapshot.Values.FirstOrDefault(value => value != null && value.Id == current.Id);
-                    if (incoming == null)
-                    {
-                        continue;
-                    }
-                    preservedCurrentValues[current.Id.ToString("D")] = new CurrentValueState
-                    {
-                        Id = current.Id,
-                        Value = current.Value,
-                        LastChangedAt = current.LastChangedAt,
-                        LastChangedBy = current.LastChangedBy,
-                        LastChangedOldValue = current.LastChangedOldValue,
-                        LastChangedNewValue = current.LastChangedNewValue
-                    };
+                    Monitor.Enter(current.SyncRoot);
                 }
-                LoadFromDictionary(snapshot, preservedCurrentValues);
+                try
+                {
+                    foreach (KeyValuePair<string, int> currentEntry in table.NameIndex)
+                    {
+                        DicValue current = table.Values[currentEntry.Value];
+                        if (current == null
+                            || current.Id == Guid.Empty
+                            || !incomingById.ContainsKey(current.Id))
+                        {
+                            continue;
+                        }
+                        preservedCurrentValues[current.Id.ToString("D")] = new CurrentValueState
+                        {
+                            Id = current.Id,
+                            Value = current.Value,
+                            LastChangedAt = current.LastChangedAt,
+                            LastChangedBy = current.LastChangedBy,
+                            LastChangedOldValue = current.LastChangedOldValue,
+                            LastChangedNewValue = current.LastChangedNewValue
+                        };
+                    }
+                    LoadFromDictionary(snapshot, preservedCurrentValues);
+                }
+                finally
+                {
+                    for (int index = changedVariables.Count - 1; index >= 0; index--)
+                    {
+                        Monitor.Exit(changedVariables[index].SyncRoot);
+                    }
+                }
             }
         }
 
@@ -469,6 +552,13 @@ namespace Automation
             }
 
             Dictionary<string, DicValue> oldConfiguration = BuildSaveData();
+            if (!runtime.ProcessEditing.CanApplyVariableConfiguration(
+                oldConfiguration.Values,
+                snapshot.Values,
+                out error))
+            {
+                return false;
+            }
             Dictionary<string, CurrentValueState> oldCurrentValues = CaptureCurrentValueStates();
             if (!AtomicJsonFileStore.Save(configPath, "value", snapshot))
             {
@@ -561,7 +651,7 @@ namespace Automation
             IDictionary<string, DicValue> snapshot,
             out string error)
         {
-            if (!runtime.ProcessEditing.CanEditStructure())
+            if (!runtime.ProcessEditing.CanEditVariableConfiguration())
             {
                 error = "变量配置当前不可编辑。";
                 return false;
@@ -582,9 +672,10 @@ namespace Automation
             var snapshot = new Dictionary<string, CurrentValueState>(StringComparer.Ordinal);
             lock (valueLock)
             {
-                foreach (KeyValuePair<string, int> item in nameIndex)
+                ValueTableState table = CurrentTable;
+                foreach (KeyValuePair<string, int> item in table.NameIndex)
                 {
-                    DicValue value = values[item.Value];
+                    DicValue value = table.Values[item.Value];
                     if (value == null || string.IsNullOrEmpty(value.Name))
                     {
                         continue;
@@ -615,6 +706,7 @@ namespace Automation
             }
             lock (valueLock)
             {
+                DicValue[] values = CurrentTable.Values;
                 foreach (KeyValuePair<string, CurrentValueState> item in source)
                 {
                     DicValue value = values.FirstOrDefault(candidate =>
@@ -796,12 +888,13 @@ namespace Automation
             bool configurationChanged = false;
             lock (valueLock)
             {
-                if (nameIndex.TryGetValue(name, out int existIndex) && existIndex != index)
+                ValueTableState table = CurrentTable;
+                if (table.NameIndex.TryGetValue(name, out int existIndex) && existIndex != index)
                 {
                     return false;
                 }
 
-                DicValue currentValue = values[index];
+                DicValue currentValue = table.Values[index];
                 if (ProtectedValueNames.Contains(currentValue.Name)
                     && (!string.Equals(currentValue.Name, name, StringComparison.Ordinal)
                         || !string.Equals(type, "double", StringComparison.Ordinal)))
@@ -816,28 +909,36 @@ namespace Automation
                         || !string.Equals(currentValue.Scope, scope, StringComparison.Ordinal)
                         || currentValue.OwnerProcId != ownerProcId
                         || !string.Equals(currentValue.Note, note, StringComparison.Ordinal);
-                    if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
+                    DicValue replacement = ObjectGraphCloner.Clone(currentValue);
+                    var nextNames = new Dictionary<string, int>(
+                        table.NameIndex,
+                        StringComparer.Ordinal);
+                    if (!string.IsNullOrEmpty(replacement.Name) && replacement.Name != name)
                     {
-                        nameIndex.Remove(currentValue.Name);
+                        nextNames.Remove(replacement.Name);
                     }
-                    currentValue.Name = name;
-                    if (currentValue.Id == Guid.Empty)
+                    replacement.Name = name;
+                    if (replacement.Id == Guid.Empty)
                     {
-                        currentValue.Id = Guid.NewGuid();
+                        replacement.Id = Guid.NewGuid();
                     }
-                    currentValue.Index = index;
-                    currentValue.Type = type;
-                    currentValue.Scope = scope;
-                    currentValue.OwnerProcId = ownerProcId;
-                    currentValue.Note = note;
-                    currentValue.Value = value;
-                    nameIndex[name] = index;
-                    nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
+                    replacement.Index = index;
+                    replacement.Type = type;
+                    replacement.Scope = scope;
+                    replacement.OwnerProcId = ownerProcId;
+                    replacement.Note = note;
+                    replacement.Value = value;
+                    nextNames[name] = index;
                     if (!string.Equals(oldRuntime, value, StringComparison.Ordinal))
                     {
-                        changedValue = currentValue;
-                        changeSequence = currentValue.AdvanceChangeSequenceNoLock();
+                        changedValue = replacement;
+                        changeSequence = replacement.AdvanceChangeSequenceNoLock();
                     }
+                    var nextValues = (DicValue[])table.Values.Clone();
+                    nextValues[index] = replacement;
+                    Volatile.Write(
+                        ref valueTable,
+                        new ValueTableState(nextValues, nextNames));
                 }
             }
             if (configurationChanged)
@@ -860,7 +961,7 @@ namespace Automation
             }
             lock (valueLock)
             {
-                return values[index].isMark;
+                return CurrentTable.Values[index].isMark;
             }
         }
 
@@ -869,6 +970,7 @@ namespace Automation
             bool changed = false;
             lock (valueLock)
             {
+                DicValue[] values = CurrentTable.Values;
                 for (int i = 0; i < ValueCapacity; i++)
                 {
                     changed |= values[i].isMark;
@@ -941,6 +1043,18 @@ namespace Automation
         internal bool TryModifyValueByIndex(
             int index,
             DicValue expected,
+            Func<string, string> updater,
+            out string error,
+            string source = null)
+        {
+            return TryModifyValueByIndexCore(
+                index, expected, updater, null, null, null,
+                false, false, out error, source);
+        }
+
+        internal bool TryModifyValueByIndex(
+            int index,
+            DicValue expected,
             string sourceValue,
             string changeValue,
             bool sourceFromCurrent,
@@ -976,7 +1090,7 @@ namespace Automation
                 error = "更新函数为空";
                 return false;
             }
-            DicValue value = values[index];
+            DicValue value = CurrentTable.Values[index];
             if (value == null
                 || expected != null && !ReferenceEquals(value, expected)
                 || string.IsNullOrEmpty(value.Name))
@@ -991,7 +1105,7 @@ namespace Automation
             long changeSequence;
             lock (value.SyncRoot)
             {
-                if (!ReferenceEquals(values[index], value)
+                if (!ReferenceEquals(CurrentTable.Values[index], value)
                     || string.IsNullOrEmpty(value.Name))
                 {
                     error = $"预绑定变量已失效:索引{index}";
@@ -1056,7 +1170,7 @@ namespace Automation
                 error = "更新函数为空";
                 return false;
             }
-            DicValue value = values[index];
+            DicValue value = CurrentTable.Values[index];
             if (value == null
                 || expected != null && !ReferenceEquals(value, expected)
                 || string.IsNullOrEmpty(value.Name))
@@ -1071,7 +1185,7 @@ namespace Automation
             long changeSequence;
             lock (value.SyncRoot)
             {
-                if (!ReferenceEquals(values[index], value)
+                if (!ReferenceEquals(CurrentTable.Values[index], value)
                     || string.IsNullOrEmpty(value.Name))
                 {
                     error = expected == null
@@ -1115,12 +1229,12 @@ namespace Automation
             {
                 return false;
             }
-            Dictionary<string, int> snapshot = nameIndexSnapshot;
-            if (!snapshot.TryGetValue(key, out int index))
+            ValueTableState table = CurrentTable;
+            if (!table.NameIndex.TryGetValue(key, out int index))
             {
                 return false;
             }
-            return setValueByIndex(index, newValue, source);
+            return SetValue(table.Values[index], newValue, source);
         }
 
         public bool SetValueByNameForProcess(
@@ -1151,7 +1265,7 @@ namespace Automation
             if (value == null
                 || value.Index < 0
                 || value.Index >= ValueCapacity
-                || !ReferenceEquals(values[value.Index], value)
+                || !ReferenceEquals(CurrentTable.Values[value.Index], value)
                 || !CanProcessAccess(value, procId))
             {
                 return false;
@@ -1165,7 +1279,7 @@ namespace Automation
             {
                 return false;
             }
-            DicValue value = values[index];
+            DicValue value = CurrentTable.Values[index];
             return SetValue(value, newValue, source);
         }
 
@@ -1180,7 +1294,10 @@ namespace Automation
             long changeSequence;
             lock (value.SyncRoot)
             {
-                if (string.IsNullOrEmpty(value.Name))
+                if (value.Index < 0
+                    || value.Index >= ValueCapacity
+                    || !ReferenceEquals(CurrentTable.Values[value.Index], value)
+                    || string.IsNullOrEmpty(value.Name))
                 {
                     return false;
                 }

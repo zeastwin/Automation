@@ -64,6 +64,7 @@ namespace Automation
         public PlatformRuntime Runtime { get; }
         private readonly int uiThreadId;
         private readonly Control uiDispatcher;
+        private readonly UiWarmupCoordinator uiWarmupCoordinator;
         private readonly AutomationBridgeHost automationBridgeHost;
         private readonly ProcessTraceAuditSink processTraceAuditSink;
         private readonly DataBreakpointService dataBreakpointService;
@@ -101,6 +102,9 @@ namespace Automation
 
         private sealed class EditorNavigationMouseMessageFilter : IMessageFilter
         {
+            private const int WmKeyDown = 0x0100;
+            private const int WmLButtonDown = 0x0201;
+            private const int WmRButtonDown = 0x0204;
             private const int WmXButtonDown = 0x020B;
             private const int WmXButtonUp = 0x020C;
             private const int XButton1 = 1;
@@ -115,6 +119,13 @@ namespace Automation
 
             public bool PreFilterMessage(ref System.Windows.Forms.Message message)
             {
+                if (message.Msg == WmKeyDown
+                    || message.Msg == WmLButtonDown
+                    || message.Msg == WmRButtonDown
+                    || message.Msg == WmXButtonDown)
+                {
+                    owner.NotifyEditorInteraction();
+                }
                 if (message.Msg == WmXButtonDown)
                 {
                     int button = (int)((message.WParam.ToInt64() >> 16) & 0xffff);
@@ -159,6 +170,7 @@ namespace Automation
             uiThreadId = Thread.CurrentThread.ManagedThreadId;
             UiBranding.Apply(this);
             InitializeComponent();
+            uiWarmupCoordinator = new UiWarmupCoordinator(this);
             InitializeWorkspacePageHost();
             uiDispatcher = new Control();
             _ = uiDispatcher.Handle;
@@ -232,6 +244,7 @@ namespace Automation
                     Application.RemoveMessageFilter(editorNavigationMouseMessageFilter);
                     editorNavigationMouseMessageFilter = null;
                 }
+                uiWarmupCoordinator.Dispose();
             };
 
             // AI 助手面板挂到主窗体第一层，右侧全高停靠。
@@ -586,13 +599,18 @@ namespace Automation
             {
                 return;
             }
-            BeginInvoke((Action)(() =>
+            frmSearch?.PrewarmIndex();
+            QueueProcessFlowHostPrewarm();
+        }
+
+        private void QueueProcessFlowHostPrewarm()
+        {
+            uiWarmupCoordinator.Schedule("process-flow-host", 20, () =>
             {
                 if (IsDisposed || Disposing || !platformInitialized)
                 {
                     return;
                 }
-                frmSearch?.PrewarmIndex();
                 if (!flowGraphUnavailable
                     && (frmProcessFlow == null || frmProcessFlow.IsDisposed))
                 {
@@ -609,7 +627,16 @@ namespace Automation
                         frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
                     }
                 }
-            }));
+                if (frmProcessFlow != null && !frmProcessFlow.IsDisposed)
+                {
+                    PrewarmProcessFlowGraphs();
+                }
+            });
+        }
+
+        private void NotifyEditorInteraction()
+        {
+            uiWarmupCoordinator.NotifyInteraction();
         }
 
         private void UpdateProcText(EngineSnapshot snapshot)

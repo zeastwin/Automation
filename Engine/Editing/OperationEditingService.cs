@@ -9,6 +9,42 @@ using System.Linq;
 namespace Automation
 {
     /// <summary>
+    /// 指令编辑会话开始时捕获的稳定提交目标。
+    /// 防止编辑期间流程被其他入口替换后，仍按旧索引覆盖新的指令。
+    /// </summary>
+    public sealed class OperationEditCommitTarget
+    {
+        internal OperationEditCommitTarget(
+            int procIndex,
+            int stepIndex,
+            int operationIndex,
+            bool add,
+            Guid processId,
+            Guid stepId,
+            Guid operationId,
+            long processRevision)
+        {
+            ProcIndex = procIndex;
+            StepIndex = stepIndex;
+            OperationIndex = operationIndex;
+            Add = add;
+            ProcessId = processId;
+            StepId = stepId;
+            OperationId = operationId;
+            ProcessRevision = processRevision;
+        }
+
+        public int ProcIndex { get; }
+        public int StepIndex { get; }
+        public int OperationIndex { get; }
+        public bool Add { get; }
+        public Guid ProcessId { get; }
+        public Guid StepId { get; }
+        public Guid OperationId { get; }
+        public long ProcessRevision { get; }
+    }
+
+    /// <summary>
     /// 指令级结构编辑的统一入口。负责草稿克隆、跳转重算和流程原子提交。
     /// </summary>
     public sealed class OperationEditingService
@@ -121,11 +157,45 @@ namespace Automation
                 runtime, procIndex, draft, out error, "切换指令禁用状态");
         }
 
-        public bool TrySave(
+        public bool TryCreateCommitTarget(
             int procIndex,
             int stepIndex,
             int selectedOperationIndex,
             bool add,
+            out OperationEditCommitTarget target,
+            out string error)
+        {
+            target = null;
+            if (!TryGetTarget(procIndex, stepIndex, out Proc process, out Step step, out error))
+                return false;
+            if (!add && (selectedOperationIndex < 0 || selectedOperationIndex >= step.Ops.Count))
+            {
+                error = "指令索引已失效。";
+                return false;
+            }
+            if (add && selectedOperationIndex >= step.Ops.Count)
+            {
+                error = "新增指令的插入位置已失效。";
+                return false;
+            }
+            Guid processId = process?.head?.Id ?? Guid.Empty;
+            Guid operationId = selectedOperationIndex >= 0
+                ? step.Ops[selectedOperationIndex]?.Id ?? Guid.Empty
+                : Guid.Empty;
+            target = new OperationEditCommitTarget(
+                procIndex,
+                stepIndex,
+                selectedOperationIndex,
+                add,
+                processId,
+                step?.Id ?? Guid.Empty,
+                operationId,
+                runtime.Stores.Processes.GetRevision(processId));
+            return true;
+        }
+
+        public bool TrySave(
+            OperationEditCommitTarget target,
             OperationType operationDraft,
             out int savedOperationIndex,
             out string error)
@@ -136,8 +206,33 @@ namespace Automation
                 error = "指令草稿为空。";
                 return false;
             }
+            if (target == null)
+            {
+                error = "指令编辑提交目标为空。";
+                return false;
+            }
+            int procIndex = target.ProcIndex;
+            int stepIndex = target.StepIndex;
+            int selectedOperationIndex = target.OperationIndex;
+            bool add = target.Add;
             if (!TryGetTarget(procIndex, stepIndex, out Proc current, out Step step, out error))
                 return false;
+            Guid currentProcessId = current?.head?.Id ?? Guid.Empty;
+            long currentRevision = runtime.Stores.Processes.GetRevision(currentProcessId);
+            if (currentProcessId != target.ProcessId
+                || step?.Id != target.StepId
+                || currentRevision != target.ProcessRevision)
+            {
+                error = "流程内容已被其他操作修改，请重新打开指令编辑。";
+                return false;
+            }
+            if (selectedOperationIndex >= 0
+                && (selectedOperationIndex >= step.Ops.Count
+                    || (step.Ops[selectedOperationIndex]?.Id ?? Guid.Empty) != target.OperationId))
+            {
+                error = "指令位置已被其他操作修改，请重新打开指令编辑。";
+                return false;
+            }
 
             Proc draft = ObjectGraphCloner.Clone(current);
             OperationType savedOperation = ObjectGraphCloner.Clone(operationDraft);
