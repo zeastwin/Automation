@@ -26,10 +26,10 @@ namespace Automation
 
         public InspectorValueCell()
         {
-            BackColor = UiPalette.BrandSoft;
+            BackColor = UiPalette.SurfaceStrong;
             Cursor = Cursors.Default;
-            Font = InspectorFonts.Bold9;
-            ForeColor = UiPalette.SelectionText;
+            Font = InspectorFonts.Bold95;
+            ForeColor = UiPalette.Navigation;
             SetStyle(
                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
@@ -152,8 +152,8 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             Color background = pointerDown
-                ? UiPalette.Selection
-                : pointerOver ? UiPalette.BrandSoftHover : UiPalette.BrandSoft;
+                ? UiPalette.InputFocused
+                : pointerOver ? UiPalette.InputFocused : UiPalette.SurfaceStrong;
             e.Graphics.Clear(background);
 
             int arrowWidth = ShowDropDownArrow ? 26 : 0;
@@ -244,9 +244,9 @@ namespace Automation
         {
             AutoSize = false;
             BorderStyle = BorderStyle.None;
-            BackColor = UiPalette.BrandSoft;
-            ForeColor = UiPalette.SelectionText;
-            Font = InspectorFonts.Bold9;
+            BackColor = UiPalette.SurfaceStrong;
+            ForeColor = UiPalette.Navigation;
+            Font = InspectorFonts.Bold95;
             Multiline = true;
             AcceptsReturn = false;
             WordWrap = false;
@@ -279,21 +279,21 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = UiPalette.Selection;
+            BackColor = UiPalette.InputFocused;
             Invalidate();
         }
 
         protected override void OnLeave(EventArgs e)
         {
-            BackColor = UiPalette.BrandSoft;
+            BackColor = UiPalette.SurfaceStrong;
             base.OnLeave(e);
             Invalidate();
         }
 
         protected override void OnReadOnlyChanged(EventArgs e)
         {
-            BackColor = UiPalette.BrandSoft;
-            ForeColor = UiPalette.SelectionText;
+            BackColor = UiPalette.SurfaceStrong;
+            ForeColor = UiPalette.Navigation;
             base.OnReadOnlyChanged(e);
             Invalidate();
         }

@@ -371,6 +371,10 @@ namespace Automation
         private static void NormalizeAndValidateOperation(
             OperationType operation, JObject fields, bool preserveUnspecified)
         {
+            if (operation is WaitProc waitProc)
+            {
+                NormalizeAndValidateWaitProc(waitProc, fields);
+            }
             if (operation is PlcReadWrite plc)
             {
                 plc.ModelVersion = PlcReadWrite.CurrentModelVersion;
@@ -416,6 +420,74 @@ namespace Automation
             }
         }
 
+        private static void NormalizeAndValidateWaitProc(WaitProc operation, JObject fields)
+        {
+            string[] modes =
+            {
+                WaitProc.WaitReadyMode,
+                WaitProc.StateJumpMode,
+                WaitProc.GetStateMode
+            };
+            if (!modes.Contains(operation.WorkMode, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"native.operation.fields.WorkMode 无效：{operation.WorkMode ?? "空"}。");
+            }
+
+            string[] waitFields =
+            {
+                nameof(WaitProc.Params), nameof(WaitProc.DelayAfterMs),
+                nameof(WaitProc.DelayAfterVariableName), nameof(WaitProc.Timeout)
+            };
+            string[] targetFields =
+            {
+                nameof(WaitProc.TargetProcName), nameof(WaitProc.TargetProcValue)
+            };
+            string[] jumpFields =
+            {
+                nameof(WaitProc.ReadyGoto), nameof(WaitProc.AbnormalGoto),
+                nameof(WaitProc.RunningGoto)
+            };
+            string[] stateFields = { nameof(WaitProc.StateVariableName) };
+            string[] activeFields = operation.WorkMode == WaitProc.WaitReadyMode
+                ? waitFields
+                : operation.WorkMode == WaitProc.StateJumpMode
+                    ? targetFields.Concat(jumpFields).ToArray()
+                    : targetFields.Concat(stateFields).ToArray();
+            JProperty inactive = fields.Properties().FirstOrDefault(property =>
+                waitFields.Concat(targetFields).Concat(jumpFields).Concat(stateFields)
+                    .Contains(property.Name, StringComparer.Ordinal)
+                && !activeFields.Contains(property.Name, StringComparer.Ordinal));
+            if (inactive != null)
+            {
+                throw new InvalidOperationException(
+                    $"native.operation.fields.{inactive.Name} 不属于当前工作模式“{operation.WorkMode}”。");
+            }
+
+            if (operation.WorkMode != WaitProc.WaitReadyMode)
+            {
+                operation.Params = new OperationTypePartial.CustomList<WaitProcParam>();
+                operation.DelayAfterMs = 0;
+                operation.DelayAfterVariableName = null;
+                operation.Timeout = new TimeoutSetting();
+            }
+            else
+            {
+                operation.TargetProcName = null;
+                operation.TargetProcValue = null;
+            }
+            if (operation.WorkMode != WaitProc.StateJumpMode)
+            {
+                operation.ReadyGoto = null;
+                operation.AbnormalGoto = null;
+                operation.RunningGoto = null;
+            }
+            if (operation.WorkMode != WaitProc.GetStateMode)
+            {
+                operation.StateVariableName = null;
+            }
+        }
+
         private static JObject BuildObjectFields(Type type, int depth)
         {
             if (depth > MaxDepth) throw new InvalidOperationException($"指令结构嵌套超过 {MaxDepth} 层：{type.Name}");
@@ -439,6 +511,12 @@ namespace Automation
             foreach (PropertyInfo property in GetConfigurableProperties(type))
             {
                 if (source is PlcReadWrite plc && IsInactivePlcBranch(plc, property.Name))
+                {
+                    continue;
+                }
+                bool browsable = property.GetCustomAttribute<BrowsableAttribute>()?.Browsable ?? true;
+                if (source is IPropertyVisibilityProvider visibilityProvider
+                    && !visibilityProvider.IsPropertyVisible(property.Name, browsable))
                 {
                     continue;
                 }

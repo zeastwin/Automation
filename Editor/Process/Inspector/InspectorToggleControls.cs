@@ -7,9 +7,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Text;
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -71,10 +69,10 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             Color background = !Enabled
-                ? UiPalette.SurfaceSubtle
+                ? UiPalette.Surface
                 : pointerDown
-                    ? UiPalette.Selection
-                    : (pointerOver ? UiPalette.BrandSoftHover : UiPalette.BrandSoft);
+                    ? UiPalette.SurfacePressed
+                    : (pointerOver ? UiPalette.InputFocused : UiPalette.SurfaceStrong);
             e.Graphics.Clear(background);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (var pen = new Pen(
@@ -127,7 +125,7 @@ namespace Automation
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.Clear(UiPalette.BrandSoft);
+            e.Graphics.Clear(UiPalette.SurfaceStrong);
             var track = new Rectangle(2, Math.Max(2, (Height - 18) / 2), 32, 18);
             Color trackColor;
             if (!Enabled)
@@ -163,11 +161,8 @@ namespace Automation
 
     internal static class InspectorFonts
     {
-        private const string FontDirectory = @"D:\AutomationTools\Fonts\MiSans";
-        private static readonly PrivateFontCollection PrivateFonts
-            = new PrivateFontCollection();
+        private const string NativeFontFamilyName = "Microsoft YaHei UI";
 
-        public static readonly string LoadFailureMessage;
         public static readonly Font Regular85;
         public static readonly Font Regular9;
         public static readonly Font Regular95;
@@ -177,38 +172,13 @@ namespace Automation
 
         static InspectorFonts()
         {
-            try
-            {
-                LoadFontFile("MiSans-Regular.ttf");
-                LoadFontFile("MiSans-Semibold.ttf");
-                FontFamily regularFamily = GetFamily("MiSans");
-                FontFamily semiboldFamily = GetFamily("MiSans Semibold");
-                Regular85 = CreateFont(regularFamily, 10F);
-                Regular9 = CreateFont(regularFamily, 10.5F);
-                Regular95 = CreateFont(regularFamily, 10.75F);
-                Regular10 = CreateFont(regularFamily, 11.25F);
-                Bold9 = CreateFont(semiboldFamily, 10.5F);
-                Bold95 = CreateFont(semiboldFamily, 11.25F);
-            }
-            catch (Exception ex)
-            {
-                LoadFailureMessage = "Inspector 字体资源异常：" + ex.Message;
-                FontFamily emergencyFamily = SystemFonts.MessageBoxFont.FontFamily;
-                Regular85 = CreateFont(emergencyFamily, 10F);
-                Regular9 = CreateFont(emergencyFamily, 10.5F);
-                Regular95 = CreateFont(emergencyFamily, 10.75F);
-                Regular10 = CreateFont(emergencyFamily, 11.25F);
-                Bold9 = CreateFont(emergencyFamily, 10.5F, FontStyle.Bold);
-                Bold95 = CreateFont(emergencyFamily, 11.25F, FontStyle.Bold);
-                try
-                {
-                    var logger = new LocalFileLogger(@"D:\AutomationLogs\RuntimeExceptions");
-                    logger.Log(LoadFailureMessage + Environment.NewLine + ex, LogLevel.Error);
-                }
-                catch
-                {
-                }
-            }
+            FontFamily family = GetNativeFontFamily();
+            Regular85 = CreateFont(family, 10F);
+            Regular9 = CreateFont(family, 10.5F);
+            Regular95 = CreateFont(family, 10.75F);
+            Regular10 = CreateFont(family, 11.25F);
+            Bold9 = CreateFont(family, 10.5F, FontStyle.Bold);
+            Bold95 = CreateFont(family, 11.25F, FontStyle.Bold);
         }
 
         private static Font CreateFont(
@@ -222,30 +192,16 @@ namespace Automation
             return new Font(family, size, availableStyle, GraphicsUnit.Point);
         }
 
-        private static void LoadFontFile(string fileName)
+        private static FontFamily GetNativeFontFamily()
         {
-            string path = System.IO.Path.Combine(FontDirectory, fileName);
-            if (!System.IO.File.Exists(path))
+            try
             {
-                throw new System.IO.FileNotFoundException(
-                    "Inspector 字体资源缺失：" + path,
-                    path);
+                return new FontFamily(NativeFontFamilyName);
             }
-            PrivateFonts.AddFontFile(path);
-        }
-
-        private static FontFamily GetFamily(string familyName)
-        {
-            FontFamily family = PrivateFonts.Families.FirstOrDefault(item => string.Equals(
-                item.Name,
-                familyName,
-                StringComparison.OrdinalIgnoreCase));
-            if (family == null)
+            catch (ArgumentException)
             {
-                throw new InvalidOperationException(
-                    "Inspector 无法加载内置字体：" + familyName);
+                return SystemFonts.MessageBoxFont.FontFamily;
             }
-            return family;
         }
     }
 

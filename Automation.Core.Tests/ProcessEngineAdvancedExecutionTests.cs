@@ -418,6 +418,168 @@ namespace Automation.Core.Tests
             Assert.IsNotNull(plc["fields"]?["ResponseConditions"]);
         }
 
+        [TestMethod]
+        public void WaitProcContract_WaitModeOnlyAllowsRunningOrReady()
+        {
+            var operation = new WaitProc();
+            JObject contract = StructuredOperationCompiler.BuildContract("等待流程状态");
+
+            Assert.AreEqual(WaitProc.WaitReadyMode, operation.WorkMode);
+            Assert.AreEqual("就绪", operation.Params[0].TargetState);
+            CollectionAssert.AreEqual(
+                new[] { "运行", "就绪" },
+                contract["fields"]?[nameof(WaitProc.Params)]?["items"]?["fields"]?[nameof(WaitProcParam.TargetState)]?["values"]?
+                    .Values<string>().ToArray());
+            CollectionAssert.AreEqual(
+                new[] { WaitProc.WaitReadyMode, WaitProc.StateJumpMode, WaitProc.GetStateMode },
+                contract["fields"]?[nameof(WaitProc.WorkMode)]?["values"]?
+                    .Values<string>().ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "running", "ready" },
+                AiOperationCompilerRegistry.Get("process.wait").BuildContract()["states"]?
+                    .Values<string>().ToArray());
+            JObject writable = StructuredOperationCompiler.BuildWritableFields(
+                new WaitProc
+                {
+                    WorkMode = WaitProc.GetStateMode,
+                    TargetProcName = "目标",
+                    StateVariableName = "状态",
+                }, _ => null);
+            Assert.IsNotNull(writable[nameof(WaitProc.StateVariableName)]);
+            Assert.IsNotNull(writable[nameof(WaitProc.TargetProcName)]);
+            Assert.IsNull(writable[nameof(WaitProc.Params)]);
+            Assert.IsNull(writable[nameof(WaitProc.Timeout)]);
+            Assert.IsNull(writable[nameof(WaitProc.ReadyGoto)]);
+
+            var stateJump = new WaitProc { WorkMode = WaitProc.StateJumpMode };
+            Assert.AreEqual(false,
+                OperationBehaviorCatalog.BuildContract(stateJump)["controlFlow"]?["fallThrough"]?.Value<bool>());
+            Assert.AreEqual(3, OperationGotoReferenceCatalog.Enumerate(stateJump).Count);
+            Assert.AreEqual(0, OperationGotoReferenceCatalog.Enumerate(operation).Count);
+
+            Proc target = CreateProcess("目标", new EndProcess { Id = Guid.NewGuid() });
+            Proc waiter = CreateProcess("非法等待",
+                new WaitProc
+                {
+                    Timeout = new TimeoutSetting { TimeoutMs = 100 },
+                    Params = new CustomList<WaitProcParam>
+                    {
+                        new WaitProcParam { ProcName = target.head.Name, TargetState = "停止" }
+                    }
+                });
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                1, waiter, new[] { target, waiter });
+
+            Assert.IsFalse(readiness.Runnable);
+            Assert.IsTrue(readiness.RunBlockers.Any(item => item.Contains("只允许“运行”或“就绪”")));
+        }
+
+        [TestMethod]
+        public void WaitProc_StateJump_RoutesReadyRunningAndStoppedIndependently()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc target = CreateProcess("状态目标",
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 5000 },
+                    new EndProcess { Id = Guid.NewGuid() });
+                var route = new WaitProc
+                {
+                    Id = Guid.NewGuid(),
+                    WorkMode = WaitProc.StateJumpMode,
+                    ReadyGoto = "1-0-1",
+                    AbnormalGoto = "1-0-3",
+                    RunningGoto = "1-0-5",
+                    TargetProcName = target.head.Name
+                };
+                Proc router = CreateProcess("状态路由",
+                    route,
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 5000 },
+                    new EndProcess { Id = Guid.NewGuid() },
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 5000 },
+                    new EndProcess { Id = Guid.NewGuid() },
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 5000 },
+                    new EndProcess { Id = Guid.NewGuid() });
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, target, router))
+                {
+                    Assert.IsTrue(engine.StartProc(router, 1));
+                    WaitForPosition(engine, 1, 1, TimeSpan.FromSeconds(3));
+                    engine.Stop(1);
+                    WaitForState(engine, 1, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.StartProc(target, 0));
+                    WaitForState(engine, 0, ProcRunState.Running, TimeSpan.FromSeconds(3));
+                    Assert.IsTrue(engine.StartProc(router, 1));
+                    WaitForPosition(engine, 1, 5, TimeSpan.FromSeconds(3));
+                    engine.Stop(1);
+                    WaitForState(engine, 1, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, 0, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.StartProc(router, 1));
+                    WaitForPosition(engine, 1, 3, TimeSpan.FromSeconds(3));
+                    engine.Stop(1);
+                    WaitForState(engine, 1, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void WaitProc_GetState_WritesNumericAndTextState()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc target = CreateProcess("取状态目标",
+                    new Delay { Id = Guid.NewGuid(), DelayMs = 5000 },
+                    new EndProcess { Id = Guid.NewGuid() });
+                Proc numericReader = CreateProcess("数值状态读取",
+                    new WaitProc
+                    {
+                        Id = Guid.NewGuid(),
+                        WorkMode = WaitProc.GetStateMode,
+                        TargetProcName = target.head.Name,
+                        StateVariableName = "数值状态",
+                    },
+                    new EndProcess { Id = Guid.NewGuid() });
+                Proc textReader = CreateProcess("文本状态读取",
+                    new WaitProc
+                    {
+                        Id = Guid.NewGuid(),
+                        WorkMode = WaitProc.GetStateMode,
+                        TargetProcName = target.head.Name,
+                        StateVariableName = "文本状态",
+                    },
+                    new EndProcess { Id = Guid.NewGuid() });
+                var runtime = new PlatformRuntime(directory.FullPath);
+                AddProcessVariable(runtime.Stores.Values, 10, "数值状态", "0",
+                    numericReader.head.Id, "double");
+                AddProcessVariable(runtime.Stores.Values, 11, "文本状态", string.Empty,
+                    textReader.head.Id, "string");
+                using (var engine = CreateEngine(runtime, target, numericReader, textReader))
+                {
+                    Assert.IsTrue(engine.StartProc(target, 0));
+                    WaitForState(engine, 0, ProcRunState.Running, TimeSpan.FromSeconds(3));
+                    Assert.IsTrue(engine.StartProc(numericReader, 1));
+                    Assert.IsTrue(engine.StartProc(textReader, 2));
+                    WaitForState(engine, 1, ProcRunState.Ready, TimeSpan.FromSeconds(3));
+                    WaitForState(engine, 2, ProcRunState.Ready, TimeSpan.FromSeconds(3));
+
+                    Assert.AreEqual((double)(int)ProcRunState.Running,
+                        runtime.Stores.Values.GetValueByNameForProcess(
+                            "数值状态", numericReader.head.Id).GetDValue());
+                    Assert.AreEqual(nameof(ProcRunState.Running),
+                        runtime.Stores.Values.GetValueByNameForProcess(
+                            "文本状态", textReader.head.Id).GetCValue());
+                    engine.Stop(0);
+                    WaitForState(engine, 0, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
         private static ProcessEngine CreateEngine(PlatformRuntime runtime, params Proc[] processes)
         {
             return new ProcessEngine(new EngineContext
@@ -461,6 +623,22 @@ namespace Automation.Core.Tests
                 Thread.Sleep(10);
             }
             Assert.Fail($"等待流程{procIndex}状态超时：{state}。");
+        }
+
+        private static void WaitForPosition(
+            ProcessEngine engine, int procIndex, int operationIndex, TimeSpan timeout)
+        {
+            DateTime deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                EngineSnapshot snapshot = engine.GetSnapshot(procIndex);
+                if (snapshot?.State == ProcRunState.Running
+                    && snapshot.StepIndex == 0
+                    && snapshot.OpIndex == operationIndex) return;
+                Thread.Sleep(10);
+            }
+            EngineSnapshot current = engine.GetSnapshot(procIndex);
+            Assert.Fail($"等待流程{procIndex}位置超时：{current?.State} {current?.StepIndex}-{current?.OpIndex}。");
         }
 
         private static void WaitForCount<T>(

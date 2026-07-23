@@ -12,6 +12,7 @@ namespace Automation
     public sealed partial class FrmInspector : Form
     {
         private readonly Panel header = new Panel();
+        private readonly Label operationTypeLabel = new Label();
         private readonly InspectorIconButton operationTypeButton = new InspectorIconButton();
         private readonly InspectorView inspectorView = new InspectorView();
         private readonly Panel actionBar = new Panel();
@@ -98,12 +99,12 @@ namespace Automation
         private void InitializeLayout()
         {
             AutoScaleMode = AutoScaleMode.Dpi;
-            BackColor = UiPalette.Background;
+            BackColor = UiPalette.SurfaceStrong;
             Font = InspectorFonts.Regular9;
             MinimumSize = new Size(320, 320);
             Text = "配置检查器";
 
-            header.BackColor = UiPalette.Surface;
+            header.BackColor = UiPalette.SurfaceStrong;
             header.Dock = DockStyle.None;
             header.Height = 0;
             header.Visible = false;
@@ -116,17 +117,30 @@ namespace Automation
             };
             Controls.Add(header);
 
+            operationTypeLabel.AutoEllipsis = true;
+            operationTypeLabel.BackColor = UiPalette.SurfaceStrong;
+            operationTypeLabel.BorderStyle = BorderStyle.None;
+            operationTypeLabel.Font = InspectorFonts.Bold9;
+            operationTypeLabel.ForeColor = UiPalette.TextPrimary;
+            operationTypeLabel.Padding = new Padding(8, 0, 4, 0);
+            operationTypeLabel.Text = "指令类型：";
+            operationTypeLabel.TextAlign = ContentAlignment.MiddleLeft;
+            header.Controls.Add(operationTypeLabel);
+
             operationTypeButton.AutoEllipsis = true;
-            operationTypeButton.BackColor = UiPalette.BrandSoft;
+            operationTypeButton.BackColor = UiPalette.SurfaceStrong;
+            operationTypeButton.BorderColor = UiPalette.Stroke;
+            operationTypeButton.BorderWidth = 1F;
             operationTypeButton.Cursor = Cursors.Hand;
             operationTypeButton.FlatAppearance.BorderSize = 0;
-            operationTypeButton.FlatAppearance.MouseOverBackColor = UiPalette.BrandSoftHover;
-            operationTypeButton.FlatAppearance.MouseDownBackColor = UiPalette.Selection;
+            operationTypeButton.FlatAppearance.MouseOverBackColor = UiPalette.SurfaceHover;
+            operationTypeButton.FlatAppearance.MouseDownBackColor = UiPalette.SurfacePressed;
             operationTypeButton.FlatStyle = FlatStyle.Flat;
             operationTypeButton.Font = InspectorFonts.Regular9;
-            operationTypeButton.ForeColor = UiPalette.Brand;
-            operationTypeButton.IconKind = InspectorIconKind.Edit;
-            operationTypeButton.Padding = new Padding(9, 0, 6, 0);
+            operationTypeButton.ForeColor = UiPalette.TextPrimary;
+            operationTypeButton.DisabledForeColor = UiPalette.TextPrimary;
+            operationTypeButton.IconKind = InspectorIconKind.None;
+            operationTypeButton.Padding = new Padding(9, 0, 8, 0);
             operationTypeButton.TextAlign = ContentAlignment.MiddleLeft;
             operationTypeButton.Click += OperationTypeButton_Click;
             header.Controls.Add(operationTypeButton);
@@ -153,9 +167,9 @@ namespace Automation
                     args.Graphics.DrawLine(
                         pen,
                         0,
-                        0,
+                        Math.Max(0, actionBar.Height - 1),
                         actionBar.Width,
-                        0);
+                        Math.Max(0, actionBar.Height - 1));
                 }
             };
             Controls.Add(actionBar);
@@ -222,9 +236,11 @@ namespace Automation
             bool showActionBar = saveButton != null && cancelButton != null;
             if (showActionBar)
             {
-                int actionBarHeight = Math.Min(48, Math.Max(0, contentBottom));
-                contentBottom -= actionBarHeight;
-                actionBar.SetBounds(0, contentBottom, width, actionBarHeight);
+                int actionBarHeight = Math.Min(
+                    48,
+                    Math.Max(0, contentBottom - contentTop));
+                actionBar.SetBounds(0, contentTop, width, actionBarHeight);
+                contentTop += actionBarHeight;
             }
             if (inspectorView.SelectedObject is OperationType)
             {
@@ -238,7 +254,18 @@ namespace Automation
                 Math.Max(0, contentBottom - contentTop));
             if (inspectorView.SelectedObject is OperationType)
             {
-                operationTypeButton.SetBounds(8, 4, Math.Max(100, width - 16), 30);
+                int labelWidth = TextRenderer.MeasureText(
+                        operationTypeLabel.Text,
+                        operationTypeLabel.Font,
+                        Size.Empty,
+                        TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width
+                    + operationTypeLabel.Padding.Horizontal + 20;
+                operationTypeLabel.SetBounds(8, 4, labelWidth, 30);
+                operationTypeButton.SetBounds(
+                    8 + labelWidth + 4,
+                    4,
+                    Math.Max(100, width - 20 - labelWidth),
+                    30);
             }
 
             if (saveButton != null && cancelButton != null)
@@ -258,11 +285,11 @@ namespace Automation
         {
             bool operation = value is OperationType;
             header.Visible = operation;
+            operationTypeLabel.Visible = operation;
             operationTypeButton.Visible = operation;
             operationTypeButton.Enabled = operation && editing;
-            operationTypeButton.IconKind = editing
-                ? InspectorIconKind.Edit
-                : InspectorIconKind.Operation;
+            operationTypeButton.IconKind = InspectorIconKind.None;
+            operationTypeButton.ShowDropDownArrow = editing;
             operationTypeButton.Text = operation
                 ? ((OperationType)value).OperaType
                 : string.Empty;

@@ -374,12 +374,11 @@ namespace Automation
             infoFlushTimer = new System.Windows.Forms.Timer();
             infoFlushTimer.Interval = InfoFlushIntervalMs;
             infoFlushTimer.Tick += InfoFlushTimer_Tick;
-            infoFlushTimer.Start();
 
             infoAutoScrollTimer = new System.Windows.Forms.Timer();
             infoAutoScrollTimer.Interval = 500;
             infoAutoScrollTimer.Tick += InfoAutoScrollTimer_Tick;
-            infoAutoScrollTimer.Start();
+            UpdateInfoStreamTimerState();
             RefreshInfoListView();
             UpdateInfoLogColumns();
         }
@@ -673,6 +672,25 @@ namespace Automation
         private void FrmInfo_VisibleChanged(object sender, EventArgs e)
         {
             UpdateStatusTimerState();
+            UpdateInfoStreamTimerState();
+        }
+
+        private void UpdateInfoStreamTimerState()
+        {
+            if (infoFlushTimer == null || infoAutoScrollTimer == null)
+            {
+                return;
+            }
+            if (Visible && !IsDisposed && !Disposing)
+            {
+                infoFlushTimer.Start();
+                infoAutoScrollTimer.Start();
+            }
+            else
+            {
+                infoFlushTimer.Stop();
+                infoAutoScrollTimer.Stop();
+            }
         }
 
         private void tabControl1_SelectedIndexChanged(object sender, EventArgs e)

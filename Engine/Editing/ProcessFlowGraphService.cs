@@ -87,13 +87,23 @@ namespace Automation
                     }
                     else if (operation is WaitProc waits)
                     {
-                        int itemIndex = 0;
-                        foreach (WaitProcParam item in waits.Params ?? new OperationTypePartial.CustomList<WaitProcParam>())
+                        if (waits.WorkMode == WaitProc.WaitReadyMode)
+                        {
+                            int itemIndex = 0;
+                            foreach (WaitProcParam item in waits.Params ?? new OperationTypePartial.CustomList<WaitProcParam>())
+                            {
+                                AddProjectReference(graph, nameMap, dynamicNodes, invalidNodes,
+                                    sourceNodeId, sourceIndex, operation, itemIndex++,
+                                    item?.ProcName, item?.ProcValue,
+                                    "processWait", "等待" + (item?.TargetState ?? "目标状态"), projectOperation.Disabled);
+                            }
+                        }
+                        else
                         {
                             AddProjectReference(graph, nameMap, dynamicNodes, invalidNodes,
-                                sourceNodeId, sourceIndex, operation, itemIndex++,
-                                item?.ProcName, item?.ProcValue,
-                            "processWait", "等待" + (item?.TargetState ?? "目标状态"), projectOperation.Disabled);
+                                sourceNodeId, sourceIndex, operation, 0,
+                                waits.TargetProcName, waits.TargetProcValue,
+                                "processWait", waits.WorkMode ?? "读取流程状态", projectOperation.Disabled);
                         }
                     }
                 }
@@ -391,6 +401,8 @@ namespace Automation
         {
             if (operation is PopupDialog) return false;
             if (operation is ParamGoto || operation is IoLogicGoto) return true;
+            if (operation is WaitProc waitProc
+                && waitProc.WorkMode == WaitProc.StateJumpMode) return true;
             if (operation is Goto && reference.Container is GotoParam) return true;
             return !fallThrough && !string.Equals(reference.FieldName, "DefaultGoto", StringComparison.Ordinal);
         }

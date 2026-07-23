@@ -51,6 +51,12 @@ namespace Automation
             foreach (PropertyInfo property in current.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public))
             {
                 if (!property.CanRead || property.GetIndexParameters().Length != 0) continue;
+                bool browsable = property.GetCustomAttribute<BrowsableAttribute>()?.Browsable ?? true;
+                if (current is IPropertyVisibilityProvider visibilityProvider
+                    && !visibilityProvider.IsPropertyVisible(property.Name, browsable))
+                {
+                    continue;
+                }
                 object value;
                 try { value = property.GetValue(current); }
                 catch { continue; }

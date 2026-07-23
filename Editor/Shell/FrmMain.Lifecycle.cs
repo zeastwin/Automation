@@ -148,10 +148,25 @@ namespace Automation
             }
             if (e.CloseReason == CloseReason.UserClosing)
             {
-                DialogResult result = MessageBox.Show("确认退出程序？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                if (result != DialogResult.Yes)
+                e.Cancel = true;
+                bool wasTopMost = TopMost;
+                try
                 {
-                    e.Cancel = true;
+                    // 任务栏右键关闭不会稳定激活主窗体；临时置顶并指定 owner，保证退出确认框显示在前台。
+                    TopMost = true;
+                    BringToFront();
+                    Activate();
+                    if (MessageBox.Show(this, "确认退出程序？", "退出确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                    {
+                        e.Cancel = false;
+                    }
+                }
+                finally
+                {
+                    TopMost = wasTopMost;
+                }
+                if (e.Cancel)
+                {
                     return;
                 }
             }

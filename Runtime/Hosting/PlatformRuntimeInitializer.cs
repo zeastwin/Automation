@@ -16,6 +16,10 @@ namespace Automation
     {
         private const string ResetStatusValueName = "复位状态";
         private const string SystemStatusValueName = "系统状态";
+        private const string ResetStatusValueNote =
+            "系统保留变量：复位状态。取值：0=未复位，1=复位中，2=复位完成。";
+        private const string SystemStatusValueNote =
+            "系统保留变量：系统状态。取值：0=未初始化，1=暂停工作，2=就绪，3=工作中，4=流程报警，5=弹框报警。";
 
         public static void Initialize(PlatformRuntime runtime)
         {
@@ -154,10 +158,10 @@ namespace Automation
                 Log(runtime, error, LogLevel.Error);
                 return;
             }
-            bool created = EnsureSystemValue(runtime, ResetStatusValueName, "系统保留变量：复位状态");
-            created = EnsureSystemValue(runtime, SystemStatusValueName, "系统保留变量：系统状态")
-                || created;
-            if (created && !runtime.Stores.Values.Save(runtime.Paths.ConfigPath))
+            bool changed = EnsureSystemValue(runtime, ResetStatusValueName, ResetStatusValueNote);
+            changed = EnsureSystemValue(runtime, SystemStatusValueName, SystemStatusValueNote)
+                || changed;
+            if (changed && !runtime.Stores.Values.Save(runtime.Paths.ConfigPath))
             {
                 string error = "系统保留变量保存失败。";
                 runtime.Safety.Lock(error);
@@ -199,6 +203,13 @@ namespace Automation
                         + $"[{ValueConfigStore.SystemValueStartIndex}, {ValueConfigStore.ValueCapacity})。";
                     runtime.Safety.Lock(error);
                     Log(runtime, error, LogLevel.Error);
+                }
+                string oldDefaultNote = $"系统保留变量：{name}";
+                if (string.Equals(existing.Note, oldDefaultNote, StringComparison.Ordinal))
+                {
+                    existing.Note = note;
+                    Log(runtime, $"已更新系统保留变量默认备注：{name}", LogLevel.Normal);
+                    return true;
                 }
                 return false;
             }

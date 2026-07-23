@@ -666,8 +666,14 @@ namespace Automation
         }
     }
     [Serializable]
-    public class WaitProc : OperationType
+    public class WaitProc : OperationType, IPropertyVisibilityProvider
     {
+        public const string WaitReadyMode = "等待就绪";
+        public const string StateJumpMode = "状态跳转";
+        public const string GetStateMode = "获取状态";
+
+        private string workMode = WaitReadyMode;
+
         public WaitProc()
         {
             OperaType = "等待流程状态";
@@ -677,21 +683,84 @@ namespace Automation
                 new WaitProcParam()
             };
         }
+
+        [DisplayName("工作模式"), Category("参数"), Description("等待就绪：等待目标进入运行或自然完成；状态跳转：按目标当前状态进入对应地址；获取状态：把完整状态写入变量。"), ReadOnly(false), RefreshProperties(RefreshProperties.All), TypeConverter(typeof(WaitProcWorkModeItem))]
+        public string WorkMode
+        {
+            get => workMode;
+            set => workMode = value;
+        }
+
         [DisplayName("操作后延时"), Category("参数"), Description("当前操作完成后的附加延时（ms），用于等待状态稳定。"), ReadOnly(false)]
         public int DelayAfterMs { get; set; }
         [DisplayName("操作后延时变量"), Category("参数"), Description("附加延时变量名；固定延时小于等于0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         [Browsable(true)]
         public string DelayAfterVariableName { get; set; }
 
-        [DisplayName("超时设置"), Category("参数"), Description("超时参数组，用于配置固定超时或变量超时来源。"), ReadOnly(false)]
-        [InlineGroup("超时设置", "参数")]
+        [DisplayName("超时设置"), Category("等待就绪"), Description("等待模式的超时参数组；超过边界仍未满足条件时进入报警策略。"), ReadOnly(false)]
+        [InlineGroup("超时设置", "等待就绪")]
         public TimeoutSetting Timeout { get; set; } = new TimeoutSetting();
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
-        [InlineList("流程", "参数")]
+        [InlineList("流程", "参数", MinItems = 1)]
         [TypeConverter(typeof(ParamListConverter<WaitProcParam>))]
 
         public CustomList<WaitProcParam> Params { get; set; }
 
+        [DisplayName("目标流程"), Category("目标流程"), Description("状态跳转或获取状态模式使用的目标流程名称。"), ReadOnly(false), TypeConverter(typeof(ProcItem))]
+        public string TargetProcName { get; set; }
+
+        [DisplayName("目标流程变量"), Category("目标流程"), Description("状态跳转或获取状态模式使用的流程名来源变量；目标流程名称优先。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TargetProcValue { get; set; }
+
+        [DisplayName("就绪跳转"), Category("状态跳转"), Description("目标流程处于 Ready（自然完成）时跳转到的当前流程地址。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string ReadyGoto { get; set; }
+
+        [DisplayName("异常跳转"), Category("状态跳转"), Description("目标流程处于 Alarming 或 Stopped（停止请求或异常结束）时跳转到的当前流程地址。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string AbnormalGoto { get; set; }
+
+        [DisplayName("运行中跳转"), Category("状态跳转"), Description("目标流程处于运行、暂停、单步或过渡状态时跳转到的当前流程地址。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("标识的跳转属性")]
+        public string RunningGoto { get; set; }
+
+        [DisplayName("状态变量"), Category("获取状态"), Description("目标变量；double 写入状态码（Stopped=0、Paused=1、SingleStep=2、Running=3、Alarming=4、Pausing=5、Stopping=6、Ready=7），string 写入对应枚举名称。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string StateVariableName { get; set; }
+
+        public bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            switch (propertyName)
+            {
+                case nameof(DelayAfterMs):
+                case nameof(DelayAfterVariableName):
+                case nameof(Timeout):
+                case nameof(Params):
+                    return string.Equals(workMode, WaitReadyMode, StringComparison.Ordinal);
+                case nameof(TargetProcName):
+                case nameof(TargetProcValue):
+                    return string.Equals(workMode, StateJumpMode, StringComparison.Ordinal)
+                        || string.Equals(workMode, GetStateMode, StringComparison.Ordinal);
+                case nameof(ReadyGoto):
+                case nameof(AbnormalGoto):
+                case nameof(RunningGoto):
+                    return string.Equals(workMode, StateJumpMode, StringComparison.Ordinal);
+                case nameof(StateVariableName):
+                    return string.Equals(workMode, GetStateMode, StringComparison.Ordinal);
+                default:
+                    return defaultVisibility;
+            }
+        }
+
+        public bool ShouldSerializeDelayAfterMs() => workMode == WaitReadyMode;
+        public bool ShouldSerializeDelayAfterVariableName() => workMode == WaitReadyMode;
+        public bool ShouldSerializeTimeout() => workMode == WaitReadyMode;
+        public bool ShouldSerializeParams() => workMode == WaitReadyMode;
+        public bool ShouldSerializeTargetProcName() => workMode != WaitReadyMode;
+        public bool ShouldSerializeTargetProcValue() => workMode != WaitReadyMode;
+        public bool ShouldSerializeReadyGoto() => workMode == StateJumpMode;
+        public bool ShouldSerializeAbnormalGoto() => workMode == StateJumpMode;
+        public bool ShouldSerializeRunningGoto() => workMode == StateJumpMode;
+        public bool ShouldSerializeStateVariableName() => workMode == GetStateMode;
     }
     [TypeConverter(typeof(SerializableExpandableObjectConverter))]
     [Serializable]
@@ -702,8 +771,8 @@ namespace Automation
         [DisplayName("流程变量"), Category("参数"), Description("流程名来源变量；用于运行时动态选择目标流程。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string ProcValue { get; set; }
 
-        [DisplayName("等待状态"), Category("参数"), Description("运行表示流程正在执行；就绪表示自然完成；停止表示收到停止请求或异常结束。"), ReadOnly(false), TypeConverter(typeof(ProcWaitStateItem))]
-        public string TargetState { get; set; }
+        [DisplayName("等待状态"), Category("参数"), Description("只允许运行或就绪；就绪仅表示目标流程自然完成。"), ReadOnly(false), TypeConverter(typeof(ProcWaitStateItem))]
+        public string TargetState { get; set; } = "就绪";
 
         public override string ToString()
         {

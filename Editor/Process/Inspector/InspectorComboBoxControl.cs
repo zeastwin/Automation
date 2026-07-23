@@ -39,10 +39,10 @@ namespace Automation
 
         public InspectorComboBox()
         {
-            BackColor = UiPalette.BrandSoft;
-            ForeColor = UiPalette.SelectionText;
+            BackColor = UiPalette.SurfaceStrong;
+            ForeColor = UiPalette.Navigation;
             FlatStyle = FlatStyle.Flat;
-            Font = InspectorFonts.Bold9;
+            Font = InspectorFonts.Bold95;
             DrawMode = DrawMode.OwnerDrawFixed;
             ItemHeight = 22;
             dropDownButton.AccessibleName = "展开选项";
@@ -51,6 +51,8 @@ namespace Automation
         }
 
         internal bool UseSelectionPicker { get; set; }
+
+        internal Font ItemFont { get; set; } = InspectorFonts.Regular9;
 
         internal event EventHandler SelectionPickerRequested;
 
@@ -80,12 +82,13 @@ namespace Automation
                 == DrawItemState.ComboBoxEdit;
             Color backColor = selectionField
                 ? Enabled
-                    ? Focused ? UiPalette.Selection : UiPalette.BrandSoft
-                    : UiPalette.SurfaceSubtle
-                : selected ? UiPalette.BrandSoft : UiPalette.Surface;
+                    ? Focused ? UiPalette.InputFocused : UiPalette.SurfaceStrong
+                    : UiPalette.Surface
+                : selected ? UiPalette.Selection : UiPalette.Surface;
             Color foreColor = Enabled
-                ? selectionField ? UiPalette.SelectionText : UiPalette.TextPrimary
+                ? selectionField ? UiPalette.Navigation : UiPalette.TextPrimary
                 : UiPalette.TextDisabled;
+            Font drawFont = selectionField ? Font : ItemFont ?? Font;
             using (var brush = new SolidBrush(backColor))
             {
                 e.Graphics.FillRectangle(brush, e.Bounds);
@@ -93,7 +96,7 @@ namespace Automation
             TextRenderer.DrawText(
                 e.Graphics,
                 GetItemText(Items[e.Index]),
-                Font,
+                drawFont,
                 new Rectangle(
                     e.Bounds.X + 7,
                     e.Bounds.Y,
@@ -112,7 +115,7 @@ namespace Automation
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            BackColor = UiPalette.Selection;
+            BackColor = UiPalette.InputFocused;
             Invalidate();
             ClearTextSelection();
         }
@@ -120,7 +123,7 @@ namespace Automation
         protected override void OnLeave(EventArgs e)
         {
             ClearTextSelection();
-            BackColor = UiPalette.BrandSoft;
+            BackColor = UiPalette.SurfaceStrong;
             base.OnLeave(e);
             Invalidate();
         }
@@ -161,8 +164,8 @@ namespace Automation
             {
                 activeStandardValueDropDown?.Close();
             }
-            BackColor = Enabled ? UiPalette.BrandSoft : UiPalette.SurfaceSubtle;
-            ForeColor = Enabled ? UiPalette.SelectionText : UiPalette.TextDisabled;
+            BackColor = Enabled ? UiPalette.SurfaceStrong : UiPalette.Surface;
+            ForeColor = Enabled ? UiPalette.Navigation : UiPalette.TextDisabled;
             base.OnEnabledChanged(e);
             dropDownButton.Invalidate();
             Invalidate();
@@ -305,7 +308,7 @@ namespace Automation
             int measuredWidth = Items.Cast<object>()
                 .Select(item => TextRenderer.MeasureText(
                     GetItemText(item),
-                    Font,
+                    ItemFont ?? Font,
                     Size.Empty,
                     TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width)
                 .DefaultIfEmpty(0)
@@ -321,7 +324,7 @@ namespace Automation
             var list = new InspectorStandardValueListBox(GetItemText)
             {
                 CausesValidation = false,
-                Font = Font,
+                Font = ItemFont ?? Font,
                 ItemHeight = itemHeight,
                 Size = new Size(width, height)
             };
@@ -441,7 +444,7 @@ namespace Automation
                 }
                 bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
                 using (var brush = new SolidBrush(
-                    selected ? UiPalette.BrandSoft : UiPalette.Surface))
+                    selected ? UiPalette.Selection : UiPalette.Surface))
                 {
                     e.Graphics.FillRectangle(brush, e.Bounds);
                 }

@@ -31,16 +31,16 @@ namespace Automation
             ToolTip descriptionToolTip)
         {
             AutoSize = false;
-            BackColor = UiPalette.Surface;
+            BackColor = UiPalette.SurfaceStrong;
             Margin = new Padding(0, 0, 0, 2);
             Padding = Padding.Empty;
 
             headerButton.AutoSize = false;
-            headerButton.BackColor = UiPalette.SurfaceSubtle;
+            headerButton.BackColor = UiPalette.Background;
             headerButton.Cursor = Cursors.Hand;
             headerButton.FlatAppearance.BorderSize = 0;
             headerButton.FlatAppearance.MouseOverBackColor = UiPalette.SurfaceHover;
-            headerButton.FlatAppearance.MouseDownBackColor = UiPalette.BrandSoft;
+            headerButton.FlatAppearance.MouseDownBackColor = UiPalette.SurfacePressed;
             headerButton.FlatStyle = FlatStyle.Flat;
             headerButton.Font = InspectorFonts.Bold9;
             headerButton.ForeColor = UiPalette.TextPrimary;
@@ -53,7 +53,7 @@ namespace Automation
             Controls.Add(headerButton);
 
             body.AutoSize = false;
-            body.BackColor = UiPalette.Surface;
+            body.BackColor = UiPalette.SurfaceStrong;
             body.FlowDirection = FlowDirection.TopDown;
             body.Padding = new Padding(4, 0, 4, 1);
             body.WrapContents = false;
@@ -211,7 +211,7 @@ namespace Automation
             DescriptionToolTip = descriptionToolTip;
             Editable = editable;
             AutoSize = false;
-            BackColor = UiPalette.Surface;
+            BackColor = UiPalette.SurfaceStrong;
             Margin = Padding.Empty;
         }
 
@@ -253,8 +253,8 @@ namespace Automation
 
         protected void DrawPropertyRowBackground(PaintEventArgs e, int labelWidth)
         {
-            using (var labelBrush = new SolidBrush(UiPalette.SurfaceSubtle))
-            using (var valueBrush = new SolidBrush(UiPalette.BrandSoft))
+            using (var labelBrush = new SolidBrush(UiPalette.Surface))
+            using (var valueBrush = new SolidBrush(UiPalette.SurfaceStrong))
             {
                 e.Graphics.FillRectangle(
                     labelBrush,

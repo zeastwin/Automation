@@ -61,39 +61,51 @@ namespace Automation
        
         private void btnSearch_Click(object sender, EventArgs e)
         {
-            dataGridView1.Rows.Clear();
-            for (int k = 0; k < ValueConfigStore.ValueCapacity; k++)
+            string searchText = textBox1.Text ?? string.Empty;
+            Dictionary<Guid, string> processNames = Workspace.Runtime.Stores.Processes.Items
+                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
+                .GroupBy(proc => proc.head.Id)
+                .ToDictionary(group => group.Key, group => group.First().head.Name ?? string.Empty);
+            dataGridView1.SuspendLayout();
+            try
             {
-                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(k, out DicValue obj))
+                dataGridView1.Rows.Clear();
+                for (int k = 0; k < ValueConfigStore.ValueCapacity; k++)
                 {
-                    continue;
+                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(k, out DicValue obj))
+                    {
+                        continue;
+                    }
+                    string variableName = obj.Name ?? string.Empty;
+                    bool matched;
+                    if (checkBox1.Checked)
+                    {
+                        matched = checkBox2.Checked
+                            ? string.Equals(variableName, searchText, StringComparison.Ordinal)
+                            : string.Equals(variableName, searchText, StringComparison.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        matched = variableName.IndexOf(
+                            searchText,
+                            checkBox2.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase) >= 0;
+                    }
+                    if (!matched) continue;
+                    int rowIndex = dataGridView1.Rows.Add();
+                    DataGridViewRow row = dataGridView1.Rows[rowIndex];
+                    row.Cells[0].Value = k;
+                    row.Cells[1].Value = variableName;
+                    row.Cells[2].Value = obj.Scope;
+                    row.Cells[3].Value = obj.OwnerProcId.HasValue
+                        && processNames.TryGetValue(obj.OwnerProcId.Value, out string processName)
+                            ? processName
+                            : string.Empty;
                 }
-                bool matched;
-                if (checkBox1.Checked)
-                {
-                    matched = checkBox2.Checked
-                        ? obj.Name == textBox1.Text
-                        : string.Equals(obj.Name, textBox1.Text, StringComparison.OrdinalIgnoreCase);
-                }
-                else
-                {
-                    matched = checkBox2.Checked
-                        ? obj.Name.Contains(textBox1.Text)
-                        : obj.Name.IndexOf(textBox1.Text, StringComparison.OrdinalIgnoreCase) >= 0;
-                }
-                if (!matched) continue;
-                int rowIndex = dataGridView1.Rows.Add();
-                DataGridViewRow row = dataGridView1.Rows[rowIndex];
-                row.Cells[0].Value = k;
-                row.Cells[1].Value = obj.Name;
-                row.Cells[2].Value = obj.Scope;
-                row.Cells[3].Value = !obj.OwnerProcId.HasValue
-                    ? string.Empty
-                    : Workspace.Runtime.Stores.Processes.Items
-                        .FirstOrDefault(proc => proc?.head?.Id == obj.OwnerProcId.Value)?.head?.Name
-                        ?? string.Empty;
             }
-
+            finally
+            {
+                dataGridView1.ResumeLayout();
+            }
         }
 
         private void dataGridView1_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)

@@ -727,6 +727,12 @@ namespace Automation
             foreach (PropertyInfo property in obj.GetType().GetProperties())
             {
                 if (property.GetIndexParameters().Length > 0) continue;
+                bool browsable = property.GetCustomAttribute<System.ComponentModel.BrowsableAttribute>()?.Browsable ?? true;
+                if (obj is IPropertyVisibilityProvider visibilityProvider
+                    && !visibilityProvider.IsPropertyVisible(property.Name, browsable))
+                {
+                    continue;
+                }
                 object value = property.GetValue(obj);
                 if (property.PropertyType == typeof(string)
                     && property.GetCustomAttribute<MarkedGotoAttribute>() != null
@@ -804,34 +810,105 @@ namespace Automation
             }
             else if (operation is WaitProc waits)
             {
-                if (waits.Timeout == null
-                    || waits.Timeout.TimeoutMs <= 0
-                        && string.IsNullOrWhiteSpace(waits.Timeout.TimeoutVariableName))
+                var modes = new HashSet<string>(StringComparer.Ordinal)
                 {
-                    blockers.Add($"{location} 尚未配置有效等待超时。");
+                    WaitProc.WaitReadyMode,
+                    WaitProc.StateJumpMode,
+                    WaitProc.GetStateMode
+                };
+                if (!modes.Contains(waits.WorkMode ?? string.Empty))
+                {
+                    blockers.Add($"{location} 的工作模式无效：{waits.WorkMode ?? "空"}。");
                     incomplete = true;
                 }
-                foreach (WaitProcParam item in waits.Params ?? new CustomList<WaitProcParam>())
+                if (waits.WorkMode == WaitProc.WaitReadyMode)
                 {
-                    if (item == null || (item.TargetState != "运行"
-                        && item.TargetState != "就绪" && item.TargetState != "停止"))
+                    if ((waits.Params?.Count ?? 0) == 0)
                     {
-                        blockers.Add($"{location} 尚未配置等待状态。");
+                        blockers.Add($"{location} 尚未配置等待的目标流程。");
                         incomplete = true;
                     }
-                    if (string.IsNullOrWhiteSpace(item?.ProcName))
+                    if (waits.Timeout == null
+                        || waits.Timeout.TimeoutMs <= 0
+                            && string.IsNullOrWhiteSpace(waits.Timeout.TimeoutVariableName))
                     {
-                        if (string.IsNullOrWhiteSpace(item?.ProcValue))
+                        blockers.Add($"{location} 尚未配置有效等待超时。");
+                        incomplete = true;
+                    }
+                    foreach (WaitProcParam item in waits.Params ?? new CustomList<WaitProcParam>())
+                    {
+                        if (item == null
+                            || item.TargetState != "运行" && item.TargetState != "就绪")
                         {
-                            blockers.Add($"{location} 尚未配置等待的目标流程。");
+                            blockers.Add($"{location} 的等待状态只允许“运行”或“就绪”。");
                             incomplete = true;
                         }
-                        continue;
+                        if (string.IsNullOrWhiteSpace(item?.ProcName))
+                        {
+                            if (string.IsNullOrWhiteSpace(item?.ProcValue))
+                            {
+                                blockers.Add($"{location} 尚未配置等待的目标流程。");
+                                incomplete = true;
+                            }
+                            else if (TryResolveVariable(
+                                item.ProcValue, null, current?.head?.Id ?? Guid.Empty,
+                                validationContext, valueStore, out DicValue processNameVariable, out _)
+                                && !string.Equals(
+                                    processNameVariable.Type, "string", StringComparison.OrdinalIgnoreCase))
+                            {
+                                blockers.Add($"{location} 的流程变量必须是string：{item.ProcValue}。");
+                                incomplete = true;
+                            }
+                            continue;
+                        }
+                        if (allProcesses != null && !processesByName.ContainsKey(item.ProcName))
+                        {
+                            blockers.Add($"{location} 等待的目标流程不存在：{item.ProcName}。");
+                            incomplete = true;
+                        }
                     }
-                    if (allProcesses != null && !processesByName.ContainsKey(item.ProcName))
+                }
+                else if (waits.WorkMode == WaitProc.StateJumpMode
+                    || waits.WorkMode == WaitProc.GetStateMode)
+                {
+                    if (string.IsNullOrWhiteSpace(waits.TargetProcName))
                     {
-                        blockers.Add($"{location} 等待的目标流程不存在：{item.ProcName}。");
+                        if (string.IsNullOrWhiteSpace(waits.TargetProcValue))
+                        {
+                            blockers.Add($"{location} 尚未配置目标流程。");
+                            incomplete = true;
+                        }
+                        else if (TryResolveVariable(
+                            waits.TargetProcValue, null, current?.head?.Id ?? Guid.Empty,
+                            validationContext, valueStore, out DicValue processNameVariable, out _)
+                            && !string.Equals(
+                                processNameVariable.Type, "string", StringComparison.OrdinalIgnoreCase))
+                        {
+                            blockers.Add($"{location} 的目标流程变量必须是string：{waits.TargetProcValue}。");
+                            incomplete = true;
+                        }
+                    }
+                    else if (allProcesses != null && !processesByName.ContainsKey(waits.TargetProcName))
+                    {
+                        blockers.Add($"{location} 的目标流程不存在：{waits.TargetProcName}。");
                         incomplete = true;
+                    }
+                    if (waits.WorkMode == WaitProc.GetStateMode)
+                    {
+                        if (string.IsNullOrWhiteSpace(waits.StateVariableName))
+                        {
+                            blockers.Add($"{location} 尚未配置状态变量。");
+                            incomplete = true;
+                        }
+                        else if (TryResolveVariable(
+                            waits.StateVariableName, null, current?.head?.Id ?? Guid.Empty,
+                            validationContext, valueStore, out DicValue stateVariable, out _)
+                            && !string.Equals(stateVariable.Type, "double", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(stateVariable.Type, "string", StringComparison.OrdinalIgnoreCase))
+                        {
+                            blockers.Add($"{location} 的状态变量必须是double或string：{waits.StateVariableName}。");
+                            incomplete = true;
+                        }
                     }
                 }
             }

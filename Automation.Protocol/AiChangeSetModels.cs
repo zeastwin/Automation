@@ -275,7 +275,7 @@ namespace Automation.Protocol
         [Description("process.control 动作：start 或 stop；运行就绪时必填。")]
         public string Action { get; set; }
 
-        [Description("process.wait 目标状态：running 或 stopped；运行就绪时必填。")]
+        [Description("process.wait 目标状态：running 或 ready；运行就绪时必填。")]
         public string ExpectedState { get; set; }
 
         [Description("native.operation 使用的原生指令类型，必须是平台注册的精确 operaType。operation.update 必须保持原类型；改变类型使用 operation.replace。")]

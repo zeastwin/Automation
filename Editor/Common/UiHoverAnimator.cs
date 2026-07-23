@@ -93,16 +93,22 @@ namespace Automation
                     continue;
                 }
                 float difference = state.Target - state.Progress;
+                bool changed = false;
                 if (Math.Abs(difference) > 0.01F)
                 {
                     state.Progress += difference * 0.18F;
                     animating = true;
+                    changed = true;
                 }
-                else
+                else if (state.Progress != state.Target)
                 {
                     state.Progress = state.Target;
+                    changed = true;
                 }
-                ApplyColor(state, Blend(state.RestingColor(), state.HoverColor, state.Progress));
+                if (changed)
+                {
+                    ApplyColor(state, Blend(state.RestingColor(), state.HoverColor, state.Progress));
+                }
             }
             if (!animating)
             {
@@ -112,11 +118,20 @@ namespace Automation
 
         private static void ApplyColor(AnimationState state, Color color)
         {
-            state.Control.BackColor = color;
+            if (state.Control.BackColor != color)
+            {
+                state.Control.BackColor = color;
+            }
             if (state.Control is Button button)
             {
-                button.FlatAppearance.MouseOverBackColor = color;
-                button.FlatAppearance.MouseDownBackColor = color;
+                if (button.FlatAppearance.MouseOverBackColor != color)
+                {
+                    button.FlatAppearance.MouseOverBackColor = color;
+                }
+                if (button.FlatAppearance.MouseDownBackColor != color)
+                {
+                    button.FlatAppearance.MouseDownBackColor = color;
+                }
             }
         }
 

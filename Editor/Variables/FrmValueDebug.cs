@@ -27,8 +27,11 @@ namespace Automation
         private readonly HashSet<int> checkIndexSet = new HashSet<int>();
         private readonly HashSet<int> editIndexSet = new HashSet<int>();
         private readonly Dictionary<int, string> debugNotes = new Dictionary<int, string>();
+        private List<ValueOption> valueOptions = new List<ValueOption>();
         private bool isSyncing;
         private bool isConfigLoaded;
+        private bool hasRendered;
+        private bool refreshScheduled;
         public FrmValueDebug()
         {
             InitializeComponent();
@@ -201,8 +204,72 @@ namespace Automation
 
         private void FrmValueDebug_Load(object sender, EventArgs e)
         {
-            RefreshCheckList();
-            RefreshEditList();
+            ScheduleVisibleRefresh();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible)
+            {
+                ScheduleVisibleRefresh();
+            }
+        }
+
+        private void ScheduleVisibleRefresh()
+        {
+            if (refreshScheduled || !Visible || IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+            refreshScheduled = true;
+            if (!hasRendered)
+            {
+                lblCheckStatus.Text = "正在加载变量列表...";
+                lblEditStatus.Text = "正在加载变量列表...";
+                lblCheckStatus.ForeColor = UiPalette.TextMuted;
+                lblEditStatus.ForeColor = UiPalette.TextMuted;
+            }
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    refreshScheduled = false;
+                    if (!Visible || IsDisposed || Disposing)
+                    {
+                        return;
+                    }
+                    try
+                    {
+                        RefreshAllLists();
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowCheckError("变量列表加载失败");
+                        ShowEditError("变量列表加载失败");
+                        LogError($"变量调试界面刷新失败:{ex.Message}");
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                refreshScheduled = false;
+            }
+        }
+
+        public void RefreshAllLists()
+        {
+            if (Workspace.Runtime.Stores.Values == null)
+            {
+                ShowCheckError("变量库未初始化");
+                ShowEditError("变量库未初始化");
+                return;
+            }
+            EnsureDebugConfigLoaded();
+            RefreshValueOptions();
+            RefreshCheckRows();
+            RefreshEditRows();
+            hasRendered = true;
         }
 
         public void RefreshCheckList()
@@ -214,17 +281,31 @@ namespace Automation
             }
             EnsureDebugConfigLoaded();
             RefreshValueOptions();
+            RefreshCheckRows();
+            hasRendered = true;
+        }
+
+        private void RefreshCheckRows()
+        {
             isSyncing = true;
-            dgvCheck.Rows.Clear();
-            foreach (int index in checkIndexSet)
+            dgvCheck.SuspendLayout();
+            try
             {
-                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
+                dgvCheck.Rows.Clear();
+                foreach (int index in checkIndexSet)
                 {
-                    continue;
+                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
+                    {
+                        continue;
+                    }
+                    AddCheckRow(index, value);
                 }
-                AddCheckRow(index, value);
             }
-            isSyncing = false;
+            finally
+            {
+                dgvCheck.ResumeLayout();
+                isSyncing = false;
+            }
         }
 
         public void RefreshEditList()
@@ -236,17 +317,31 @@ namespace Automation
             }
             EnsureDebugConfigLoaded();
             RefreshValueOptions();
+            RefreshEditRows();
+            hasRendered = true;
+        }
+
+        private void RefreshEditRows()
+        {
             isSyncing = true;
-            dgvEdit.Rows.Clear();
-            foreach (int index in editIndexSet)
+            dgvEdit.SuspendLayout();
+            try
             {
-                if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
+                dgvEdit.Rows.Clear();
+                foreach (int index in editIndexSet)
                 {
-                    continue;
+                    if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
+                    {
+                        continue;
+                    }
+                    AddEditRow(index, value);
                 }
-                AddEditRow(index, value);
             }
-            isSyncing = false;
+            finally
+            {
+                dgvEdit.ResumeLayout();
+                isSyncing = false;
+            }
             UpdateEditSelection();
         }
 
@@ -597,8 +692,33 @@ namespace Automation
             int checkSelected = GetSelectedIndex(cboCheckVar);
             int editSelected = GetSelectedIndex(cboEditVar);
             List<ValueOption> options = BuildValueOptions();
+            if (HasSameValueOptions(options))
+            {
+                return;
+            }
             BindOptions(cboCheckVar, options, checkSelected);
             BindOptions(cboEditVar, options, editSelected);
+            valueOptions = options;
+        }
+
+        private bool HasSameValueOptions(List<ValueOption> options)
+        {
+            if (options == null || valueOptions.Count != options.Count)
+            {
+                return false;
+            }
+            for (int i = 0; i < options.Count; i++)
+            {
+                ValueOption current = valueOptions[i];
+                ValueOption next = options[i];
+                if (current.Index != next.Index
+                    || !string.Equals(current.Name, next.Name, StringComparison.Ordinal)
+                    || !string.Equals(current.Type, next.Type, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private void EnsureDebugConfigLoaded()

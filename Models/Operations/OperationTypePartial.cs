@@ -267,7 +267,30 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(new List<string>() { "运行", "就绪", "停止" });
+                return new StandardValuesCollection(new List<string>() { "运行", "就绪" });
+            }
+        }
+
+        public class WaitProcWorkModeItem : StringConverter
+        {
+            public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
+            {
+                return true;
+            }
+
+            public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
+            {
+                return new StandardValuesCollection(new List<string>()
+                {
+                    WaitProc.WaitReadyMode,
+                    WaitProc.StateJumpMode,
+                    WaitProc.GetStateMode
+                });
             }
         }
 

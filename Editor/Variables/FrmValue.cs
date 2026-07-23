@@ -397,6 +397,7 @@ namespace Automation
         private bool variableGridRowsInitialized;
         private bool isRebuildingVariableRows;
         private bool configurationRefreshPending;
+        private bool visibleRefreshScheduled;
         private int variableGridPresentationVersion = 1;
         private string appliedGridScopeKey;
         private int variableGridUpdateDepth;
@@ -554,7 +555,7 @@ namespace Automation
             ConfigureToolbarButton(btnMonitor, "监控记录", 96);
             ConfigureToolbarButton(btnCopy, "复制", 68);
             ConfigureToolbarButton(btnPaste, "粘贴", 68);
-            ConfigureToolbarButton(btnClearData, "删除变量", 92);
+            ConfigureToolbarButton(btnClearData, "清空变量", 92);
 
             actions.Controls.Add(btnMonitorAdd);
             actions.Controls.Add(btnMonitor);
@@ -632,7 +633,7 @@ namespace Automation
             panel1.Controls.Add(windowButtonHost);
 
             panelCommon.Controls.Clear();
-            panelCommon.Width = 216;
+            panelCommon.Width = 180;
             panelCommon.Padding = new Padding(6, 0, 6, 8);
             panelCommon.BackColor = UiPalette.SurfaceSubtle;
 
@@ -643,6 +644,16 @@ namespace Automation
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12, 10, 12, 12),
                 BackColor = UiPalette.Surface
+            };
+            var scopeSplitter = new Splitter
+            {
+                Dock = DockStyle.Left,
+                Width = 6,
+                MinSize = 140,
+                MinExtra = 360,
+                BackColor = UiPalette.Stroke,
+                Cursor = Cursors.VSplit,
+                TabStop = false
             };
             var gridCard = new Panel
             {
@@ -669,6 +680,7 @@ namespace Automation
             gridHost.Controls.Add(gridCard);
             splitContainerMain.Panel1.Controls.Clear();
             splitContainerMain.Panel1.Controls.Add(gridHost);
+            splitContainerMain.Panel1.Controls.Add(scopeSplitter);
             splitContainerMain.Panel1.Controls.Add(panelCommon);
 
             panelStructHost.Dock = DockStyle.Fill;
@@ -676,7 +688,7 @@ namespace Automation
             panelStructHost.BackColor = UiPalette.Surface;
             splitContainerMain.Panel2.Controls.Clear();
             splitContainerMain.Panel2.Controls.Add(panelStructHost);
-            splitContainerMain.SplitterWidth = 1;
+            splitContainerMain.SplitterWidth = 6;
             splitContainerMain.BorderStyle = BorderStyle.None;
             Text = "变量管理";
 
@@ -686,38 +698,43 @@ namespace Automation
             index.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
 
             name.MinimumWidth = 160;
-            name.FillWeight = 24F;
-            name.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            name.Width = 230;
+            name.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
             name.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
             value.MinimumWidth = 220;
-            value.FillWeight = 36F;
-            value.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            value.Width = 345;
+            value.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
             value.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
             Note.MinimumWidth = 120;
-            Note.FillWeight = 16F;
-            Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            Note.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            Note.Width = 600;
+            Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            Note.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
 
-            type.MinimumWidth = 64;
-            type.Width = 72;
+            type.MinimumWidth = 72;
+            type.Width = 88;
             type.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
 
             scopeColumn.MinimumWidth = 160;
-            scopeColumn.FillWeight = 24F;
-            scopeColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            scopeColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            scopeColumn.Width = 230;
+            scopeColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            scopeColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+            dgvValue.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            dgvValue.ScrollBars = ScrollBars.Both;
 
             index.DisplayIndex = 0;
             name.DisplayIndex = 1;
             value.DisplayIndex = 2;
-            Note.DisplayIndex = 3;
+            scopeColumn.DisplayIndex = 3;
             type.DisplayIndex = 4;
-            scopeColumn.DisplayIndex = 5;
+            Note.DisplayIndex = 5;
             foreach (DataGridViewColumn column in dgvValue.Columns)
             {
-                column.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                column.HeaderCell.Style.Alignment = column == Note
+                    ? DataGridViewContentAlignment.MiddleLeft
+                    : DataGridViewContentAlignment.MiddleCenter;
             }
 
             uiToolTip.SetToolTip(txtVariableSearch, "跨作用域搜索名称、槽位、类型、备注或所属流程");
@@ -788,8 +805,8 @@ namespace Automation
             grid.BackgroundColor = UiPalette.SurfaceStrong;
             grid.BorderStyle = BorderStyle.None;
             grid.GridColor = UiPalette.Stroke;
-            grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+            grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
+            grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
             grid.EnableHeadersVisualStyles = false;
             grid.ColumnHeadersHeight = 42;
             grid.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.Background;
@@ -810,11 +827,11 @@ namespace Automation
             grid.DefaultCellStyle.SelectionForeColor = UiPalette.SelectionText;
             if (grid.Columns.Contains("Note"))
             {
-                grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                grid.Columns["Note"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             }
             if (grid.Columns.Contains("variableScope"))
             {
-                grid.Columns["variableScope"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+                grid.Columns["variableScope"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             }
         }
 
@@ -1744,6 +1761,7 @@ namespace Automation
                         comboCell.DisplayStyleForCurrentCellOnly = true;
                         comboCell.FlatStyle = FlatStyle.Flat;
                     }
+                    comboCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
                     if (!ReferenceEquals(comboCell.DataSource, variableScopeOptions))
                     {
                         comboCell.DataSource = variableScopeOptions;
@@ -1761,6 +1779,7 @@ namespace Automation
                 textCell = new DataGridViewTextBoxCell();
                 row.Cells[5] = textCell;
             }
+            textCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
             string scopeText = variable == null
                 ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
                 : VariableEditor.FormatScope(variable, processNamesById);
@@ -1817,13 +1836,11 @@ namespace Automation
                 || !hasVariableSnapshot
                 || !variableGridRowsInitialized)
             {
-                FreshFrmValue();
+                ScheduleVisibleRefresh();
+                return;
             }
-            else
-            {
-                RefreshViewportRows();
-                RefreshDisplayedRuntimeValues();
-            }
+            RefreshViewportRows();
+            RefreshDisplayedRuntimeValues();
             runtimeValueRefreshTimer?.Start();
             if (IsHandleCreated)
             {
@@ -1834,6 +1851,56 @@ namespace Automation
                         RefreshViewportRows();
                     }
                 }));
+            }
+        }
+
+        private void ScheduleVisibleRefresh()
+        {
+            if (visibleRefreshScheduled || !Visible || IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+            visibleRefreshScheduled = true;
+            lblEmptyState.Text = "正在加载变量...";
+            lblEmptyState.Visible = true;
+            lblEmptyState.BringToFront();
+            panel1.Enabled = false;
+            scopeTree.Enabled = false;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    visibleRefreshScheduled = false;
+                    if (!Visible || IsDisposed || Disposing)
+                    {
+                        panel1.Enabled = true;
+                        scopeTree.Enabled = true;
+                        return;
+                    }
+                    try
+                    {
+                        FreshFrmValue();
+                    }
+                    catch (Exception ex)
+                    {
+                        lblEmptyState.Text = "变量加载失败，请查看运行信息";
+                        lblEmptyState.Visible = true;
+                        lblEmptyState.BringToFront();
+                        Workspace.Info?.PrintInfo($"变量界面刷新失败：{ex.Message}", FrmInfo.Level.Error);
+                    }
+                    finally
+                    {
+                        panel1.Enabled = true;
+                        scopeTree.Enabled = true;
+                        runtimeValueRefreshTimer?.Start();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                visibleRefreshScheduled = false;
+                panel1.Enabled = true;
+                scopeTree.Enabled = true;
             }
         }
 
@@ -1970,8 +2037,9 @@ namespace Automation
             }
             if (e.Control && e.KeyCode == Keys.C)
             {
-                CopySelectedValueRow();
+                CopyCurrentValueCellText();
                 e.Handled = true;
+                e.SuppressKeyPress = true;
                 return;
             }
             if (e.Control && e.KeyCode == Keys.V)
@@ -1985,6 +2053,24 @@ namespace Automation
                 ClearSelectedValueRows(true);
                 e.Handled = true;
                 return;
+            }
+        }
+
+        private void CopyCurrentValueCellText()
+        {
+            if (dgvValue.CurrentCell == null)
+            {
+                return;
+            }
+
+            string text = Convert.ToString(dgvValue.CurrentCell.FormattedValue) ?? string.Empty;
+            try
+            {
+                Clipboard.SetText(text);
+            }
+            catch (ExternalException ex)
+            {
+                MessageBox.Show($"复制失败，剪贴板当前不可用：{ex.Message}");
             }
         }
 
@@ -2101,6 +2187,7 @@ namespace Automation
             Guid? targetOwnerProcId = string.Equals(targetScope, VariableScopeContract.Process, StringComparison.Ordinal)
                 ? targetVariable?.OwnerProcId ?? selectedOwnerProcId
                 : null;
+            SaveVariableGridViewState();
             if (!VariableEditor.TryCommitRow(new VariableRowUpdate
             {
                 Index = rowIndex,
@@ -2119,7 +2206,7 @@ namespace Automation
             }
             txtVariableSearch.Clear();
             FreshFrmValue();
-            LocateValueIndex(rowIndex);
+            RestoreVariableGridViewState();
         }
 
         private void ClearSelectedValueRows(bool requireConfirm = false)
@@ -2137,7 +2224,7 @@ namespace Automation
                 .ToList();
             if (variables.Count == 0)
             {
-                MessageBox.Show("选中的槽位尚未配置变量。", "删除变量",
+                MessageBox.Show("选中的槽位尚未配置变量。", "清空变量",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -2149,20 +2236,27 @@ namespace Automation
             if (requireConfirm)
             {
                 int usageCount = variables.Sum(VariableEditor.CountUsages);
+                string confirmation = $"确认清空选中{variables.Count}个槽位的变量内容？";
+                if (usageCount > 0)
+                {
+                    confirmation += $"检测到{usageCount}个已知引用；引用文本将保留，受影响流程会变为 incomplete。";
+                }
                 DialogResult result = MessageBox.Show(
-                    $"确认删除选中的{variables.Count}个变量？检测到{usageCount}个已知引用；引用文本将保留，受影响流程会变为 incomplete。",
-                    "删除变量确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    confirmation,
+                    "清空变量确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (result != DialogResult.Yes)
                 {
                     return;
                 }
             }
-            if (!VariableEditor.TryDeleteVariables(variables, out string error))
+            SaveVariableGridViewState();
+            if (!VariableEditor.TryClearVariables(variables, out string error))
             {
-                MessageBox.Show(error, "删除变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(error, "清空变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             FreshFrmValue();
+            RestoreVariableGridViewState();
         }
 
         private bool TryBuildRowValueForSave(DataGridView dataGridView, int rowIndex, out int num, out string key, out string type, out string value, out string note)
@@ -2374,6 +2468,30 @@ namespace Automation
                 dgvValue.ClearSelection();
                 dgvValue.Rows[e.RowIndex].Selected = true;
                 dgvValue.CurrentCell = dgvValue.Rows[e.RowIndex].Cells[Math.Max(0, e.ColumnIndex)];
+            }
+        }
+
+        private void dgvValue_CellMouseDoubleClick(
+            object sender,
+            DataGridViewCellMouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left
+                || e.RowIndex < 0
+                || (e.ColumnIndex != name.Index && e.ColumnIndex != value.Index)
+                || dgvValue.ReadOnly
+                || !dgvValue.Enabled)
+            {
+                return;
+            }
+            DataGridViewCell targetCell = dgvValue.Rows[e.RowIndex].Cells[e.ColumnIndex];
+            if (targetCell.ReadOnly)
+            {
+                return;
+            }
+            dgvValue.CurrentCell = targetCell;
+            if (!dgvValue.IsCurrentCellInEditMode && dgvValue.BeginEdit(true))
+            {
+                dgvValue.EditingControl?.Focus();
             }
         }
 

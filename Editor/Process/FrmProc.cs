@@ -272,6 +272,7 @@ namespace Automation
             procStateImages?.Dispose();
             procStateImages = null;
             proc_treeView.HandleCreated -= ProcTreeView_HandleCreated;
+            proc_treeView.DrawNode -= ProcTreeView_DrawNode;
             procNodeFont?.Dispose();
             procNodeFont = null;
             stepNodeFont?.Dispose();
@@ -292,6 +293,8 @@ namespace Automation
             proc_treeView.Indent = 24;
             proc_treeView.ShowLines = false;
             proc_treeView.ShowRootLines = false;
+            proc_treeView.DrawMode = TreeViewDrawMode.OwnerDrawAll;
+            proc_treeView.DrawNode += ProcTreeView_DrawNode;
 
             procStateImages = new ImageList
             {
@@ -319,6 +322,96 @@ namespace Automation
             AddProcStateImage("step-alarm", ProcTreeIconKind.StepAlarming);
             proc_treeView.ImageList = procStateImages;
             ApplyNativeTreeDoubleBuffer();
+        }
+
+        private void ProcTreeView_DrawNode(object sender, DrawTreeNodeEventArgs e)
+        {
+            bool selected = (e.State & TreeNodeStates.Selected) == TreeNodeStates.Selected
+                || ReferenceEquals(proc_treeView.SelectedNode, e.Node);
+            if (!selected)
+            {
+                e.DrawDefault = true;
+                return;
+            }
+
+            int rowHeight = Math.Max(proc_treeView.ItemHeight, e.Bounds.Height);
+            int rowTop = e.Bounds.Top;
+            var rowBounds = new Rectangle(
+                0,
+                rowTop,
+                Math.Max(1, proc_treeView.ClientSize.Width),
+                rowHeight);
+            using (var selectionBrush = new SolidBrush(UiPalette.Selection))
+            using (var accentBrush = new SolidBrush(UiPalette.Brand))
+            {
+                e.Graphics.FillRectangle(selectionBrush, rowBounds);
+                e.Graphics.FillRectangle(accentBrush, 0, rowTop, 3, rowHeight);
+            }
+
+            const int imageSize = 20;
+            int imageLeft = Math.Max(5, e.Bounds.Left - imageSize - 2);
+            var imageBounds = new Rectangle(
+                imageLeft,
+                rowTop + Math.Max(0, (rowHeight - imageSize) / 2),
+                imageSize,
+                imageSize);
+            string imageKey = string.IsNullOrEmpty(e.Node.SelectedImageKey)
+                ? e.Node.ImageKey
+                : e.Node.SelectedImageKey;
+            if (proc_treeView.ImageList != null
+                && !string.IsNullOrEmpty(imageKey)
+                && proc_treeView.ImageList.Images.ContainsKey(imageKey))
+            {
+                e.Graphics.DrawImage(proc_treeView.ImageList.Images[imageKey], imageBounds);
+            }
+
+            if (e.Node.Nodes.Count > 0 && imageLeft >= 22)
+            {
+                DrawSelectedNodeChevron(
+                    e.Graphics,
+                    imageLeft - 11,
+                    rowTop + rowHeight / 2,
+                    e.Node.IsExpanded);
+            }
+
+            Font font = e.Node.NodeFont ?? proc_treeView.Font;
+            var textBounds = new Rectangle(
+                Math.Max(e.Bounds.Left, imageBounds.Right + 2),
+                rowTop,
+                Math.Max(1, proc_treeView.ClientSize.Width - e.Bounds.Left - 8),
+                rowHeight);
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.Node.Text,
+                font,
+                textBounds,
+                UiPalette.SelectionText,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+        }
+
+        private static void DrawSelectedNodeChevron(
+            Graphics graphics,
+            int centerX,
+            int centerY,
+            bool expanded)
+        {
+            using (var pen = new Pen(UiPalette.SelectionText, 1.4F)
+            {
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round
+            })
+            {
+                if (expanded)
+                {
+                    graphics.DrawLine(pen, centerX - 3, centerY - 1, centerX, centerY + 2);
+                    graphics.DrawLine(pen, centerX, centerY + 2, centerX + 3, centerY - 1);
+                    return;
+                }
+                graphics.DrawLine(pen, centerX - 1, centerY - 3, centerX + 2, centerY);
+                graphics.DrawLine(pen, centerX + 2, centerY, centerX - 1, centerY + 3);
+            }
         }
 
         private void ProcTreeView_HandleCreated(object sender, EventArgs e)

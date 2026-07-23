@@ -349,6 +349,14 @@ namespace Automation
 
         public InspectorIconKind IconKind { get; set; }
 
+        public Color DisabledForeColor { get; set; } = UiPalette.TextDisabled;
+
+        public Color BorderColor { get; set; } = Color.Empty;
+
+        public float BorderWidth { get; set; }
+
+        public bool ShowDropDownArrow { get; set; }
+
         protected override void OnMouseEnter(EventArgs e)
         {
             pointerOver = true;
@@ -403,9 +411,16 @@ namespace Automation
             using (var brush = new SolidBrush(fillColor))
             {
                 e.Graphics.FillPath(brush, path);
+                if (BorderWidth > 0F && BorderColor != Color.Empty)
+                {
+                    using (var pen = new Pen(BorderColor, BorderWidth))
+                    {
+                        e.Graphics.DrawPath(pen, path);
+                    }
+                }
             }
 
-            Color contentColor = Enabled ? ForeColor : UiPalette.TextDisabled;
+            Color contentColor = Enabled ? ForeColor : DisabledForeColor;
             Size textSize = string.IsNullOrEmpty(Text)
                 ? Size.Empty
                 : TextRenderer.MeasureText(e.Graphics, Text, Font, Size.Empty, TextFormatFlags.NoPadding);
@@ -425,16 +440,27 @@ namespace Automation
             }
             if (textSize.Width > 0)
             {
+                int trailingWidth = ShowDropDownArrow ? 22 : 4;
                 TextRenderer.DrawText(
                     e.Graphics,
                     Text,
                     Font,
                     new Rectangle(startX + iconSize + gap, 0,
-                        Math.Max(1, Width - startX - iconSize - gap - 4), Height),
+                        Math.Max(1, Width - startX - iconSize - gap - trailingWidth), Height),
                     contentColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                         | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
                         | TextFormatFlags.NoPadding);
+            }
+            if (ShowDropDownArrow)
+            {
+                int centerX = Math.Max(8, Width - Padding.Right - 7);
+                int centerY = Height / 2;
+                using (var pen = new Pen(contentColor, 1.2F))
+                {
+                    e.Graphics.DrawLine(pen, centerX - 3, centerY - 2, centerX, centerY + 1);
+                    e.Graphics.DrawLine(pen, centerX, centerY + 1, centerX + 3, centerY - 2);
+                }
             }
             if (Focused && ShowFocusCues)
             {

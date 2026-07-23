@@ -148,14 +148,25 @@ namespace Automation
                 if (!ReferenceEquals(_searchCts, cts) || cts.IsCancellationRequested)
                     return;
 
-                dataGridView1.Rows.Clear();
-                for (int i = 0; i < results.Count; i++)
+                dataGridView1.SuspendLayout();
+                try
                 {
-                    dataGridView1.Rows.Add();
-                    dataGridView1.Rows[i].Cells[0].Value = i + 1;
-                    dataGridView1.Rows[i].Cells[1].Value = results[i].Name;
-                    dataGridView1.Rows[i].Cells[2].Value = results[i].Position + "  " + results[i].MatchSummary;
-                    dataGridView1.Rows[i].Tag = results[i].Position;
+                    dataGridView1.Rows.Clear();
+                    if (results.Count > 0)
+                    {
+                        dataGridView1.Rows.Add(results.Count);
+                    }
+                    for (int i = 0; i < results.Count; i++)
+                    {
+                        dataGridView1.Rows[i].Cells[0].Value = i + 1;
+                        dataGridView1.Rows[i].Cells[1].Value = results[i].Name;
+                        dataGridView1.Rows[i].Cells[2].Value = results[i].Position + "  " + results[i].MatchSummary;
+                        dataGridView1.Rows[i].Tag = results[i].Position;
+                    }
+                }
+                finally
+                {
+                    dataGridView1.ResumeLayout();
                 }
                 statusLabel.Text = $"共扫描 {targets.Count} 条指令，找到 {results.Count} 条结果";
             }

@@ -26,6 +26,7 @@ namespace Automation
         private bool webViewClosing;
         private bool webViewEventsAttached;
         private bool webDocumentReady;
+        private bool viewLoaded;
         // 标记当前是否正在流式输出 assistant 文本（assistant_chunk），用于在同一渲染段累积而非每 chunk 新建 div。
         private bool streamingAssistant;
         // 流式段累积的 Markdown 源码，流式期间实时转 HTML 渲染，段结束时做最终渲染。
@@ -102,6 +103,7 @@ namespace Automation
         // Bridge 服务在生成预演记录时读取此属性，若为 true 则直接标记预演为已确认，
         // 避免 TryPromptPreviewConfirmation 通过 HTTP 回调 Bridge 确认导致 UI 线程死锁。
         public bool IsAutoApproveMode => autoApproveMode;
+        internal bool IsViewLoaded => viewLoaded;
 
         public FrmAiAssistant()
         {
@@ -137,6 +139,7 @@ namespace Automation
             LoadConversationHistory();
             LoadConfig();
             ApplyPermissions();
+            viewLoaded = true;
             await InitializeWebViewAsync();
         }
 
@@ -178,7 +181,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "WebView2 初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, ex.Message, "WebView2 初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

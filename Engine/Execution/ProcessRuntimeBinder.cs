@@ -157,6 +157,14 @@ namespace Automation
         public RuntimeGotoTarget FalseTarget { get; set; }
     }
 
+    internal sealed class WaitProcRuntimeBinding
+    {
+        public RuntimeGotoTarget ReadyTarget { get; set; }
+        public RuntimeGotoTarget AbnormalTarget { get; set; }
+        public RuntimeGotoTarget RunningTarget { get; set; }
+        public ValueRef StateOutput { get; set; }
+    }
+
     internal sealed class GetValueRuntimeBinding
     {
         public ValueRef[] Sources { get; set; } = Array.Empty<ValueRef>();
@@ -225,6 +233,8 @@ namespace Automation
             error = null;
             switch (operation)
             {
+                case WaitProc waitProc:
+                    return TryBindWaitProc(proc, procIndex, procId, valueStore, waitProc, out error);
                 case Goto gotoOperation:
                     return TryBindGoto(proc, procIndex, procId, valueStore, gotoOperation, out error);
                 case ParamGoto paramGoto:
@@ -242,6 +252,51 @@ namespace Automation
                     operation.RuntimeBinding = null;
                     return true;
             }
+        }
+
+        private static bool TryBindWaitProc(
+            Proc proc, int procIndex, Guid procId, ValueConfigStore valueStore,
+            WaitProc operation, out string error)
+        {
+            error = null;
+            var binding = new WaitProcRuntimeBinding();
+            if (string.Equals(operation.WorkMode, WaitProc.WaitReadyMode, StringComparison.Ordinal))
+            {
+                operation.RuntimeBinding = binding;
+                return true;
+            }
+            if (string.Equals(operation.WorkMode, WaitProc.StateJumpMode, StringComparison.Ordinal))
+            {
+                if (!RuntimeGotoTarget.TryCreate(operation.ReadyGoto, procIndex, proc,
+                        out RuntimeGotoTarget readyTarget, out error)
+                    || !RuntimeGotoTarget.TryCreate(operation.AbnormalGoto, procIndex, proc,
+                        out RuntimeGotoTarget abnormalTarget, out error)
+                    || !RuntimeGotoTarget.TryCreate(operation.RunningGoto, procIndex, proc,
+                        out RuntimeGotoTarget runningTarget, out error))
+                {
+                    return false;
+                }
+                binding.ReadyTarget = readyTarget;
+                binding.AbnormalTarget = abnormalTarget;
+                binding.RunningTarget = runningTarget;
+                operation.RuntimeBinding = binding;
+                return true;
+            }
+            if (string.Equals(operation.WorkMode, WaitProc.GetStateMode, StringComparison.Ordinal))
+            {
+                if (!ValueRef.TryCreate(null, null, operation.StateVariableName, null,
+                        false, "流程状态变量", out ValueRef output, out error)
+                    || !output.TryBindStatic(
+                        valueStore, procId, "流程状态变量", out output, out error))
+                {
+                    return false;
+                }
+                binding.StateOutput = output;
+                operation.RuntimeBinding = binding;
+                return true;
+            }
+            error = $"工作模式无效:{operation.WorkMode ?? "空"}";
+            return false;
         }
 
         private static bool TryBindCommunicationResponse(

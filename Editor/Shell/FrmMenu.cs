@@ -19,7 +19,8 @@ namespace Automation
         private readonly Button version_Page = new Button();
         private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
-        private readonly Dictionary<Button, Image> menuIconImages = new Dictionary<Button, Image>();
+        private readonly Dictionary<Button, Image> inactiveMenuIconImages = new Dictionary<Button, Image>();
+        private readonly Dictionary<Button, Image> activeMenuIconImages = new Dictionary<Button, Image>();
         private readonly UiHoverAnimator hoverAnimator = new UiHoverAnimator();
         private Button activeMenuButton;
         private bool aiAssistantActive;
@@ -45,11 +46,16 @@ namespace Automation
             Disposed += (sender, args) =>
             {
                 hoverAnimator.Dispose();
-                foreach (Image image in menuIconImages.Values)
+                foreach (Image image in inactiveMenuIconImages.Values)
                 {
                     image.Dispose();
                 }
-                menuIconImages.Clear();
+                foreach (Image image in activeMenuIconImages.Values)
+                {
+                    image.Dispose();
+                }
+                inactiveMenuIconImages.Clear();
+                activeMenuIconImages.Clear();
             };
         }
 
@@ -156,10 +162,11 @@ namespace Automation
             {
                 return;
             }
-            menuIconImages.TryGetValue(button, out Image previous);
-            menuIconImages[button] = UiIconFactory.CreateNavigation(icon, MenuIconSize, active);
-            previous?.Dispose();
-            button.Invalidate();
+            Dictionary<Button, Image> cache = active ? activeMenuIconImages : inactiveMenuIconImages;
+            if (!cache.ContainsKey(button))
+            {
+                cache[button] = UiIconFactory.CreateNavigation(icon, MenuIconSize, active);
+            }
         }
 
         private void MenuButton_Paint(object sender, PaintEventArgs e)
@@ -171,7 +178,10 @@ namespace Automation
             }
 
             string label = button.Tag as string ?? string.Empty;
-            menuIconImages.TryGetValue(button, out Image icon);
+            Dictionary<Button, Image> cache = IsMenuButtonActive(button)
+                ? activeMenuIconImages
+                : inactiveMenuIconImages;
+            cache.TryGetValue(button, out Image icon);
             if (button == activeMenuButton && button.ClientSize.Width > 0 && button.ClientSize.Height > 0)
             {
                 using (LinearGradientBrush activeBackground = new LinearGradientBrush(
@@ -349,7 +359,6 @@ namespace Automation
 
         private void ShowVariableWorkspace()
         {
-            Workspace.Value.FreshFrmValue();
             ShowEmbeddedMainPage(Workspace.Value, value_Page, VariablePageIndex);
         }
 
@@ -360,27 +369,51 @@ namespace Automation
             var p = Workspace.Main.ai_panel;
             if (p.Visible)
             {
-                p.Visible = false;
-                p.Width = 0;
-                aiAssistantActive = false;
-                aiAssistant_Page.BackColor = UiPalette.Navigation;
-                SetMenuIcon(aiAssistant_Page, false);
-                aiAssistant_Page.Invalidate();
-                hoverAnimator.RefreshRestingColors();
-                SetNoteColumnVisible(true);
+                Workspace.Main.SuspendLayout();
+                try
+                {
+                    p.Visible = false;
+                    p.Width = 0;
+                    aiAssistantActive = false;
+                    aiAssistant_Page.BackColor = UiPalette.Navigation;
+                    SetMenuIcon(aiAssistant_Page, false);
+                    aiAssistant_Page.Invalidate();
+                    hoverAnimator.RefreshRestingColors();
+                    SetNoteColumnVisible(true);
+                }
+                finally
+                {
+                    Workspace.Main.ResumeLayout(true);
+                }
             }
             else
             {
                 // 优先使用 40% 宽度；窗口较小时为主工作区保留空间，避免遮挡或裁掉操作控件。
-                Workspace.Main.UpdateAiPanelWidth();
-                p.Visible = true;
-                aiAssistantActive = true;
-                aiAssistant_Page.BackColor = UiPalette.Navigation;
-                SetMenuIcon(aiAssistant_Page, true);
-                aiAssistant_Page.Invalidate();
-                hoverAnimator.RefreshRestingColors();
-                SetNoteColumnVisible(false);
-                if (Workspace.AiAssistant != null && !Workspace.AiAssistant.IsDisposed)
+                bool assistantLoadedBeforeOpen = Workspace.AiAssistant.IsViewLoaded;
+                Workspace.Main.SuspendLayout();
+                try
+                {
+                    Workspace.Main.UpdateAiPanelWidth();
+                    p.Visible = true;
+                    if (!assistantLoadedBeforeOpen)
+                    {
+                        Workspace.AiAssistant.Show();
+                    }
+                    aiAssistantActive = true;
+                    aiAssistant_Page.BackColor = UiPalette.Navigation;
+                    SetMenuIcon(aiAssistant_Page, true);
+                    aiAssistant_Page.Invalidate();
+                    hoverAnimator.RefreshRestingColors();
+                    SetNoteColumnVisible(false);
+                }
+                finally
+                {
+                    Workspace.Main.ResumeLayout(true);
+                }
+                if (Workspace.AiAssistant != null
+                    && !Workspace.AiAssistant.IsDisposed
+                    && assistantLoadedBeforeOpen
+                    && Workspace.AiAssistant.IsViewLoaded)
                 {
                     Workspace.AiAssistant.RefreshAssistantView();
                 }
@@ -418,45 +451,48 @@ namespace Automation
         {
             if (Workspace.CurrentPage != 5)
             {
-                Workspace.CurrentPage = 5;
-                SetActiveMenuButton(Card_Page);
-                SetMainPanelScrollSize(Size.Empty);
-                Workspace.Main.ShowEditorWorkspace();
-                Workspace.Main.panel_Info.Visible = false;
-
-                if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
+                Workspace.Main.UpdateEditorWorkspaceLayout(() =>
                 {
-                    Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.IO);
-                }
-                if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
-                {
-                    Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Card);
-                }
+                    Workspace.CurrentPage = 5;
+                    SetActiveMenuButton(Card_Page);
+                    SetMainPanelScrollSize(Size.Empty);
+                    Workspace.Main.ShowEditorWorkspace();
+                    Workspace.Main.panel_Info.Visible = false;
 
-                Workspace.Main.ToolBar_panel.Visible = true;
-                Workspace.Main.treeView_panel.Visible = true;
-                Workspace.Main.inspector_panel.Visible = true;
-                Workspace.Main.DataGrid_panel.Visible = true;
-                Workspace.Main.panel_Info.Visible = false;
-                Workspace.Main.state_panel.Visible = true;
+                    if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
+                    {
+                        Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.IO);
+                    }
+                    if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
+                    {
+                        Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Card);
+                    }
 
-                Workspace.IO.Visible = true;
-                Workspace.Card.Visible = true;
-                Workspace.DataGrid.Visible = false;
-                Workspace.Proc.Visible = false;
-                Workspace.Card.BringToFront();
-                Workspace.IO.BringToFront();
+                    Workspace.Main.ToolBar_panel.Visible = true;
+                    Workspace.Main.treeView_panel.Visible = true;
+                    Workspace.Main.inspector_panel.Visible = true;
+                    Workspace.Main.DataGrid_panel.Visible = true;
+                    Workspace.Main.panel_Info.Visible = false;
+                    Workspace.Main.state_panel.Visible = true;
 
-                Workspace.ToolBar.btnPause.Visible = false;
-                Workspace.ToolBar.btnStop.Visible = false;
-                Workspace.ToolBar.btnStopAll.Visible = false;
-                Workspace.ToolBar.SingleRun.Visible = false;
-                Workspace.ToolBar.btnAlarm.Visible = false;
-                Workspace.ToolBar.btnLocate.Visible = false;
-                Workspace.ToolBar.btnSearch.Visible = false;
-                Workspace.ToolBar.btnIOMonitor.Visible = true;
-                Workspace.ToolBar.btnIOMonitor.Enabled = true;
-                Workspace.ToolBar.btnIOMonitor.Text = Workspace.IO.IsIOMonitoring ? "停止监视" : "IO监视";
+                    Workspace.IO.Visible = true;
+                    Workspace.Card.Visible = true;
+                    Workspace.DataGrid.Visible = false;
+                    Workspace.Proc.Visible = false;
+                    Workspace.Card.BringToFront();
+                    Workspace.IO.BringToFront();
+
+                    Workspace.ToolBar.btnPause.Visible = false;
+                    Workspace.ToolBar.btnStop.Visible = false;
+                    Workspace.ToolBar.btnStopAll.Visible = false;
+                    Workspace.ToolBar.SingleRun.Visible = false;
+                    Workspace.ToolBar.btnAlarm.Visible = false;
+                    Workspace.ToolBar.btnLocate.Visible = false;
+                    Workspace.ToolBar.btnSearch.Visible = false;
+                    Workspace.ToolBar.btnIOMonitor.Visible = true;
+                    Workspace.ToolBar.btnIOMonitor.Enabled = true;
+                    Workspace.ToolBar.btnIOMonitor.Text = Workspace.IO.IsIOMonitoring ? "停止监视" : "IO监视";
+                });
             }
         }
 
@@ -470,64 +506,67 @@ namespace Automation
         {
             if (Workspace.CurrentPage != 0)
             {
-                Workspace.CurrentPage = 0;
-                SetActiveMenuButton(process_Page);
-                SetMainPanelScrollSize(Size.Empty);
-                Workspace.Main.ShowEditorWorkspace();
-                Workspace.Main.panel_Info.Visible = true;
+                Workspace.Main.UpdateEditorWorkspaceLayout(() =>
+                {
+                    Workspace.CurrentPage = 0;
+                    SetActiveMenuButton(process_Page);
+                    SetMainPanelScrollSize(Size.Empty);
+                    Workspace.Main.ShowEditorWorkspace();
+                    Workspace.Main.panel_Info.Visible = true;
 
-                if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.DataGrid))
-                {
-                    Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.DataGrid);
-                }
-                if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Proc))
-                {
-                    Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Proc);
-                }
+                    if (!Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.DataGrid))
+                    {
+                        Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.DataGrid);
+                    }
+                    if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Proc))
+                    {
+                        Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Proc);
+                    }
 
-                Workspace.Main.ToolBar_panel.Visible = true;
-                Workspace.Main.treeView_panel.Visible = true;
-                Workspace.Main.inspector_panel.Visible = true;
-                Workspace.Main.DataGrid_panel.Visible = true;
-                Workspace.Main.panel_Info.Visible = true;
-                Workspace.Main.state_panel.Visible = true;
+                    Workspace.Main.ToolBar_panel.Visible = true;
+                    Workspace.Main.treeView_panel.Visible = true;
+                    Workspace.Main.inspector_panel.Visible = true;
+                    Workspace.Main.DataGrid_panel.Visible = true;
+                    Workspace.Main.panel_Info.Visible = true;
+                    Workspace.Main.state_panel.Visible = true;
 
-                Workspace.DataGrid.Visible = true;
-                Workspace.Proc.Visible = true;
-                if (Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
-                {
-                    Workspace.IO.Visible = false;
-                }
-                if (Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
-                {
-                    Workspace.Card.Visible = false;
-                }
-                Workspace.ToolBar.btnPause.Visible = true;
-                Workspace.ToolBar.btnStop.Visible = true;
-                Workspace.ToolBar.btnStopAll.Visible = true;
-                Workspace.ToolBar.SingleRun.Visible = true;
-                Workspace.ToolBar.btnAlarm.Visible = true;
-                Workspace.ToolBar.btnLocate.Visible = true;
-                Workspace.ToolBar.btnSearch.Visible = true;
+                    Workspace.DataGrid.Visible = true;
+                    Workspace.Proc.Visible = true;
+                    if (Workspace.Main.DataGrid_panel.Controls.Contains(Workspace.IO))
+                    {
+                        Workspace.IO.Visible = false;
+                    }
+                    if (Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
+                    {
+                        Workspace.Card.Visible = false;
+                    }
+                    Workspace.ToolBar.btnPause.Visible = true;
+                    Workspace.ToolBar.btnStop.Visible = true;
+                    Workspace.ToolBar.btnStopAll.Visible = true;
+                    Workspace.ToolBar.SingleRun.Visible = true;
+                    Workspace.ToolBar.btnAlarm.Visible = true;
+                    Workspace.ToolBar.btnLocate.Visible = true;
+                    Workspace.ToolBar.btnSearch.Visible = true;
 
-                Workspace.ToolBar.btnPause.Enabled = true;
-                Workspace.ToolBar.btnStop.Enabled = true;
-                Workspace.ToolBar.btnStopAll.Enabled = true;
-                Workspace.ToolBar.SingleRun.Enabled = true;
-                Workspace.ToolBar.btnLocate.Enabled = true;
-                Workspace.ToolBar.btnSearch.Enabled = true;
-                Workspace.ToolBar.btnAlarm.Enabled = true;
-                Workspace.ToolBar.btnIOMonitor.Visible = false;
-                Workspace.IO.StopIOMonitor();
-                Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
-                if (Workspace.Runtime.Editor.IsAddingOperations)
-                {
-                    Workspace.Inspector.ShowObject(Workspace.DataGrid.OperationTemp);
-                }
-                else
-                {
-                    Workspace.Inspector.ClearObject();
-                }
+                    Workspace.ToolBar.btnPause.Enabled = true;
+                    Workspace.ToolBar.btnStop.Enabled = true;
+                    Workspace.ToolBar.btnStopAll.Enabled = true;
+                    Workspace.ToolBar.SingleRun.Enabled = true;
+                    Workspace.ToolBar.btnLocate.Enabled = true;
+                    Workspace.ToolBar.btnSearch.Enabled = true;
+                    Workspace.ToolBar.btnAlarm.Enabled = true;
+                    Workspace.ToolBar.btnIOMonitor.Visible = false;
+                    Workspace.IO.StopIOMonitor();
+                    Workspace.ToolBar.btnIOMonitor.Text = "IO监视";
+                    if (Workspace.Runtime.Editor.IsAddingOperations)
+                    {
+                        Workspace.Inspector.ShowObject(Workspace.DataGrid.OperationTemp);
+                    }
+                    else
+                    {
+                        Workspace.Inspector.ClearObject();
+                    }
+                });
             }
         }
 
@@ -575,8 +614,6 @@ namespace Automation
                 Workspace.CurrentPage = 6;
                 SetActiveMenuButton(valueDebug_Page);
                 SetMainPanelScrollSize(Size.Empty);
-                Workspace.ValueDebug.RefreshCheckList();
-                Workspace.ValueDebug.RefreshEditList();
                 Workspace.Main.ShowWorkspacePage(Workspace.ValueDebug);
 
                 Workspace.ToolBar.btnIOMonitor.Visible = false;
@@ -613,6 +650,11 @@ namespace Automation
             }
             if (Workspace.Main.TryActivateDetachedWorkspacePage(page))
             {
+                return;
+            }
+            if (Workspace.CurrentPage == pageIndex && page.Visible)
+            {
+                page.Focus();
                 return;
             }
 

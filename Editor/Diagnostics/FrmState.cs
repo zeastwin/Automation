@@ -79,10 +79,26 @@ namespace Automation
             basicInfo = string.Empty;
             bool hasStatus = TryGetSystemStatus(out SystemStatus status);
             string systemStatus = GetSystemStatusText(hasStatus, status);
-            SysInfo.Text = basicInfo;
-            lblSystemStatus.Text = $"●  系统状态：{systemStatus}";
-            lblSystemStatus.ForeColor = GetSystemStatusColor(hasStatus, status);
-            LayoutStatusBar();
+            string statusText = $"●  系统状态：{systemStatus}";
+            Color statusColor = GetSystemStatusColor(hasStatus, status);
+            bool layoutChanged = false;
+            if (!string.Equals(SysInfo.Text, basicInfo, StringComparison.Ordinal))
+            {
+                SysInfo.Text = basicInfo;
+            }
+            if (!string.Equals(lblSystemStatus.Text, statusText, StringComparison.Ordinal))
+            {
+                lblSystemStatus.Text = statusText;
+                layoutChanged = true;
+            }
+            if (lblSystemStatus.ForeColor != statusColor)
+            {
+                lblSystemStatus.ForeColor = statusColor;
+            }
+            if (layoutChanged)
+            {
+                LayoutStatusBar();
+            }
         }
         
         private void InitializeSystemStatusTimer()

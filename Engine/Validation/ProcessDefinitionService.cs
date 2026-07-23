@@ -1059,6 +1059,12 @@ namespace Automation
                 {
                     continue;
                 }
+                bool browsable = propertyInfo.GetCustomAttribute<System.ComponentModel.BrowsableAttribute>()?.Browsable ?? true;
+                if (obj is IPropertyVisibilityProvider visibilityProvider
+                    && !visibilityProvider.IsPropertyVisible(propertyInfo.Name, browsable))
+                {
+                    continue;
+                }
                 if (propertyInfo.PropertyType == typeof(string) && propertyInfo.GetCustomAttribute<MarkedGotoAttribute>() != null)
                 {
                     string value = propertyInfo.GetValue(obj) as string;

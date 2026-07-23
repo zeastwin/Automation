@@ -55,7 +55,7 @@ namespace Automation
             AttachDescription(title, addButton);
 
             itemsPanel.AutoSize = false;
-            itemsPanel.BackColor = UiPalette.Surface;
+            itemsPanel.BackColor = UiPalette.SurfaceStrong;
             itemsPanel.FlowDirection = FlowDirection.TopDown;
             itemsPanel.WrapContents = false;
             Controls.Add(itemsPanel);
@@ -377,6 +377,9 @@ namespace Automation
                 try
                 {
                     items.Add(item);
+                    EditorServiceRegistry.AttachGraph(
+                        item,
+                        EditorServiceRegistry.GetRuntime(field.Owner));
                 }
                 catch
                 {
@@ -555,7 +558,7 @@ namespace Automation
             Margin = new Padding(0, 0, 0, 1);
             Padding = new Padding(1);
 
-            header.BackColor = UiPalette.SurfaceSubtle;
+            header.BackColor = UiPalette.Background;
             header.AutoEllipsis = true;
             header.Cursor = Cursors.Hand;
             header.FlatAppearance.BorderSize = 0;
@@ -585,7 +588,7 @@ namespace Automation
             Controls.Add(delete);
 
             fieldsPanel.AutoSize = false;
-            fieldsPanel.BackColor = UiPalette.Surface;
+            fieldsPanel.BackColor = UiPalette.SurfaceStrong;
             fieldsPanel.FlowDirection = FlowDirection.TopDown;
             fieldsPanel.Padding = new Padding(3, 0, 3, 1);
             fieldsPanel.WrapContents = false;

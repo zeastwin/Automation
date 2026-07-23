@@ -392,8 +392,6 @@ namespace Automation
                 page.ShowInTaskbar = false;
                 page.TopLevel = false;
                 page.Dock = DockStyle.Fill;
-                workspacePageHost.Controls.Add(page);
-                page.Show();
             }
             workspacePageHost.ShowPage(page);
             page.Focus();

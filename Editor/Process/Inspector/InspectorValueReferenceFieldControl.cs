@@ -40,16 +40,18 @@ namespace Automation
             DoubleBuffered = true;
 
             kind.DropDownStyle = ComboBoxStyle.DropDownList;
-            kind.Font = InspectorFonts.Bold9;
+            kind.Font = InspectorFonts.Bold95;
+            kind.ItemFont = InspectorFonts.Regular9;
             kind.SelectionChangeCommitted += Kind_SelectionChangeCommitted;
             kind.DropDownClosed += (sender, args) =>
-                BeginInvoke((Action)(() => DeactivateEditors(true)));
+                BeginInvoke((Action)(() => DeactivateEditors(false)));
             kind.KeyDown += Editor_KeyDown;
             kind.Visible = false;
             kind.TabStop = false;
             Controls.Add(kind);
 
-            value.Font = InspectorFonts.Bold9;
+            value.Font = InspectorFonts.Bold95;
+            value.ItemFont = InspectorFonts.Regular9;
             value.IntegralHeight = false;
             value.DropDownHeight = 320;
             value.DropDown += (sender, args) => EnsureValueOptionsLoaded();
@@ -75,13 +77,13 @@ namespace Automation
             Controls.Add(value);
 
             kindDisplay.AccessibleName = definition.Label + "引用方式";
-            kindDisplay.Font = InspectorFonts.Bold9;
+            kindDisplay.Font = InspectorFonts.Bold95;
             kindDisplay.ShowDropDownArrow = true;
             kindDisplay.ActivationRequested += (sender, args) => ActivateKindEditor();
             Controls.Add(kindDisplay);
 
             valueDisplay.AccessibleName = definition.Label;
-            valueDisplay.Font = InspectorFonts.Bold9;
+            valueDisplay.Font = InspectorFonts.Bold95;
             valueDisplay.ActivationRequested += (sender, args) => ActivateValueEditor();
             Controls.Add(valueDisplay);
             kindDisplay.BringToFront();
@@ -520,7 +522,26 @@ namespace Automation
             int labelWidth = GetLabelWidth(width);
             int editorLeft = labelWidth;
             int editorWidth = Math.Max(80, width - editorLeft);
-            int kindWidth = Math.Min(92, Math.Max(72, editorWidth * 40 / 100));
+            int kindTextWidth = definition.AvailableKinds
+                .Select(option => TextRenderer.MeasureText(
+                    definition.GetKindDisplayName(option),
+                    kindDisplay.Font,
+                    Size.Empty,
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width)
+                .Concat(new[]
+                {
+                    TextRenderer.MeasureText(
+                        definition.GetKindDisplayName(InspectorValueReferenceKind.Conflict),
+                        kindDisplay.Font,
+                        Size.Empty,
+                        TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+            int preferredKindWidth = Math.Max(96, kindTextWidth + 40);
+            int kindWidth = Math.Min(
+                preferredKindWidth,
+                Math.Max(72, editorWidth - 48));
             kind.SetBounds(editorLeft, 1, kindWidth, PropertyEditorHeight);
             kindDisplay.SetBounds(editorLeft, 1, kindWidth, PropertyEditorHeight);
             value.SetBounds(

@@ -33,11 +33,11 @@ namespace Automation
             BackColor = UiPalette.Surface;
             DoubleBuffered = true;
             Font = InspectorFonts.Regular85;
-            // 紧凑选择页使用 Semibold 建立层级，避免合成 Bold 造成笔画发胀。
+            // 分类标题保持较小字号，通过原生粗体建立层级。
             categoryFont = new Font(
                 InspectorFonts.Bold9.FontFamily,
                 10F,
-                FontStyle.Regular,
+                FontStyle.Bold,
                 GraphicsUnit.Point);
             TabStop = true;
             BuildPicker();

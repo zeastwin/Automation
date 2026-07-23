@@ -72,7 +72,7 @@ namespace Automation
         {
             InitializeComponent();
             treeView1.HideSelection = false;
-            treeView1.ShowNodeToolTips = true;
+            treeView1.ShowNodeToolTips = false;
             treeView1.BackColor = UiPalette.SurfaceStrong;
             treeView1.ForeColor = UiPalette.TextPrimary;
             treeView1.DrawMode = TreeViewDrawMode.OwnerDrawText;
@@ -1330,12 +1330,10 @@ namespace Automation
 
         private void UpdateFieldNode(TreeNode fieldNode, int structIndex, int itemIndex, int fieldIndex, string fieldName, DataStructValueType fieldType, object fieldValue)
         {
-            string displayValue = FormatFieldValue(fieldType, fieldValue, out string toolTip);
+            string displayValue = FormatFieldValue(fieldType, fieldValue);
             string editValue = FormatFieldEditValue(fieldType, fieldValue);
             string visibleValue = string.IsNullOrEmpty(displayValue) ? "（空）" : displayValue;
             fieldNode.Text = BuildFieldNodeText(fieldIndex, fieldName, visibleValue);
-            string fullValue = string.IsNullOrEmpty(toolTip) ? visibleValue : toolTip;
-            fieldNode.ToolTipText = $"名称: {fieldName}\r\n类型: {(fieldType == DataStructValueType.Number ? "数值" : "文本")}\r\n值: {fullValue}";
             fieldNode.Tag = new DataStructNodeTag
             {
                 NodeType = DataStructNodeType.Field,
@@ -1366,9 +1364,8 @@ namespace Automation
             return node;
         }
 
-        private static string FormatFieldValue(DataStructValueType type, object value, out string toolTip)
+        private static string FormatFieldValue(DataStructValueType type, object value)
         {
-            toolTip = string.Empty;
             if (value == null)
             {
                 return string.Empty;
@@ -1377,18 +1374,13 @@ namespace Automation
             {
                 if (value is double number)
                 {
-                    string display = number.ToString("0.######", CultureInfo.CurrentCulture);
-                    toolTip = number.ToString("G17", CultureInfo.CurrentCulture);
-                    return display;
+                    return number.ToString("0.######", CultureInfo.CurrentCulture);
                 }
-                string text = value.ToString();
-                toolTip = text;
-                return text;
+                return value.ToString();
             }
             string str = value.ToString();
             if (str.Length > TextPreviewLength)
             {
-                toolTip = str;
                 return str.Substring(0, TextPreviewLength) + "...";
             }
             return str;

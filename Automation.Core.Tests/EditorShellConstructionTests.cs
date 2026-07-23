@@ -19,6 +19,8 @@ namespace Automation.Core.Tests
                 using (var form = new FrmMain())
                 {
                     Assert.IsNotNull(form);
+                    Assert.IsFalse(form.frmAiAssistant.IsViewLoaded,
+                        "平台编辑器构造阶段不应提前加载隐藏的 AI WebView。");
                 }
             }, TimeSpan.FromSeconds(10));
         }

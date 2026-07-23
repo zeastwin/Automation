@@ -246,7 +246,6 @@ namespace Automation
             frmAiAssistant.FormBorderStyle = FormBorderStyle.None;
             frmAiAssistant.Dock = DockStyle.Fill;
             ai_panel.Controls.Add(frmAiAssistant);
-            frmAiAssistant.Show();
 
             StartSnapshotTimer();
             Text = "Automation - 平台";
@@ -784,6 +783,25 @@ namespace Automation
         public void ShowEditorWorkspace()
         {
             workspacePageHost.ShowPage(editorWorkspacePage);
+        }
+
+        internal void UpdateEditorWorkspaceLayout(Action update)
+        {
+            if (update == null)
+            {
+                return;
+            }
+            SuspendLayout();
+            editorWorkspacePage.SuspendLayout();
+            try
+            {
+                update();
+            }
+            finally
+            {
+                editorWorkspacePage.ResumeLayout(true);
+                ResumeLayout(true);
+            }
         }
 
         public bool ShowAiAssistantWithPrompt(string prompt)

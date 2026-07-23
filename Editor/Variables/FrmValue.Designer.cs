@@ -397,6 +397,7 @@
             this.dgvValue.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvValue_CellEndEdit);
             this.dgvValue.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.dgvValue_CellFormatting);
             this.dgvValue.CellMouseClick += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dgvValue_CellMouseClick);
+            this.dgvValue.CellMouseDoubleClick += new System.Windows.Forms.DataGridViewCellMouseEventHandler(this.dgvValue_CellMouseDoubleClick);
             this.dgvValue.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvValue_CellValueChanged);
             this.dgvValue.KeyDown += new System.Windows.Forms.KeyEventHandler(this.dgvValue_KeyDown);
             // 
@@ -432,9 +433,9 @@
             this.type.Items.AddRange(new object[] {
             "double",
             "string"});
-            this.type.MinimumWidth = 6;
+            this.type.MinimumWidth = 72;
             this.type.Name = "type";
-            this.type.Width = 100;
+            this.type.Width = 88;
             // 
             // value
             // 
@@ -450,7 +451,7 @@
             // Note
             // 
             this.Note.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.None;
-            dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
             this.Note.DefaultCellStyle = dataGridViewCellStyle5;
             this.Note.FillWeight = 450F;
             this.Note.HeaderText = "备注";

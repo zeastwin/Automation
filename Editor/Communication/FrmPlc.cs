@@ -584,9 +584,17 @@ namespace Automation
 
         private void LoadMaps(PlcDeviceConfig device)
         {
-            mapGrid.Rows.Clear();
-            if (device == null) return;
-            foreach (PlcMapConfig map in device.Mappings) AddMapRow(map);
+            mapGrid.SuspendLayout();
+            try
+            {
+                mapGrid.Rows.Clear();
+                if (device == null) return;
+                foreach (PlcMapConfig map in device.Mappings) AddMapRow(map);
+            }
+            finally
+            {
+                mapGrid.ResumeLayout();
+            }
         }
 
         private void AddMapRow(PlcMapConfig map)

@@ -46,7 +46,6 @@ namespace Automation
             {
                 ResumeLayout(true);
             }
-            Invalidate(true);
         }
 
         public bool ReleasePage(Control page)

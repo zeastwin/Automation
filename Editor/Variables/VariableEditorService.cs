@@ -65,10 +65,15 @@ namespace Automation
             bool allScopesSelected = string.Equals(selectedScope, AllScopes, StringComparison.Ordinal);
             if (variable == null)
             {
-                return !searching
-                    && (allScopesSelected
-                        || string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
-                        && ValueConfigStore.IsSystemValueIndex(slotIndex));
+                if (searching) return false;
+                if (allScopesSelected) return true;
+                if (string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                bool systemScopeSelected = string.Equals(
+                    selectedScope, VariableScopeContract.System, StringComparison.Ordinal);
+                return systemScopeSelected == ValueConfigStore.IsSystemValueIndex(slotIndex);
             }
             if (searching)
             {
@@ -201,7 +206,7 @@ namespace Automation
                 update.HistoryDescription);
         }
 
-        public bool TryDeleteVariables(IEnumerable<DicValue> variables, out string error)
+        public bool TryClearVariables(IEnumerable<DicValue> variables, out string error)
         {
             Dictionary<string, DicValue> draft = runtime.Stores.Values.BuildSaveData();
             foreach (DicValue variable in variables ?? Enumerable.Empty<DicValue>())
@@ -209,7 +214,7 @@ namespace Automation
                 if (variable != null) draft.Remove(variable.Name);
             }
             return runtime.Stores.Values.TryCommitConfiguration(
-                runtime.Paths.ConfigPath, draft, out error, historyDescription: "删除变量");
+                runtime.Paths.ConfigPath, draft, out error, historyDescription: "清空变量");
         }
 
         public static string BuildScopeOptionKey(string scope, Guid? ownerProcId)

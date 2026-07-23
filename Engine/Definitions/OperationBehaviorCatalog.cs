@@ -234,13 +234,66 @@ namespace Automation
 
                 case "等待流程状态":
                     contract = CreateContract(
-                        "在统一超时边界内等待多个流程全部达到运行、就绪或停止状态。",
-                        new[] { "解析 Timeout", "逐项从 ProcName 或 ProcValue 解析目标流程", "循环检查所有目标状态", "全部满足后执行统一后延时" },
-                        true);
-                    AddRequiredField(contract, "Params", "待等待流程条件集合");
-                    AddRequiredField(contract, "Timeout", "固定超时或超时变量；解析结果必须大于0毫秒");
-                    contract["constraints"] = new JArray("所有 Params 条件同时满足才完成", "value 严格表达运行、就绪或停止状态；就绪只表示自然完成，停止表示停止请求或异常结束", "固定后延时小于等于0时可从 DelayAfterVariableName 读取");
-                    contract["failureModes"] = new JArray("目标流程不存在、超时配置无效或等待超时时报警");
+                        "按工作模式等待目标流程、依据状态跳转，或把完整状态写入变量。",
+                        new[] { "等待模式逐项从 Params 的 ProcName 或 ProcValue 解析目标", "等待模式循环检查每项的运行或就绪条件", "状态跳转模式把单一目标当前状态映射到三个互斥分支", "获取状态模式把单一目标枚举状态写入变量" },
+                        !(operation is WaitProc waitOperation)
+                            || waitOperation.WorkMode != WaitProc.StateJumpMode);
+                    AddRequiredField(contract, nameof(WaitProc.WorkMode), "等待就绪、状态跳转或获取状态；同一时刻只执行一个模式");
+                    AddConditionalField(contract, nameof(WaitProc.Params), nameof(WaitProc.WorkMode),
+                        new[] { WaitProc.WaitReadyMode }, "等待目标集合；每个目标分别选择运行或就绪");
+                    AddConditionalField(contract, nameof(WaitProc.Timeout), nameof(WaitProc.WorkMode),
+                        new[] { WaitProc.WaitReadyMode }, "固定超时或超时变量；解析结果必须大于0毫秒");
+                    ((JObject)contract["fieldRules"])[nameof(WaitProc.DelayAfterMs)] = new JObject
+                    {
+                        ["visibleWhen"] = new JObject
+                        {
+                            [nameof(WaitProc.WorkMode)] = new JArray(WaitProc.WaitReadyMode)
+                        },
+                        ["description"] = "等待条件满足后的固定延时"
+                    };
+                    ((JObject)contract["fieldRules"])[nameof(WaitProc.DelayAfterVariableName)] = new JObject
+                    {
+                        ["visibleWhen"] = new JObject
+                        {
+                            [nameof(WaitProc.WorkMode)] = new JArray(WaitProc.WaitReadyMode)
+                        },
+                        ["description"] = "固定后延时小于等于0时使用的延时变量"
+                    };
+                    string[] singleTargetModes = { WaitProc.StateJumpMode, WaitProc.GetStateMode };
+                    ((JObject)contract["fieldRules"])[nameof(WaitProc.TargetProcName)] = new JObject
+                    {
+                        ["visibleWhen"] = new JObject
+                        {
+                            [nameof(WaitProc.WorkMode)] = new JArray(singleTargetModes)
+                        },
+                        ["requiredAnyForRun"] = new JArray(nameof(WaitProc.TargetProcName), nameof(WaitProc.TargetProcValue)),
+                        ["description"] = "单一目标流程名称；与目标流程变量至少配置一个，名称优先"
+                    };
+                    ((JObject)contract["fieldRules"])[nameof(WaitProc.TargetProcValue)] = new JObject
+                    {
+                        ["visibleWhen"] = new JObject
+                        {
+                            [nameof(WaitProc.WorkMode)] = new JArray(singleTargetModes)
+                        },
+                        ["requiredAnyForRun"] = new JArray(nameof(WaitProc.TargetProcName), nameof(WaitProc.TargetProcValue)),
+                        ["description"] = "单一目标流程名称来源变量；变量类型必须是string"
+                    };
+                    AddConditionalGotoRule((JObject)contract["fieldRules"], nameof(WaitProc.ReadyGoto),
+                        nameof(WaitProc.WorkMode), new[] { WaitProc.StateJumpMode }, "目标自然完成并处于Ready时的跳转目标");
+                    AddConditionalGotoRule((JObject)contract["fieldRules"], nameof(WaitProc.AbnormalGoto),
+                        nameof(WaitProc.WorkMode), new[] { WaitProc.StateJumpMode }, "目标处于Alarming或Stopped时的跳转目标");
+                    AddConditionalGotoRule((JObject)contract["fieldRules"], nameof(WaitProc.RunningGoto),
+                        nameof(WaitProc.WorkMode), new[] { WaitProc.StateJumpMode }, "目标处于运行、暂停或过渡状态时的跳转目标");
+                    AddConditionalField(contract, nameof(WaitProc.StateVariableName), nameof(WaitProc.WorkMode),
+                        new[] { WaitProc.GetStateMode }, "状态输出变量；double写枚举数值，string写枚举名称");
+                    contract["constraints"] = new JArray(
+                        "三个工作模式互斥，非当前模式字段不会参与运行或持久化",
+                        "等待就绪模式的每个目标只允许选择运行或就绪，不允许把停止当作等待目标",
+                        "等待多个目标时每项可以选择不同状态，所有目标同时满足才完成",
+                        "状态跳转和获取状态使用一个单一目标，TargetProcName与TargetProcValue表达同一来源且名称优先",
+                        "状态跳转把Ready映射为就绪、Alarming/Stopped映射为异常，其余活动或过渡状态映射为运行中",
+                        "获取状态完整输出ProcRunState；double映射为Stopped=0、Paused=1、SingleStep=2、Running=3、Alarming=4、Pausing=5、Stopping=6、Ready=7，string为枚举英文名称");
+                    contract["failureModes"] = new JArray("目标流程不存在、模式字段不完整、变量类型不符、跳转无效、超时配置无效或等待超时时报警");
                     break;
 
                 case "CT探针":

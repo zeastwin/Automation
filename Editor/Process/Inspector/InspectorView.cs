@@ -52,7 +52,7 @@ namespace Automation
 
         public InspectorView()
         {
-            BackColor = UiPalette.Background;
+            BackColor = UiPalette.SurfaceStrong;
             DoubleBuffered = true;
 
             content.AutoScroll = true;

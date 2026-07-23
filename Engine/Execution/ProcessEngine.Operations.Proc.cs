@@ -97,8 +97,7 @@ namespace Automation
         }
         public bool RunWaitProc(ProcHandle evt, WaitProc waitProc)
         {
-            int timeOut;
-            if (waitProc == null || waitProc.Params == null || waitProc.Params.Count == 0)
+            if (waitProc == null)
             {
                 MarkAlarm(evt, "等待流程参数为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
@@ -109,7 +108,108 @@ namespace Automation
                 MarkAlarm(evt, "流程列表为空");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-            timeOut = waitProc.Timeout.TimeoutMs;
+            if (string.Equals(waitProc.WorkMode, WaitProc.WaitReadyMode, StringComparison.Ordinal)
+                && (waitProc.Params == null || waitProc.Params.Count == 0))
+            {
+                MarkAlarm(evt, "等待流程参数为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            WaitProcRuntimeBinding binding = waitProc.RuntimeBinding as WaitProcRuntimeBinding;
+            string bindError = null;
+            if (binding == null && (evt?.Proc == null
+                || !ProcessRuntimeBinder.TryBind(
+                    evt.Proc, evt.procNum, Context?.ValueStore, out bindError)))
+            {
+                MarkAlarm(evt, bindError ?? "等待流程运行计划未编译");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            binding = binding ?? waitProc.RuntimeBinding as WaitProcRuntimeBinding;
+            if (binding == null)
+            {
+                MarkAlarm(evt, "等待流程运行计划未编译");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+
+            if (string.Equals(waitProc.WorkMode, WaitProc.StateJumpMode, StringComparison.Ordinal))
+            {
+                ProcRunState actualState = GetWaitProcTargetState(
+                    evt, waitProc.TargetProcName, waitProc.TargetProcValue, procs);
+                RuntimeGotoTarget target;
+                switch (actualState)
+                {
+                    case ProcRunState.Ready:
+                        target = binding.ReadyTarget;
+                        break;
+                    case ProcRunState.Alarming:
+                    case ProcRunState.Stopped:
+                        target = binding.AbnormalTarget;
+                        break;
+                    case ProcRunState.Running:
+                    case ProcRunState.Paused:
+                    case ProcRunState.SingleStep:
+                    case ProcRunState.Pausing:
+                    case ProcRunState.Stopping:
+                        target = binding.RunningTarget;
+                        break;
+                    default:
+                        MarkAlarm(evt, $"目标流程状态无效:{actualState}");
+                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!target.TryApply(evt, out string gotoError))
+                {
+                    MarkAlarm(evt, gotoError);
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                evt.isGoto = true;
+                return true;
+            }
+
+            if (string.Equals(waitProc.WorkMode, WaitProc.GetStateMode, StringComparison.Ordinal))
+            {
+                ProcRunState actualState = GetWaitProcTargetState(
+                    evt, waitProc.TargetProcName, waitProc.TargetProcValue, procs);
+                if (!binding.StateOutput.TryResolveValue(
+                    Context.ValueStore, "流程状态变量", evt.procId,
+                    out DicValue output, out string resolveError))
+                {
+                    MarkAlarm(evt, resolveError);
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                object value;
+                if (string.Equals(output.Type, "double", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = (double)(int)actualState;
+                }
+                else if (string.Equals(output.Type, "string", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = actualState.ToString();
+                }
+                else
+                {
+                    MarkAlarm(evt, $"流程状态变量类型必须是double或string:{output.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                if (!Context.ValueStore.SetValueByIndexForProcess(
+                    output.Index, value, evt.procId, evt.GetOperationSource()))
+                {
+                    MarkAlarm(evt, $"写入流程状态变量失败:{output.Name}");
+                    throw CreateAlarmException(evt, evt?.alarmMsg);
+                }
+                return true;
+            }
+
+            if (!string.Equals(waitProc.WorkMode, WaitProc.WaitReadyMode, StringComparison.Ordinal))
+            {
+                MarkAlarm(evt, $"等待流程工作模式无效:{waitProc.WorkMode ?? "空"}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (waitProc.Timeout == null)
+            {
+                MarkAlarm(evt, "等待流程超时配置为空");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            int timeOut = waitProc.Timeout.TimeoutMs;
             if (timeOut <= 0 && !string.IsNullOrEmpty(waitProc.Timeout.TimeoutVariableName))
             {
                 timeOut = (int)Context.ValueStore.GetValueByNameForProcess(waitProc.Timeout.TimeoutVariableName, evt.procId).GetDValue();
@@ -137,31 +237,17 @@ namespace Automation
 
                 foreach (WaitProcParam procParam in waitProc.Params)
                 {
-                    Proc proc = null;
-                    if (!string.IsNullOrEmpty(procParam.ProcName))
-                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == procParam.ProcName);
-                    else if (!string.IsNullOrEmpty(procParam.ProcValue))
+                    if (procParam == null
+                        || procParam.TargetState != "运行" && procParam.TargetState != "就绪")
                     {
-                        proc = procs.FirstOrDefault(sc => sc.head.Name.ToString() == Context.ValueStore.GetValueByNameForProcess(procParam.ProcValue, evt.procId).GetCValue());
-                    }
-                    if (proc == null)
-                    {
-                        MarkAlarm(evt, "找不到流程");
+                        MarkAlarm(evt, "等待流程只允许等待运行或就绪状态");
                         throw CreateAlarmException(evt, evt?.alarmMsg);
                     }
-                    int index = procs.IndexOf(proc);
-                    if (index < 0)
-                    {
-                        MarkAlarm(evt, "流程索引无效");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    ProcRunState actualState = GetProcState(index);
+                    ProcRunState actualState = GetWaitProcTargetState(
+                        evt, procParam.ProcName, procParam.ProcValue, procs);
                     bool matched = procParam.TargetState == "运行"
                         ? actualState == ProcRunState.Running
-                        : procParam.TargetState == "就绪"
-                            ? actualState == ProcRunState.Ready
-                            : procParam.TargetState == "停止"
-                                && actualState == ProcRunState.Stopped;
+                        : actualState == ProcRunState.Ready;
                     if (!matched)
                     {
                         isWaitOff = false;
@@ -176,6 +262,36 @@ namespace Automation
             }
             Delay(DelayAfter, evt);
             return true;
+        }
+
+        private ProcRunState GetWaitProcTargetState(
+            ProcHandle evt, string procName, string procValue, IList<Proc> procs)
+        {
+            Proc proc = null;
+            if (!string.IsNullOrEmpty(procName))
+            {
+                proc = procs.FirstOrDefault(sc => sc?.head != null
+                    && string.Equals(sc.head.Name, procName, StringComparison.Ordinal));
+            }
+            else if (!string.IsNullOrEmpty(procValue))
+            {
+                string dynamicProcName = Context.ValueStore
+                    .GetValueByNameForProcess(procValue, evt.procId).GetCValue();
+                proc = procs.FirstOrDefault(sc => sc?.head != null
+                    && string.Equals(sc.head.Name, dynamicProcName, StringComparison.Ordinal));
+            }
+            if (proc == null)
+            {
+                MarkAlarm(evt, "找不到流程");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            int index = procs.IndexOf(proc);
+            if (index < 0)
+            {
+                MarkAlarm(evt, "流程索引无效");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            return GetProcState(index);
         }
         public bool RunGoto(ProcHandle evt, Goto gotoParam)
         {

@@ -1164,9 +1164,9 @@ namespace Automation
         {
             public string Kind => "process.wait";
             public string DefaultName => "等待流程状态";
-            public JObject BuildContract() => Contract("等待一个流程进入运行或停止状态，超时报警",
+            public JObject BuildContract() => Contract("等待一个流程进入运行或就绪状态，超时报警",
                 new[] { "kind" }, new[] { "name", "process", "expectedState", "timeoutMs", "afterMs" },
-                new JProperty("states", new JArray("running", "stopped")),
+                new JProperty("states", new JArray("running", "ready")),
                 new JProperty("runRequired", new JArray("process", "expectedState", "timeoutMs")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -1175,9 +1175,9 @@ namespace Automation
                 string state = definition.ExpectedState?.Trim() ?? string.Empty;
                 string platformState = string.Empty;
                 if (state == "running") platformState = "运行";
-                else if (state == "stopped") platformState = "停止";
+                else if (state == "ready") platformState = "就绪";
                 else if (state.Length > 0)
-                    throw new InvalidOperationException("process.wait.expectedState 只能是 running 或 stopped。");
+                    throw new InvalidOperationException("process.wait.expectedState 只能是 running 或 ready。");
                 if (definition.TimeoutMs.HasValue && (definition.TimeoutMs.Value < 1
                     || definition.TimeoutMs.Value > 86400000))
                 {
@@ -1190,6 +1190,7 @@ namespace Automation
                 }
                 return new WaitProc
                 {
+                    WorkMode = WaitProc.WaitReadyMode,
                     DelayAfterMs = after,
                     Timeout = new TimeoutSetting { TimeoutMs = definition.TimeoutMs ?? 0 },
                     Params = new CustomList<WaitProcParam>

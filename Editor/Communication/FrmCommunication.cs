@@ -177,13 +177,14 @@ namespace Automation
             logFlushTimer.Interval = 100;
             logFlushTimer.Tick -= LogFlushTimer_Tick;
             logFlushTimer.Tick += LogFlushTimer_Tick;
-            logFlushTimer.Start();
+            UpdateUiTimerState();
             UpdateOnlineState();
         }
 
         private void FrmCommunication_VisibleChanged(object sender, EventArgs e)
         {
             UpdateLogSubscription();
+            UpdateUiTimerState();
             if (!Visible)
             {
                 while (pendingUiLogs.TryDequeue(out _))
@@ -212,7 +213,22 @@ namespace Automation
             stateTimer.Interval = 1000;
             stateTimer.Tick -= StateTimer_Tick;
             stateTimer.Tick += StateTimer_Tick;
-            stateTimer.Start();
+        }
+
+        private void UpdateUiTimerState()
+        {
+            bool shouldRun = Visible && !IsDisposed && !Disposing
+                && WindowState != FormWindowState.Minimized;
+            if (shouldRun)
+            {
+                stateTimer.Start();
+                logFlushTimer.Start();
+            }
+            else
+            {
+                stateTimer.Stop();
+                logFlushTimer.Stop();
+            }
         }
 
         private void StateTimer_Tick(object sender, EventArgs e)
@@ -313,6 +329,11 @@ namespace Automation
                 Interlocked.Decrement(ref pendingUiLogCount);
                 AppendCommLog(entry);
                 count++;
+            }
+            if (count > 0 && ReceiveTextBox != null && !ReceiveTextBox.IsDisposed)
+            {
+                ReceiveTextBox.Select(ReceiveTextBox.TextLength, 0);
+                ReceiveTextBox.ScrollToCaret();
             }
         }
 
@@ -448,7 +469,6 @@ namespace Automation
             int length = str.Length;
             ReceiveTextBox.Select(startindex, length);
             ReceiveTextBox.SelectionBackColor = color;
-            ReceiveTextBox.ScrollToCaret();
         }
 
         private void FrmCommunication_FormClosing(object sender, FormClosingEventArgs e)
@@ -525,33 +545,53 @@ namespace Automation
 
         public void RefleshSocketDgv()
         {
-            dataGridView1.Rows.Clear();
-            for (int i = 0; i < socketInfos.Count; i++)
+            dataGridView1.SuspendLayout();
+            try
             {
-                SocketInfo cache = socketInfos[i];
-                if (cache == null)
+                dataGridView1.Rows.Clear();
+                if (socketInfos.Count > 0)
                 {
-                    continue;
+                    dataGridView1.Rows.Add(socketInfos.Count);
                 }
-
-                dataGridView1.Rows.Add();
-                ApplySocketInfoToRow(i, cache);
+                for (int i = 0; i < socketInfos.Count; i++)
+                {
+                    SocketInfo cache = socketInfos[i];
+                    if (cache == null)
+                    {
+                        continue;
+                    }
+                    ApplySocketInfoToRow(i, cache);
+                }
+            }
+            finally
+            {
+                dataGridView1.ResumeLayout();
             }
         }
 
         public void RefleshSerialPortDgv()
         {
-            dataGridView2.Rows.Clear();
-            for (int i = 0; i < serialPortInfos.Count; i++)
+            dataGridView2.SuspendLayout();
+            try
             {
-                SerialPortInfo cache = serialPortInfos[i];
-                if (cache == null)
+                dataGridView2.Rows.Clear();
+                if (serialPortInfos.Count > 0)
                 {
-                    continue;
+                    dataGridView2.Rows.Add(serialPortInfos.Count);
                 }
-
-                dataGridView2.Rows.Add();
-                ApplySerialInfoToRow(i, cache);
+                for (int i = 0; i < serialPortInfos.Count; i++)
+                {
+                    SerialPortInfo cache = serialPortInfos[i];
+                    if (cache == null)
+                    {
+                        continue;
+                    }
+                    ApplySerialInfoToRow(i, cache);
+                }
+            }
+            finally
+            {
+                dataGridView2.ResumeLayout();
             }
         }
 
