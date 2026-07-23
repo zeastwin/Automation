@@ -143,9 +143,11 @@ namespace Automation
         internal void MarkPositionChanged()
         {
             long current = PackPosition(stepNum, opsNum);
-            long previous = Interlocked.Exchange(ref observedPosition, current);
-            if (previous != current)
+            // 位置只由当前流程工作线程推进；快照线程只读取 revision。
+            // 先走单写者普通比较，避免位置未变化的自跳转每条指令都执行原子交换。
+            if (observedPosition != current)
             {
+                observedPosition = current;
                 Interlocked.Increment(ref positionRevision);
             }
         }

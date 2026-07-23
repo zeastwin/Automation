@@ -1509,7 +1509,7 @@ namespace Automation
             PublishHandleSnapshot(evt);
             while (true)
             {
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested)
                 {
                     break;
                 }
@@ -1549,7 +1549,7 @@ namespace Automation
                 {
                     break;
                 }
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested)
                 {
                     break;
                 }
@@ -1591,7 +1591,7 @@ namespace Automation
             }
             while (true)
             {
-                if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                if (control.IsStopRequested)
                 {
                     return false;
                 }
@@ -1645,7 +1645,7 @@ namespace Automation
                 }
                 while (evt.opsNum < step.Ops.Count)
                 {
-                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    if (control.IsStopRequested)
                     {
                         return false;
                     }
@@ -1719,19 +1719,24 @@ namespace Automation
                         evt.State = ProcRunState.Paused;
                         PublishHandleSnapshot(evt);
                     }
-                    control.WaitForRun();
-                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    if (!control.IsRunGateOpen)
                     {
-                        return false;
+                        control.WaitForRun();
+                        if (control.IsStopRequested)
+                        {
+                            return false;
+                        }
                     }
                     bool singleStepExecution = evt.State == ProcRunState.SingleStep;
+                    bool stepWakeConsumed = false;
                     if (singleStepExecution)
                     {
                         // SingleStep 快照始终表示下一条尚未执行的有效指令。
                         // 位置推进、跨步骤和禁用项跳过完成后，只在真正等待单步信号的位置发布停留态。
                         PublishHandleSnapshot(evt);
                         control.WaitForStep();
-                        if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                        stepWakeConsumed = true;
+                        if (control.IsStopRequested)
                         {
                             return false;
                         }
@@ -1749,30 +1754,25 @@ namespace Automation
                         // ResumeInternal 已将状态改为 Running，此时不应再切回 SingleStep。
                         singleStepExecution = evt.State == ProcRunState.SingleStep;
                     }
-                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    if (singleStepExecution)
                     {
-                        return false;
-                    }
-                        if (singleStepExecution)
-                        {
-                            evt.State = ProcRunState.Running;
-                            PublishHandleSnapshot(evt);
-                        }
-                        control.CompleteStepWake();
-                        if (evt.isBreakpoint)
-                        {
-                        evt.isBreakpoint = false;
+                        evt.State = ProcRunState.Running;
                         PublishHandleSnapshot(evt);
                     }
-                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    if (stepWakeConsumed)
                     {
-                        return false;
+                        control.CompleteStepWake();
+                    }
+                    if (evt.isBreakpoint)
+                    {
+                        evt.isBreakpoint = false;
+                        PublishHandleSnapshot(evt);
                     }
                     if (!HandlePauseSignal(evt, control))
                     {
                         return false;
                     }
-                    if (control.IsStopRequested || evt.CancellationToken.IsCancellationRequested)
+                    if (control.IsStopRequested)
                     {
                         return false;
                     }
@@ -2863,6 +2863,7 @@ namespace Automation
 
         public bool IsStopRequested => stopCts.IsCancellationRequested;
         public CancellationToken CancellationToken => stopCts.Token;
+        public bool IsRunGateOpen => runGate.IsSet;
 
         public void SetRunning()
         {
@@ -3023,6 +3024,12 @@ namespace Automation
 
         public void WaitForRun()
         {
+            // ManualResetEventSlim.Wait(token) 即使闸门已打开也会经过取消令牌等待路径。
+            // IsSet 是无分配的易失读取；暂停与该读取之间仍保持与 Wait 原有快路径相同的竞态边界。
+            if (runGate.IsSet)
+            {
+                return;
+            }
             try
             {
                 runGate.Wait(stopCts.Token);

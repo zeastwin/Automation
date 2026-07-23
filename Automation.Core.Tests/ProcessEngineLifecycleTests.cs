@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Automation.Core.Tests
@@ -254,6 +255,95 @@ namespace Automation.Core.Tests
 
                 Assert.IsTrue(control.RequestStep());
             }
+        }
+
+        [TestMethod]
+        public void WaitForRun_WhenGateChanges_PreservesRunningAndPausedSemantics()
+        {
+            using (var control = new ProcessControl())
+            using (var waitStarted = new ManualResetEventSlim(false))
+            using (var waitCompleted = new ManualResetEventSlim(false))
+            {
+                control.SetRunning();
+                Assert.IsTrue(control.IsRunGateOpen);
+                control.WaitForRun();
+
+                control.SetPaused();
+                Assert.IsFalse(control.IsRunGateOpen);
+                Task waitTask = Task.Run(() =>
+                {
+                    waitStarted.Set();
+                    control.WaitForRun();
+                    waitCompleted.Set();
+                });
+
+                Assert.IsTrue(waitStarted.Wait(TimeSpan.FromSeconds(1)));
+                Assert.IsFalse(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)),
+                    "暂停闸门关闭后，工作线程不得穿透等待。");
+
+                control.SetRunning();
+                Assert.IsTrue(waitCompleted.Wait(TimeSpan.FromSeconds(1)),
+                    "继续运行后，等待中的工作线程应立即恢复。");
+                Assert.IsTrue(waitTask.Wait(TimeSpan.FromSeconds(1)));
+            }
+        }
+
+        [TestMethod]
+        public void RunningSelfGoto_WhenPausedAndResumed_RemainsControllable()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("持续运行",
+                        new Goto
+                        {
+                            Id = Guid.NewGuid(),
+                            Name = "自跳转",
+                            DefaultGoto = "0-0-0"
+                        }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsTrue(engine.StartProc(process, 0));
+                    WaitForState(engine, ProcRunState.Running, TimeSpan.FromSeconds(3));
+
+                    engine.Pause(0);
+                    WaitForState(engine, ProcRunState.Paused, TimeSpan.FromSeconds(3));
+                    Thread.Sleep(100);
+                    Assert.AreEqual(ProcRunState.Paused, engine.GetSnapshot(0).State);
+
+                    engine.Resume(0);
+                    WaitForState(engine, ProcRunState.Running, TimeSpan.FromSeconds(3));
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void PositionTracking_WhenPositionIsUnchanged_DoesNotPublishNewRevision()
+        {
+            var handle = new ProcHandle
+            {
+                stepNum = 1,
+                opsNum = 2
+            };
+            handle.InitializePositionTracking();
+
+            handle.MarkPositionChanged();
+            Assert.IsFalse(handle.HasUnpublishedPosition);
+
+            handle.opsNum = 3;
+            handle.MarkPositionChanged();
+            Assert.IsTrue(handle.HasUnpublishedPosition);
+            long revision = handle.CapturePositionRevision();
+            handle.MarkPositionSnapshotPublished(revision);
+            Assert.IsFalse(handle.HasUnpublishedPosition);
+
+            handle.MarkPositionChanged();
+            Assert.IsFalse(handle.HasUnpublishedPosition);
         }
 
         private static ProcessEngine CreateEngine(PlatformRuntime runtime, Proc process)
