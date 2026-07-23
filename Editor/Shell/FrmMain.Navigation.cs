@@ -436,6 +436,22 @@ namespace Automation
             }
         }
 
+        internal void PrewarmProcessFlowGraphs()
+        {
+            if (frmProcessFlow != null && !frmProcessFlow.IsDisposed)
+            {
+                frmProcessFlow.PrewarmProcessGraphs();
+            }
+        }
+
+        internal void PrewarmProcessFlowGraph(int procIndex)
+        {
+            if (frmProcessFlow != null && !frmProcessFlow.IsDisposed)
+            {
+                frmProcessFlow.PrewarmProcessGraph(procIndex);
+            }
+        }
+
         public void ShowDataBreakpoints()
         {
             if (frmDataBreakpoints == null || frmDataBreakpoints.IsDisposed)

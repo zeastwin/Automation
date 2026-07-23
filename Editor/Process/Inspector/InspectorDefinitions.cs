@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -352,6 +353,26 @@ namespace Automation
     internal static class InspectorDefinitionBuilder
     {
         private const int MaxDepth = 8;
+        private static readonly ConcurrentDictionary<Type, PropertyDescriptor[]> DescriptorCache =
+            new ConcurrentDictionary<Type, PropertyDescriptor[]>();
+        private static readonly ConcurrentDictionary<string, JObject> FieldRuleCache =
+            new ConcurrentDictionary<string, JObject>(StringComparer.Ordinal);
+
+        internal static void Prewarm(IEnumerable<object> instances)
+        {
+            foreach (object instance in instances ?? Enumerable.Empty<object>())
+            {
+                if (instance == null)
+                {
+                    continue;
+                }
+                GetPropertyDescriptors(instance);
+                if (instance is OperationType operation)
+                {
+                    GetFieldRules(operation);
+                }
+            }
+        }
 
         public static InspectorDocument Build(object instance)
         {
@@ -419,10 +440,9 @@ namespace Automation
             {
                 return;
             }
-            PropertyDescriptorCollection descriptors = TypeDescriptor.GetProperties(instance);
             var leaves = new List<Tuple<PropertyDescriptor, string, string>>();
 
-            foreach (PropertyDescriptor descriptor in descriptors.Cast<PropertyDescriptor>())
+            foreach (PropertyDescriptor descriptor in GetPropertyDescriptors(instance))
             {
                 if (!IsVisible(instance, descriptor))
                 {
@@ -752,7 +772,7 @@ namespace Automation
             JObject fieldRules = null;
             if (instance is OperationType operation)
             {
-                fieldRules = OperationBehaviorCatalog.BuildContract(operation)?["fieldRules"] as JObject;
+                fieldRules = GetFieldRules(operation);
             }
 
             foreach (InspectorSectionDefinition section in sections)
@@ -989,6 +1009,43 @@ namespace Automation
         private static bool IsCollection(Type type)
         {
             return type != typeof(string) && typeof(IList).IsAssignableFrom(type);
+        }
+
+        private static PropertyDescriptor[] GetPropertyDescriptors(object instance)
+        {
+            if (instance == null)
+            {
+                return Array.Empty<PropertyDescriptor>();
+            }
+            if (instance is ICustomTypeDescriptor)
+            {
+                return TypeDescriptor.GetProperties(instance)
+                    .Cast<PropertyDescriptor>()
+                    .ToArray();
+            }
+            return DescriptorCache.GetOrAdd(
+                instance.GetType(),
+                type => TypeDescriptor.GetProperties(type)
+                    .Cast<PropertyDescriptor>()
+                    .ToArray());
+        }
+
+        private static JObject GetFieldRules(OperationType operation)
+        {
+            if (operation == null)
+            {
+                return null;
+            }
+            string key = operation.OperaType ?? operation.GetType().FullName;
+            return FieldRuleCache.GetOrAdd(
+                key ?? string.Empty,
+                ignored =>
+                {
+                    JObject contract = OperationBehaviorCatalog.BuildContract(operation);
+                    return contract?["fieldRules"] is JObject rules
+                        ? (JObject)rules.DeepClone()
+                        : new JObject();
+                });
         }
 
         private static string GetPresentationCategory(

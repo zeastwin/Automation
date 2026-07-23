@@ -20,7 +20,7 @@ namespace Automation
         private Dictionary<string, IO> outputs = new Dictionary<string, IO>(StringComparer.Ordinal);
         private HashSet<string> duplicateInputs = new HashSet<string>(StringComparer.Ordinal);
         private HashSet<string> duplicateOutputs = new HashSet<string>(StringComparer.Ordinal);
-        private int catalogHash;
+        private long catalogVersion = -1;
 
         public IoDebugMonitorService(PlatformRuntime runtime)
         {
@@ -211,6 +211,14 @@ namespace Automation
 
         public void RefreshCatalog()
         {
+            long version = runtime.Stores.IoConfiguration.Version;
+            lock (catalogLock)
+            {
+                if (catalogVersion == version)
+                {
+                    return;
+                }
+            }
             List<List<IO>> map = runtime.Stores.IoConfiguration.Map;
             IO[] snapshot;
             try
@@ -226,21 +234,9 @@ namespace Automation
                 return;
             }
 
-            int hash = 17;
-            StringComparer comparer = StringComparer.Ordinal;
-            foreach (IO item in snapshot)
-            {
-                if (item == null) continue;
-                hash = hash * 31 + comparer.GetHashCode(item.Name ?? string.Empty);
-                hash = hash * 31 + comparer.GetHashCode(item.IOType ?? string.Empty);
-                hash = hash * 31 + item.CardNum.GetHashCode();
-                hash = hash * 31 + item.Module.GetHashCode();
-                hash = hash * 31 + comparer.GetHashCode(item.IOIndex ?? string.Empty);
-            }
-
             lock (catalogLock)
             {
-                if (hash == catalogHash)
+                if (catalogVersion == version)
                 {
                     return;
                 }
@@ -252,7 +248,7 @@ namespace Automation
                 outputs = nextOutputs;
                 duplicateInputs = nextDuplicateInputs;
                 duplicateOutputs = nextDuplicateOutputs;
-                catalogHash = hash;
+                catalogVersion = version;
             }
         }
 

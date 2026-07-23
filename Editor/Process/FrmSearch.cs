@@ -23,6 +23,10 @@ namespace Automation
     {
         private CancellationTokenSource _searchCts;
         private readonly Label statusLabel = new Label();
+        private readonly object searchIndexLock = new object();
+        private readonly SemaphoreSlim searchIndexBuildGate = new SemaphoreSlim(1, 1);
+        private readonly Dictionary<string, CachedSearchProcess> searchIndex =
+            new Dictionary<string, CachedSearchProcess>(StringComparer.Ordinal);
 
         public FrmSearch()
         {
@@ -66,46 +70,15 @@ namespace Automation
             CancellationTokenSource cts = new CancellationTokenSource();
             _searchCts = cts;
             btnSearch.Enabled = false;
-            statusLabel.Text = "正在生成搜索快照...";
+            statusLabel.Text = "正在准备搜索索引...";
 
             bool isExactMatch = checkBox1.Checked;
             StringComparison comparison = checkBox2.Checked ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-            List<SearchTarget> targets = new List<SearchTarget>();
-            for (int i = 0; i < Workspace.Proc.procsList.Count; i++)
-            {
-                Proc proc = Workspace.Proc.procsList[i];
-                if (proc?.steps == null)
-                {
-                    continue;
-                }
-                for (int j = 0; j < proc.steps.Count; j++)
-                {
-                    Step step = proc.steps[j];
-                    if (step?.Ops == null)
-                    {
-                        continue;
-                    }
-                    for (int k = 0; k < step.Ops.Count; k++)
-                    {
-                        OperationType operation = step.Ops[k];
-                        if (operation == null)
-                        {
-                            continue;
-                        }
-                        targets.Add(new SearchTarget
-                        {
-                            ProcIndex = i,
-                            StepIndex = j,
-                            OpIndex = k,
-                            Name = operation.Name ?? string.Empty,
-                            Fields = BuildSearchFields(operation)
-                        });
-                    }
-                }
-            }
 
             try
             {
+                List<SearchTarget> targets = await EnsureSearchIndexAsync(cts.Token);
+                statusLabel.Text = "正在匹配...";
                 List<SearchResult> results = await Task.Run(() =>
                 {
                     List<SearchResult> list = new List<SearchResult>();
@@ -305,6 +278,143 @@ namespace Automation
             return fields;
         }
 
+        internal async void PrewarmIndex()
+        {
+            try
+            {
+                await EnsureSearchIndexAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                    $"流程搜索索引预热失败:{ex}",
+                    LogLevel.Error);
+            }
+        }
+
+        private async Task<List<SearchTarget>> EnsureSearchIndexAsync(
+            CancellationToken cancellationToken)
+        {
+            await searchIndexBuildGate.WaitAsync(cancellationToken);
+            try
+            {
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    long capturedVersion = Workspace.Runtime.Stores.Processes.Version;
+                    var order = new List<string>();
+                    var requests = new List<SearchProcessBuildRequest>();
+                    for (int procIndex = 0;
+                        procIndex < Workspace.Runtime.Stores.Processes.Items.Count;
+                        procIndex++)
+                    {
+                        Proc process = Workspace.Runtime.Stores.Processes.Items[procIndex];
+                        Guid processId = process?.head?.Id ?? Guid.Empty;
+                        string key = processId == Guid.Empty
+                            ? "index:" + procIndex
+                            : processId.ToString("N");
+                        long revision = Workspace.Runtime.Stores.Processes.GetRevision(processId);
+                        order.Add(key);
+                        bool rebuild;
+                        lock (searchIndexLock)
+                        {
+                            rebuild = !searchIndex.TryGetValue(
+                                key,
+                                out CachedSearchProcess cached)
+                                || cached.Revision != revision
+                                || cached.ProcIndex != procIndex;
+                        }
+                        if (rebuild)
+                        {
+                            requests.Add(new SearchProcessBuildRequest
+                            {
+                                Key = key,
+                                ProcIndex = procIndex,
+                                Revision = revision,
+                                Process = ObjectGraphCloner.Clone(process)
+                            });
+                        }
+                    }
+
+                    if (requests.Count > 0)
+                    {
+                        List<CachedSearchProcess> rebuilt = await Task.Run(
+                            () => requests.Select(BuildSearchProcess).ToList(),
+                            cancellationToken);
+                        lock (searchIndexLock)
+                        {
+                            foreach (CachedSearchProcess item in rebuilt)
+                            {
+                                searchIndex[item.Key] = item;
+                            }
+                        }
+                    }
+
+                    if (capturedVersion != Workspace.Runtime.Stores.Processes.Version)
+                    {
+                        continue;
+                    }
+
+                    lock (searchIndexLock)
+                    {
+                        var activeKeys = new HashSet<string>(order, StringComparer.Ordinal);
+                        foreach (string staleKey in searchIndex.Keys
+                            .Where(key => !activeKeys.Contains(key))
+                            .ToList())
+                        {
+                            searchIndex.Remove(staleKey);
+                        }
+                        return order
+                            .Where(key => searchIndex.ContainsKey(key))
+                            .SelectMany(key => searchIndex[key].Targets)
+                            .ToList();
+                    }
+                }
+            }
+            finally
+            {
+                searchIndexBuildGate.Release();
+            }
+        }
+
+        private static CachedSearchProcess BuildSearchProcess(
+            SearchProcessBuildRequest request)
+        {
+            var targets = new List<SearchTarget>();
+            Proc process = request.Process;
+            for (int stepIndex = 0;
+                stepIndex < (process?.steps?.Count ?? 0);
+                stepIndex++)
+            {
+                Step step = process.steps[stepIndex];
+                for (int operationIndex = 0;
+                    operationIndex < (step?.Ops?.Count ?? 0);
+                    operationIndex++)
+                {
+                    OperationType operation = step.Ops[operationIndex];
+                    if (operation == null)
+                    {
+                        continue;
+                    }
+                    targets.Add(new SearchTarget
+                    {
+                        ProcIndex = request.ProcIndex,
+                        StepIndex = stepIndex,
+                        OpIndex = operationIndex,
+                        Name = operation.Name ?? string.Empty,
+                        Fields = BuildSearchFields(operation)
+                    });
+                }
+            }
+            return new CachedSearchProcess
+            {
+                Key = request.Key,
+                ProcIndex = request.ProcIndex,
+                Revision = request.Revision,
+                Targets = targets
+            };
+        }
+
         private static string TrimDisplayValue(string value)
         {
             const int maxLength = 80;
@@ -319,6 +429,22 @@ namespace Automation
             public int OpIndex { get; set; }
             public string Name { get; set; }
             public List<SearchField> Fields { get; set; }
+        }
+
+        private sealed class SearchProcessBuildRequest
+        {
+            public string Key { get; set; }
+            public int ProcIndex { get; set; }
+            public long Revision { get; set; }
+            public Proc Process { get; set; }
+        }
+
+        private sealed class CachedSearchProcess
+        {
+            public string Key { get; set; }
+            public int ProcIndex { get; set; }
+            public long Revision { get; set; }
+            public List<SearchTarget> Targets { get; set; }
         }
 
         private class SearchField

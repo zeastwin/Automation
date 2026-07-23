@@ -37,8 +37,18 @@ namespace Automation
         private int buildGeneration;
         private int runtimePushScheduled;
         private CancellationTokenSource buildCancellation;
+        private readonly Dictionary<string, CachedGraphSnapshot> graphCache =
+            new Dictionary<string, CachedGraphSnapshot>(StringComparer.Ordinal);
+        private Task webInitializationTask;
+        private int prewarmGeneration;
         private bool pageReady;
         private bool webAvailable = true;
+
+        private sealed class CachedGraphSnapshot
+        {
+            public long Revision { get; set; }
+            public ProcessFlowGraphSnapshot Snapshot { get; set; }
+        }
 
         public FrmProcessFlow(FrmMain owner)
         {
@@ -129,10 +139,21 @@ namespace Automation
             RefreshCurrentGraph();
         }
 
-        public async void RefreshCurrentGraph()
+        public async void RefreshCurrentGraph(bool force = false)
         {
             if (IsDisposed)
             {
+                return;
+            }
+            int? procIndex = currentProcIndex;
+            string cacheKey = BuildGraphCacheKey(procIndex);
+            long revision = GetGraphRevision(procIndex);
+            if (!force
+                && graphCache.TryGetValue(cacheKey, out CachedGraphSnapshot cached)
+                && cached.Revision == revision)
+            {
+                snapshot = cached.Snapshot;
+                PushGraphState();
                 return;
             }
             int generation = Interlocked.Increment(ref buildGeneration);
@@ -142,13 +163,15 @@ namespace Automation
             CancellationToken token = buildCancellation.Token;
             List<Proc> processes = owner.frmProc.procsList.Select(ObjectGraphCloner.Clone).ToList();
             ProcessDefinitionValidationContext validationContext = owner.Runtime.CreateProcessValidationContext();
-            int? procIndex = currentProcIndex;
             var runtimes = owner.dataRun.GetSnapshots().ToDictionary(item => item.ProcIndex);
-            PostMessage(new JObject
+            if (snapshot == null)
             {
-                ["type"] = "loading",
-                ["scope"] = procIndex.HasValue ? "process" : "project"
-            });
+                PostMessage(new JObject
+                {
+                    ["type"] = "loading",
+                    ["scope"] = procIndex.HasValue ? "process" : "project"
+                });
+            }
             try
             {
                 ProcessFlowGraphSnapshot built = await Task.Run(() =>
@@ -166,6 +189,23 @@ namespace Automation
                     return;
                 }
                 snapshot = built;
+                graphCache[cacheKey] = new CachedGraphSnapshot
+                {
+                    Revision = revision,
+                    Snapshot = built
+                };
+                if (graphCache.Count > 32)
+                {
+                    string staleKey = graphCache.Keys
+                        .FirstOrDefault(key => !string.Equals(
+                            key,
+                            cacheKey,
+                            StringComparison.Ordinal));
+                    if (staleKey != null)
+                    {
+                        graphCache.Remove(staleKey);
+                    }
+                }
                 PushGraphState();
             }
             catch (OperationCanceledException)
@@ -179,9 +219,139 @@ namespace Automation
 
         private async void FrmProcessFlow_Load(object sender, EventArgs e)
         {
+            await EnsureWebViewInitializedAsync();
+        }
+
+        internal void Prewarm()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            CreateControl();
+            webView.CreateControl();
+            _ = EnsureWebViewInitializedAsync();
+            RefreshCurrentGraph();
+            PrewarmProcessGraphs();
+        }
+
+        internal async void PrewarmProcessGraphs()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            int generation = Interlocked.Increment(ref prewarmGeneration);
+            long repositoryVersion = owner.Runtime.Stores.Processes.Version;
+            List<Proc> processes = owner.Runtime.Stores.Processes.CreateSnapshot();
+            var revisions = processes.Select(process =>
+            {
+                Guid id = process?.head?.Id ?? Guid.Empty;
+                return owner.Runtime.Stores.Processes.GetRevision(id);
+            }).ToArray();
+            try
+            {
+                List<ProcessFlowGraphSnapshot> built = await Task.Run(() =>
+                {
+                    var result = new List<ProcessFlowGraphSnapshot>(processes.Count);
+                    for (int index = 0; index < processes.Count; index++)
+                    {
+                        result.Add(ProcessFlowGraphService.BuildProcess(
+                            processes,
+                            index,
+                            null));
+                    }
+                    return result;
+                });
+                if (generation != prewarmGeneration
+                    || repositoryVersion != owner.Runtime.Stores.Processes.Version
+                    || IsDisposed)
+                {
+                    return;
+                }
+                for (int index = 0; index < built.Count; index++)
+                {
+                    Guid id = processes[index]?.head?.Id ?? Guid.Empty;
+                    string key = id == Guid.Empty
+                        ? "process-index:" + index
+                        : "process:" + id.ToString("N");
+                    graphCache[key] = new CachedGraphSnapshot
+                    {
+                        Revision = revisions[index],
+                        Snapshot = built[index]
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                owner.dataRun?.Logger?.Log(
+                    $"流程图缓存预热失败:{ex}",
+                    LogLevel.Error);
+            }
+        }
+
+        internal async void PrewarmProcessGraph(int procIndex)
+        {
+            if (IsDisposed || Disposing
+                || procIndex < 0
+                || procIndex >= owner.Runtime.Stores.Processes.Items.Count)
+            {
+                return;
+            }
+            Proc process = ObjectGraphCloner.Clone(
+                owner.Runtime.Stores.Processes.Items[procIndex]);
+            Guid id = process?.head?.Id ?? Guid.Empty;
+            long revision = owner.Runtime.Stores.Processes.GetRevision(id);
+            var processes = new List<Proc>(
+                Enumerable.Repeat<Proc>(null, procIndex + 1));
+            processes[procIndex] = process;
+            try
+            {
+                ProcessFlowGraphSnapshot built = await Task.Run(() =>
+                    ProcessFlowGraphService.BuildProcess(
+                        processes,
+                        procIndex,
+                        null));
+                if (IsDisposed
+                    || revision != owner.Runtime.Stores.Processes.GetRevision(id))
+                {
+                    return;
+                }
+                string key = id == Guid.Empty
+                    ? "process-index:" + procIndex
+                    : "process:" + id.ToString("N");
+                graphCache[key] = new CachedGraphSnapshot
+                {
+                    Revision = revision,
+                    Snapshot = built
+                };
+            }
+            catch (Exception ex)
+            {
+                owner.dataRun?.Logger?.Log(
+                    $"流程图局部缓存预热失败:{ex}",
+                    LogLevel.Error);
+            }
+        }
+
+        private Task EnsureWebViewInitializedAsync()
+        {
+            if (webInitializationTask == null)
+            {
+                webInitializationTask = InitializeWebViewAsync();
+            }
+            return webInitializationTask;
+        }
+
+        private async Task InitializeWebViewAsync()
+        {
             try
             {
                 await webView.EnsureCoreWebView2Async();
+                if (coreWebView != null || IsDisposed)
+                {
+                    return;
+                }
                 coreWebView = webView.CoreWebView2;
                 coreWebView.Settings.AreDefaultContextMenusEnabled = false;
                 coreWebView.Settings.AreDevToolsEnabled = false;
@@ -193,6 +363,40 @@ namespace Automation
             {
                 DisableWebPage("流程图页面初始化失败：" + ex.Message, ex);
             }
+        }
+
+        private string BuildGraphCacheKey(int? procIndex)
+        {
+            if (!procIndex.HasValue)
+            {
+                return "project";
+            }
+            Proc process = procIndex.Value >= 0
+                && procIndex.Value < owner.Runtime.Stores.Processes.Items.Count
+                    ? owner.Runtime.Stores.Processes.Items[procIndex.Value]
+                    : null;
+            Guid id = process?.head?.Id ?? Guid.Empty;
+            return id == Guid.Empty
+                ? "process-index:" + procIndex.Value
+                : "process:" + id.ToString("N");
+        }
+
+        private long GetGraphRevision(int? procIndex)
+        {
+            if (!procIndex.HasValue)
+            {
+                unchecked
+                {
+                    return owner.Runtime.Stores.Processes.Version * 397
+                        ^ owner.Runtime.Stores.Values.ConfigurationVersion;
+                }
+            }
+            Proc process = procIndex.Value >= 0
+                && procIndex.Value < owner.Runtime.Stores.Processes.Items.Count
+                    ? owner.Runtime.Stores.Processes.Items[procIndex.Value]
+                    : null;
+            return owner.Runtime.Stores.Processes.GetRevision(
+                process?.head?.Id ?? Guid.Empty);
         }
 
         private void WebView_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -230,7 +434,7 @@ namespace Automation
                         PrepareAiPrompt();
                         break;
                     case "refresh":
-                        RefreshCurrentGraph();
+                        RefreshCurrentGraph(true);
                         break;
                 }
             }

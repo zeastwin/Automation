@@ -577,6 +577,39 @@ namespace Automation
             frmIODebug.RefleshIODebug();
             frmControl?.RefreshMotionControlAvailability();
             platformInitialized = true;
+            QueueEditorCachePrewarm();
+        }
+
+        private void QueueEditorCachePrewarm()
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+            BeginInvoke((Action)(() =>
+            {
+                if (IsDisposed || Disposing || !platformInitialized)
+                {
+                    return;
+                }
+                frmSearch?.PrewarmIndex();
+                if (!flowGraphUnavailable
+                    && (frmProcessFlow == null || frmProcessFlow.IsDisposed))
+                {
+                    try
+                    {
+                        frmProcessFlow = new FrmProcessFlow(this);
+                        frmProcessFlow.Prewarm();
+                    }
+                    catch (Exception ex)
+                    {
+                        flowGraphUnavailable = true;
+                        string message = "流程图预热失败，首次打开时将不可用：" + ex.Message;
+                        dataRun?.Logger?.Log(message, LogLevel.Error);
+                        frmInfo?.PrintInfo(message, FrmInfo.Level.Error);
+                    }
+                }
+            }));
         }
 
         private void UpdateProcText(EngineSnapshot snapshot)

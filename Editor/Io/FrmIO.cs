@@ -39,6 +39,7 @@ namespace Automation
         private long lastIoMonitorSnapshotUtcTicks;
         private bool ioMonitorStaleShown;
         private int displayedCardIndex = -1;
+        private long renderedConfigurationVersion = -1;
 
         private sealed class IoGridViewState
         {
@@ -105,6 +106,12 @@ namespace Automation
         }
 
         public bool IsIOMonitoring => ioMonitorEnabled;
+        internal bool IsDisplayingCard(int cardIndex)
+        {
+            return displayedCardIndex == cardIndex
+                && renderedConfigurationVersion == configurationStore.Version;
+        }
+
         public void RefleshIODic()
         {
             if (!configurationStore.TryRebuildIndex(out string error))
@@ -134,12 +141,21 @@ namespace Automation
             {
                 if (Workspace.Runtime.Stores.Cards.TryGetCardHead(cardIndex, out CardHead cardHead) && IOMap.Count > cardIndex)
                 {
+                    long configurationVersion = configurationStore.Version;
+                    if (displayedCardIndex == cardIndex
+                        && renderedConfigurationVersion == configurationVersion
+                        && dgvIO.Rows.Count == cardHead.InputCount + cardHead.OutputCount)
+                    {
+                        RefreshIoMonitorRequest();
+                        return;
+                    }
                     int inputCount = cardHead.InputCount;
                     int outputCount = cardHead.OutputCount;
 
                     List<IO> cacheIOs = IOMap[cardIndex];
 
                     WriteIODgv(inputCount, outputCount, cacheIOs);
+                    renderedConfigurationVersion = configurationVersion;
                     RefreshIoMonitorRequest();
                     return;
                 }
@@ -149,6 +165,7 @@ namespace Automation
                 dgvIO.Rows.Clear();
             }
             displayedCardIndex = -1;
+            renderedConfigurationVersion = configurationStore.Version;
             iSelectedIORow = -1;
         }
 
@@ -208,17 +225,19 @@ namespace Automation
                         row.Cells[1].ToolTipText = "IO配置为空";
                         continue;
                     }
-                    row.Cells[0].Value = cacheIO.Index;
-                    row.Cells[1].Value = cacheIO.Status ? validImage : invalidImage;
+                    SetCellValueIfChanged(row.Cells[0], cacheIO.Index);
+                    SetCellValueIfChanged(
+                        row.Cells[1],
+                        cacheIO.Status ? validImage : invalidImage);
                     row.Cells[1].ToolTipText = string.Empty;
-                    row.Cells[2].Value = cacheIO.Name;
-                    row.Cells[3].Value = cacheIO.CardNum;
-                    row.Cells[4].Value = cacheIO.Module;
-                    row.Cells[5].Value = cacheIO.IOIndex;
-                    row.Cells[6].Value = cacheIO.IOType;
-                    row.Cells[7].Value = cacheIO.UsedType;
-                    row.Cells[8].Value = cacheIO.EffectLevel;
-                    row.Cells[9].Value = cacheIO.Note;
+                    SetCellValueIfChanged(row.Cells[2], cacheIO.Name);
+                    SetCellValueIfChanged(row.Cells[3], cacheIO.CardNum);
+                    SetCellValueIfChanged(row.Cells[4], cacheIO.Module);
+                    SetCellValueIfChanged(row.Cells[5], cacheIO.IOIndex);
+                    SetCellValueIfChanged(row.Cells[6], cacheIO.IOType);
+                    SetCellValueIfChanged(row.Cells[7], cacheIO.UsedType);
+                    SetCellValueIfChanged(row.Cells[8], cacheIO.EffectLevel);
+                    SetCellValueIfChanged(row.Cells[9], cacheIO.Note);
                 }
             }
             finally
@@ -229,6 +248,16 @@ namespace Automation
             if (!RestoreIoGridViewState(viewState, cacheIOs))
             {
                 iSelectedIORow = dgvIO.CurrentCell?.RowIndex ?? -1;
+            }
+        }
+
+        private static void SetCellValueIfChanged(
+            DataGridViewCell cell,
+            object value)
+        {
+            if (!Equals(cell.Value, value))
+            {
+                cell.Value = value;
             }
         }
 

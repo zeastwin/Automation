@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Automation
 {
@@ -20,12 +21,15 @@ namespace Automation
         private readonly List<string> outputNames = new List<string>();
         private readonly List<string> inputNames = new List<string>();
         private readonly List<string> allNames = new List<string>();
+        private long version;
+        private int configurationFingerprint;
 
         public List<List<IO>> Map => map;
         public Dictionary<string, IO> ByName => byName;
         public List<string> OutputNames => outputNames;
         public List<string> InputNames => inputNames;
         public List<string> AllNames => allNames;
+        public long Version => Interlocked.Read(ref version);
 
         public bool Load(string configPath, out string error)
         {
@@ -107,6 +111,8 @@ namespace Automation
             map.Clear();
             map.AddRange(replacement);
             ReplaceIndex(nextByName, nextOutputs, nextInputs, nextAll);
+            configurationFingerprint = CalculateFingerprint(map);
+            Interlocked.Increment(ref version);
         }
 
         public bool TryRebuildIndex(out string error)
@@ -117,8 +123,48 @@ namespace Automation
             {
                 return false;
             }
+            int nextFingerprint = CalculateFingerprint(map);
             ReplaceIndex(nextByName, nextOutputs, nextInputs, nextAll);
+            if (nextFingerprint != configurationFingerprint)
+            {
+                configurationFingerprint = nextFingerprint;
+                Interlocked.Increment(ref version);
+            }
             return true;
+        }
+
+        private static int CalculateFingerprint(IEnumerable<List<IO>> source)
+        {
+            unchecked
+            {
+                int hash = 17;
+                foreach (List<IO> cardItems in source ?? Enumerable.Empty<List<IO>>())
+                {
+                    hash = hash * 31 + (cardItems?.Count ?? -1);
+                    if (cardItems == null)
+                    {
+                        continue;
+                    }
+                    foreach (IO item in cardItems)
+                    {
+                        if (item == null)
+                        {
+                            hash = hash * 31;
+                            continue;
+                        }
+                        hash = hash * 31 + item.Index;
+                        hash = hash * 31 + item.CardNum;
+                        hash = hash * 31 + item.Module;
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.Name ?? string.Empty);
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.IOIndex ?? string.Empty);
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.IOType ?? string.Empty);
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.UsedType ?? string.Empty);
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.EffectLevel ?? string.Empty);
+                        hash = hash * 31 + StringComparer.Ordinal.GetHashCode(item.Note ?? string.Empty);
+                    }
+                }
+                return hash;
+            }
         }
 
         private static bool TryBuildIndex(IReadOnlyCollection<List<IO>> source,

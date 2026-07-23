@@ -5,6 +5,7 @@ using System;
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace Automation
 {
@@ -15,8 +16,13 @@ namespace Automation
     public sealed class ProcessDefinitionRepository
     {
         private readonly List<Proc> items = new List<Proc>();
+        private readonly object revisionLock = new object();
+        private readonly Dictionary<Guid, long> revisions = new Dictionary<Guid, long>();
+        private long version;
+        private long revisionSequence;
 
         public List<Proc> Items => items;
+        public long Version => Interlocked.Read(ref version);
 
         public void ReplaceAll(IEnumerable<Proc> processes)
         {
@@ -27,6 +33,56 @@ namespace Automation
             List<Proc> replacement = processes.ToList();
             items.Clear();
             items.AddRange(replacement);
+            lock (revisionLock)
+            {
+                revisions.Clear();
+                foreach (Proc process in replacement)
+                {
+                    Guid id = process?.head?.Id ?? Guid.Empty;
+                    if (id != Guid.Empty)
+                    {
+                        revisions[id] = ++revisionSequence;
+                    }
+                }
+            }
+            Interlocked.Increment(ref version);
+        }
+
+        public void ReplaceAt(int index, Proc process)
+        {
+            if (index < 0 || index >= items.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+            Guid previousId = items[index]?.head?.Id ?? Guid.Empty;
+            items[index] = process;
+            Guid id = process?.head?.Id ?? Guid.Empty;
+            lock (revisionLock)
+            {
+                if (previousId != Guid.Empty && previousId != id)
+                {
+                    revisions.Remove(previousId);
+                }
+                if (id != Guid.Empty)
+                {
+                    revisions[id] = ++revisionSequence;
+                }
+            }
+            Interlocked.Increment(ref version);
+        }
+
+        public long GetRevision(Guid processId)
+        {
+            if (processId == Guid.Empty)
+            {
+                return Version;
+            }
+            lock (revisionLock)
+            {
+                return revisions.TryGetValue(processId, out long revision)
+                    ? revision
+                    : Version;
+            }
         }
 
         public List<Proc> CreateSnapshot()

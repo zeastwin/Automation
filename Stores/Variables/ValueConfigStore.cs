@@ -34,6 +34,13 @@ namespace Automation
         private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
         private volatile bool monitorEnabled;
         private IDataBreakpointRuntimeSink dataBreakpointSink;
+        private long configurationVersion;
+
+        /// <summary>
+        /// 变量定义、作用域、常用标记等配置发生变化时递增。
+        /// 当前运行值变化不影响该版本，避免 UI 结构缓存被高频运行值反复击穿。
+        /// </summary>
+        public long ConfigurationVersion => Interlocked.Read(ref configurationVersion);
 
         internal IDataBreakpointRuntimeSink DataBreakpointSink
         {
@@ -134,6 +141,7 @@ namespace Automation
             if (!File.Exists(filePath))
             {
                 ResetValues();
+                MarkConfigurationChanged();
                 if (!Save(configPath))
                 {
                     ConfigurationFaulted = true;
@@ -253,6 +261,7 @@ namespace Automation
                 }
                 nameIndexSnapshot = new Dictionary<string, int>(nameIndex);
             }
+            MarkConfigurationChanged();
         }
 
         public DicValue GetValueByIndex(int index)
@@ -784,6 +793,7 @@ namespace Automation
             DicValue changedValue = null;
             string oldRuntime = null;
             long changeSequence = 0;
+            bool configurationChanged = false;
             lock (valueLock)
             {
                 if (nameIndex.TryGetValue(name, out int existIndex) && existIndex != index)
@@ -801,6 +811,11 @@ namespace Automation
                 lock (currentValue.SyncRoot)
                 {
                     oldRuntime = currentValue.Value;
+                    configurationChanged = !string.Equals(currentValue.Name, name, StringComparison.Ordinal)
+                        || !string.Equals(currentValue.Type, type, StringComparison.Ordinal)
+                        || !string.Equals(currentValue.Scope, scope, StringComparison.Ordinal)
+                        || currentValue.OwnerProcId != ownerProcId
+                        || !string.Equals(currentValue.Note, note, StringComparison.Ordinal);
                     if (!string.IsNullOrEmpty(currentValue.Name) && currentValue.Name != name)
                     {
                         nameIndex.Remove(currentValue.Name);
@@ -825,6 +840,10 @@ namespace Automation
                     }
                 }
             }
+            if (configurationChanged)
+            {
+                MarkConfigurationChanged();
+            }
             if (changedValue != null)
             {
                 RaiseValueChanged(
@@ -847,12 +866,18 @@ namespace Automation
 
         public void ClearMarks()
         {
+            bool changed = false;
             lock (valueLock)
             {
                 for (int i = 0; i < ValueCapacity; i++)
                 {
+                    changed |= values[i].isMark;
                     values[i].isMark = false;
                 }
+            }
+            if (changed)
+            {
+                MarkConfigurationChanged();
             }
         }
 
@@ -1278,6 +1303,11 @@ namespace Automation
             {
             }
             return "代码接口";
+        }
+
+        private void MarkConfigurationChanged()
+        {
+            Interlocked.Increment(ref configurationVersion);
         }
     }
 

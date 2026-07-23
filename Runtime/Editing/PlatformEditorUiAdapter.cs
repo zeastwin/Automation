@@ -145,11 +145,15 @@ namespace Automation
         public void RefreshProcesses()
         {
             owner.frmProc?.RefreshProcList();
+            owner.frmSearch?.PrewarmIndex();
+            owner.PrewarmProcessFlowGraphs();
         }
 
         public void RefreshProcess(int procIndex)
         {
             owner.frmProc?.RefreshProcView(procIndex);
+            owner.frmSearch?.PrewarmIndex();
+            owner.PrewarmProcessFlowGraph(procIndex);
         }
 
         public void RefreshVariables()

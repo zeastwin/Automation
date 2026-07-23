@@ -141,7 +141,7 @@ namespace Automation
                 return false;
             }
 
-            runtime.Stores.Processes.Items[procIndex] = draft;
+            runtime.Stores.Processes.ReplaceAt(procIndex, draft);
             if (runtime.ProcessEngine.PublishProc(procIndex, runtimeDraft, out string publishError))
             {
                 runtime.EditorUi.RefreshProcess(procIndex);
@@ -149,7 +149,7 @@ namespace Automation
                 return true;
             }
 
-            runtime.Stores.Processes.Items[procIndex] = original;
+            runtime.Stores.Processes.ReplaceAt(procIndex, original);
             bool fileRestored = AtomicJsonFileStore.Save(runtime.Paths.WorkPath, procIndex.ToString(), original);
             bool runtimeRestored = runtime.ProcessEngine.PublishProc(procIndex, ObjectGraphCloner.Clone(original), out string rollbackPublishError);
             runtime.EditorUi.RefreshProcess(procIndex);

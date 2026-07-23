@@ -18,6 +18,8 @@ namespace Automation
         private const int TvmSetExtendedStyle = 0x112C;
         private const int TvsExDoubleBuffer = 0x0004;
         private int renderedStoreVersion = -1;
+        private readonly Dictionary<string, int> fieldNameWidthCache =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(
@@ -201,18 +203,8 @@ namespace Automation
             treeView1.BeginUpdate();
             try
             {
-                treeView1.Nodes.Clear();
-
                 List<DataStruct> snapshot = Workspace.Runtime.Stores.DataStructures.GetSnapshot();
-                if (snapshot != null)
-                {
-                    for (int i = 0; i < snapshot.Count; i++)
-                    {
-                        DataStruct dataStruct = snapshot[i];
-                        TreeNode structNode = BuildStructNode(i, dataStruct);
-                        treeView1.Nodes.Add(structNode);
-                    }
-                }
+                ReconcileStructNodes(snapshot ?? new List<DataStruct>());
                 RestoreTreeState(previousState);
                 renderedStoreVersion = storeVersion;
             }
@@ -220,6 +212,205 @@ namespace Automation
             {
                 treeView1.EndUpdate();
             }
+        }
+
+        private void ReconcileStructNodes(IReadOnlyList<DataStruct> snapshot)
+        {
+            var available = treeView1.Nodes
+                .Cast<TreeNode>()
+                .GroupBy(ReadNodeName, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => new Queue<TreeNode>(group),
+                    StringComparer.Ordinal);
+            var retained = new HashSet<TreeNode>();
+            for (int structIndex = 0; structIndex < snapshot.Count; structIndex++)
+            {
+                DataStruct dataStruct = snapshot[structIndex];
+                string name = dataStruct?.Name ?? string.Empty;
+                TreeNode node = available.TryGetValue(name, out Queue<TreeNode> candidates)
+                    && candidates.Count > 0
+                        ? candidates.Dequeue()
+                        : BuildStructNode(structIndex, dataStruct);
+                retained.Add(node);
+                node.Text = BuildStructNodeText(structIndex, name);
+                node.Tag = new DataStructNodeTag
+                {
+                    NodeType = DataStructNodeType.Struct,
+                    StructIndex = structIndex
+                };
+                ReconcileItemNodes(node, structIndex, dataStruct);
+                MoveNode(treeView1.Nodes, node, structIndex);
+            }
+            foreach (TreeNode stale in treeView1.Nodes
+                .Cast<TreeNode>()
+                .Where(node => !retained.Contains(node))
+                .ToList())
+            {
+                stale.Remove();
+            }
+        }
+
+        private void ReconcileItemNodes(
+            TreeNode structNode,
+            int structIndex,
+            DataStruct dataStruct)
+        {
+            IReadOnlyList<DataStructItem> items = dataStruct?.dataStructItems
+                ?? (IReadOnlyList<DataStructItem>)Array.Empty<DataStructItem>();
+            var available = structNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => node.Tag is DataStructNodeTag tag
+                    && tag.NodeType == DataStructNodeType.Item)
+                .GroupBy(ReadNodeName, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => new Queue<TreeNode>(group),
+                    StringComparer.Ordinal);
+            var retained = new HashSet<TreeNode>();
+            for (int itemIndex = 0; itemIndex < items.Count; itemIndex++)
+            {
+                DataStructItem item = items[itemIndex];
+                string name = item?.Name ?? string.Empty;
+                TreeNode node = available.TryGetValue(name, out Queue<TreeNode> candidates)
+                    && candidates.Count > 0
+                        ? candidates.Dequeue()
+                        : BuildItemNode(structIndex, itemIndex, item);
+                bool fieldsLoaded = IsItemNodeLoaded(node);
+                retained.Add(node);
+                node.Text = BuildItemNodeText(itemIndex, name);
+                node.Tag = new DataStructNodeTag
+                {
+                    NodeType = DataStructNodeType.Item,
+                    StructIndex = structIndex,
+                    ItemIndex = itemIndex,
+                    FieldNameColumnWidth = CalculateFieldNameColumnWidth(
+                        item?.FieldNames?.Values)
+                };
+                if (fieldsLoaded)
+                {
+                    ReconcileFieldNodes(node, structIndex, itemIndex, item);
+                }
+                else
+                {
+                    EnsureItemPlaceholder(node, item);
+                }
+                MoveNode(structNode.Nodes, node, itemIndex);
+            }
+            foreach (TreeNode stale in structNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => !retained.Contains(node))
+                .ToList())
+            {
+                stale.Remove();
+            }
+        }
+
+        private void ReconcileFieldNodes(
+            TreeNode itemNode,
+            int structIndex,
+            int itemIndex,
+            DataStructItem item)
+        {
+            var existing = itemNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => node.Tag is DataStructNodeTag tag
+                    && tag.NodeType == DataStructNodeType.Field)
+                .GroupBy(node => ((DataStructNodeTag)node.Tag).FieldIndex)
+                .ToDictionary(group => group.Key, group => new Queue<TreeNode>(group));
+            var retained = new HashSet<TreeNode>();
+            List<int> fieldIndexes = GetFieldIndexes(item);
+            fieldIndexes.Sort();
+            for (int position = 0; position < fieldIndexes.Count; position++)
+            {
+                int fieldIndex = fieldIndexes[position];
+                if (!TryGetFieldSnapshotFromItem(
+                    item,
+                    fieldIndex,
+                    out string fieldName,
+                    out DataStructValueType fieldType,
+                    out object fieldValue))
+                {
+                    continue;
+                }
+                TreeNode fieldNode = existing.TryGetValue(
+                    fieldIndex,
+                    out Queue<TreeNode> candidates)
+                    && candidates.Count > 0
+                        ? candidates.Dequeue()
+                        : BuildFieldNode(
+                            structIndex,
+                            itemIndex,
+                            fieldIndex,
+                            fieldName,
+                            fieldType,
+                            fieldValue);
+                retained.Add(fieldNode);
+                UpdateFieldNode(
+                    fieldNode,
+                    structIndex,
+                    itemIndex,
+                    fieldIndex,
+                    fieldName,
+                    fieldType,
+                    fieldValue);
+                MoveNode(itemNode.Nodes, fieldNode, position);
+            }
+            foreach (TreeNode stale in itemNode.Nodes
+                .Cast<TreeNode>()
+                .Where(node => !retained.Contains(node))
+                .ToList())
+            {
+                stale.Remove();
+            }
+            RefreshItemFieldNameColumnWidth(itemNode);
+        }
+
+        private static void EnsureItemPlaceholder(
+            TreeNode itemNode,
+            DataStructItem item)
+        {
+            bool hasFields = GetFieldIndexes(item).Count > 0;
+            if (!hasFields)
+            {
+                itemNode.Nodes.Clear();
+                return;
+            }
+            if (itemNode.Nodes.Count == 1
+                && itemNode.Nodes[0].Tag is DataStructNodeTag tag
+                && tag.NodeType == DataStructNodeType.Placeholder)
+            {
+                return;
+            }
+            itemNode.Nodes.Clear();
+            itemNode.Nodes.Add(new TreeNode("加载中...")
+            {
+                Tag = new DataStructNodeTag
+                {
+                    NodeType = DataStructNodeType.Placeholder
+                }
+            });
+        }
+
+        private static void MoveNode(
+            TreeNodeCollection collection,
+            TreeNode node,
+            int targetIndex)
+        {
+            if (node == null)
+            {
+                return;
+            }
+            bool alreadyInCollection = collection.Contains(node);
+            if (alreadyInCollection && node.Index == targetIndex)
+            {
+                return;
+            }
+            if (alreadyInCollection)
+            {
+                node.Remove();
+            }
+            collection.Insert(Math.Min(targetIndex, collection.Count), node);
         }
 
         private DataStructTreeState CaptureTreeState()
@@ -475,8 +666,17 @@ namespace Automation
             {
                 foreach (string fieldName in fieldNames)
                 {
-                    width = Math.Max(width,
-                        TextRenderer.MeasureText(fieldName ?? string.Empty, treeView1.Font).Width);
+                    string text = fieldName ?? string.Empty;
+                    if (!fieldNameWidthCache.TryGetValue(text, out int measuredWidth))
+                    {
+                        measuredWidth = TextRenderer.MeasureText(text, treeView1.Font).Width;
+                        if (fieldNameWidthCache.Count > 512)
+                        {
+                            fieldNameWidthCache.Clear();
+                        }
+                        fieldNameWidthCache[text] = measuredWidth;
+                    }
+                    width = Math.Max(width, measuredWidth);
                 }
             }
             return Math.Min(210, Math.Max(80, width + 10));

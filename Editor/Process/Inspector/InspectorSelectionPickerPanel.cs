@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using Automation.Protocol;
 using static Automation.OperationTypePartial;
@@ -562,6 +563,16 @@ namespace Automation
 
     internal static class InspectorSelectionPickerData
     {
+        private sealed class RuntimePickerCatalogCache
+        {
+            internal readonly object SyncRoot = new object();
+            internal readonly Dictionary<string, IReadOnlyList<PickerGroupDefinition>> Entries =
+                new Dictionary<string, IReadOnlyList<PickerGroupDefinition>>(StringComparer.Ordinal);
+        }
+
+        private static readonly ConditionalWeakTable<PlatformRuntime, RuntimePickerCatalogCache>
+            RuntimeCaches = new ConditionalWeakTable<PlatformRuntime, RuntimePickerCatalogCache>();
+
         public static IReadOnlyList<PickerGroupDefinition> Build(
             InspectorSelectionPickerKind kind,
             object owner,
@@ -569,19 +580,50 @@ namespace Automation
             string currentValue)
         {
             PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(owner);
+            if (runtime == null)
+            {
+                return Array.Empty<PickerGroupDefinition>();
+            }
+            string cacheKey = BuildCatalogCacheKey(kind, runtime, owner, property);
+            RuntimePickerCatalogCache cache = RuntimeCaches.GetValue(
+                runtime,
+                ignored => new RuntimePickerCatalogCache());
+            lock (cache.SyncRoot)
+            {
+                if (cache.Entries.TryGetValue(cacheKey, out IReadOnlyList<PickerGroupDefinition> cached))
+                {
+                    return cached;
+                }
+            }
+
+            IReadOnlyList<PickerGroupDefinition> built;
             switch (kind)
             {
                 case InspectorSelectionPickerKind.Variable:
-                    return BuildVariables(runtime);
+                    built = BuildVariables(runtime);
+                    break;
                 case InspectorSelectionPickerKind.InputOutput:
-                    return BuildInputOutput(runtime, property);
+                    built = BuildInputOutput(runtime, property);
+                    break;
                 case InspectorSelectionPickerKind.Point:
-                    return BuildPoints(runtime, owner, property);
+                    built = BuildPoints(runtime, owner, property);
+                    break;
                 case InspectorSelectionPickerKind.Address:
-                    return BuildAddresses(runtime);
+                    built = BuildAddresses(runtime);
+                    break;
                 default:
-                    return Array.Empty<PickerGroupDefinition>();
+                    built = Array.Empty<PickerGroupDefinition>();
+                    break;
             }
+            lock (cache.SyncRoot)
+            {
+                if (cache.Entries.Count > 64)
+                {
+                    cache.Entries.Clear();
+                }
+                cache.Entries[cacheKey] = built;
+            }
+            return built;
         }
 
         internal static string BuildSessionCacheKey(
@@ -590,20 +632,47 @@ namespace Automation
             PropertyDescriptor property)
         {
             PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(owner);
+            return runtime == null
+                ? kind.ToString()
+                : BuildCatalogCacheKey(kind, runtime, owner, property);
+        }
+
+        private static string BuildCatalogCacheKey(
+            InspectorSelectionPickerKind kind,
+            PlatformRuntime runtime,
+            object owner,
+            PropertyDescriptor property)
+        {
             switch (kind)
             {
                 case InspectorSelectionPickerKind.Variable:
-                    return $"variable:{GetCurrentProcessId(runtime):N}";
+                    return $"variable:{runtime.Stores.Values.ConfigurationVersion}:"
+                        + $"{GetCurrentProcessId(runtime):N}";
                 case InspectorSelectionPickerKind.InputOutput:
-                    return "io:" + (property?.Converter?.GetType().FullName ?? string.Empty);
+                    return $"io:{runtime.Stores.IoConfiguration.Version}:"
+                        + (property?.Converter?.GetType().FullName ?? string.Empty);
                 case InspectorSelectionPickerKind.Point:
-                    return "point:" + (GetStationName(runtime, owner) ?? string.Empty);
+                    return $"point:{runtime.Stores.Stations.Version}:"
+                        + (GetStationName(runtime, owner) ?? string.Empty)
+                        + ":" + (property?.Converter?.GetType().FullName ?? string.Empty);
                 case InspectorSelectionPickerKind.Address:
                     PlatformEditorSelection selection = runtime?.EditorUi?.GetSelection();
-                    return $"address:{selection?.ProcIndex ?? -1}:{selection?.StepIndex ?? -1}";
+                    int procIndex = selection?.ProcIndex ?? -1;
+                    Guid procId = GetProcessId(runtime, procIndex);
+                    long revision = runtime.Stores.Processes.GetRevision(procId);
+                    return $"address:{procId:N}:{revision}:{selection?.StepIndex ?? -1}";
                 default:
                     return kind.ToString();
             }
+        }
+
+        private static Guid GetProcessId(PlatformRuntime runtime, int procIndex)
+        {
+            return runtime?.Stores.Processes.Items != null
+                && procIndex >= 0
+                && procIndex < runtime.Stores.Processes.Items.Count
+                    ? runtime.Stores.Processes.Items[procIndex]?.head?.Id ?? Guid.Empty
+                    : Guid.Empty;
         }
 
         private static IReadOnlyList<PickerGroupDefinition> BuildVariables(PlatformRuntime runtime)

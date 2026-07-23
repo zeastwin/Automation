@@ -2,6 +2,7 @@
 // 职责范围：编辑器共享的视觉、弹窗和 WinForms 交互基础设施。
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
@@ -46,7 +47,44 @@ namespace Automation
     /// </summary>
     internal static class UiIconFactory
     {
+        private static readonly object CacheLock = new object();
+        private static readonly Dictionary<string, Bitmap> TemplateCache =
+            new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+
         public static Bitmap Create(UiIconKind kind, Color color, int size)
+        {
+            string key = $"toolbar:{(int)kind}:{color.ToArgb()}:{size}";
+            lock (CacheLock)
+            {
+                if (!TemplateCache.TryGetValue(key, out Bitmap template))
+                {
+                    template = Render(kind, color, size);
+                    TemplateCache[key] = template;
+                }
+                return new Bitmap(template);
+            }
+        }
+
+        public static Bitmap CreateNavigation(UiIconKind kind, int size, bool active)
+        {
+            if (!IsNavigationPictogram(kind) && kind != UiIconKind.Monitor)
+            {
+                throw new ArgumentOutOfRangeException(nameof(kind), "该图标不属于导航图标。");
+            }
+
+            string key = $"navigation:{(int)kind}:{size}:{active}";
+            lock (CacheLock)
+            {
+                if (!TemplateCache.TryGetValue(key, out Bitmap template))
+                {
+                    template = RenderNavigation(kind, size, active);
+                    TemplateCache[key] = template;
+                }
+                return new Bitmap(template);
+            }
+        }
+
+        private static Bitmap Render(UiIconKind kind, Color color, int size)
         {
             Bitmap bitmap = new Bitmap(size, size);
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -65,13 +103,8 @@ namespace Automation
             return bitmap;
         }
 
-        public static Bitmap CreateNavigation(UiIconKind kind, int size, bool active)
+        private static Bitmap RenderNavigation(UiIconKind kind, int size, bool active)
         {
-            if (!IsNavigationPictogram(kind) && kind != UiIconKind.Monitor)
-            {
-                throw new ArgumentOutOfRangeException(nameof(kind), "该图标不属于导航图标。");
-            }
-
             Bitmap bitmap = new Bitmap(size, size);
             using (Graphics graphics = Graphics.FromImage(bitmap))
             {

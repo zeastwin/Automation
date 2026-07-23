@@ -18,6 +18,9 @@ namespace Automation
         private readonly Panel actionBar = new Panel();
         private readonly IReadOnlyList<OperationType> operationTemplates;
         private ToolStripDropDown activeOperationTypePicker;
+        private OperationTypePickerPanel operationTypePickerPanel;
+        private ToolStripControlHost operationTypePickerHost;
+        private InstantToolStripDropDown operationTypePickerDropDown;
         private Button saveButton;
         private Button cancelButton;
         private bool editing;
@@ -26,10 +29,19 @@ namespace Automation
         public FrmInspector()
         {
             operationTemplates = OperationDefinitionRegistry.CreateAll();
+            InspectorDefinitionBuilder.Prewarm(operationTemplates.Cast<object>());
             InitializeLayout();
+            InitializeOperationTypePicker();
             KeyPreview = true;
             KeyDown += FrmInspector_KeyDown;
-            Disposed += (sender, args) => activeOperationTypePicker?.Dispose();
+            Disposed += (sender, args) =>
+            {
+                activeOperationTypePicker = null;
+                operationTypePickerDropDown?.Dispose();
+                operationTypePickerDropDown = null;
+                operationTypePickerHost = null;
+                operationTypePickerPanel = null;
+            };
         }
 
         public object SelectedObject => inspectorView.SelectedObject;
@@ -156,7 +168,13 @@ namespace Automation
             operationTypeButton.IconKind = InspectorIconKind.None;
             operationTypeButton.Padding = new Padding(9, 0, 8, 0);
             operationTypeButton.TextAlign = ContentAlignment.MiddleLeft;
-            operationTypeButton.Click += OperationTypeButton_Click;
+            operationTypeButton.MouseDown += (sender, args) =>
+            {
+                if (args.Button == MouseButtons.Left)
+                {
+                    OperationTypeButton_Click(sender, EventArgs.Empty);
+                }
+            };
             header.Controls.Add(operationTypeButton);
 
             inspectorView.Dock = DockStyle.None;
@@ -332,8 +350,10 @@ namespace Automation
         private void ShowOperationTypePicker(Control anchorControl)
         {
             activeOperationTypePicker?.Close();
-            List<OperationType> templates = operationTemplates.ToList();
-            if (templates.Count == 0)
+            if (operationTypePickerPanel == null
+                || operationTypePickerPanel.IsDisposed
+                || operationTypePickerDropDown == null
+                || operationTypePickerDropDown.IsDisposed)
             {
                 return;
             }
@@ -341,25 +361,45 @@ namespace Automation
             Rectangle anchorBounds = anchorControl.RectangleToScreen(anchorControl.ClientRectangle);
             Rectangle workingArea = Screen.FromRectangle(anchorBounds).WorkingArea;
             int pickerWidth = Math.Min(550, Math.Max(420, workingArea.Width - 24));
-            var pickerPanel = new OperationTypePickerPanel(templates)
-            {
-                Size = new Size(pickerWidth, 300)
-            };
-            pickerPanel.PerformLayout();
-            pickerPanel.RefreshPickerLayout();
+            operationTypePickerPanel.Size = new Size(pickerWidth, 300);
+            operationTypePickerPanel.PerformLayout();
+            operationTypePickerPanel.RefreshPickerLayout();
             int pickerHeight = Math.Min(
-                pickerPanel.ContentHeight,
+                operationTypePickerPanel.ContentHeight,
                 Math.Min(480, Math.Max(320, workingArea.Height - 24)));
-            pickerPanel.Height = pickerHeight;
+            operationTypePickerPanel.Height = pickerHeight;
+            operationTypePickerHost.Size = operationTypePickerPanel.Size;
+            operationTypePickerDropDown.Size = operationTypePickerPanel.Size;
 
-            var host = new ToolStripControlHost(pickerPanel)
+            activeOperationTypePicker = operationTypePickerDropDown;
+            operationTypePickerDropDown.ShowInstant(
+                anchorControl,
+                new Point(Math.Min(0, anchorControl.Width - pickerWidth), anchorControl.Height),
+                operationTypePickerPanel);
+            operationTypePickerPanel.FocusPicker();
+        }
+
+        private void InitializeOperationTypePicker()
+        {
+            List<OperationType> templates = operationTemplates.ToList();
+            if (templates.Count == 0)
+            {
+                return;
+            }
+            operationTypePickerPanel = new OperationTypePickerPanel(templates)
+            {
+                Size = new Size(550, 300)
+            };
+            operationTypePickerPanel.PerformLayout();
+            operationTypePickerPanel.RefreshPickerLayout();
+            operationTypePickerHost = new ToolStripControlHost(operationTypePickerPanel)
             {
                 AutoSize = false,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
-                Size = pickerPanel.Size
+                Size = operationTypePickerPanel.Size
             };
-            var dropDown = new InstantToolStripDropDown
+            operationTypePickerDropDown = new InstantToolStripDropDown
             {
                 AutoClose = true,
                 AutoSize = false,
@@ -368,40 +408,30 @@ namespace Automation
                 Margin = Padding.Empty,
                 Padding = Padding.Empty,
                 Renderer = new BorderlessDropDownRenderer(),
-                Size = pickerPanel.Size
+                Size = operationTypePickerPanel.Size
             };
-            dropDown.Items.Add(host);
-            pickerPanel.OperationSelected += operation =>
+            operationTypePickerDropDown.Items.Add(operationTypePickerHost);
+            operationTypePickerPanel.OperationSelected += operation =>
             {
                 if (editing && inspectorView.SelectedObject is OperationType current)
                 {
                     ReplaceOperationType(current, operation);
                 }
-                dropDown.Close(ToolStripDropDownCloseReason.ItemClicked);
+                operationTypePickerDropDown.Close(
+                    ToolStripDropDownCloseReason.ItemClicked);
             };
-            pickerPanel.CancelRequested += () =>
-                dropDown.Close(ToolStripDropDownCloseReason.Keyboard);
-            dropDown.Closed += (sender, args) =>
+            operationTypePickerPanel.CancelRequested += () =>
+                operationTypePickerDropDown.Close(
+                    ToolStripDropDownCloseReason.Keyboard);
+            operationTypePickerDropDown.Closed += (sender, args) =>
             {
-                if (ReferenceEquals(activeOperationTypePicker, dropDown))
+                if (ReferenceEquals(
+                    activeOperationTypePicker,
+                    operationTypePickerDropDown))
                 {
                     activeOperationTypePicker = null;
                 }
-                if (!anchorControl.IsDisposed && anchorControl.IsHandleCreated)
-                {
-                    anchorControl.BeginInvoke(new Action(dropDown.Dispose));
-                }
-                else
-                {
-                    dropDown.Dispose();
-                }
             };
-            activeOperationTypePicker = dropDown;
-            dropDown.ShowInstant(
-                anchorControl,
-                new Point(Math.Min(0, anchorControl.Width - pickerWidth), anchorControl.Height),
-                pickerPanel);
-            pickerPanel.FocusPicker();
         }
 
         private void ReplaceOperationType(OperationType current, OperationType template)

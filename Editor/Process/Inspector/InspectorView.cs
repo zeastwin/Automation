@@ -12,6 +12,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace Automation
@@ -41,6 +42,8 @@ namespace Automation
             = new List<InspectorSectionControl>();
         private readonly Dictionary<string, CachedInspectorPage> pageCache
             = new Dictionary<string, CachedInspectorPage>(StringComparer.Ordinal);
+        private readonly ConditionalWeakTable<object, InspectorDocument> documentCache =
+            new ConditionalWeakTable<object, InspectorDocument>();
         private readonly InspectorSelectionPickerPrewarmSession selectionPickerPrewarmSession =
             new InspectorSelectionPickerPrewarmSession();
         private InspectorDocument document;
@@ -97,7 +100,7 @@ namespace Automation
                 {
                     ClearSelectionPickerPrewarm();
                 }
-                InspectorDocument next = InspectorDefinitionBuilder.Build(selectedObject);
+                InspectorDocument next = GetOrBuildDocument(selectedObject);
                 if (CanRebind(next))
                 {
                     Rebind(next);
@@ -232,6 +235,7 @@ namespace Automation
                 return;
             }
             InspectorDocument next = InspectorDefinitionBuilder.Build(selectedObject);
+            CacheDocument(selectedObject, next);
             if (document == null || !string.Equals(
                 document.Signature,
                 next.Signature,
@@ -250,7 +254,7 @@ namespace Automation
             {
                 layoutRequired = true;
                 StoreCurrentPage();
-                document = next ?? InspectorDefinitionBuilder.Build(selectedObject);
+                document = next ?? GetOrBuildDocument(selectedObject);
                 emptyLabel.Visible = selectedObject == null || document.Sections.Count == 0;
                 content.Visible = !emptyLabel.Visible;
                 if (emptyLabel.Visible)
@@ -326,6 +330,31 @@ namespace Automation
                 }
             }
             return true;
+        }
+
+        private InspectorDocument GetOrBuildDocument(object value)
+        {
+            if (value == null)
+            {
+                return InspectorDefinitionBuilder.Build(null);
+            }
+            if (documentCache.TryGetValue(value, out InspectorDocument cached))
+            {
+                return cached;
+            }
+            InspectorDocument built = InspectorDefinitionBuilder.Build(value);
+            documentCache.Add(value, built);
+            return built;
+        }
+
+        private void CacheDocument(object value, InspectorDocument next)
+        {
+            if (value == null || next == null)
+            {
+                return;
+            }
+            documentCache.Remove(value);
+            documentCache.Add(value, next);
         }
 
         private void Rebind(InspectorDocument next, bool suspendRedraw = true)

@@ -1717,25 +1717,9 @@ namespace Automation
             {
                 return existingControls ?? new List<Control>();
             }
-            bool reuse = existingControls != null && existingControls.Count == iOs.Count;
-            if (!reuse)
+            bool reuse = existingControls != null;
+            if (existingControls == null)
             {
-                if (existingControls != null)
-                {
-                    foreach (Control control in existingControls)
-                    {
-                        if (control == null || control.IsDisposed)
-                        {
-                            continue;
-                        }
-                        if (control.Parent == tabPage)
-                        {
-                            tabPage.Controls.Remove(control);
-                        }
-                        control.Dispose();
-                    }
-                }
-                tabPage.Controls.Clear();
                 existingControls = new List<Control>(iOs.Count);
             }
 
@@ -1762,7 +1746,9 @@ namespace Automation
                 for (int i = 0; i < iOs.Count; i++)
                 {
                     IO io = iOs[i];
-                    Control current = reuse ? existingControls[i] : null;
+                    Control current = reuse && i < existingControls.Count
+                        ? existingControls[i]
+                        : null;
                     if (current != null && current.IsDisposed)
                     {
                         current = null;
@@ -1868,7 +1854,7 @@ namespace Automation
                         }
                     }
 
-                    if (reuse)
+                    if (i < existingControls.Count)
                     {
                         existingControls[i] = result;
                     }
@@ -1884,6 +1870,21 @@ namespace Automation
                         col++;
                     }
                 }
+                for (int index = existingControls.Count - 1;
+                    index >= iOs.Count;
+                    index--)
+                {
+                    Control stale = existingControls[index];
+                    if (stale != null && !stale.IsDisposed)
+                    {
+                        if (stale.Parent == tabPage)
+                        {
+                            tabPage.Controls.Remove(stale);
+                        }
+                        stale.Dispose();
+                    }
+                    existingControls.RemoveAt(index);
+                }
             }
             finally
             {
@@ -1898,40 +1899,9 @@ namespace Automation
             {
                 return;
             }
-            bool reuse = reuseExisting && btnCon != null && btnCon.Count == connects.Count;
-            if (!reuse)
+            bool reuse = btnCon != null;
+            if (btnCon == null)
             {
-                if (btnCon != null)
-                {
-                    foreach (ConnectButton item in btnCon)
-                    {
-                        if (item?.OutPut != null && !item.OutPut.IsDisposed)
-                        {
-                            if (item.OutPut.Parent == targetPage)
-                            {
-                                targetPage.Controls.Remove(item.OutPut);
-                            }
-                            item.OutPut.Dispose();
-                        }
-                        if (item?.InPut1 != null && !item.InPut1.IsDisposed)
-                        {
-                            if (item.InPut1.Parent == targetPage)
-                            {
-                                targetPage.Controls.Remove(item.InPut1);
-                            }
-                            item.InPut1.Dispose();
-                        }
-                        if (item?.InPut2 != null && !item.InPut2.IsDisposed)
-                        {
-                            if (item.InPut2.Parent == targetPage)
-                            {
-                                targetPage.Controls.Remove(item.InPut2);
-                            }
-                            item.InPut2.Dispose();
-                        }
-                    }
-                }
-                targetPage.Controls.Clear();
                 btnCon = new List<ConnectButton>(connects.Count);
             }
 
@@ -1964,7 +1934,9 @@ namespace Automation
                 for (int i = 0; i < connects.Count; i++)
                 {
                     IOConnect ioConnect = connects[i];
-                    ConnectButton item = reuse ? btnCon[i] ?? new ConnectButton() : new ConnectButton();
+                    ConnectButton item = reuse && i < btnCon.Count
+                        ? btnCon[i] ?? new ConnectButton()
+                        : new ConnectButton();
                     int baseX = col * groupWidth;
 
                     if (ioConnect?.Output == null)
@@ -2083,7 +2055,7 @@ namespace Automation
                         }
                     }
 
-                    if (reuse)
+                    if (i < btnCon.Count)
                     {
                         btnCon[i] = item;
                     }
@@ -2098,6 +2070,16 @@ namespace Automation
                         row = 0;
                         col++;
                     }
+                }
+                for (int index = btnCon.Count - 1;
+                    index >= connects.Count;
+                    index--)
+                {
+                    ConnectButton stale = btnCon[index];
+                    RemoveControl(stale?.OutPut);
+                    RemoveControl(stale?.InPut1);
+                    RemoveControl(stale?.InPut2);
+                    btnCon.RemoveAt(index);
                 }
             }
             finally

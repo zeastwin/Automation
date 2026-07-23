@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Automation
 {
@@ -14,8 +15,10 @@ namespace Automation
     public sealed class StationDefinitionStore
     {
         private readonly List<DataStation> items = new List<DataStation>();
+        private long version;
 
         public List<DataStation> Items => items;
+        public long Version => Interlocked.Read(ref version);
 
         public bool Load(string configPath, out string error)
         {
@@ -63,6 +66,7 @@ namespace Automation
             error = null;
             if (AtomicJsonFileStore.Save(configPath, "DataStation", items))
             {
+                Interlocked.Increment(ref version);
                 return true;
             }
             error = "工站配置保存失败。";
@@ -78,6 +82,7 @@ namespace Automation
             List<DataStation> replacement = stations.ToList();
             items.Clear();
             items.AddRange(replacement);
+            Interlocked.Increment(ref version);
         }
     }
 }

@@ -131,6 +131,77 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void PickerCatalog_ReusesVersionedProjectionAndInvalidatesAfterConfigurationChange()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var runtime = new PlatformRuntime(directory.FullPath);
+                var variables = new Dictionary<string, DicValue>
+                {
+                    ["变量一"] = new DicValue
+                    {
+                        Id = Guid.NewGuid(),
+                        Index = 1,
+                        Name = "变量一",
+                        Type = "double",
+                        Value = "0",
+                        Scope = VariableScopeContract.Public
+                    }
+                };
+                Assert.IsTrue(runtime.Stores.Values.TryCommitConfiguration(
+                    runtime.Paths.ConfigPath,
+                    variables,
+                    out string firstError), firstError);
+                var operation = new ModifyValue();
+                EditorServiceRegistry.AttachGraph(operation, runtime);
+                PropertyDescriptor property = TypeDescriptor.GetProperties(operation)[
+                    nameof(ModifyValue.ValueSourceName)];
+
+                IReadOnlyList<PickerGroupDefinition> first =
+                    InspectorSelectionPickerData.Build(
+                        InspectorSelectionPickerKind.Variable,
+                        operation,
+                        property,
+                        null);
+                IReadOnlyList<PickerGroupDefinition> second =
+                    InspectorSelectionPickerData.Build(
+                        InspectorSelectionPickerKind.Variable,
+                        operation,
+                        property,
+                        null);
+                Assert.AreSame(
+                    first,
+                    second,
+                    "配置版本未变化时应直接复用选择目录。");
+
+                variables["变量二"] = new DicValue
+                {
+                    Id = Guid.NewGuid(),
+                    Index = 2,
+                    Name = "变量二",
+                    Type = "double",
+                    Value = "0",
+                    Scope = VariableScopeContract.Public
+                };
+                Assert.IsTrue(runtime.Stores.Values.TryCommitConfiguration(
+                    runtime.Paths.ConfigPath,
+                    variables,
+                    out string secondError), secondError);
+                IReadOnlyList<PickerGroupDefinition> changed =
+                    InspectorSelectionPickerData.Build(
+                        InspectorSelectionPickerKind.Variable,
+                        operation,
+                        property,
+                        null);
+
+                Assert.AreNotSame(first, changed);
+                Assert.IsTrue(changed
+                    .Single(group => group.Title == "公共变量")
+                    .Choices.Any(choice => choice.Value == "变量二"));
+            }
+        }
+
+        [TestMethod]
         [TestCategory("Desktop")]
         public void EnteringInspectorEditMode_PrewarmsPickerAndExitReleasesCache()
         {

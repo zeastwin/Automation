@@ -408,6 +408,8 @@ namespace Automation
         private bool variableGridRowsInitialized;
         private bool isRebuildingVariableRows;
         private bool preparedForDisplay;
+        private long renderedVariableConfigVersion = -1;
+        private long renderedProcessVersion = -1;
         private int variableGridPresentationVersion = 1;
         private string appliedGridScopeKey;
         private int variableGridUpdateDepth;
@@ -1138,6 +1140,7 @@ namespace Automation
                 ApplyScopeFilter();
                 RefreshMonitorTitle();
                 RefreshMonitorRows();
+                CaptureRenderedConfigurationVersions();
             }
             finally
             {
@@ -1176,6 +1179,20 @@ namespace Automation
         //刷新变量界面
         public void FreshFrmValue()
         {
+            long variableConfigVersion = Workspace.Runtime.Stores.Values.ConfigurationVersion;
+            long processVersion = Workspace.Runtime.Stores.Processes.Version;
+            bool variableConfigurationChanged = !hasVariableSnapshot
+                || renderedVariableConfigVersion != variableConfigVersion;
+            bool processConfigurationChanged = renderedProcessVersion != processVersion;
+            if (variableGridRowsInitialized
+                && !variableConfigurationChanged
+                && !processConfigurationChanged)
+            {
+                RefreshViewportRows();
+                RefreshMonitorTitle();
+                return;
+            }
+
             bool allowRefresh = isValueGridReady || !variableGridRowsInitialized;
             isValueGridReady = false;
             BeginVariableGridUpdate();
@@ -1186,19 +1203,37 @@ namespace Automation
                     RefreshValue();
                     return;
                 }
-                RefreshVariableSnapshot();
-                RefreshVariableScopeOptions();
-                RefreshCommonList();
-                RefreshScopeTree();
-                ApplyScopeFilter();
+                if (variableConfigurationChanged)
+                {
+                    RefreshVariableSnapshot();
+                    RefreshVariableScopeOptions();
+                    RefreshCommonList();
+                    RefreshScopeTree();
+                    ApplyScopeFilter();
+                }
+                else if (processConfigurationChanged)
+                {
+                    RefreshVariableScopeOptions();
+                    RefreshScopeTree();
+                    ApplyScopeFilter();
+                }
                 RefreshMonitorTitle();
                 RefreshMonitorRows();
+                CaptureRenderedConfigurationVersions();
             }
             finally
             {
                 EndVariableGridUpdate();
                 isValueGridReady = allowRefresh;
             }
+        }
+
+        private void CaptureRenderedConfigurationVersions()
+        {
+            renderedVariableConfigVersion =
+                Workspace.Runtime.Stores.Values.ConfigurationVersion;
+            renderedProcessVersion =
+                Workspace.Runtime.Stores.Processes.Version;
         }
 
         private void RefreshVariableSnapshot()
@@ -1994,6 +2029,8 @@ namespace Automation
                 PrepareForDisplay();
             }
             preparedForDisplay = false;
+            RefreshViewportRows();
+            RefreshDisplayedRuntimeValues();
             runtimeValueRefreshTimer?.Start();
         }
 

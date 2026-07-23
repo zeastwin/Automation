@@ -37,6 +37,16 @@ namespace Automation
         private bool loading;
         private bool monitorBusy;
         private string lastMonitorSignature;
+        private long variableSelectorVersion = -1;
+        private readonly Dictionary<string, PlcMapViewState> mapViewStates =
+            new Dictionary<string, PlcMapViewState>(StringComparer.Ordinal);
+
+        private sealed class PlcMapViewState
+        {
+            public int CurrentRowIndex { get; set; }
+            public int CurrentColumnIndex { get; set; }
+            public int FirstDisplayedRowIndex { get; set; }
+        }
 
         public FrmPlc()
         {
@@ -430,10 +440,12 @@ namespace Automation
 
         private void ShowDevice(PlcDeviceConfig device)
         {
+            SaveMapViewState(currentDevice);
             currentDevice = device;
             deviceInspector.SetObject(device == null ? null : new DevicePropertyView(device), true);
             RefreshVariableSelector();
             LoadMaps(device);
+            RestoreMapViewState(device);
             RefreshRuntimeState();
         }
 
@@ -595,6 +607,41 @@ namespace Automation
             {
                 mapGrid.ResumeLayout();
             }
+        }
+
+        private void SaveMapViewState(PlcDeviceConfig device)
+        {
+            if (device == null || string.IsNullOrWhiteSpace(device.Name)
+                || mapGrid.Rows.Count == 0)
+            {
+                return;
+            }
+            mapViewStates[device.Name] = new PlcMapViewState
+            {
+                CurrentRowIndex = mapGrid.CurrentCell?.RowIndex ?? -1,
+                CurrentColumnIndex = mapGrid.CurrentCell?.ColumnIndex ?? 0,
+                FirstDisplayedRowIndex = mapGrid.FirstDisplayedScrollingRowIndex
+            };
+        }
+
+        private void RestoreMapViewState(PlcDeviceConfig device)
+        {
+            if (device == null || string.IsNullOrWhiteSpace(device.Name)
+                || mapGrid.Rows.Count == 0
+                || !mapViewStates.TryGetValue(device.Name, out PlcMapViewState state))
+            {
+                return;
+            }
+            int rowIndex = Math.Max(
+                0,
+                Math.Min(state.CurrentRowIndex, mapGrid.Rows.Count - 1));
+            int columnIndex = Math.Max(
+                0,
+                Math.Min(state.CurrentColumnIndex, mapGrid.Columns.Count - 1));
+            mapGrid.CurrentCell = mapGrid.Rows[rowIndex].Cells[columnIndex];
+            mapGrid.FirstDisplayedScrollingRowIndex = Math.Max(
+                0,
+                Math.Min(state.FirstDisplayedRowIndex, mapGrid.Rows.Count - 1));
         }
 
         private void AddMapRow(PlcMapConfig map)
@@ -852,18 +899,25 @@ namespace Automation
 
         private void RefreshVariableSelector()
         {
-            List<VariableChoice> choices = new List<VariableChoice>();
-            if (Workspace.Runtime.Stores.Values != null)
+            ValueConfigStore valueStore = Workspace.Runtime.Stores.Values;
+            long version = valueStore?.ConfigurationVersion ?? -1;
+            if (variableSelectorVersion == version
+                && variableSelector.DataSource != null)
             {
-                foreach (string name in Workspace.Runtime.Stores.Values.GetValueNames())
-                {
-                    if (Workspace.Runtime.Stores.Values.TryGetValueByName(name, out DicValue value) && value != null)
-                    {
-                        choices.Add(new VariableChoice { Index = value.Index, Name = value.Name, Type = value.Type });
-                    }
-                }
+                return;
             }
-            variableSelector.DataSource = choices.OrderBy(item => item.Index).ToList();
+            List<VariableChoice> choices = valueStore?.GetValuesSnapshot()
+                .Where(value => value != null)
+                .OrderBy(value => value.Index)
+                .Select(value => new VariableChoice
+                {
+                    Index = value.Index,
+                    Name = value.Name,
+                    Type = value.Type
+                })
+                .ToList() ?? new List<VariableChoice>();
+            variableSelector.DataSource = choices;
+            variableSelectorVersion = version;
         }
 
         private static string FormatRuntimeState(PlcRuntimeState state)

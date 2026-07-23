@@ -339,7 +339,10 @@ namespace Automation
                     {
                         Workspace.Inspector.ShowObject(axis);
                     }
-                    Workspace.IO.RefreshIODgv();
+                    if (!Workspace.IO.IsDisplayingCard(editKey.CardIndex.Value))
+                    {
+                        Workspace.IO.RefreshIODgv();
+                    }
                 }
                 treeView2.SelectedNode = null;
             }
