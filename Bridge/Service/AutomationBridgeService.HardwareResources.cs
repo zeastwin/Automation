@@ -259,8 +259,6 @@ namespace Automation.Bridge
                     ["remotePort"] = sock.RemotePort,
                     ["autoReconnect"] = sock.AutoReconnect,
                     ["isServer"] = string.Equals(sock.Type, "Server", StringComparison.Ordinal),
-                    ["frameMode"] = sock.FrameMode ?? string.Empty,
-                    ["frameDelimiter"] = sock.FrameDelimiter ?? string.Empty,
                     ["encodingName"] = sock.EncodingName ?? string.Empty,
                     ["connectTimeoutMs"] = sock.ConnectTimeoutMs
                 };
@@ -291,8 +289,6 @@ namespace Automation.Bridge
                     ["checkBit"] = sp.CheckBit ?? string.Empty,
                     ["dataBit"] = sp.DataBit ?? string.Empty,
                     ["stopBit"] = sp.StopBit ?? string.Empty,
-                    ["frameMode"] = sp.FrameMode ?? string.Empty,
-                    ["frameDelimiter"] = sp.FrameDelimiter ?? string.Empty,
                     ["encodingName"] = sp.EncodingName ?? string.Empty
                 };
                 if (includeStatus && runtime.Communication != null)

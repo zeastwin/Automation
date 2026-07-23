@@ -4,16 +4,18 @@ using System;
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Automation
 {
     public sealed class ValueDebugConfiguration
     {
-        public List<int> CheckIndexes { get; set; } = new List<int>();
-        public List<int> EditIndexes { get; set; } = new List<int>();
-        public Dictionary<int, string> Notes { get; set; } = new Dictionary<int, string>();
+        public List<Guid> CheckVariableIds { get; set; } = new List<Guid>();
+        public List<Guid> EditVariableIds { get; set; } = new List<Guid>();
+        public Dictionary<Guid, string> Notes { get; set; } = new Dictionary<Guid, string>();
     }
 
     /// <summary>
@@ -27,11 +29,20 @@ namespace Automation
             TypeNameHandling = TypeNameHandling.None,
             ObjectCreationHandling = ObjectCreationHandling.Replace
         };
-
-        public ValueDebugConfiguration Current { get; private set; } = new ValueDebugConfiguration();
+        private readonly object syncRoot = new object();
+        private ValueDebugConfiguration current = new ValueDebugConfiguration();
         private long version;
 
         public long Version => Interlocked.Read(ref version);
+
+        public ValueDebugConfiguration GetSnapshot(out long currentVersion)
+        {
+            lock (syncRoot)
+            {
+                currentVersion = version;
+                return ObjectGraphCloner.Clone(current);
+            }
+        }
 
         public bool Load(string configPath, ValueConfigStore valueStore, out string error)
         {
@@ -45,26 +56,44 @@ namespace Automation
             string filePath = Path.Combine(configPath, ConfigName + ".json");
             if (!File.Exists(filePath) && !File.Exists(filePath + ".bak"))
             {
-                return TryCommit(configPath, new ValueDebugConfiguration(), valueStore, out error);
+                return TryCommit(
+                    configPath,
+                    new ValueDebugConfiguration(),
+                    Version,
+                    out error);
             }
 
-            ValueDebugConfiguration loaded = AtomicJsonFileStore.Read<ValueDebugConfiguration>(
+            JObject document = AtomicJsonFileStore.Read<JObject>(
                 configPath,
                 ConfigName,
                 JsonSettings);
-            if (!TryValidate(loaded, valueStore, out error))
+            if (document == null)
+            {
+                error = "变量调试配置及其备份均无法读取。";
+                return false;
+            }
+            if (!TryDeserialize(
+                document,
+                valueStore,
+                out ValueDebugConfiguration loaded,
+                out bool migrated,
+                out error)
+                || !TryValidate(loaded, out error))
             {
                 return false;
             }
-            Current = ObjectGraphCloner.Clone(loaded);
-            Interlocked.Increment(ref version);
+            if (migrated)
+            {
+                return TryCommit(configPath, loaded, Version, out error);
+            }
+            Publish(loaded);
             return true;
         }
 
         public bool TryCommit(
             string configPath,
             ValueDebugConfiguration candidate,
-            ValueConfigStore valueStore,
+            long expectedVersion,
             out string error)
         {
             if (string.IsNullOrWhiteSpace(configPath))
@@ -72,24 +101,43 @@ namespace Automation
                 error = "变量调试配置目录无效。";
                 return false;
             }
-            if (!TryValidate(candidate, valueStore, out error))
+            if (!TryValidate(candidate, out error))
             {
                 return false;
             }
             ValueDebugConfiguration snapshot = ObjectGraphCloner.Clone(candidate);
-            if (!AtomicJsonFileStore.Save(configPath, ConfigName, snapshot, JsonSettings))
+            lock (syncRoot)
             {
-                error = "变量调试配置保存失败。";
-                return false;
+                if (version != expectedVersion)
+                {
+                    error = "变量调试配置已被其他操作更新，请刷新后重试。";
+                    return false;
+                }
+                try
+                {
+                    if (!AtomicJsonFileStore.Save(
+                        configPath,
+                        ConfigName,
+                        snapshot,
+                        JsonSettings))
+                    {
+                        error = "变量调试配置保存失败。";
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    error = $"变量调试配置保存失败：{ex.Message}";
+                    return false;
+                }
+                current = snapshot;
+                Interlocked.Increment(ref version);
             }
-            Current = snapshot;
-            Interlocked.Increment(ref version);
             return true;
         }
 
         private static bool TryValidate(
             ValueDebugConfiguration config,
-            ValueConfigStore valueStore,
             out string error)
         {
             error = null;
@@ -98,66 +146,135 @@ namespace Automation
                 error = "变量调试配置为空。";
                 return false;
             }
-            if (config.CheckIndexes == null || config.EditIndexes == null || config.Notes == null)
+            if (config.CheckVariableIds == null
+                || config.EditVariableIds == null
+                || config.Notes == null)
             {
                 error = "变量调试配置字段缺失。";
                 return false;
             }
-            if (valueStore == null)
-            {
-                error = "变量库未初始化。";
-                return false;
-            }
-            if (!TryValidateIndexes(config.CheckIndexes, valueStore, out error)
-                || !TryValidateIndexes(config.EditIndexes, valueStore, out error))
+            if (!TryValidateVariableIds(config.CheckVariableIds, out error)
+                || !TryValidateVariableIds(config.EditVariableIds, out error))
             {
                 return false;
             }
 
-            var allowedIndexes = new HashSet<int>(config.CheckIndexes);
-            allowedIndexes.UnionWith(config.EditIndexes);
-            foreach (KeyValuePair<int, string> item in config.Notes)
+            var allowedVariableIds = new HashSet<Guid>(config.CheckVariableIds);
+            allowedVariableIds.UnionWith(config.EditVariableIds);
+            foreach (KeyValuePair<Guid, string> item in config.Notes)
             {
-                if (!allowedIndexes.Contains(item.Key))
+                if (!allowedVariableIds.Contains(item.Key))
                 {
-                    error = $"备注索引未在调试列表中:{item.Key:D3}";
+                    error = $"备注变量未在调试列表中:{item.Key:D}";
                     return false;
                 }
                 if (item.Value == null)
                 {
-                    error = $"备注为空:{item.Key:D3}";
+                    error = $"备注为空:{item.Key:D}";
                     return false;
                 }
             }
             return true;
         }
 
-        private static bool TryValidateIndexes(
-            IEnumerable<int> indexes,
-            ValueConfigStore valueStore,
+        private static bool TryValidateVariableIds(
+            IEnumerable<Guid> variableIds,
             out string error)
         {
             error = null;
-            var uniqueIndexes = new HashSet<int>();
-            foreach (int index in indexes)
+            var uniqueVariableIds = new HashSet<Guid>();
+            foreach (Guid variableId in variableIds)
             {
-                if (index < 0 || index >= ValueConfigStore.ValueCapacity)
+                if (variableId == Guid.Empty)
                 {
-                    error = $"索引超出范围:{index}";
+                    error = "变量调试项稳定ID为空。";
                     return false;
                 }
-                if (!valueStore.TryGetValueByIndex(index, out _))
+                if (!uniqueVariableIds.Add(variableId))
                 {
-                    error = $"变量不存在:{index:D3}";
-                    return false;
-                }
-                if (!uniqueIndexes.Add(index))
-                {
-                    error = $"索引重复:{index:D3}";
+                    error = $"变量调试项重复:{variableId:D}";
                     return false;
                 }
             }
             return true;
+        }
+
+        private static bool TryDeserialize(
+            JObject document,
+            ValueConfigStore valueStore,
+            out ValueDebugConfiguration configuration,
+            out bool migrated,
+            out string error)
+        {
+            configuration = null;
+            migrated = false;
+            error = null;
+            if (document["CheckVariableIds"] != null
+                || document["EditVariableIds"] != null)
+            {
+                configuration = document.ToObject<ValueDebugConfiguration>(
+                    JsonSerializer.Create(JsonSettings));
+                return true;
+            }
+            if (document["CheckIndexes"] == null
+                && document["EditIndexes"] == null)
+            {
+                error = "变量调试配置字段缺失。";
+                return false;
+            }
+            if (valueStore == null)
+            {
+                error = "变量库未初始化，无法迁移变量调试配置。";
+                return false;
+            }
+
+            List<int> checkIndexes = document["CheckIndexes"]?.ToObject<List<int>>()
+                ?? new List<int>();
+            List<int> editIndexes = document["EditIndexes"]?.ToObject<List<int>>()
+                ?? new List<int>();
+            Dictionary<int, string> notes =
+                document["Notes"]?.ToObject<Dictionary<int, string>>()
+                ?? new Dictionary<int, string>();
+            var migratedConfiguration = new ValueDebugConfiguration();
+            var variableIdsByIndex = new Dictionary<int, Guid>();
+            foreach (int index in checkIndexes.Concat(editIndexes).Distinct())
+            {
+                if (!valueStore.TryGetValueByIndex(index, out DicValue value)
+                    || value.Id == Guid.Empty)
+                {
+                    error = $"旧变量调试配置引用的变量不存在:{index:D3}";
+                    return false;
+                }
+                variableIdsByIndex[index] = value.Id;
+            }
+            migratedConfiguration.CheckVariableIds = checkIndexes
+                .Select(index => variableIdsByIndex[index])
+                .ToList();
+            migratedConfiguration.EditVariableIds = editIndexes
+                .Select(index => variableIdsByIndex[index])
+                .ToList();
+            foreach (KeyValuePair<int, string> note in notes)
+            {
+                if (!variableIdsByIndex.TryGetValue(note.Key, out Guid variableId))
+                {
+                    error = $"旧变量调试备注索引未在调试列表中:{note.Key:D3}";
+                    return false;
+                }
+                migratedConfiguration.Notes[variableId] = note.Value;
+            }
+            configuration = migratedConfiguration;
+            migrated = true;
+            return true;
+        }
+
+        private void Publish(ValueDebugConfiguration configuration)
+        {
+            ValueDebugConfiguration snapshot = ObjectGraphCloner.Clone(configuration);
+            lock (syncRoot)
+            {
+                current = snapshot;
+                Interlocked.Increment(ref version);
+            }
         }
     }
 }

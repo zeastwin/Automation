@@ -194,8 +194,6 @@ namespace Automation.Bridge
                         RemoteAddress = item?.RemoteAddress ?? string.Empty,
                         RemotePort = item?.RemotePort ?? 0,
                         AutoReconnect = item?.AutoReconnect ?? false,
-                        FrameMode = item?.FrameMode ?? string.Empty,
-                        FrameDelimiter = item?.FrameDelimiter ?? string.Empty,
                         EncodingName = item?.EncodingName ?? string.Empty,
                         ConnectTimeoutMs = item?.ConnectTimeoutMs ?? 0
                     }).ToList(),
@@ -209,8 +207,6 @@ namespace Automation.Bridge
                         CheckBit = item?.CheckBit ?? string.Empty,
                         DataBit = item?.DataBit ?? string.Empty,
                         StopBit = item?.StopBit ?? string.Empty,
-                        FrameMode = item?.FrameMode ?? string.Empty,
-                        FrameDelimiter = item?.FrameDelimiter ?? string.Empty,
                         EncodingName = item?.EncodingName ?? string.Empty
                     }).ToList()
             };
@@ -765,8 +761,6 @@ namespace Automation.Bridge
                 RemoteAddress = item.RemoteAddress ?? string.Empty,
                 RemotePort = item.RemotePort,
                 AutoReconnect = item.AutoReconnect,
-                FrameMode = item.FrameMode ?? string.Empty,
-                FrameDelimiter = item.FrameDelimiter ?? string.Empty,
                 EncodingName = item.EncodingName ?? string.Empty,
                 ConnectTimeoutMs = item.ConnectTimeoutMs
             }).ToList();
@@ -779,8 +773,6 @@ namespace Automation.Bridge
                 CheckBit = item.CheckBit ?? string.Empty,
                 DataBit = item.DataBit ?? string.Empty,
                 StopBit = item.StopBit ?? string.Empty,
-                FrameMode = item.FrameMode ?? string.Empty,
-                FrameDelimiter = item.FrameDelimiter ?? string.Empty,
                 EncodingName = item.EncodingName ?? string.Empty
             }).ToList();
         }

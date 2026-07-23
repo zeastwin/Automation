@@ -792,23 +792,10 @@ namespace Automation
             return true;
         }
 
-        public void ReloadProcessVersionedConfiguration()
-        {
-            frmProc.RefreshProcList();
-            frmValue.RefreshDic();
-            Runtime.Stores.DataStructures.Load(Runtime.Paths.ConfigPath);
-            frmdataStruct.RefreshDataSturctList();
-            if (Runtime.ProcessEngine?.Context != null)
-            {
-                Runtime.ProcessEngine.Context.ValueStore = Runtime.Stores.Values;
-                Runtime.ProcessEngine.Context.DataStructStore = Runtime.Stores.DataStructures;
-            }
-        }
-
-        public void RequireRestartAfterEquipmentRestore()
+        public void RequireRestartAfterVersionRestore()
         {
             Runtime.Readiness.VersionRestartRequired = true;
-            Runtime.Safety.StopAllProcesses("设备配置已还原，必须重启程序后才能继续运行。");
+            Runtime.Safety.StopAllProcesses("配置版本已还原，必须重启程序后才能继续运行。");
         }
 
         private void InitializeWorkspacePageHost()

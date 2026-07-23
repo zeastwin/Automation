@@ -647,7 +647,7 @@ namespace Automation
             }
             if (runtime.Readiness.VersionRestartRequired)
             {
-                error = "设备配置已还原，必须重启程序后才能继续操作。";
+                error = "配置版本已还原，必须重启程序后才能继续操作。";
                 return false;
             }
             return true;

@@ -332,8 +332,6 @@ namespace Automation
                 RemoteAddress = item.RemoteAddress,
                 RemotePort = item.RemotePort,
                 AutoReconnect = string.Equals(item.Type, "Client", StringComparison.Ordinal) && item.AutoReconnect,
-                FrameMode = item.FrameMode,
-                FrameDelimiter = item.FrameDelimiter,
                 EncodingName = item.EncodingName,
                 ConnectTimeoutMs = item.ConnectTimeoutMs
             };
@@ -351,8 +349,6 @@ namespace Automation
                 CheckBit = item.CheckBit,
                 DataBit = item.DataBit,
                 StopBit = item.StopBit,
-                FrameMode = item.FrameMode,
-                FrameDelimiter = item.FrameDelimiter,
                 EncodingName = item.EncodingName
             };
         }

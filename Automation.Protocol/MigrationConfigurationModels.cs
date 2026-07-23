@@ -162,9 +162,6 @@ namespace Automation.Protocol
         public int RemotePort { get; set; }
         [Description("Client断线后是否在当前通道生命周期内自动重连；Server忽略并归一化为false。")]
         public bool AutoReconnect { get; set; } = true;
-        [Description("严格枚举：Raw 或 Delimiter。")]
-        public string FrameMode { get; set; } = "Raw";
-        public string FrameDelimiter { get; set; } = "\\n";
         public string EncodingName { get; set; } = "UTF-8";
         [Description("连接超时毫秒数，必须大于0。")]
         public int ConnectTimeoutMs { get; set; } = 5000;
@@ -185,9 +182,6 @@ namespace Automation.Protocol
         public string DataBit { get; set; } = string.Empty;
         [Description("System.IO.Ports.StopBits枚举名称，例如One、Two。")]
         public string StopBit { get; set; } = string.Empty;
-        [Description("严格枚举：Raw 或 Delimiter。")]
-        public string FrameMode { get; set; } = "Delimiter";
-        public string FrameDelimiter { get; set; } = "\\n";
         public string EncodingName { get; set; } = "UTF-8";
     }
 

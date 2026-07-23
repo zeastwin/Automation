@@ -22,9 +22,7 @@ namespace Automation
         private const int UiLogFlushBatchSize = 256;
         private const int DebugSendTimeoutMs = 5000;
         private const string TcpStateColumnName = "state";
-        private const string TcpDelimiterColumnName = "tcpFrameDelimiter";
         private const string SerialStateColumnName = "dataGridViewTextBoxColumn5";
-        private const string SerialDelimiterColumnName = "serialFrameDelimiter";
 
         private List<SocketInfo> socketInfos = new List<SocketInfo>();
         private List<SerialPortInfo> serialPortInfos = new List<SerialPortInfo>();
@@ -611,7 +609,6 @@ namespace Automation
             row.Cells[5].Value = info.RemoteAddress;
             row.Cells[6].Value = info.RemotePort;
             row.Cells[7].Value = info.AutoReconnect;
-            SetRowCellValue(row, TcpDelimiterColumnName, ToUiDelimiterSelection(info.FrameMode, info.FrameDelimiter, "Raw"));
         }
 
         private void ApplySerialInfoToRow(int rowIndex, SerialPortInfo info)
@@ -629,7 +626,6 @@ namespace Automation
             row.Cells[4].Value = info.CheckBit;
             row.Cells[5].Value = info.DataBit;
             row.Cells[6].Value = info.StopBit;
-            SetRowCellValue(row, SerialDelimiterColumnName, ToUiDelimiterSelection(info.FrameMode, info.FrameDelimiter, "Delimiter"));
         }
 
         private void AddItem_Click(object sender, EventArgs e)
@@ -646,8 +642,6 @@ namespace Automation
                 RemoteAddress = "127.0.0.1",
                 RemotePort = 5000,
                 AutoReconnect = true,
-                FrameMode = "Raw",
-                FrameDelimiter = "\\n",
                 EncodingName = "UTF-8",
                 ConnectTimeoutMs = 5000
             };
@@ -852,13 +846,6 @@ namespace Automation
                 && row.Cells[7].Value is bool reconnectEnabled
                 && reconnectEnabled;
 
-            string delimiterSelection = GetCellValue(row, TcpDelimiterColumnName);
-            if (!TryParseUiDelimiterSelection(delimiterSelection, out string frameMode, out string frameDelimiter))
-            {
-                error = "TCP分隔符必须为无、\\n或\\r\\n。";
-                return false;
-            }
-
             SocketInfo current = socketInfos[rowIndex] ?? new SocketInfo();
             parsed = new SocketInfo
             {
@@ -870,8 +857,6 @@ namespace Automation
                 RemoteAddress = remoteAddress,
                 RemotePort = remotePort,
                 AutoReconnect = autoReconnect,
-                FrameMode = frameMode,
-                FrameDelimiter = frameDelimiter,
                 EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName,
                 ConnectTimeoutMs = current.ConnectTimeoutMs > 0 ? current.ConnectTimeoutMs : 5000
             };
@@ -1159,8 +1144,6 @@ namespace Automation
                 CheckBit = "None",
                 DataBit = "8",
                 StopBit = "One",
-                FrameMode = "Delimiter",
-                FrameDelimiter = "\\n",
                 EncodingName = "UTF-8"
             };
             serialPortInfos.Add(serialPortInfo);
@@ -1382,13 +1365,6 @@ namespace Automation
                 return false;
             }
 
-            string delimiterSelection = GetCellValue(row, SerialDelimiterColumnName);
-            if (!TryParseUiDelimiterSelection(delimiterSelection, out string frameMode, out string frameDelimiter))
-            {
-                error = "串口分隔符必须为无、\\n或\\r\\n。";
-                return false;
-            }
-
             SerialPortInfo current = serialPortInfos[rowIndex] ?? new SerialPortInfo();
             parsed = new SerialPortInfo
             {
@@ -1399,8 +1375,6 @@ namespace Automation
                 CheckBit = check,
                 DataBit = dataBit,
                 StopBit = stopBit,
-                FrameMode = frameMode,
-                FrameDelimiter = frameDelimiter,
                 EncodingName = string.IsNullOrWhiteSpace(current.EncodingName) ? "UTF-8" : current.EncodingName
             };
             return true;
@@ -1525,47 +1499,6 @@ namespace Automation
             }
 
             return Convert.ToString(row.Cells[columnName].Value)?.Trim() ?? string.Empty;
-        }
-
-        private static bool TryParseUiDelimiterSelection(string selection, out string frameMode, out string frameDelimiter)
-        {
-            if (string.Equals(selection, "无", StringComparison.Ordinal))
-            {
-                frameMode = "Raw";
-                frameDelimiter = "\\n";
-                return true;
-            }
-            if (string.Equals(selection, "\\n", StringComparison.Ordinal))
-            {
-                frameMode = "Delimiter";
-                frameDelimiter = "\\n";
-                return true;
-            }
-            if (string.Equals(selection, "\\r\\n", StringComparison.Ordinal))
-            {
-                frameMode = "Delimiter";
-                frameDelimiter = "\\r\\n";
-                return true;
-            }
-
-            frameMode = null;
-            frameDelimiter = null;
-            return false;
-        }
-
-        private static string ToUiDelimiterSelection(string frameMode, string frameDelimiter, string defaultMode)
-        {
-            string mode = string.IsNullOrWhiteSpace(frameMode) ? defaultMode : frameMode;
-            if (string.Equals(mode, "Raw", StringComparison.Ordinal))
-            {
-                return "无";
-            }
-            if (string.Equals(frameDelimiter, "\\r\\n", StringComparison.Ordinal))
-            {
-                return "\\r\\n";
-            }
-
-            return "\\n";
         }
 
         private static string BuildUniqueName(IEnumerable<string> existingNames, string prefix)

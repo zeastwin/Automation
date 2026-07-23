@@ -372,6 +372,28 @@ namespace Automation
             return true;
         }
 
+        public bool TryGetValueById(Guid variableId, out DicValue value)
+        {
+            value = null;
+            if (variableId == Guid.Empty)
+            {
+                return false;
+            }
+            ValueTableState table = CurrentTable;
+            foreach (int index in table.NameIndex.Values)
+            {
+                DicValue candidate = table.Values[index];
+                if (candidate != null
+                    && candidate.Id == variableId
+                    && !string.IsNullOrEmpty(candidate.Name))
+                {
+                    value = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public bool TryGetValueByName(string key, out DicValue value)
         {
             value = null;

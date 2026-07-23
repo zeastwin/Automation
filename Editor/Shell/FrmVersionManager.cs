@@ -31,7 +31,6 @@ namespace Automation
                     "Automation", "WebView2")
             }
         };
-        private ConfigurationVersionLayer currentLayer = ConfigurationVersionLayer.Process;
         private string selectedCommitId;
         private bool compareWithPrevious;
         private bool operationInProgress;
@@ -83,13 +82,6 @@ namespace Automation
                     case "ready":
                         await PushStateAsync();
                         break;
-                    case "layer":
-                        currentLayer = string.Equals(request["layer"]?.Value<string>(), "equipment", StringComparison.OrdinalIgnoreCase)
-                            ? ConfigurationVersionLayer.Equipment
-                            : ConfigurationVersionLayer.Process;
-                        selectedCommitId = null;
-                        await PushStateAsync();
-                        break;
                     case "select":
                         selectedCommitId = request["commitId"]?.Value<string>();
                         await PushStateAsync();
@@ -123,17 +115,20 @@ namespace Automation
             }
             try
             {
-                ConfigurationVersionLayer layer = currentLayer;
                 string error = null;
                 bool success = await Task.Run(() =>
-                    Workspace.Runtime.VersionService.CreateManualSnapshot(layer, note, null, out error));
+                    Workspace.Runtime.VersionService.CreateManualSnapshot(note, null, out error));
                 if (!success)
                 {
                     PushToast(error, true);
                     return;
                 }
                 selectedCommitId = null;
-                PushToast("快照已创建。", false);
+                PushToast(
+                    string.IsNullOrWhiteSpace(error)
+                        ? "快照已创建。"
+                        : error,
+                    !string.IsNullOrWhiteSpace(error));
                 await PushStateAsync();
             }
             finally
@@ -161,18 +156,21 @@ namespace Automation
             }
             try
             {
-                ConfigurationVersionLayer layer = currentLayer;
                 string commitId = selectedCommitId;
                 string error = null;
                 bool success = await Task.Run(() =>
-                    Workspace.Runtime.VersionService.DeleteSnapshot(layer, commitId, out error));
+                    Workspace.Runtime.VersionService.DeleteSnapshot(commitId, out error));
                 if (!success)
                 {
                     PushToast(error, true);
                     return;
                 }
                 selectedCommitId = null;
-                PushToast("快照已删除。", false);
+                PushToast(
+                    string.IsNullOrWhiteSpace(error)
+                        ? "快照已删除并完成仓库整理。"
+                        : error,
+                    !string.IsNullOrWhiteSpace(error));
                 await PushStateAsync();
             }
             finally
@@ -188,9 +186,9 @@ namespace Automation
                 PushToast("请先选择一个快照。", true);
                 return;
             }
-            string layerName = currentLayer == ConfigurationVersionLayer.Process ? "工艺层" : "设备层";
-            string extra = currentLayer == ConfigurationVersionLayer.Equipment ? "\r\n设备层还原后必须重启程序，重启前禁止操作设备。" : string.Empty;
-            if (MessageBox.Show("确认将" + layerName + "还原到所选快照？\r\n此操作不会自动创建任何保护点，请确认已手动保存当前版本。" + extra,
+            if (MessageBox.Show("确认将项目配置还原到所选快照？\r\n"
+                    + "系统会先自动保存当前配置为“还原前保护点”。\r\n"
+                    + "还原成功后程序将立即进入安全重启流程。",
                 "确认还原", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 return;
@@ -201,23 +199,65 @@ namespace Automation
             }
             try
             {
-                ConfigurationVersionLayer layer = currentLayer;
                 string commitId = selectedCommitId;
                 string error = null;
-                bool success = await Task.Run(() => Workspace.Runtime.VersionService.Restore(layer, commitId,
-                    () => (bool)Workspace.Main.Invoke(new Func<bool>(Workspace.Main.AreAllProcessesStopped)),
-                    () => Workspace.Main.Invoke(new Action(Workspace.Main.ReloadProcessVersionedConfiguration)),
-                    () => Workspace.Main.Invoke(new Action(Workspace.Main.RequireRestartAfterEquipmentRestore)),
-                    out error));
+                bool hmiChanged = false;
+                bool success = await Task.Run(() =>
+                {
+                    IReadOnlyList<ConfigurationVersionDiffEntry> pendingDiff =
+                        Workspace.Runtime.VersionService.GetStructuredDiff(
+                            commitId,
+                            false,
+                            out string diffError);
+                    if (!string.IsNullOrWhiteSpace(diffError))
+                    {
+                        error = diffError;
+                        return false;
+                    }
+                    hmiChanged = pendingDiff.Any(item =>
+                        string.Equals(
+                            item.Category,
+                            "HMI 代码",
+                            StringComparison.Ordinal));
+                    return Workspace.Runtime.VersionService.Restore(
+                        commitId,
+                        () => (bool)Workspace.Main.Invoke(
+                            new Func<bool>(Workspace.Main.AreAllProcessesStopped)),
+                        () => Workspace.Main.Invoke(
+                            new Action(Workspace.Main.RequireRestartAfterVersionRestore)),
+                        out error);
+                });
                 if (!success)
                 {
                     PushToast(error, true);
                     return;
                 }
-                PushToast(layer == ConfigurationVersionLayer.Process
-                    ? "工艺层已还原并重新加载。"
-                    : "设备层已还原，必须重启程序后才能继续操作。", false);
-                await PushStateAsync();
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    MessageBox.Show(
+                        this,
+                        error,
+                        "还原完成，但历史维护异常",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+                if (hmiChanged)
+                {
+                    MessageBox.Show(
+                        this,
+                        "检测到 HMI 源码已还原。\r\n"
+                            + "请现在手动完成项目编译；确认编译完成后，点击“确定”继续。",
+                        "请先手动编译",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+                MessageBox.Show(
+                    this,
+                    "项目配置已还原。\r\n点击“确定”后，程序将安全停止设备、释放运行资源并自动重启。",
+                    "还原成功，需要重启",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                Workspace.Main.RestartAfterVersionRestore();
             }
             finally
             {
@@ -231,13 +271,12 @@ namespace Automation
             {
                 return;
             }
-            ConfigurationVersionLayer layer = currentLayer;
             string commitId = selectedCommitId;
             bool comparePrevious = compareWithPrevious;
             int requestVersion = Interlocked.Increment(ref stateRequestVersion);
-            VersionPageState result = await Task.Run(() => BuildPageState(layer, commitId, comparePrevious));
+            VersionPageState result = await Task.Run(() => BuildPageState(commitId, comparePrevious));
             if (IsDisposed || Disposing || requestVersion != Volatile.Read(ref stateRequestVersion)
-                || layer != currentLayer || comparePrevious != compareWithPrevious)
+                || comparePrevious != compareWithPrevious)
             {
                 return;
             }
@@ -246,12 +285,11 @@ namespace Automation
         }
 
         private VersionPageState BuildPageState(
-            ConfigurationVersionLayer layer,
             string selectedCommit,
             bool comparePrevious)
         {
             IReadOnlyList<ConfigurationVersionRecord> history = Workspace.Runtime.VersionService.GetHistory(
-                layer, out bool dirty, out string historyError);
+                out bool dirty, out string historyError);
             if (!history.Any(item => item.CommitId == selectedCommit))
             {
                 selectedCommit = history.FirstOrDefault()?.CommitId;
@@ -261,14 +299,13 @@ namespace Automation
             if (!string.IsNullOrWhiteSpace(selectedCommit))
             {
                 diff = Workspace.Runtime.VersionService.GetStructuredDiff(
-                    layer, selectedCommit, comparePrevious, out diffError).ToList();
+                    selectedCommit, comparePrevious, out diffError).ToList();
             }
             List<ConfigurationVersionDiffEntry> variableDiff = diff.Where(item => item.Category == "变量").ToList();
             List<ConfigurationVersionDiffEntry> dataStructDiff = diff.Where(item => item.Category == "数据结构").ToList();
             List<ConfigurationVersionDiffEntry> mainDiff = diff.Where(item => item.Category != "变量" && item.Category != "数据结构").ToList();
             JObject state = new JObject
             {
-                ["layer"] = layer == ConfigurationVersionLayer.Process ? "process" : "equipment",
                 ["dirty"] = dirty,
                 ["mustRestart"] = Workspace.Runtime.Readiness.VersionRestartRequired,
                 ["selectedCommitId"] = selectedCommit,
@@ -280,7 +317,8 @@ namespace Automation
                     commitId = item.CommitId,
                     message = item.Message,
                     author = item.Author,
-                    time = item.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    time = item.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                    snapshotType = item.SnapshotType
                 })),
                 ["diff"] = JArray.FromObject(mainDiff),
                 ["variableDiff"] = JArray.FromObject(variableDiff),
@@ -288,14 +326,21 @@ namespace Automation
                 ["summary"] = new JObject
                 {
                     ["total"] = diff.Count,
-                    ["operations"] = diff.Count(item => item.Category == "指令"),
-                    ["steps"] = diff.Count(item => item.Category == "步骤"),
                     ["variables"] = variableDiff.Count,
                     ["dataStructs"] = dataStructDiff.Count,
-                    ["stations"] = diff.Count(item => item.Category == "工站点位"),
-                    ["ios"] = diff.Count(item => item.Category == "IO"),
-                    ["cards"] = diff.Count(item => item.Category == "控制卡"),
-                    ["alarms"] = diff.Count(item => item.Category == "报警")
+                    ["process"] = diff.Count(item =>
+                        item.Category == "流程"
+                        || item.Category == "步骤"
+                        || item.Category == "指令"
+                        || item.Category == "数据结构"),
+                    ["equipment"] = diff.Count(item =>
+                        item.Category != "流程"
+                        && item.Category != "步骤"
+                        && item.Category != "指令"
+                        && item.Category != "变量"
+                        && item.Category != "数据结构"
+                        && item.Category != "HMI 代码"),
+                    ["hmi"] = diff.Count(item => item.Category == "HMI 代码")
                 }
             };
             return new VersionPageState
@@ -378,21 +423,16 @@ namespace Automation
 <div class="shell">
   <header class="topbar">
     <div class="brand">版本管理</div>
-    <div class="layer-tabs">
-      <button class="layer-tab" id="processTab" onclick="post('layer',{layer:'process'})">工艺层</button>
-      <button class="layer-tab" id="equipmentTab" onclick="post('layer',{layer:'equipment'})">设备层</button>
-    </div>
-    <span class="restart" id="restart" hidden>设备配置已还原，请重启程序</span>
+    <span class="restart" id="restart" style="margin-left:auto" hidden>配置版本已还原，请重启程序</span>
   </header>
   <div class="workspace">
     <aside class="sidebar">
       <div class="snapshot-create">
         <div class="section-title">保存当前版本</div>
-        <div class="section-hint">快照保存配置与纳入版本的源码，不保存流程运行位置、后台任务或设备实时状态</div>
         <div class="create-row"><input class="note-input" id="note" maxlength="80" placeholder="填写本次修改说明"><button class="primary" onclick="post('snapshot',{note:byId('note').value})">创建快照</button></div>
         <div class="status-line" id="dirtyState"></div>
       </div>
-      <div class="history-head"><span class="section-title">快照历史</span><span class="history-count" id="historyCount"></span></div>
+      <div class="history-head"><span class="section-title">快照历史（最近 100 个）</span><span><button class="secondary" id="protectionToggle" style="display:none;height:28px;padding:0 7px;margin-right:6px" onclick="toggleProtections()">显示全部保护点</button><span class="history-count" id="historyCount"></span></span></div>
       <div class="history" id="history"></div>
     </aside>
     <main class="content">
@@ -400,17 +440,17 @@ namespace Automation
         <div class="toolbar-row">
           <div><div class="compare-title" id="compareTitle">改动项对比</div><div class="compare-sub" id="compareHint"></div></div>
           <div class="segmented"><button id="currentMode" onclick="post('compare',{mode:'current'})">与当前配置</button><button id="previousMode" onclick="post('compare',{mode:'previous'})">与上一快照</button></div>
-          <button class="secondary variables-button process-only" id="variableButton" onclick="openVariables()">变量变更<span class="count-dot" id="variableCount">0</span></button>
-          <button class="secondary variables-button process-only" id="dataStructButton" onclick="openDataStructs()">数据结构变更<span class="count-dot" id="dataStructCount">0</span></button>
+          <button class="secondary variables-button" id="variableButton" onclick="openVariables()">变量变更<span class="count-dot" id="variableCount">0</span></button>
+          <button class="secondary variables-button" id="dataStructButton" onclick="openDataStructs()">数据结构变更<span class="count-dot" id="dataStructCount">0</span></button>
           <button class="danger" id="deleteButton" onclick="post('deleteSnapshot')">删除快照</button>
           <button class="primary" id="restoreButton" onclick="post('restore')">还原此快照</button>
         </div>
         <div class="summary">
           <div class="metric"><div class="metric-value" id="totalMetric">0</div><div class="metric-label">全部改动</div></div>
-          <div class="metric operations"><div class="metric-value" id="metricOne">0</div><div class="metric-label" id="metricOneLabel">指令改动</div></div>
-          <div class="metric steps"><div class="metric-value" id="metricTwo">0</div><div class="metric-label" id="metricTwoLabel">步骤改动</div></div>
+          <div class="metric operations"><div class="metric-value" id="metricOne">0</div><div class="metric-label" id="metricOneLabel">流程配置</div></div>
+          <div class="metric steps"><div class="metric-value" id="metricTwo">0</div><div class="metric-label" id="metricTwoLabel">设备与应用</div></div>
           <div class="metric variables"><div class="metric-value" id="metricThree">0</div><div class="metric-label" id="metricThreeLabel">变量改动</div></div>
-          <div class="metric structures"><div class="metric-value" id="metricFour">0</div><div class="metric-label" id="metricFourLabel">数据结构改动</div></div>
+          <div class="metric structures"><div class="metric-value" id="metricFour">0</div><div class="metric-label" id="metricFourLabel">HMI 源码</div></div>
         </div>
       </div>
       <div class="changes" id="changes"></div>
@@ -422,15 +462,16 @@ namespace Automation
 <div class="modal-layer" id="detailModal"><div class="dialog"><div class="dialog-head"><div class="dialog-title">改动详情</div><button class="close" onclick="closeModal('detailModal')">×</button></div><div class="variable-list" id="detailContent"></div></div></div>
 <div class="toast" id="toast"></div>
 <script>
-var state={history:[],diff:[],variableDiff:[],dataStructDiff:[],summary:{}};
+var state={history:[],diff:[],variableDiff:[],dataStructDiff:[],summary:{}},showAllProtection=false;
 function byId(id){return document.getElementById(id)}
 function post(action,data){window.chrome.webview.postMessage(JSON.stringify(Object.assign({action:action},data||{})))}
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
-function setState(next){state=next||{};var process=state.layer==='process';var layerName=process?'工艺层':'设备层';byId('processTab').classList.toggle('active',process);byId('equipmentTab').classList.toggle('active',!process);document.querySelectorAll('.process-only').forEach(function(element){element.hidden=!process});byId('compareTitle').textContent=layerName+' · 改动项对比';byId('currentMode').textContent='与当前'+layerName+'配置';byId('restart').hidden=!state.mustRestart;renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?layerName+'当前配置有尚未纳入快照的改动':layerName+'当前配置与最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一手动快照的变化':'所选快照与当前'+layerName+'配置之间的变化'):'请先创建或选择'+layerName+'快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.diffError)showToast(state.diffError,true)}
+function setState(next){state=next||{};byId('compareTitle').textContent='项目配置 · 改动项对比';byId('currentMode').textContent='与当前配置';byId('restart').hidden=!state.mustRestart;renderHistory();renderSummary();renderChanges();renderVariables();renderDataStructs();byId('dirtyState').className='status-line '+(state.dirty?'dirty':'clean');byId('dirtyState').textContent=state.dirty?'当前项目配置有尚未纳入快照的改动':'当前项目配置与最新快照一致';byId('currentMode').classList.toggle('active',state.compareMode==='current');byId('previousMode').classList.toggle('active',state.compareMode==='previous');byId('compareHint').textContent=state.selectedCommitId?(state.compareMode==='previous'?'所选快照相对上一快照的变化':'所选快照与当前项目配置之间的变化'):'请先创建或选择项目快照';var disabled=!state.selectedCommitId;byId('restoreButton').disabled=disabled;byId('deleteButton').disabled=disabled;if(state.historyError)showToast(state.historyError,true);if(state.diffError)showToast(state.diffError,true)}
 function closeModal(id){byId(id).classList.remove('open')}
-function renderHistory(){var items=state.history||[];byId('historyCount').textContent=items.length+' 个';byId('history').innerHTML=items.length?items.map(function(v){return '<div class="version '+(v.commitId===state.selectedCommitId?'selected':'')+'" onclick="post(\'select\',{commitId:\''+esc(v.commitId)+'\'})"><div class="version-note">'+esc(v.message.replace(/^手动快照[：:]?\s*/,'' )||'未填写说明')+'</div><div class="version-meta"><span>'+esc(v.time)+'</span><span>'+esc(v.commitId.slice(0,8))+'</span></div></div>'}).join(''):'<div class="empty">当前还没有手动快照<br>填写说明后创建第一个快照</div>'}
-function renderSummary(){var s=state.summary||{},process=state.layer==='process';byId('totalMetric').textContent=s.total||0;var metrics=process?[[s.operations,'指令改动'],[s.steps,'步骤改动'],[s.variables,'变量改动'],[s.dataStructs,'数据结构改动']]:[[s.stations,'工站点位改动'],[s.ios,'IO 改动'],[s.cards,'控制卡改动'],[s.alarms,'报警改动']];['One','Two','Three','Four'].forEach(function(name,index){byId('metric'+name).textContent=metrics[index][0]||0;byId('metric'+name+'Label').textContent=metrics[index][1]});byId('variableCount').textContent=s.variables||0;byId('variableButton').disabled=!(s.variables>0);byId('dataStructCount').textContent=s.dataStructs||0;byId('dataStructButton').disabled=!(s.dataStructs>0)}
-function renderChanges(){var items=state.diff||[];if(!state.selectedCommitId){byId('changes').innerHTML='<div class="empty">创建快照后即可查看改动项对比</div>';return}if(!items.length){byId('changes').innerHTML='<div class="empty">除变量外没有其他改动</div>';return}var groups={};items.forEach(function(item){(groups[item.Category]||(groups[item.Category]=[])).push(item)});byId('changes').innerHTML=Object.keys(groups).map(function(category){var rows=groups[category];return '<section class="group"><div class="group-head">'+esc(category)+'<span class="group-count">'+rows.length+' 项改动</span></div>'+rows.map(function(item){return renderChangeRow(item,items.indexOf(item))}).join('')+'</section>'}).join('')}
+function toggleProtections(){showAllProtection=!showAllProtection;renderHistory()}
+function renderHistory(){var all=state.history||[],protectionSeen=0,items=all.filter(function(v){if(v.snapshotType!=='还原前保护点')return true;protectionSeen++;return showAllProtection||protectionSeen<=10}),protectionCount=all.filter(function(v){return v.snapshotType==='还原前保护点'}).length,toggle=byId('protectionToggle');toggle.style.display=protectionCount>10?'inline-block':'none';toggle.textContent=showAllProtection?'收起保护点':'显示全部保护点';byId('historyCount').textContent=all.length+' 个';byId('history').innerHTML=items.length?items.map(function(v){var protection=v.snapshotType==='还原前保护点',restored=v.snapshotType==='还原结果',pattern=protection?/^还原前保护点[：:]?\s*/:restored?/^还原结果[：:]?\s*/:/^手动快照[：:]?\s*/,note=v.message.replace(pattern,'')||(protection?'还原前保护点':restored?'还原结果':'未填写说明'),prefix=protection?'<span style="color:#a15a2c">保护点 · </span>':restored?'<span style="color:#147b72">还原 · </span>':'';return '<div class="version '+(v.commitId===state.selectedCommitId?'selected':'')+'" onclick="post(\'select\',{commitId:\''+esc(v.commitId)+'\'})"><div class="version-note">'+prefix+esc(note)+'</div><div class="version-meta"><span>'+esc(v.time)+'</span><span>'+esc(v.commitId.slice(0,8))+'</span></div></div>'}).join(''):'<div class="empty">当前还没有项目快照<br>填写说明后创建第一个快照</div>'}
+function renderSummary(){var s=state.summary||{};byId('totalMetric').textContent=s.total||0;var metrics=[[s.process,'流程配置'],[s.equipment,'设备与应用'],[s.variables,'变量改动'],[s.hmi,'HMI 源码']];['One','Two','Three','Four'].forEach(function(name,index){byId('metric'+name).textContent=metrics[index][0]||0;byId('metric'+name+'Label').textContent=metrics[index][1]});byId('variableCount').textContent=s.variables||0;byId('variableButton').disabled=!(s.variables>0);byId('dataStructCount').textContent=s.dataStructs||0;byId('dataStructButton').disabled=!(s.dataStructs>0)}
+function renderChanges(){var items=state.diff||[];if(!state.selectedCommitId){byId('changes').innerHTML='<div class="empty">创建快照后即可查看改动项对比</div>';return}if(!items.length){byId('changes').innerHTML='<div class="empty">'+((state.summary||{}).total>0?'变量或数据结构改动请通过上方按钮查看':'没有改动')+'</div>';return}var groups={};items.forEach(function(item){(groups[item.Category]||(groups[item.Category]=[])).push(item)});byId('changes').innerHTML=Object.keys(groups).map(function(category){var rows=groups[category];return '<section class="group"><div class="group-head">'+esc(category)+'<span class="group-count">'+rows.length+' 项改动</span></div>'+rows.map(function(item){return renderChangeRow(item,items.indexOf(item))}).join('')+'</section>'}).join('')}
 function renderChangeRow(item,index){var details=(item.Details||[]).length;var summary=details?'<div class="value" style="color:#0c6b63">双击查看 '+details+' 项字段详情</div>':'<div class="value-pair"><div class="value">'+esc(item.Before)+'</div><div class="arrow">→</div><div class="value">'+esc(item.After)+'</div></div>';return '<div class="change-row" ondblclick="openChangeDetail('+index+')"><div><span class="badge '+esc(item.ChangeType)+'">'+esc(item.ChangeType)+'</span></div><div><div class="change-title">'+esc(item.Title)+'</div><div class="change-location">'+esc(item.Location)+'</div></div><div><div class="field-name">'+(details?'变更摘要':'变更字段')+'</div><div>'+esc(item.FieldName)+'</div></div><div>'+summary+'</div></div>'}
 function renderSourceDiff(before,after){var oldLines=String(before||'').split(/\r?\n/),newLines=String(after||'').split(/\r?\n/),n=oldLines.length,m=newLines.length;if(n*m>160000)return '<pre style="margin:0;padding:16px;white-space:pre-wrap;font:13px/1.55 Consolas,monospace;background:#fff8f7;color:#9f3328">- '+esc(before)+'</pre><pre style="margin:0;padding:16px;white-space:pre-wrap;font:13px/1.55 Consolas,monospace;background:#f3fff4;color:#23723a">+ '+esc(after)+'</pre>';var table=Array.from({length:n+1},function(){return new Array(m+1).fill(0)}),i,j;for(i=n-1;i>=0;i--)for(j=m-1;j>=0;j--)table[i][j]=oldLines[i]===newLines[j]?table[i+1][j+1]+1:Math.max(table[i+1][j],table[i][j+1]);var rows=[],oldNo=1,newNo=1;i=0;j=0;while(i<n||j<m){if(i<n&&j<m&&oldLines[i]===newLines[j]){rows.push(sourceDiffRow(' ',oldNo++,newNo++,oldLines[i++],'#fff','#526976'));continue}if(j<m&&(i===n||table[i][j+1]>=table[i+1][j])){rows.push(sourceDiffRow('+','',newNo++,newLines[j++],'#e8f5df','#22683b'));continue}rows.push(sourceDiffRow('-',oldNo++,'',oldLines[i++],'#fde8e6','#aa3630'))}return '<div style="padding:14px 18px;background:#f7f9fa">'+rows.join('')+'</div>'}
 function sourceDiffRow(mark,oldNo,newNo,text,bg,color){return '<div style="display:grid;grid-template-columns:18px 44px 44px minmax(0,1fr);min-height:21px;padding:1px 8px;background:'+bg+';font:13px/1.5 Consolas,\'Microsoft YaHei UI\',monospace;color:'+color+'"><span>'+mark+'</span><span style="color:#8a9aa4;text-align:right;padding-right:8px">'+oldNo+'</span><span style="color:#8a9aa4;text-align:right;padding-right:8px">'+newNo+'</span><span style="white-space:pre-wrap;word-break:break-all">'+esc(text)+'</span></div>'}

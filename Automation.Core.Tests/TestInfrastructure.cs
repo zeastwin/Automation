@@ -61,6 +61,19 @@ namespace Automation.Core.Tests
             }
             if (Directory.Exists(resolvedPath))
             {
+                foreach (string file in Directory.GetFiles(
+                    resolvedPath,
+                    "*",
+                    SearchOption.AllDirectories))
+                {
+                    FileAttributes attributes = File.GetAttributes(file);
+                    if ((attributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(
+                            file,
+                            attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
                 Directory.Delete(resolvedPath, true);
             }
         }

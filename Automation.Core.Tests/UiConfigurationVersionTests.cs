@@ -110,9 +110,12 @@ namespace Automation.Core.Tests
                             main.Runtime.Paths.ConfigPath,
                             new ValueDebugConfiguration
                             {
-                                CheckIndexes = new List<int> { 1 }
+                                CheckVariableIds = new List<Guid>
+                                {
+                                    variables["变量一"].Id
+                                }
                             },
-                            main.Runtime.Stores.Values,
+                            main.Runtime.Stores.ValueDebug.Version,
                             out string debugError),
                         debugError);
 
@@ -128,9 +131,13 @@ namespace Automation.Core.Tests
                             main.Runtime.Paths.ConfigPath,
                             new ValueDebugConfiguration
                             {
-                                CheckIndexes = new List<int> { 1, 2 }
+                                CheckVariableIds = new List<Guid>
+                                {
+                                    variables["变量一"].Id,
+                                    variables["变量二"].Id
+                                }
                             },
-                            main.Runtime.Stores.Values,
+                            main.Runtime.Stores.ValueDebug.Version,
                             out debugError),
                         debugError);
                     form.RefreshAllLists();

@@ -64,6 +64,7 @@ namespace Automation
             OperationEditing = new OperationEditingService(this);
             ProcessPublication = new ProcessPublicationService(this);
             ProcessVariableConfiguration = new ProcessVariableConfigurationService(this);
+            VariableDebug = new VariableDebugService(this);
             CustomFunctions = new CustomFunc();
             Communication = new CommunicationHub();
             PlcRuntime = new PlcRuntimeService(Stores.Plc, Stores.Values);
@@ -81,6 +82,7 @@ namespace Automation
         public OperationEditingService OperationEditing { get; }
         public ProcessPublicationService ProcessPublication { get; }
         public ProcessVariableConfigurationService ProcessVariableConfiguration { get; }
+        internal VariableDebugService VariableDebug { get; }
 
         public ProcessEngine ProcessEngine { get; internal set; }
         public IProcessRuntimeControl ProcessControl { get; internal set; }

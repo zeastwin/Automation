@@ -30,7 +30,8 @@ namespace Automation
 
         public PlatformShutdownReport Shutdown(
             TimeSpan? processStopTimeout = null,
-            TimeSpan? communicationStopTimeout = null)
+            TimeSpan? communicationStopTimeout = null,
+            bool saveRuntimeConfiguration = true)
         {
             if (Interlocked.CompareExchange(ref shutdownState, 1, 0) != 0)
             {
@@ -51,7 +52,18 @@ namespace Automation
             RunStage(stages, "停止设备动作", () => runtime.Devices?.Stop());
             RunStage(stages, "等待流程停止", () => WaitForProcessesStopped(processTimeout));
             RunStage(stages, "关闭流程交互", () => runtime.ProcessInteraction?.CloseAll());
-            RunStage(stages, "保存运行配置", SaveRuntimeConfiguration);
+            if (saveRuntimeConfiguration)
+            {
+                RunStage(stages, "保存运行配置", SaveRuntimeConfiguration);
+            }
+            else
+            {
+                // 版本还原后的磁盘文件已经是目标状态，禁止旧内存状态在退出时覆盖它。
+                stages.Add(new PlatformShutdownStageResult(
+                    "保留已还原配置",
+                    TimeSpan.Zero,
+                    null));
+            }
             RunStage(stages, "释放系统状态", () =>
             {
                 runtime.SystemStatus?.Dispose();

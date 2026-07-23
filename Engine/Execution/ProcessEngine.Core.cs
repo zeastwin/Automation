@@ -1371,7 +1371,7 @@ namespace Automation
             }
             if (Context.Readiness.VersionRestartRequired)
             {
-                error = "设备配置已还原，必须重启程序后才能启动流程。";
+                error = "配置版本已还原，必须重启程序后才能启动流程。";
                 return false;
             }
             return true;

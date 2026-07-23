@@ -161,7 +161,6 @@ namespace Automation.Core.Tests
                     RemoteAddress = IPAddress.Loopback.ToString(),
                     RemotePort = port,
                     AutoReconnect = false,
-                    FrameMode = "Raw",
                     ConnectTimeoutMs = 1000
                 };
                 var request = new SendReceiveCommMsg
@@ -263,7 +262,6 @@ namespace Automation.Core.Tests
                         RemoteAddress = IPAddress.Loopback.ToString(),
                         RemotePort = port,
                         AutoReconnect = false,
-                        FrameMode = "Raw",
                         ConnectTimeoutMs = 1000
                     };
                     var receive = new ReceiveTcpMsg

@@ -511,6 +511,7 @@
     <Compile Include="Runtime\Editing\OperationClipboardService.cs" />
     <Compile Include="Runtime\Editing\PlatformEditorUiAdapter.cs" />
     <Compile Include="Runtime\Editing\ProcessVariableConfigurationService.cs" />
+    <Compile Include="Runtime\Editing\VariableDebugService.cs" />
     <Compile Include="Runtime\Hosting\AutomationPlatformBootstrap.cs" />
     <Compile Include="Runtime\Hosting\AutomationPlatformHost.cs" />
     <Compile Include="Runtime\Hosting\AutomationRuntimeOptions.cs" />

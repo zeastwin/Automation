@@ -1,6 +1,6 @@
 using System;
 // 模块：通讯运行时。
-// 职责范围：管理 TCP/串口通道、帧解码、接收分发、事务等待和通讯配置模型。
+// 职责范围：管理 TCP/串口通道、原始数据接收、事务等待和通讯配置模型。
 // 排查入口：用 Log 区分生命周期/发送/接收错误，用 FramesDropped 判断积压；同名通道由 lifecycleGate 串行变更。
 
 using System.Collections.Concurrent;
@@ -168,26 +168,6 @@ namespace Automation
         }
     }
 
-    internal enum CommFrameMode
-    {
-        Delimiter,
-        Raw
-    }
-
-    internal sealed class CommFrameSettings
-    {
-        public CommFrameSettings(CommFrameMode mode, byte[] delimiter, Encoding encoding)
-        {
-            Mode = mode;
-            Delimiter = delimiter;
-            Encoding = encoding;
-        }
-
-        public CommFrameMode Mode { get; }
-        public byte[] Delimiter { get; }
-        public Encoding Encoding { get; }
-    }
-
     internal sealed class ParsedSocketInfo
     {
         public string Name { get; set; }
@@ -199,7 +179,7 @@ namespace Automation
         public int RemotePort { get; set; }
         public bool AutoReconnect { get; set; }
         public int ConnectTimeoutMs { get; set; }
-        public CommFrameSettings FrameSettings { get; set; }
+        public Encoding Encoding { get; set; }
 
         public string ListenerKey => $"{LocalAddress}:{LocalPort}";
     }
@@ -212,7 +192,7 @@ namespace Automation
         public Parity Parity { get; set; }
         public int DataBits { get; set; }
         public StopBits StopBits { get; set; }
-        public CommFrameSettings FrameSettings { get; set; }
+        public Encoding Encoding { get; set; }
     }
 
     internal sealed class ReceivedFrame
@@ -225,114 +205,6 @@ namespace Automation
 
         public byte[] Payload { get; }
         public string RemoteEndPoint { get; }
-    }
-
-    internal sealed class FrameDecoder
-    {
-        private readonly CommFrameMode mode;
-        private readonly byte[] delimiter;
-        private readonly int maxFrameBytes;
-        private readonly List<byte> buffer = new List<byte>(4096);
-
-        public FrameDecoder(CommFrameSettings settings, int maxFrameBytes)
-        {
-            mode = settings.Mode;
-            delimiter = settings.Delimiter;
-            this.maxFrameBytes = maxFrameBytes;
-        }
-
-        public IList<byte[]> Push(byte[] data, int count)
-        {
-            if (data == null)
-            {
-                throw new ArgumentNullException(nameof(data));
-            }
-            if (count < 0 || count > data.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), $"接收长度无效:{count}");
-            }
-
-            if (count == 0)
-            {
-                return Array.Empty<byte[]>();
-            }
-
-            if (mode == CommFrameMode.Raw)
-            {
-                byte[] raw = new byte[count];
-                Buffer.BlockCopy(data, 0, raw, 0, count);
-                return new[] { raw };
-            }
-
-            int previousCount = buffer.Count;
-            for (int i = 0; i < count; i++)
-            {
-                buffer.Add(data[i]);
-            }
-            List<byte[]> frames = new List<byte[]>();
-            int frameStart = 0;
-            int searchStart = Math.Max(0, previousCount - delimiter.Length + 1);
-            while (true)
-            {
-                int index = IndexOf(buffer, delimiter, searchStart);
-                if (index < 0)
-                {
-                    break;
-                }
-
-                int frameLength = index - frameStart;
-                if (frameLength > maxFrameBytes)
-                {
-                    throw new InvalidOperationException($"接收帧长度超限:{frameLength}");
-                }
-                byte[] frame = new byte[frameLength];
-                if (frameLength > 0)
-                {
-                    buffer.CopyTo(frameStart, frame, 0, frameLength);
-                }
-                frames.Add(frame);
-                frameStart = index + delimiter.Length;
-                searchStart = frameStart;
-            }
-            if (frameStart > 0)
-            {
-                buffer.RemoveRange(0, frameStart);
-            }
-            if (buffer.Count > maxFrameBytes)
-            {
-                throw new InvalidOperationException($"接收缓冲超限:{buffer.Count}");
-            }
-
-            return frames;
-        }
-
-        private static int IndexOf(List<byte> source, byte[] pattern, int StartIndex)
-        {
-            if (source == null || pattern == null || pattern.Length == 0 || source.Count < pattern.Length)
-            {
-                return -1;
-            }
-
-            int max = source.Count - pattern.Length;
-            for (int i = Math.Max(0, StartIndex); i <= max; i++)
-            {
-                bool matched = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (source[i + j] != pattern[j])
-                    {
-                        matched = false;
-                        break;
-                    }
-                }
-                if (matched)
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
     }
 
     internal sealed class ReceiveDispatcher
@@ -747,8 +619,6 @@ namespace Automation
 
     internal sealed class TcpChannel
     {
-        private const int MaxFrameBytes = 1024 * 1024;
-
         private readonly ParsedSocketInfo info;
         private readonly Action<CommLogEventArgs> log;
         private readonly Func<bool> loggingEnabled;
@@ -785,9 +655,7 @@ namespace Automation
         }
         public bool IsServer => info.IsServer;
         public CommChannelKind Kind => IsServer ? CommChannelKind.TcpServer : CommChannelKind.TcpClient;
-        public Encoding Encoding => info.FrameSettings.Encoding;
-        public bool UseDelimiter => info.FrameSettings.Mode == CommFrameMode.Delimiter;
-        public byte[] Delimiter => info.FrameSettings.Delimiter;
+        public Encoding Encoding => info.Encoding;
 
         public bool Matches(ParsedSocketInfo target)
         {
@@ -801,9 +669,7 @@ namespace Automation
                 && info.RemotePort == target.RemotePort
                 && info.AutoReconnect == target.AutoReconnect
                 && info.ConnectTimeoutMs == target.ConnectTimeoutMs
-                && info.FrameSettings.Mode == target.FrameSettings.Mode
-                && string.Equals(info.FrameSettings.Encoding.WebName, target.FrameSettings.Encoding.WebName, StringComparison.OrdinalIgnoreCase)
-                && AreSameDelimiter(info.FrameSettings.Delimiter, target.FrameSettings.Delimiter);
+                && string.Equals(info.Encoding.WebName, target.Encoding.WebName, StringComparison.OrdinalIgnoreCase);
         }
 
         public TcpStatus GetStatus()
@@ -903,12 +769,11 @@ namespace Automation
             SetState(false, false, TcpConnectionState.Stopped, string.Empty);
         }
 
-        public async Task SendAsync(byte[] payload, bool appendDelimiter, CancellationToken cancellationToken)
+        public async Task SendAsync(byte[] payload, CancellationToken cancellationToken)
         {
             if (payload == null) throw new ArgumentNullException(nameof(payload));
             if (!GetStatus().IsConnected) throw new InvalidOperationException("TCP未连接");
 
-            byte[] packet = appendDelimiter ? AppendDelimiter(payload) : payload;
             await sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -925,7 +790,7 @@ namespace Automation
                         try
                         {
                             NetworkStream stream = tcpClient.GetStream();
-                            await stream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                            await stream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
                             sendCount++;
                         }
                         catch (OperationCanceledException)
@@ -948,7 +813,7 @@ namespace Automation
                 try
                 {
                     NetworkStream clientStream = targetClient.GetStream();
-                    await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                    await clientStream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -979,24 +844,6 @@ namespace Automation
         public string DecodeText(byte[] payload)
         {
             return Encoding.GetString(payload ?? Array.Empty<byte>());
-        }
-
-        private byte[] AppendDelimiter(byte[] payload)
-        {
-            if (!UseDelimiter)
-            {
-                return payload;
-            }
-
-            if (payload.Length >= Delimiter.Length && payload.Skip(payload.Length - Delimiter.Length).SequenceEqual(Delimiter))
-            {
-                return payload;
-            }
-
-            byte[] result = new byte[payload.Length + Delimiter.Length];
-            Buffer.BlockCopy(payload, 0, result, 0, payload.Length);
-            Buffer.BlockCopy(Delimiter, 0, result, payload.Length, Delimiter.Length);
-            return result;
         }
 
         public string GetRemoteEndPointForLog()
@@ -1185,7 +1032,6 @@ namespace Automation
                 return;
             }
 
-            FrameDecoder decoder = new FrameDecoder(info.FrameSettings, MaxFrameBytes);
             byte[] buffer = new byte[4096];
 
             while (!token.IsCancellationRequested)
@@ -1213,26 +1059,14 @@ namespace Automation
                     break;
                 }
 
-                IList<byte[]> frames;
-                try
+                byte[] payload = new byte[bytesRead];
+                Buffer.BlockCopy(buffer, 0, payload, 0, bytesRead);
+                dispatcher.Publish(new ReceivedFrame(payload, remoteEndPoint));
+                if (loggingEnabled?.Invoke() == true)
                 {
-                    frames = decoder.Push(buffer, bytesRead);
-                }
-                catch (Exception ex)
-                {
-                    log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Error, info.Name, ex.Message, null, remoteEndPoint, ex));
-                    break;
-                }
-
-                foreach (byte[] frame in frames)
-                {
-                    dispatcher.Publish(new ReceivedFrame(frame, remoteEndPoint));
-                    if (loggingEnabled?.Invoke() == true)
-                    {
-                        string text = DecodeText(frame);
-                        string hex = CommunicationHub.BytesToHex(frame);
-                        log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Receive, info.Name, text, hex, remoteEndPoint, null));
-                    }
+                    string text = DecodeText(payload);
+                    string hex = CommunicationHub.BytesToHex(payload);
+                    log?.Invoke(new CommLogEventArgs(Kind, CommDirection.Receive, info.Name, text, hex, remoteEndPoint, null));
                 }
             }
 
@@ -1309,19 +1143,6 @@ namespace Automation
                 CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
         }
 
-        private static bool AreSameDelimiter(byte[] left, byte[] right)
-        {
-            if (left == null && right == null)
-            {
-                return true;
-            }
-            if (left == null || right == null)
-            {
-                return false;
-            }
-            return left.SequenceEqual(right);
-        }
-
         internal static void SafeCloseClient(TcpClient tcpClient)
         {
             if (tcpClient == null)
@@ -1341,8 +1162,6 @@ namespace Automation
 
     internal sealed class SerialPortChannel
     {
-        private const int MaxFrameBytes = 1024 * 1024;
-
         private readonly ParsedSerialInfo info;
         private readonly Action<CommLogEventArgs> log;
         private readonly Func<bool> loggingEnabled;
@@ -1367,9 +1186,7 @@ namespace Automation
         }
 
         public bool IsOpen => isOpen;
-        public Encoding Encoding => info.FrameSettings.Encoding;
-        public bool UseDelimiter => info.FrameSettings.Mode == CommFrameMode.Delimiter;
-        public byte[] Delimiter => info.FrameSettings.Delimiter;
+        public Encoding Encoding => info.Encoding;
         public string PortName => info.PortName;
 
         public bool Matches(ParsedSerialInfo target)
@@ -1385,9 +1202,7 @@ namespace Automation
                 && info.Parity == target.Parity
                 && info.DataBits == target.DataBits
                 && info.StopBits == target.StopBits
-                && info.FrameSettings.Mode == target.FrameSettings.Mode
-                && string.Equals(info.FrameSettings.Encoding.WebName, target.FrameSettings.Encoding.WebName, StringComparison.OrdinalIgnoreCase)
-                && AreSameDelimiter(info.FrameSettings.Delimiter, target.FrameSettings.Delimiter);
+                && string.Equals(info.Encoding.WebName, target.Encoding.WebName, StringComparison.OrdinalIgnoreCase);
         }
 
         public SerialStatus GetStatus()
@@ -1408,7 +1223,7 @@ namespace Automation
             {
                 serialPort = new SerialPort(info.PortName, info.BitRate, info.Parity, info.DataBits, info.StopBits)
                 {
-                    Encoding = info.FrameSettings.Encoding
+                    Encoding = info.Encoding
                 };
                 serialPort.Open();
                 isOpen = true;
@@ -1464,7 +1279,7 @@ namespace Automation
             }
         }
 
-        public async Task SendAsync(byte[] payload, bool appendDelimiter, CancellationToken cancellationToken)
+        public async Task SendAsync(byte[] payload, CancellationToken cancellationToken)
         {
             if (payload == null)
             {
@@ -1484,8 +1299,7 @@ namespace Automation
                     }
                 }
 
-                byte[] packet = appendDelimiter ? AppendDelimiter(payload) : payload;
-                await port.BaseStream.WriteAsync(packet, 0, packet.Length, cancellationToken).ConfigureAwait(false);
+                await port.BaseStream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -1508,27 +1322,8 @@ namespace Automation
             return Encoding.GetString(payload ?? Array.Empty<byte>());
         }
 
-        private byte[] AppendDelimiter(byte[] payload)
-        {
-            if (!UseDelimiter)
-            {
-                return payload;
-            }
-
-            if (payload.Length >= Delimiter.Length && payload.Skip(payload.Length - Delimiter.Length).SequenceEqual(Delimiter))
-            {
-                return payload;
-            }
-
-            byte[] result = new byte[payload.Length + Delimiter.Length];
-            Buffer.BlockCopy(payload, 0, result, 0, payload.Length);
-            Buffer.BlockCopy(Delimiter, 0, result, payload.Length, Delimiter.Length);
-            return result;
-        }
-
         private async Task ReadLoopAsync(CancellationToken token)
         {
-            FrameDecoder decoder = new FrameDecoder(info.FrameSettings, MaxFrameBytes);
             byte[] buffer = new byte[1024];
 
             while (!token.IsCancellationRequested)
@@ -1566,26 +1361,14 @@ namespace Automation
                     break;
                 }
 
-                IList<byte[]> frames;
-                try
+                byte[] payload = new byte[bytesRead];
+                Buffer.BlockCopy(buffer, 0, payload, 0, bytesRead);
+                dispatcher.Publish(new ReceivedFrame(payload, info.PortName));
+                if (loggingEnabled?.Invoke() == true)
                 {
-                    frames = decoder.Push(buffer, bytesRead);
-                }
-                catch (Exception ex)
-                {
-                    log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Error, info.Name, ex.Message, null, info.PortName, ex));
-                    break;
-                }
-
-                foreach (byte[] frame in frames)
-                {
-                    dispatcher.Publish(new ReceivedFrame(frame, info.PortName));
-                    if (loggingEnabled?.Invoke() == true)
-                    {
-                        string text = DecodeText(frame);
-                        string hex = CommunicationHub.BytesToHex(frame);
-                        log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Receive, info.Name, text, hex, info.PortName, null));
-                    }
+                    string text = DecodeText(payload);
+                    string hex = CommunicationHub.BytesToHex(payload);
+                    log?.Invoke(new CommLogEventArgs(CommChannelKind.SerialPort, CommDirection.Receive, info.Name, text, hex, info.PortName, null));
                 }
             }
 
@@ -1605,18 +1388,6 @@ namespace Automation
             dispatcher.Close("串口已关闭");
         }
 
-        private static bool AreSameDelimiter(byte[] left, byte[] right)
-        {
-            if (left == null && right == null)
-            {
-                return true;
-            }
-            if (left == null || right == null)
-            {
-                return false;
-            }
-            return left.SequenceEqual(right);
-        }
     }
 
     public sealed class CommunicationHub : IDisposable
@@ -1784,8 +1555,7 @@ namespace Automation
             try
             {
                 byte[] payload = BuildSendPayload(message, convertHex, channel.Encoding);
-                bool appendDelimiter = !convertHex && channel.UseDelimiter;
-                await channel.SendAsync(payload, appendDelimiter, cancellationToken).ConfigureAwait(false);
+                await channel.SendAsync(payload, cancellationToken).ConfigureAwait(false);
                 if (Log != null)
                 {
                     string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
@@ -2129,8 +1899,7 @@ namespace Automation
             try
             {
                 byte[] payload = BuildSendPayload(message, convertHex, channel.Encoding);
-                bool appendDelimiter = !convertHex && channel.UseDelimiter;
-                await channel.SendAsync(payload, appendDelimiter, cancellationToken).ConfigureAwait(false);
+                await channel.SendAsync(payload, cancellationToken).ConfigureAwait(false);
                 if (Log != null)
                 {
                     string text = convertHex ? BytesToHex(payload) : channel.DecodeText(payload);
@@ -2517,7 +2286,7 @@ namespace Automation
                 throw new InvalidOperationException($"TCP连接超时配置无效:{info.Name}-{timeout}");
             }
 
-            CommFrameSettings frameSettings = ParseFrameSettings(info.FrameMode, info.FrameDelimiter, info.EncodingName, info.Name);
+            Encoding encoding = ParseEncoding(info.EncodingName, info.Name);
 
             return new ParsedSocketInfo
             {
@@ -2530,7 +2299,7 @@ namespace Automation
                 RemotePort = info.RemotePort,
                 AutoReconnect = !isServer && info.AutoReconnect,
                 ConnectTimeoutMs = timeout,
-                FrameSettings = frameSettings
+                Encoding = encoding
             };
         }
 
@@ -2565,7 +2334,7 @@ namespace Automation
                 throw new InvalidOperationException($"停止位无效:{info.Name}-{info.StopBit}");
             }
 
-            CommFrameSettings frameSettings = ParseFrameSettings(info.FrameMode, info.FrameDelimiter, info.EncodingName, info.Name);
+            Encoding encoding = ParseEncoding(info.EncodingName, info.Name);
 
             return new ParsedSerialInfo
             {
@@ -2575,31 +2344,12 @@ namespace Automation
                 Parity = parity,
                 DataBits = dataBits,
                 StopBits = stopBits,
-                FrameSettings = frameSettings
+                Encoding = encoding
             };
         }
 
-        private static CommFrameSettings ParseFrameSettings(string frameMode, string frameDelimiter, string encodingName, string name)
+        private static Encoding ParseEncoding(string encodingName, string name)
         {
-            if (string.IsNullOrWhiteSpace(frameMode))
-            {
-                throw new InvalidOperationException($"帧模式为空:{name}");
-            }
-
-            CommFrameMode mode;
-            if (string.Equals(frameMode, "Delimiter", StringComparison.Ordinal))
-            {
-                mode = CommFrameMode.Delimiter;
-            }
-            else if (string.Equals(frameMode, "Raw", StringComparison.Ordinal))
-            {
-                mode = CommFrameMode.Raw;
-            }
-            else
-            {
-                throw new InvalidOperationException($"帧模式无效:{name}-{frameMode}");
-            }
-
             if (string.IsNullOrWhiteSpace(encodingName))
             {
                 throw new InvalidOperationException($"编码为空:{name}");
@@ -2615,36 +2365,7 @@ namespace Automation
                 throw new InvalidOperationException($"编码无效:{name}-{encodingName}，{ex.Message}");
             }
 
-            byte[] delimiter = null;
-            if (mode == CommFrameMode.Delimiter)
-            {
-                delimiter = ParseDelimiter(frameDelimiter, name);
-            }
-
-            return new CommFrameSettings(mode, delimiter, encoding);
-        }
-
-        private static byte[] ParseDelimiter(string delimiter, string name)
-        {
-            if (string.IsNullOrWhiteSpace(delimiter))
-            {
-                throw new InvalidOperationException($"分隔符为空:{name}");
-            }
-
-            if (string.Equals(delimiter, "\\n", StringComparison.Ordinal))
-            {
-                return new[] { (byte)'\n' };
-            }
-            if (string.Equals(delimiter, "\\r", StringComparison.Ordinal))
-            {
-                return new[] { (byte)'\r' };
-            }
-            if (string.Equals(delimiter, "\\r\\n", StringComparison.Ordinal))
-            {
-                return new[] { (byte)'\r', (byte)'\n' };
-            }
-
-            throw new InvalidOperationException($"分隔符无效:{name}-{delimiter}，仅支持\\n/\\r/\\r\\n");
+            return encoding;
         }
     }
 }

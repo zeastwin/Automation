@@ -179,7 +179,7 @@ namespace Automation
             allowFinalClose = true;
         }
 
-        internal void ShutdownPlatform()
+        internal void ShutdownPlatform(bool saveRuntimeConfiguration = true)
         {
             if (Interlocked.Exchange(ref shutdownStarted, 1) != 0)
             {
@@ -199,7 +199,9 @@ namespace Automation
                 if (dataRun != null)
                     dataRun.SnapshotChanged -= CacheSnapshot;
             });
-            Runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。");
+            RunEditorShutdownStage(
+                "停止全部流程",
+                () => Runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。"));
             RunEditorShutdownStage("关闭调试窗口", () =>
             {
                 frmDataBreakpoints?.Close();
@@ -221,7 +223,8 @@ namespace Automation
                 processTraceAuditSink?.Dispose();
             });
 
-            Runtime.ShutdownCoordinator.Shutdown();
+            Runtime.ShutdownCoordinator.Shutdown(
+                saveRuntimeConfiguration: saveRuntimeConfiguration);
             RunEditorShutdownStage("释放编辑器计时器", () =>
             {
                 if (snapshotTimer == null) return;
@@ -232,6 +235,35 @@ namespace Automation
             });
             RunEditorShutdownStage("释放UI调度器", () => uiDispatcher?.Dispose());
             platformInitialized = false;
+        }
+
+        internal void RestartAfterVersionRestore()
+        {
+            RunEditorShutdownStage(
+                "设置版本还原重启锁",
+                RequireRestartAfterVersionRestore);
+            allowFinalClose = true;
+
+            // 先完整释放流程、设备、通讯和编辑器后台服务，再交给 WinForms
+            // 启动新进程。此次关闭不得把旧内存配置写回已还原的磁盘快照。
+            // 任一释放阶段失败都只记录错误，不能截断最终重启。
+            RunEditorShutdownStage(
+                "执行版本还原安全关闭",
+                () => ShutdownPlatform(saveRuntimeConfiguration: false));
+            try
+            {
+                Application.Restart();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    "自动重启失败，程序将安全退出。请手动重新启动。\r\n" + ex.Message,
+                    "重启失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                Application.Exit();
+            }
         }
 
         private void RunEditorShutdownStage(string stageName, Action action)
