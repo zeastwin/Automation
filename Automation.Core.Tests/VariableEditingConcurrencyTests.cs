@@ -124,6 +124,72 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void VariableConfigurationHistory_RuntimeValueChangesDoNotMutateUndoSnapshots()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var runtime = new PlatformRuntime(directory.FullPath);
+                var initial = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+                {
+                    ["历史变量"] = new DicValue
+                    {
+                        Id = Guid.NewGuid(),
+                        Index = 17,
+                        Name = "历史变量",
+                        Type = "double",
+                        Value = "1",
+                        Note = "旧备注",
+                        Scope = VariableScopeContract.Public
+                    }
+                };
+                Assert.IsTrue(runtime.Stores.Values.TryCommitConfiguration(
+                    runtime.Paths.ConfigPath,
+                    initial,
+                    out string initialError),
+                    initialError);
+
+                Dictionary<string, DicValue> edited =
+                    runtime.Stores.Values.BuildSaveData();
+                edited["历史变量"].Note = "新备注";
+                Assert.IsTrue(runtime.Stores.Values.TryCommitConfiguration(
+                    runtime.Paths.ConfigPath,
+                    edited,
+                    out string editError,
+                    historyDescription: "修改变量备注"),
+                    editError);
+                Assert.IsTrue(runtime.Stores.Values.setValueByName(
+                    "历史变量",
+                    "9",
+                    "历史快照测试"));
+
+                Assert.IsTrue(runtime.Editor.History.TryUndo(
+                    out string undoDescription,
+                    out string undoError),
+                    undoError);
+                Assert.AreEqual("修改变量备注", undoDescription);
+                Assert.AreEqual(
+                    "旧备注",
+                    runtime.Stores.Values.GetValueByName("历史变量").Note);
+                Assert.AreEqual(
+                    "9",
+                    runtime.Stores.Values.GetValueByName("历史变量").Value,
+                    "撤销配置不能把提交后的运行值回退。");
+
+                Assert.IsTrue(runtime.Editor.History.TryRedo(
+                    out string redoDescription,
+                    out string redoError),
+                    redoError);
+                Assert.AreEqual("修改变量备注", redoDescription);
+                Assert.AreEqual(
+                    "新备注",
+                    runtime.Stores.Values.GetValueByName("历史变量").Note);
+                Assert.AreEqual(
+                    "9",
+                    runtime.Stores.Values.GetValueByName("历史变量").Value);
+            }
+        }
+
+        [TestMethod]
         public void OperationEditCommit_WhenProcessRevisionChanged_RejectsStaleTarget()
         {
             using (var directory = new TemporaryDirectory())

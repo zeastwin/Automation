@@ -19,7 +19,15 @@ namespace Automation
 
         private void FrmMain_Shown(object sender, EventArgs e)
         {
-            EnsureAiInfrastructureStarted();
+            BeginInvoke((Action)EnsureAiInfrastructureStarted);
+        }
+
+        private void FrmMain_Activated(object sender, EventArgs e)
+        {
+            if (ReferenceEquals(workspacePageHost.ActivePage, frmValue))
+            {
+                frmValue.RefreshFromUserActivation();
+            }
         }
 
         internal void InitializePlatform()

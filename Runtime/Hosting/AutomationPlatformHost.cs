@@ -140,6 +140,31 @@ namespace Automation
             return editor;
         }
 
+        /// <summary>
+        /// 在 HMI 已显示且 UI 空闲时隐藏预加载平台编辑器。
+        /// 这里只创建并附加编辑器，不显示窗口，也不提前启动 AI/MCP。
+        /// </summary>
+        internal bool TryPreloadPlatformEditor(out string error)
+        {
+            error = null;
+            try
+            {
+                EnsureUiThread();
+                EnsureReadyOrFaulted();
+                EnsurePlatformEditorCreated();
+                runtime.ProcessEngine?.Logger?.Log(
+                    "平台编辑器隐藏预加载完成。",
+                    LogLevel.Normal);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "平台编辑器隐藏预加载失败：" + ex.Message;
+                runtime.ProcessEngine?.Logger?.Log(error, LogLevel.Error);
+                return false;
+            }
+        }
+
         public void RegisterCustomFunction(string name, CustomFunc.FunctionDelegate function)
         {
             EnsureUiThread();
@@ -241,7 +266,6 @@ namespace Automation
             try
             {
                 editor.HideOnUserClose = true;
-                editor.EnsureAiInfrastructureStarted();
                 editor.Owner = null;
                 editor.ShowInTaskbar = true;
                 if (!editor.Visible)

@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 13;
+        public const int ContractVersion = 14;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -158,6 +158,11 @@ namespace Automation
                         ["值在区间内"] = "IncludeBoundary=true: Down <= value <= Up；IncludeBoundary=false: Down < value < Up",
                         ["等于特征字符"] = "变量文本与 ExpectedText 做区分大小写的完全相等比较"
                     };
+                    ((JObject)contract["fieldRules"])[nameof(ParamGoto.InvalidDelayMs)] = new JObject
+                    {
+                        ["defaultValue"] = LogicJumpDefaults.InvalidDelayMs,
+                        ["description"] = "条件不成立时先让出执行资源，再跳转到失败目标。"
+                    };
                     contract["failureModes"] = new JArray("条件变量无效时报警", "InvalidDelayMs 为负数时报警", "任一跳转目标为空或无效时报警");
                     break;
 
@@ -168,6 +173,11 @@ namespace Automation
                         false);
                     AddRequiredGoto(contract, "TrueGoto", "IO 逻辑为真时的跳转目标");
                     AddRequiredGoto(contract, "FalseGoto", "IO 逻辑为假时的跳转目标");
+                    ((JObject)contract["fieldRules"])[nameof(IoLogicGoto.InvalidDelayMs)] = new JObject
+                    {
+                        ["defaultValue"] = LogicJumpDefaults.InvalidDelayMs,
+                        ["description"] = "IO 逻辑为假时先让出执行资源，再跳转到失败目标。"
+                    };
                     contract["constraints"] = new JArray("IoParams 只接受通用输入 IO");
                     contract["failureModes"] = new JArray("输入 IO 名称或类型无效时报警", "跳转目标为空或无效时报警");
                     break;

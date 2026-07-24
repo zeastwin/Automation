@@ -48,6 +48,7 @@ namespace Automation
                 {
                     using (var hmi = new Hmi.FrmHmiMain(runtime))
                     {
+                        ScheduleHiddenPlatformEditorPreload(hmi, runtime);
                         Application.Run(hmi);
                     }
                 }
@@ -58,6 +59,24 @@ namespace Automation
                     Application.Run(platformEditor);
                 }
             }
+        }
+
+        private static void ScheduleHiddenPlatformEditorPreload(
+            Form hmi,
+            AutomationPlatformHost runtime)
+        {
+            EventHandler preloadOnIdle = null;
+            preloadOnIdle = (sender, eventArgs) =>
+            {
+                Application.Idle -= preloadOnIdle;
+                if (hmi.IsDisposed || hmi.Disposing)
+                {
+                    return;
+                }
+                runtime.TryPreloadPlatformEditor(out _);
+            };
+            hmi.Shown += (sender, eventArgs) => Application.Idle += preloadOnIdle;
+            hmi.FormClosed += (sender, eventArgs) => Application.Idle -= preloadOnIdle;
         }
     }
 }

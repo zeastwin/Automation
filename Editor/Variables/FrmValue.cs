@@ -383,7 +383,6 @@ namespace Automation
         private readonly ToolTip uiToolTip;
         private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
-        private readonly Timer runtimeValueRefreshTimer;
         private readonly Font scopeGroupFont;
         private readonly Font scopeChevronFont;
         private readonly DicValue[] variableSnapshot = new DicValue[ValueConfigStore.ValueCapacity];
@@ -402,12 +401,15 @@ namespace Automation
         private bool isValueEditValid = true;
         private bool isScopeFilterPending;
         private bool refreshScopeTreePending;
+        private bool isScopeSelectionApplyPending;
+        private bool activationRefreshPending;
+        private bool dataStructRefreshPending;
+        private bool isDataStructViewActive;
         private bool suppressScopeSelectionChanged;
         private bool suppressCommonSelectionChanged;
         private bool hasVariableSnapshot;
         private bool variableGridRowsInitialized;
         private bool isRebuildingVariableRows;
-        private bool preparedForDisplay;
         private long renderedVariableConfigVersion = -1;
         private long renderedProcessVersion = -1;
         private int variableGridPresentationVersion = 1;
@@ -537,8 +539,6 @@ namespace Automation
                 variableSearchTimer.Stop();
                 ApplyScopeFilter();
             };
-            runtimeValueRefreshTimer = new Timer { Interval = 150 };
-            runtimeValueRefreshTimer.Tick += (sender, args) => RefreshDisplayedRuntimeValues();
             btnPrevious.Visible = false;
             BtnNext.Visible = false;
             btnCancel.Visible = false;
@@ -1091,7 +1091,6 @@ namespace Automation
 
         private void FrmValue_Disposed(object sender, EventArgs e)
         {
-            runtimeValueRefreshTimer?.Dispose();
             variableSearchTimer?.Dispose();
             if (isValueStoreHooked && hookedValueStore != null)
             {
@@ -1307,7 +1306,6 @@ namespace Automation
                 : -1;
             bool allowGridEvents = isValueGridReady;
             isValueGridReady = false;
-            BeginVariableGridUpdate();
             try
             {
                 foreach (int index in rowIndexes)
@@ -1336,7 +1334,6 @@ namespace Automation
             }
             finally
             {
-                EndVariableGridUpdate();
                 isValueGridReady = allowGridEvents;
             }
         }
@@ -1626,14 +1623,17 @@ namespace Automation
             if (suppressScopeSelectionChanged) return;
             if (!(e.Node?.Tag is VariableScopeSelection selection)) return;
 
-            SaveVariableGridViewState();
+            if (!isScopeSelectionApplyPending)
+            {
+                SaveVariableGridViewState();
+            }
             selectedScope = selection.Scope;
             selectedOwnerProcId = selection.OwnerProcId;
 
-            // 先画出选中节点，再在同一轮完成筛选，避免树和表格出现先后跳变。
+            // 先反馈树节点选中，再把1200行显隐处理合并到下一条UI消息。
             scopeTree.Invalidate();
             scopeTree.Update();
-            ApplyScopeSelection();
+            ScheduleScopeSelectionApply();
         }
 
         private void ScopeTree_MouseMove(object sender, MouseEventArgs e)
@@ -1676,22 +1676,38 @@ namespace Automation
                 scopeTree.ItemHeight));
         }
 
-        private void ApplyScopeSelection()
+        private void ScheduleScopeSelectionApply()
         {
-            if (IsDisposed || Disposing)
+            if (isScopeSelectionApplyPending || IsDisposed || Disposing || !IsHandleCreated)
             {
                 return;
             }
-            BeginVariableGridUpdate();
+            isScopeSelectionApplyPending = true;
             try
             {
-                ApplyScopeFilter();
-                RestoreVariableGridViewState();
-                RefreshDisplayedRuntimeValues();
+                BeginInvoke((Action)(() =>
+                {
+                    isScopeSelectionApplyPending = false;
+                    if (IsDisposed || Disposing || !Visible)
+                    {
+                        return;
+                    }
+                    BeginVariableGridUpdate();
+                    try
+                    {
+                        ApplyScopeFilter();
+                        RestoreVariableGridViewState();
+                        RefreshDisplayedRuntimeValues();
+                    }
+                    finally
+                    {
+                        EndVariableGridUpdate();
+                    }
+                }));
             }
-            finally
+            catch (InvalidOperationException)
             {
-                EndVariableGridUpdate();
+                isScopeSelectionApplyPending = false;
             }
         }
 
@@ -1983,9 +1999,10 @@ namespace Automation
             {
                 selectedScope = AllVariableScopes;
                 selectedOwnerProcId = null;
-                RefreshFromStore();
+                lblEmptyState.Text = "正在加载变量...";
+                lblEmptyState.Visible = true;
+                lblEmptyState.BringToFront();
             }
-            AttachDataStructView();
             SetDefaultStructPanelRatio();
         }
 
@@ -1997,8 +2014,6 @@ namespace Automation
             }
             try
             {
-                AttachDataStructView();
-                Workspace.DataStruct?.RefreshDataSturctTree();
                 FreshFrmValue();
             }
             catch (Exception ex)
@@ -2010,10 +2025,6 @@ namespace Automation
                     $"变量界面刷新失败：{ex.Message}",
                     FrmInfo.Level.Error);
             }
-            finally
-            {
-                preparedForDisplay = true;
-            }
         }
 
         protected override void OnVisibleChanged(EventArgs e)
@@ -2021,17 +2032,49 @@ namespace Automation
             base.OnVisibleChanged(e);
             if (!Visible)
             {
-                runtimeValueRefreshTimer?.Stop();
                 return;
             }
-            if (!preparedForDisplay)
+            RefreshFromUserActivation();
+        }
+
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            RefreshFromUserActivation();
+        }
+
+        internal void RefreshFromUserActivation()
+        {
+            if (activationRefreshPending
+                || !Visible
+                || IsDisposed
+                || Disposing
+                || !IsHandleCreated)
             {
-                PrepareForDisplay();
+                return;
             }
-            preparedForDisplay = false;
-            RefreshViewportRows();
-            RefreshDisplayedRuntimeValues();
-            runtimeValueRefreshTimer?.Start();
+            activationRefreshPending = true;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    activationRefreshPending = false;
+                    if (IsDisposed || Disposing || !Visible)
+                    {
+                        return;
+                    }
+                    PrepareForDisplay();
+                    RefreshDisplayedRuntimeValues();
+                    if (isDataStructViewActive)
+                    {
+                        ScheduleDataStructRefresh();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                activationRefreshPending = false;
+            }
         }
 
         private void RefreshDisplayedRuntimeValues()
@@ -2072,7 +2115,6 @@ namespace Automation
 
             bool allowGridEvents = isValueGridReady;
             isValueGridReady = false;
-            BeginVariableGridUpdate();
             try
             {
                 foreach (KeyValuePair<int, string> update in updates)
@@ -2082,7 +2124,6 @@ namespace Automation
             }
             finally
             {
-                EndVariableGridUpdate();
                 isValueGridReady = allowGridEvents;
             }
         }
@@ -2574,21 +2615,27 @@ namespace Automation
                         MessageBox.Show(commitError, "保存变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
-                    dataGridView.Rows[e.RowIndex].Cells[1].Value = key;
-                    dataGridView.Rows[e.RowIndex].Cells[2].Value = type;
-                    dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
-                    dataGridView.Rows[e.RowIndex].Cells[4].Value = note;
-                    var committedVariable = new DicValue
+                    bool scopeProjectionChanged = scopedVariable == null
+                        || !string.Equals(scopedVariable.Scope, targetScope, StringComparison.Ordinal)
+                        || scopedVariable.OwnerProcId != targetOwnerProcId;
+                    bool commonVariableNameChanged = scopedVariable?.isMark == true
+                        && !string.Equals(scopedVariable.Name, key, StringComparison.Ordinal);
+                    if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue committedVariable))
                     {
-                        Index = num,
-                        Name = key,
-                        Scope = targetScope,
-                        OwnerProcId = targetOwnerProcId
-                    };
-                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, committedVariable);
-                    ApplyVariableRowEditingState(dataGridView.Rows[e.RowIndex], committedVariable);
-                    RefreshVariableSnapshot();
-                    ScheduleScopeFilter(true);
+                        variableSnapshot[num] = ObjectGraphCloner.Clone(committedVariable);
+                        UpdateVariableGridRow(e.RowIndex, num, variableSnapshot[num]);
+                    }
+                    renderedVariableConfigVersion =
+                        Workspace.Runtime.Stores.Values.ConfigurationVersion;
+                    if (commonVariableNameChanged)
+                    {
+                        RefreshCommonList();
+                    }
+                    bool searchMayHaveChanged = !string.IsNullOrWhiteSpace(txtVariableSearch.Text);
+                    if (scopeProjectionChanged || searchMayHaveChanged)
+                    {
+                        ScheduleScopeFilter(scopeProjectionChanged);
+                    }
                     isValueEditValid = true;
                 }
             }
@@ -3168,6 +3215,7 @@ namespace Automation
 
         private void ShowVariableSideView(bool showDataStruct)
         {
+            isDataStructViewActive = showDataStruct;
             commonViewHost.Visible = !showDataStruct;
             dataStructViewHost.Visible = showDataStruct;
             ApplyButtonStyle(btnShowCommon, !showDataStruct, false);
@@ -3177,10 +3225,40 @@ namespace Automation
                 AttachDataStructView();
                 dataStructViewHost.BringToFront();
                 Workspace.DataStruct?.BringToFront();
+                ScheduleDataStructRefresh();
             }
             else
             {
                 commonViewHost.BringToFront();
+            }
+        }
+
+        private void ScheduleDataStructRefresh()
+        {
+            if (dataStructRefreshPending
+                || !isDataStructViewActive
+                || !Visible
+                || IsDisposed
+                || Disposing
+                || !IsHandleCreated)
+            {
+                return;
+            }
+            dataStructRefreshPending = true;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    dataStructRefreshPending = false;
+                    if (!IsDisposed && !Disposing && Visible && isDataStructViewActive)
+                    {
+                        Workspace.DataStruct?.RefreshDataSturctTree();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                dataStructRefreshPending = false;
             }
         }
 

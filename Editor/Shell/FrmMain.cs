@@ -263,6 +263,7 @@ namespace Automation
             StartSnapshotTimer();
             Text = "Automation - 平台";
             Shown += FrmMain_Shown;
+            Activated += FrmMain_Activated;
         }
 
         private void HandleManualMotionRejected(object sender, ManualMotionRejectedEventArgs e)
@@ -579,7 +580,6 @@ namespace Automation
             }
             platformInitializationStarted = true;
             frmProc.RefreshProcListFromStore();
-            frmValue.RefreshFromStore();
             frmIO.RefreshIODgv();
             frmCard.RefreshStationTree();
             frmdataStruct.RefreshDataSturctList();

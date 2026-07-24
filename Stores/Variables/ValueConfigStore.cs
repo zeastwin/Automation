@@ -633,8 +633,8 @@ namespace Automation
         private void UpdateEditorHistory(
             string configPath,
             string historyDescription,
-            IDictionary<string, DicValue> before,
-            IDictionary<string, DicValue> after)
+            Dictionary<string, DicValue> before,
+            Dictionary<string, DicValue> after)
         {
             if (runtime.Editor.History.IsReplaying)
             {
@@ -646,14 +646,10 @@ namespace Automation
                 return;
             }
 
-            Dictionary<string, DicValue> beforeSnapshot = before.ToDictionary(
-                item => item.Key,
-                item => ObjectGraphCloner.Clone(item.Value),
-                StringComparer.Ordinal);
-            Dictionary<string, DicValue> afterSnapshot = after.ToDictionary(
-                item => item.Key,
-                item => ObjectGraphCloner.Clone(item.Value),
-                StringComparer.Ordinal);
+            // 两份字典均由本次提交独占，发布到Store时还会另行克隆。
+            // 历史记录直接持有它们，避免每次单元格提交再深拷贝整张变量表两遍。
+            Dictionary<string, DicValue> beforeSnapshot = before;
+            Dictionary<string, DicValue> afterSnapshot = after;
             runtime.Editor.History.Record(
                 historyDescription,
                 delegate(out string historyError)

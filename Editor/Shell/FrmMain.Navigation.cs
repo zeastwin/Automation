@@ -387,11 +387,6 @@ namespace Automation
             {
                 return;
             }
-            if (page is FrmValue valuePage
-                && !ReferenceEquals(workspacePageHost.ActivePage, page))
-            {
-                valuePage.PrepareForDisplay();
-            }
             if (!workspacePageHost.Controls.Contains(page))
             {
                 page.FormBorderStyle = FormBorderStyle.None;
@@ -402,6 +397,10 @@ namespace Automation
             }
             workspacePageHost.ShowPage(page);
             page.Focus();
+            if (page is FrmValue valuePage)
+            {
+                valuePage.RefreshFromUserActivation();
+            }
         }
 
         public void ShowProcessFlowGraph()

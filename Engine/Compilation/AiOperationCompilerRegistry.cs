@@ -715,6 +715,7 @@ namespace Automation
                 new[] { "kind", "variable", "min", "max" },
                 new[] { "name", "includeBounds", "whenTrue", "whenFalse" },
                 new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("failureDelayMsDefault", LogicJumpDefaults.InvalidDelayMs),
                 new JProperty("runRequired", new JArray("whenTrue", "whenFalse")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -727,7 +728,6 @@ namespace Automation
                 }
                 return new ParamGoto
                 {
-                    InvalidDelayMs = 10,
                     TrueGoto = context.ResolveTarget(definition.WhenTrue, "branch.number_range.whenTrue"),
                     FalseGoto = context.ResolveTarget(definition.WhenFalse, "branch.number_range.whenFalse"),
                     Params = new CustomList<ParamGotoParam>
@@ -763,6 +763,7 @@ namespace Automation
                 new[] { "name", "whenTrue", "whenFalse" },
                 new JProperty("comparisons", new JArray("gt", "gte", "lt", "lte", "eq", "ne")),
                 new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("failureDelayMsDefault", LogicJumpDefaults.InvalidDelayMs),
                 new JProperty("runRequired", new JArray("whenTrue", "whenFalse")));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
@@ -800,7 +801,6 @@ namespace Automation
                     comparison == "ne" ? "branch.number_compare.whenTrue" : "branch.number_compare.whenFalse");
                 return new ParamGoto
                 {
-                    InvalidDelayMs = 10,
                     TrueGoto = trueGoto,
                     FalseGoto = falseGoto,
                     Params = new CustomList<ParamGotoParam>
@@ -837,6 +837,7 @@ namespace Automation
                     ["stateMeaning"] = "输入IO运行时逻辑状态，不统一表示安全位或工作位"
                 }),
                 new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("failureDelayMsDefault", LogicJumpDefaults.InvalidDelayMs),
                 new JProperty("runRequired", new JArray("whenTrue", "whenFalse")),
                 new JProperty("runtimeBehavior", "读取或映射失败进入当前指令的报警策略；条件为真跳转whenTrue，为假跳转whenFalse"));
 
@@ -865,7 +866,6 @@ namespace Automation
                 }
                 return new IoLogicGoto
                 {
-                    InvalidDelayMs = 0,
                     TrueGoto = context.ResolveTarget(definition.WhenTrue, "branch.io.whenTrue"),
                     FalseGoto = context.ResolveTarget(definition.WhenFalse, "branch.io.whenFalse"),
                     IoParams = ioParams

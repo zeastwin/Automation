@@ -490,6 +490,80 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void LogicJumpDefaults_UseFiveMillisecondsAcrossNativeAndSemanticCreation()
+        {
+            Assert.AreEqual(5, new ParamGoto().InvalidDelayMs);
+            Assert.AreEqual(5, new IoLogicGoto().InvalidDelayMs);
+            Assert.AreEqual(5,
+                OperationBehaviorCatalog.BuildContract(new ParamGoto())
+                    ["fieldRules"]?[nameof(ParamGoto.InvalidDelayMs)]?["defaultValue"]?.Value<int>());
+            Assert.AreEqual(5,
+                OperationBehaviorCatalog.BuildContract(new IoLogicGoto())
+                    ["fieldRules"]?[nameof(IoLogicGoto.InvalidDelayMs)]?["defaultValue"]?.Value<int>());
+
+            var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+            {
+                ["判断值"] = new DicValue
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "判断值",
+                    Type = "double",
+                    Value = "0"
+                }
+            };
+            var resources = new AiResourceSnapshot(
+                new Dictionary<string, AiIoResource>(StringComparer.Ordinal)
+                {
+                    ["输入1"] = new AiIoResource
+                    {
+                        IoType = "通用输入",
+                        CardNum = 0,
+                        IoIndex = "0"
+                    }
+                });
+            var context = new AiOperationCompileContext(0, variables, resources);
+
+            var range = (ParamGoto)AiOperationCompilerRegistry.Get("branch.number_range")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "branch.number_range",
+                    Variable = "判断值",
+                    Min = 0,
+                    Max = 1
+                }, context);
+            var compare = (ParamGoto)AiOperationCompilerRegistry.Get("branch.number_compare")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "branch.number_compare",
+                    Variable = "判断值",
+                    Comparison = "eq",
+                    CompareValue = 0
+                }, context);
+            var io = (IoLogicGoto)AiOperationCompilerRegistry.Get("branch.io")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "branch.io",
+                    Conditions = new List<IoStateCondition>
+                    {
+                        new IoStateCondition { Io = "输入1", State = true }
+                    }
+                }, context);
+
+            Assert.AreEqual(5, range.InvalidDelayMs);
+            Assert.AreEqual(5, compare.InvalidDelayMs);
+            Assert.AreEqual(5, io.InvalidDelayMs);
+            Assert.AreEqual(5,
+                AiOperationCompilerRegistry.Get("branch.number_range")
+                    .BuildContract()["failureDelayMsDefault"]?.Value<int>());
+            Assert.AreEqual(5,
+                AiOperationCompilerRegistry.Get("branch.number_compare")
+                    .BuildContract()["failureDelayMsDefault"]?.Value<int>());
+            Assert.AreEqual(5,
+                AiOperationCompilerRegistry.Get("branch.io")
+                    .BuildContract()["failureDelayMsDefault"]?.Value<int>());
+        }
+
+        [TestMethod]
         public void WaitProcContract_WaitModeOnlyAllowsRunningOrReady()
         {
             var operation = new WaitProc();

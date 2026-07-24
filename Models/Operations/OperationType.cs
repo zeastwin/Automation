@@ -567,6 +567,11 @@ namespace Automation
         public CustomList<IoCheckParam> CheckIoParams { get; set; }
     }
 
+    internal static class LogicJumpDefaults
+    {
+        public const int InvalidDelayMs = 5;
+    }
+
     [Serializable]
     public class IoLogicGoto : OperationType
     {
@@ -582,7 +587,7 @@ namespace Automation
 
         [DisplayName("失败延时(ms)"), Category("B判断参数"), Description("判断失败后的重试延时（ms），用于控制循环检测节奏。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int InvalidDelayMs { get; set; }
+        public int InvalidDelayMs { get; set; } = LogicJumpDefaults.InvalidDelayMs;
 
         [DisplayName("IO设置"), Category("B判断参数"), Description("IO判断项配置入口。"), ReadOnly(false)]
         [InlineList("IO", "B判断参数")]
@@ -895,7 +900,7 @@ namespace Automation
 
         [DisplayName("失败延时(ms)"), Category("参数"), Description("条件不满足时的重试间隔（ms），用于降低轮询压力。"), ReadOnly(false)]
         [NumericRange(0)]
-        public int InvalidDelayMs { get; set; }
+        public int InvalidDelayMs { get; set; } = LogicJumpDefaults.InvalidDelayMs;
 
         [DisplayName("设置"), Category("参数"), Description("子项配置入口；每个子项对应一组独立参数。"), ReadOnly(false)]
         [InlineList("条件", "参数")]
