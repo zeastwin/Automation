@@ -15,6 +15,31 @@ namespace Automation.Core.Tests
     public sealed class AiWebViewBootstrapTests
     {
         [TestMethod]
+        public void FinalAnswerReveal_UsesShortCompositedAnimationWithoutCharacterReplay()
+        {
+            string html = typeof(FrmAiAssistant)
+                .GetField(
+                    "BaseConversationHtml",
+                    BindingFlags.Static | BindingFlags.NonPublic)
+                ?.GetValue(null) as string;
+
+            Assert.IsFalse(string.IsNullOrWhiteSpace(html));
+            StringAssert.Contains(html, "final-answer-card-in");
+            StringAssert.Contains(html, "final-answer-sheen");
+            StringAssert.Contains(html, "prefers-reduced-motion:reduce");
+            StringAssert.Contains(html, "content.children,0,8");
+            Assert.IsFalse(html.Contains("document.createTreeWalker"),
+                "最终回答不得清空文本后逐字符回放。");
+            Assert.IsFalse(html.Contains("typing-glint"),
+                "最终回答不再使用廉价的逐字闪光光标。");
+            Assert.AreEqual(
+                1,
+                html.Split(new[] { "function revealFinalAnswer(message)" },
+                    StringSplitOptions.None).Length - 1,
+                "最终回答动画入口应保持唯一。");
+        }
+
+        [TestMethod]
         [TestCategory("Desktop")]
         [Timeout(30000)]
         public void Show_WhenWebViewRuntimeIsAvailable_EnablesEditorControls()

@@ -3,6 +3,7 @@
 
 using System;
 using System.Drawing;
+using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -12,6 +13,79 @@ namespace Automation.Core.Tests
     [DoNotParallelize]
     public sealed class InstructionListInteractionTests
     {
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ContextMenu_IsolatesDeleteAndPlacesStartPointLast()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var form = new FrmDataGrid())
+                {
+                    ToolStripItemCollection items =
+                        form.dataGridView1.ContextMenuStrip.Items;
+                    int deleteIndex = items.IndexOf(items["Delete"]);
+                    int othersIndex = items.IndexOf(items["Others"]);
+                    int startPointIndex = items.IndexOf(items["SetStartOps"]);
+
+                    Assert.IsTrue(
+                        deleteIndex > othersIndex,
+                        "删除指令应位于常用的新建、编辑、复制和粘贴操作之后。");
+                    Assert.IsInstanceOfType(
+                        items[deleteIndex - 1],
+                        typeof(ToolStripSeparator),
+                        "删除指令上方应有分隔线，避免从常用操作误触。");
+                    Assert.IsInstanceOfType(
+                        items[deleteIndex + 1],
+                        typeof(ToolStripSeparator),
+                        "删除指令下方应有分隔线，使危险操作保持独立。");
+                    Assert.AreEqual(
+                        items.Count - 1,
+                        startPointIndex,
+                        "设为调试启动点必须位于右键菜单最后一行。");
+                    Assert.IsInstanceOfType(
+                        items[startPointIndex - 1],
+                        typeof(ToolStripSeparator),
+                        "调试启动点应与上方操作保持明确间隔。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void DisabledOperation_UsesSubtleBackgroundWithoutLosingSelection()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var list = new InstructionListView())
+                {
+                    MethodInfo resolveRowBackColor = typeof(InstructionListView).GetMethod(
+                        "ResolveRowBackColor",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    Assert.IsNotNull(resolveRowBackColor);
+
+                    var operation = new Delay
+                    {
+                        Disable = true
+                    };
+                    Color background = (Color)resolveRowBackColor.Invoke(
+                        list,
+                        new object[] { operation, 0, false, false });
+                    Color selectedBackground = (Color)resolveRowBackColor.Invoke(
+                        list,
+                        new object[] { operation, 0, true, false });
+
+                    Assert.AreEqual(
+                        UiPalette.DisabledSoft.ToArgb(),
+                        background.ToArgb(),
+                        "禁用指令应使用低强调的浅灰背景。");
+                    Assert.AreEqual(
+                        UiPalette.SurfacePressed.ToArgb(),
+                        selectedBackground.ToArgb(),
+                        "选中禁用指令时应保留浅灰焦点层级，不能恢复成深色反相背景。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
         [TestMethod]
         [TestCategory("Desktop")]
         public void SwitchingSteps_ReusesWholeProcessJumpLinksUntilOperationsChange()

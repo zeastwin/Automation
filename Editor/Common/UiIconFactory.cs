@@ -39,7 +39,12 @@ namespace Automation
         Settings,
         StopAll,
         PopOut,
-        DockBack
+        DockBack,
+        Home,
+        Video,
+        DataTable,
+        Spreadsheet,
+        Log
     }
 
     /// <summary>
@@ -382,6 +387,42 @@ namespace Automation
                     case UiIconKind.StopAll:
                         DrawRoundedRectangle(graphics, pen, 3, 3, 18, 18, 4);
                         FillRoundedRectangle(graphics, brush, 7, 7, 10, 10, 2);
+                        break;
+                    case UiIconKind.Home:
+                        graphics.DrawLines(pen, new[]
+                        {
+                            new PointF(3, 11),
+                            new PointF(12, 3),
+                            new PointF(21, 11)
+                        });
+                        DrawRoundedRectangle(graphics, pen, 5, 10, 14, 11, 1.5F);
+                        DrawRoundedRectangle(graphics, pen, 10, 14, 4, 7, 0.8F);
+                        break;
+                    case UiIconKind.Video:
+                        DrawRoundedRectangle(graphics, pen, 3, 5, 18, 14, 2);
+                        graphics.DrawEllipse(pen, 8, 7, 8, 8);
+                        FillCircle(graphics, brush, 18, 8, 1.2F);
+                        graphics.DrawLine(pen, 7, 19, 5, 22);
+                        graphics.DrawLine(pen, 17, 19, 19, 22);
+                        break;
+                    case UiIconKind.DataTable:
+                        DrawRoundedRectangle(graphics, pen, 3, 4, 18, 16, 2);
+                        graphics.DrawLine(pen, 3, 9, 21, 9);
+                        graphics.DrawLine(pen, 3, 14, 21, 14);
+                        graphics.DrawLine(pen, 9, 4, 9, 20);
+                        break;
+                    case UiIconKind.Spreadsheet:
+                        DrawRoundedRectangle(graphics, pen, 4, 3, 16, 18, 2);
+                        graphics.DrawLine(pen, 4, 8, 20, 8);
+                        graphics.DrawLine(pen, 9, 8, 9, 21);
+                        graphics.DrawLine(pen, 4, 13, 20, 13);
+                        graphics.DrawLine(pen, 4, 17, 20, 17);
+                        break;
+                    case UiIconKind.Log:
+                        DrawRoundedRectangle(graphics, pen, 5, 3, 14, 18, 2);
+                        graphics.DrawLine(pen, 8, 8, 16, 8);
+                        graphics.DrawLine(pen, 8, 12, 16, 12);
+                        graphics.DrawLine(pen, 8, 16, 13, 16);
                         break;
                     case UiIconKind.PopOut:
                         DrawRoundedRectangle(graphics, pen, 3, 8, 13, 12, 2);

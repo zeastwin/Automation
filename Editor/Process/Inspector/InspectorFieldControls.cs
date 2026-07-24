@@ -300,7 +300,7 @@ namespace Automation
 
         protected static int GetLabelWidth(int availableWidth)
         {
-            return Math.Min(124, Math.Max(92, availableWidth * 35 / 100));
+            return Math.Min(104, Math.Max(84, availableWidth * 28 / 100));
         }
 
         protected static void PopulateStandardValues(

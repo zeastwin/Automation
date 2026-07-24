@@ -1391,23 +1391,31 @@ namespace Automation
                             operationIdLocations.Add(operationId,
                                 new OperationReferenceLocation(stepIndex, operationIndex));
                         }
-                        if (!string.IsNullOrWhiteSpace(semantic.Key))
+                        if (string.IsNullOrWhiteSpace(semantic.OpId)
+                            && !string.IsNullOrWhiteSpace(semantic.Key))
                         {
                             string operationKey = ValidateLocalKey(semantic.Key,
                                 $"流程[{processName}]步骤[{key}]指令 key");
-                            string stepKeyMap = AiOperationCompileContext.BuildOperationKeyForStepKey(
-                                key, operationKey);
                             string stepIdMap = AiOperationCompileContext.BuildOperationKeyForStepId(
                                 compiledStep.Id, operationKey);
-                            if (operationKeyLocations.ContainsKey(stepKeyMap)
-                                || operationKeyLocations.ContainsKey(stepIdMap))
+                            if (operationKeyLocations.ContainsKey(stepIdMap))
                             {
                                 throw new InvalidOperationException(
                                     $"流程[{processName}]步骤[{key}]指令 key 重复：{operationKey}");
                             }
                             var location = new OperationReferenceLocation(stepIndex, operationIndex);
-                            operationKeyLocations.Add(stepKeyMap, location);
                             operationKeyLocations.Add(stepIdMap, location);
+                            if (existingStep == null)
+                            {
+                                string stepKeyMap = AiOperationCompileContext.BuildOperationKeyForStepKey(
+                                    key, operationKey);
+                                if (operationKeyLocations.ContainsKey(stepKeyMap))
+                                {
+                                    throw new InvalidOperationException(
+                                        $"流程[{processName}]步骤[{key}]指令 key 重复：{operationKey}");
+                                }
+                                operationKeyLocations.Add(stepKeyMap, location);
+                            }
                         }
                     }
                 }
@@ -1492,7 +1500,6 @@ namespace Automation
                     ? new GotoRewriteResult()
                     : ProcessEditingService.RewriteGotoTargets(replacedProcess, proc, procIndex);
                 ProcessEditingService.RenumberOperations(proc);
-                ProcessDefinitionService.ResolvePendingGotoTargets(procIndex, proc);
 
                 if (replacedProcess == null)
                 {

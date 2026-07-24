@@ -16,6 +16,7 @@ namespace Automation.Core.Tests
     {
         private const int GwlStyle = -16;
         private const int TvsNoHorizontalScroll = 0x8000;
+        private const int TvsNoToolTips = 0x0080;
 
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr windowHandle, int index);
@@ -42,6 +43,36 @@ namespace Automation.Core.Tests
                         0,
                         nativeStyle & TvsNoHorizontalScroll,
                         "流程树应禁止原生水平滚动，避免选择长名称或深层节点时整个视口左右跳动。");
+                    Assert.AreNotEqual(
+                        0,
+                        nativeStyle & TvsNoToolTips,
+                        "流程树应禁用原生截断标签提示，避免展开后提示窗体反复显隐造成闪烁。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ProcessTree_EnablesBufferedPaintingForStableInteraction()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var form = new FrmProc())
+                {
+                    MethodInfo getStyle = typeof(Control).GetMethod(
+                        "GetStyle",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("未找到控件绘制样式读取入口。");
+                    var tree = form.proc_treeView;
+
+                    Assert.IsTrue((bool)getStyle.Invoke(tree, new object[]
+                    {
+                        ControlStyles.OptimizedDoubleBuffer
+                    }));
+                    Assert.IsTrue((bool)getStyle.Invoke(tree, new object[]
+                    {
+                        ControlStyles.AllPaintingInWmPaint
+                    }));
                 }
             }, TimeSpan.FromSeconds(10));
         }
@@ -101,7 +132,48 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
-        public void SelectedChildRow_PreservesNativeIndentation()
+        public void ProcessTree_UsesCompactLayoutAndReadableDisabledText()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = CreateProcessWithSteps(
+                        "已禁用流程",
+                        "已禁用步骤");
+                    process.head.Disable = true;
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { process });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    TreeView tree = main.frmProc.proc_treeView;
+                    TreeNode processNode = tree.Nodes[0];
+                    TreeNode stepNode = processNode.Nodes[0];
+
+                    Assert.AreEqual(25, tree.ItemHeight);
+                    Assert.AreEqual(new Size(18, 18), tree.ImageList.ImageSize);
+                    Assert.IsFalse(
+                        tree.ShowNodeToolTips,
+                        "流程树节点悬停时不应显示浮动提示。");
+                    Assert.IsTrue(processNode.NodeFont.Size <= 11F);
+                    Assert.IsTrue(stepNode.NodeFont.Size <= 10.5F);
+                    Assert.AreEqual(
+                        UiPalette.TextMuted.ToArgb(),
+                        processNode.ForeColor.ToArgb(),
+                        "禁用流程文字应保持可读，不能使用接近背景色的浅色填充色。");
+                    Assert.AreEqual(
+                        UiPalette.TextMuted.ToArgb(),
+                        stepNode.ForeColor.ToArgb(),
+                        "禁用步骤文字应保持可读，不能使用接近背景色的浅色填充色。");
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ChildRow_UsesCompactIndentationInEveryState()
         {
             StaTestRunner.Run(() =>
             {
@@ -165,38 +237,48 @@ namespace Automation.Core.Tests
                     Application.DoEvents();
                     Assert.IsTrue(
                         stepNode.Bounds.Left > processNode.Bounds.Left,
-                        "测试前提：子节点原生标签位置应包含一级缩进。");
+                        "步骤应保留轻微错位，以便区分流程与步骤层级。");
+                    Assert.AreEqual(
+                        6,
+                        tree.Indent,
+                        "流程树应声明紧凑步骤缩进。");
 
-                    using (var bitmap = new Bitmap(
-                        tree.ClientSize.Width,
-                        tree.ItemHeight))
-                    using (Graphics graphics = Graphics.FromImage(bitmap))
+                    int expectedImageLeft = 5 + tree.Indent;
+                    foreach (TreeNodeStates state in new[]
                     {
-                        graphics.Clear(tree.BackColor);
-                        MethodInfo drawHandler = typeof(FrmProc).GetMethod(
-                            "ProcTreeView_DrawNode",
-                            BindingFlags.Instance | BindingFlags.NonPublic)
-                            ?? throw new InvalidOperationException("未找到流程树绘制处理器。");
-                        drawHandler.Invoke(form, new object[]
+                        TreeNodeStates.Default,
+                        TreeNodeStates.Selected
+                    })
+                    {
+                        using (var bitmap = new Bitmap(
+                            tree.ClientSize.Width,
+                            tree.ItemHeight))
+                        using (Graphics graphics = Graphics.FromImage(bitmap))
                         {
-                            tree,
-                            new DrawTreeNodeEventArgs(
-                                graphics,
-                                stepNode,
-                                new Rectangle(
-                                    0,
-                                    0,
-                                    tree.ClientSize.Width,
-                                    tree.ItemHeight),
-                                TreeNodeStates.Selected)
-                        });
+                            graphics.Clear(tree.BackColor);
+                            MethodInfo drawHandler = typeof(FrmProc).GetMethod(
+                                "ProcTreeView_DrawNode",
+                                BindingFlags.Instance | BindingFlags.NonPublic)
+                                ?? throw new InvalidOperationException("未找到流程树绘制处理器。");
+                            drawHandler.Invoke(form, new object[]
+                            {
+                                tree,
+                                new DrawTreeNodeEventArgs(
+                                    graphics,
+                                    stepNode,
+                                    new Rectangle(
+                                        0,
+                                        0,
+                                        tree.ClientSize.Width,
+                                        tree.ItemHeight),
+                                    state)
+                            });
 
-                        int expectedImageLeft =
-                            stepNode.Bounds.Left - images.ImageSize.Width - 3;
-                        Assert.AreEqual(
-                            expectedImageLeft,
-                            FindFirstMarkerColumn(bitmap),
-                            "选中子节点的图标必须保持原生层级缩进，不能跳到根节点左侧。");
+                            Assert.AreEqual(
+                                expectedImageLeft,
+                                FindFirstMarkerColumn(bitmap),
+                                "步骤图标在选中和普通状态下都应跳过原生展开槽，只保留紧凑层级缩进。");
+                        }
                     }
                     tree.ImageList = null;
                     layoutTree.ImageList = null;
@@ -279,6 +361,124 @@ namespace Automation.Core.Tests
                         "步骤插入或重排后应按稳定 ID 保留原选中节点。");
                     Assert.AreEqual(2, main.frmProc.SelectedStepNum);
                     Assert.IsTrue(processNode.IsExpanded);
+                    Assert.AreEqual(string.Empty, processNode.ToolTipText);
+                    Assert.AreEqual(
+                        string.Empty,
+                        firstStepNode.ToolTipText,
+                        "复用的步骤节点不应残留悬停提示文本。");
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void RefreshProcessList_RebindsOperationsWhenSelectedStepNodeIsReused()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = CreateProcessWithSteps(
+                        "原位换源",
+                        "稳定步骤");
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { process });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    TreeNode stepNode =
+                        main.frmProc.proc_treeView.Nodes[0].Nodes[0];
+                    main.frmProc.proc_treeView.SelectedNode = stepNode;
+                    Application.DoEvents();
+                    Assert.AreEqual(
+                        0,
+                        main.frmDataGrid.dataGridView1.OperationCount);
+
+                    Guid operationId = Guid.NewGuid();
+                    Proc replacement = ObjectGraphCloner.Clone(process);
+                    replacement.steps[0].Ops.Add(new EndProcess
+                    {
+                        Id = operationId,
+                        Name = "AI新增指令"
+                    });
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { replacement });
+
+                    main.frmProc.RefreshProcListFromStore();
+                    Application.DoEvents();
+
+                    Assert.AreSame(
+                        stepNode,
+                        main.frmProc.proc_treeView.SelectedNode,
+                        "全量刷新应继续复用稳定步骤节点。");
+                    Assert.AreEqual(0, main.frmProc.SelectedProcNum);
+                    Assert.AreEqual(0, main.frmProc.SelectedStepNum);
+                    Assert.AreEqual(
+                        1,
+                        main.frmDataGrid.dataGridView1.OperationCount,
+                        "复用同一树节点时，指令表仍必须切换到新的 Ops 集合。");
+                    Assert.AreEqual(
+                        operationId,
+                        main.frmDataGrid.dataGridView1.GetOperation(0)?.Id);
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void RefreshProcessList_RepairsMissedBindingSourceChangeNotification()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = CreateProcessWithSteps(
+                        "换源通知恢复",
+                        "稳定步骤");
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { process });
+                    main.frmProc.RefreshProcListFromStore();
+                    main.frmProc.proc_treeView.SelectedNode =
+                        main.frmProc.proc_treeView.Nodes[0].Nodes[0];
+                    Application.DoEvents();
+
+                    InstructionListView grid =
+                        main.frmDataGrid.dataGridView1;
+                    MethodInfo listChangedMethod = typeof(InstructionListView).GetMethod(
+                        "BindingSource_ListChanged",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException(
+                            "未找到指令表 BindingSource 换源处理器。");
+                    var listChangedHandler =
+                        (System.ComponentModel.ListChangedEventHandler)Delegate.CreateDelegate(
+                            typeof(System.ComponentModel.ListChangedEventHandler),
+                            grid,
+                            listChangedMethod);
+                    main.frmProc.bindingSource.ListChanged -= listChangedHandler;
+
+                    Guid operationId = Guid.NewGuid();
+                    Proc replacement = ObjectGraphCloner.Clone(process);
+                    replacement.steps[0].Ops.Add(new EndProcess
+                    {
+                        Id = operationId,
+                        Name = "通知遗漏后新增指令"
+                    });
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { replacement });
+
+                    main.frmProc.RefreshProcListFromStore();
+                    Application.DoEvents();
+
+                    Assert.AreEqual(
+                        1,
+                        grid.OperationCount,
+                        "即使一次 BindingSource 换源通知遗漏，刷新结束也必须按真实 List 自愈。");
+                    Assert.AreEqual(
+                        operationId,
+                        grid.GetOperation(0)?.Id);
                 }
             }, TimeSpan.FromSeconds(20));
         }
@@ -296,6 +496,12 @@ namespace Automation.Core.Tests
                     Proc retained = CreateProcessWithSteps(
                         "保留流程",
                         "稳定步骤");
+                    Guid retainedOperationId = Guid.NewGuid();
+                    retained.steps[0].Ops.Add(new EndProcess
+                    {
+                        Id = retainedOperationId,
+                        Name = "稳定指令"
+                    });
                     main.Runtime.Stores.Processes.ReplaceAll(
                         new[] { retained });
                     main.frmProc.RefreshProcListFromStore();
@@ -328,6 +534,15 @@ namespace Automation.Core.Tests
                     Assert.AreSame(
                         retainedStepNode,
                         main.frmProc.proc_treeView.SelectedNode);
+                    Assert.AreEqual(
+                        1,
+                        main.frmProc.SelectedProcNum,
+                        "流程节点移动后，显示索引必须按稳定 ID 更新。");
+                    Assert.AreEqual(0, main.frmProc.SelectedStepNum);
+                    Assert.AreEqual(
+                        retainedOperationId,
+                        main.frmDataGrid.dataGridView1.GetOperation(0)?.Id,
+                        "索引移动后指令表必须继续绑定原稳定流程。");
                     Assert.IsTrue(retainedProcessNode.IsExpanded);
                 }
             }, TimeSpan.FromSeconds(20));

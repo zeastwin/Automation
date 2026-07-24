@@ -126,11 +126,9 @@ namespace Automation
 
             try
             {
-                string result = await automationMcpServerManager.EnsureStartedAsync(baseUri, toolProfile).ConfigureAwait(true);
-                if (frmInfo != null && !frmInfo.IsDisposed)
-                {
-                    frmInfo.PrintInfo("MCP Server：" + result, FrmInfo.Level.Normal);
-                }
+                await automationMcpServerManager
+                    .EnsureStartedAsync(baseUri, toolProfile)
+                    .ConfigureAwait(true);
             }
             catch (Exception ex)
             {

@@ -19,6 +19,57 @@ namespace Automation.Core.Tests
     {
         [TestMethod]
         [TestCategory("Desktop")]
+        public void AddressPicker_StepHeadersUseZeroBasedIndexes()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    var process = new Proc
+                    {
+                        head = new ProcHead
+                        {
+                            Id = Guid.NewGuid(),
+                            Name = "零基步骤标题"
+                        }
+                    };
+                    process.steps.Add(new Step
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = "等待信号"
+                    });
+                    process.steps.Add(new Step
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = string.Empty
+                    });
+                    form.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { process });
+                    form.frmProc.SelectedProcNum = 0;
+                    form.frmProc.SelectedStepNum = 0;
+
+                    var operation = new IoLogicGoto();
+                    EditorServiceRegistry.AttachGraph(operation, form.Runtime);
+                    IReadOnlyList<PickerGroupDefinition> groups =
+                        InspectorSelectionPickerData.Build(
+                            InspectorSelectionPickerKind.Address,
+                            operation,
+                            TypeDescriptor.GetProperties(operation)[
+                                nameof(IoLogicGoto.TrueGoto)],
+                            null);
+
+                    CollectionAssert.AreEqual(
+                        new[] { "0. 等待信号", "步骤 1" },
+                        groups.Select(group => group.Title).ToArray(),
+                        "Inspector 地址选择页的步骤标题应与零基步骤地址保持一致。");
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void AddedPauseItems_InheritRuntimeAndExposeVariableAndIoChoices()
         {
             StaTestRunner.Run(() =>

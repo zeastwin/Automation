@@ -53,12 +53,12 @@ namespace Automation
             this.contextMenuStrip2.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.Add,
             this.Modify,
-            this.Delete,
-            this.SetStopPoint,
-            this.Enable,
             this.copy,
             this.paste,
             this.Others,
+            this.Delete,
+            this.SetStopPoint,
+            this.Enable,
             this.separatorStartOps,
             this.SetStartOps});
             this.contextMenuStrip2.Name = "contextMenuStrip2";

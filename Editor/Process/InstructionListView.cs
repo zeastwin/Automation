@@ -1149,7 +1149,7 @@ namespace Automation
                 paintSelection,
                 isRuntime);
             Color foreColor = operation?.Disable == true && !hasTransientColor
-                ? UiPalette.DisabledSoft
+                ? UiPalette.TextDisabled
                 : UiPalette.TextPrimary;
 
             using (SolidBrush background = new SolidBrush(backColor))
@@ -1192,7 +1192,7 @@ namespace Automation
             }
             if (operation?.Disable == true)
             {
-                return selected ? UiPalette.TextPrimary : UiPalette.TextSecondary;
+                return selected ? UiPalette.SurfacePressed : UiPalette.DisabledSoft;
             }
             if (isRuntime)
             {
@@ -1834,7 +1834,7 @@ namespace Automation
                 case VisualState.Breakpoint: return UiPalette.Breakpoint;
                 case VisualState.Alarming: return UiPalette.Danger;
                 case VisualState.Stopping: return UiPalette.Stopping;
-                case VisualState.Disabled: return UiPalette.DisabledSoft;
+                case VisualState.Disabled: return UiPalette.Disabled;
                 default: return UiPalette.TextMuted;
             }
         }
@@ -1849,7 +1849,7 @@ namespace Automation
                 case VisualState.Breakpoint: return UiPalette.BreakpointSoft;
                 case VisualState.Alarming: return UiPalette.DangerSoft;
                 case VisualState.Stopping: return UiPalette.StoppingSoft;
-                case VisualState.Disabled: return UiPalette.TextSecondary;
+                case VisualState.Disabled: return UiPalette.DisabledSoft;
                 default: return UiPalette.SurfaceSubtle;
             }
         }

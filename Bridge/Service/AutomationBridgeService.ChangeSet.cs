@@ -734,6 +734,20 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
             }
+            if (runtime.Editor.ActiveSession != null)
+            {
+                throw new BridgeRequestException(
+                    409,
+                    "EDITOR_SESSION_ACTIVE",
+                    $"当前存在未完成的编辑会话：{runtime.Editor.ActiveSession.Name}。"
+                    + "请先保存或取消，再提交 AI 变更集。",
+                    new JObject
+                    {
+                        ["reason"] = "editor_session_active",
+                        ["retryableWhen"] = "editor_session_saved_or_canceled",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
+            }
 
             Dictionary<string, DicValue> oldVariables = runtime.Stores.Values.BuildSaveData();
             Dictionary<string, DicValue> commitVariables = draft.Variables

@@ -86,100 +86,6 @@ namespace Automation
         internal const string DeletedGotoPrefix = "#DELETED-GOTO#";
         internal const string PendingGotoPrefix = "#PENDING-GOTO#";
 
-        public static string BuildPendingGoto(string operationMapKey)
-        {
-            return PendingGotoPrefix + Convert.ToBase64String(
-                System.Text.Encoding.UTF8.GetBytes(operationMapKey ?? string.Empty));
-        }
-
-        public static int ResolvePendingGotoTargets(int procIndex, Proc proc)
-        {
-            if (proc?.steps == null) return 0;
-            var locations = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
-            {
-                Step step = proc.steps[stepIndex];
-                if (step?.Ops == null) continue;
-                for (int operationIndex = 0; operationIndex < step.Ops.Count; operationIndex++)
-                {
-                    OperationType operation = step.Ops[operationIndex];
-                    if (operation == null || string.IsNullOrWhiteSpace(operation.AiKey)) continue;
-                    string address = $"{procIndex}-{stepIndex}-{operationIndex}";
-                    if (step.Id != Guid.Empty)
-                    {
-                        locations[AiOperationCompileContext.BuildOperationKeyForStepId(
-                            step.Id, operation.AiKey)] = address;
-                    }
-                    if (!string.IsNullOrWhiteSpace(step.AiKey))
-                    {
-                        locations[AiOperationCompileContext.BuildOperationKeyForStepKey(
-                            step.AiKey, operation.AiKey)] = address;
-                    }
-                }
-            }
-
-            int resolved = 0;
-            foreach (Step step in proc.steps)
-            {
-                foreach (OperationType operation in step?.Ops ?? Enumerable.Empty<OperationType>())
-                {
-                    resolved += ResolvePendingGotoTargets(operation, locations);
-                }
-            }
-            return resolved;
-        }
-
-        private static int ResolvePendingGotoTargets(
-            object obj, IReadOnlyDictionary<string, string> locations)
-        {
-            if (obj == null) return 0;
-            int resolved = 0;
-            foreach (PropertyInfo property in obj.GetType().GetProperties())
-            {
-                if (property.GetIndexParameters().Length > 0) continue;
-                object value = property.GetValue(obj);
-                if (property.PropertyType == typeof(string)
-                    && property.CanWrite
-                    && property.GetCustomAttribute<MarkedGotoAttribute>() != null
-                    && value is string text
-                    && TryReadPendingGoto(text, out string mapKey)
-                    && locations.TryGetValue(mapKey, out string address))
-                {
-                    property.SetValue(obj, address);
-                    resolved++;
-                    continue;
-                }
-                if (value is System.Collections.IEnumerable enumerable && !(value is string))
-                {
-                    foreach (object item in enumerable)
-                    {
-                        resolved += ResolvePendingGotoTargets(item, locations);
-                    }
-                }
-            }
-            return resolved;
-        }
-
-        internal static bool TryReadPendingGoto(string value, out string operationMapKey)
-        {
-            operationMapKey = null;
-            if (string.IsNullOrWhiteSpace(value)
-                || !value.StartsWith(PendingGotoPrefix, StringComparison.Ordinal))
-            {
-                return false;
-            }
-            try
-            {
-                operationMapKey = System.Text.Encoding.UTF8.GetString(
-                    Convert.FromBase64String(value.Substring(PendingGotoPrefix.Length)));
-                return !string.IsNullOrWhiteSpace(operationMapKey);
-            }
-            catch (FormatException)
-            {
-                return false;
-            }
-        }
-
         public static void NormalizeProc(int procIndex, Proc proc, List<string> errors,
             ProcessDefinitionValidationContext validationContext = null)
         {
@@ -1284,7 +1190,7 @@ namespace Automation
                         }
                         else if (value.StartsWith(PendingGotoPrefix, StringComparison.Ordinal))
                         {
-                            // 目标可在后续 ChangeSet 中补齐，当前保留为待解析引用。
+                            // 兼容识别历史异常配置；不得在新 ChangeSet 中继续生成或自动解析。
                         }
                         else if (!TryParseGotoKey(value, out int gotoProc, out int gotoStep, out int gotoOp))
                         {

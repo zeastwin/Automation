@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -219,6 +220,55 @@ namespace Automation.Core.Tests
                         out _,
                         out string saveError));
                     StringAssert.Contains(saveError, "已被其他操作修改");
+                }
+            }
+        }
+
+        [TestMethod]
+        public void AiChangeSetCommit_WhenEditorSessionActive_RejectsWithoutSideEffects()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var runtime = new PlatformRuntime(directory.FullPath);
+                Proc process = TestProcessFactory.CreateEndingProcess("正式流程");
+                runtime.Stores.Processes.ReplaceAll(new[] { process });
+                long processVersion = runtime.Stores.Processes.Version;
+                Proc candidate = ObjectGraphCloner.Clone(process);
+                candidate.head.Name = "AI候选流程";
+                var draft = ObjectGraphCloner.Clone(process.steps[0].Ops[0]);
+                runtime.Editor.Begin(new EditSession<OperationType>(
+                    "修改指令",
+                    draft,
+                    null,
+                    value => { }));
+                try
+                {
+                    ProcessVariableConfigurationCommitResult result =
+                        runtime.ProcessVariableConfiguration.CommitChangeSet(
+                            new[] { candidate },
+                            runtime.Stores.Values.BuildSaveData(),
+                            null);
+
+                    Assert.IsFalse(result.Succeeded);
+                    StringAssert.Contains(result.Message, "未完成的编辑会话");
+                    Assert.AreEqual(
+                        processVersion,
+                        runtime.Stores.Processes.Version,
+                        "拒绝提交不能修改流程仓库版本。");
+                    Assert.AreEqual(
+                        "正式流程",
+                        runtime.Stores.Processes.Items[0].head.Name);
+                    Assert.IsFalse(
+                        Directory.Exists(runtime.Paths.WorkPath),
+                        "活动草稿门禁必须在配置事务写盘前生效。");
+                    Assert.AreSame(
+                        draft,
+                        runtime.Editor.ActiveSession?.Draft,
+                        "拒绝 AI 提交后必须保留原编辑草稿。");
+                }
+                finally
+                {
+                    runtime.Editor.Cancel();
                 }
             }
         }

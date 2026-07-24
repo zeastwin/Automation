@@ -36,17 +36,32 @@ namespace Automation
             UiBranding.Initialize();
 
             using (var runtime = new AutomationPlatformHost())
+            using (var equipmentServices = new Hmi.LegacyEquipmentServices(
+                runtime.Values,
+                runtime.ConfigRoot))
             {
-                Hmi.CustomFunctions.Register(runtime);
+                Hmi.EquipmentProcessMessageService processMessages =
+                    Hmi.CustomFunctions.Register(runtime, equipmentServices);
                 if (!runtime.Initialize(out string platformError))
                 {
                     MessageBox.Show(platformError, "平台初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
+                if (!string.IsNullOrWhiteSpace(equipmentServices.InitializationWarning))
+                {
+                    MessageBox.Show(
+                        equipmentServices.InitializationWarning,
+                        "设备项目辅助配置未就绪",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
 
                 if (appConfig.StartupView == AutomationStartupView.Hmi)
                 {
-                    using (var hmi = new Hmi.FrmHmiMain(runtime))
+                    using (var hmi = new Hmi.FrmHmiMain(
+                        runtime,
+                        processMessages,
+                        equipmentServices))
                     {
                         ScheduleHiddenPlatformEditorPreload(hmi, runtime);
                         Application.Run(hmi);

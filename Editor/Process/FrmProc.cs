@@ -12,7 +12,6 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -25,15 +24,9 @@ namespace Automation
 {
     public partial class FrmProc : Form
     {
-        private const int TvmSetExtendedStyle = 0x112C;
-        private const int TvsExDoubleBuffer = 0x0004;
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        private static extern IntPtr SendMessage(
-            IntPtr windowHandle,
-            int message,
-            IntPtr wordParameter,
-            IntPtr longParameter);
+        private const int ProcTreeImageSize = 18;
+        private const int ProcTreeImageLeft = 5;
+        private const int CompactStepIndent = 6;
 
         private readonly ProcessDefinitionRepository processDefinitionRepository;
         internal ProcessEditorSelectionState SelectionState { get; } = new ProcessEditorSelectionState();
@@ -81,10 +74,7 @@ namespace Automation
             ConfigureProcTreeAppearance();
             ConfigureProcContextMenu();
             Disposed += FrmProc_Disposed;
-            proc_treeView.HandleCreated += ProcTreeView_HandleCreated;
             this.proc_treeView.HideSelection = false;
-            typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(proc_treeView, true, null);
             proc_treeView.BeforeSelect += proc_treeView_BeforeSelect;
         }
 
@@ -271,7 +261,6 @@ namespace Automation
             procFlashNode = null;
             procStateImages?.Dispose();
             procStateImages = null;
-            proc_treeView.HandleCreated -= ProcTreeView_HandleCreated;
             proc_treeView.DrawNode -= ProcTreeView_DrawNode;
             procNodeFont?.Dispose();
             procNodeFont = null;
@@ -281,25 +270,28 @@ namespace Automation
 
         private void ConfigureProcTreeAppearance()
         {
-            procNodeFont = ProcessPageFont.Create(13.5F, FontStyle.Bold);
-            stepNodeFont = ProcessPageFont.Create(13F, FontStyle.Regular);
+            procNodeFont = ProcessPageFont.Create(11F, FontStyle.Bold);
+            stepNodeFont = ProcessPageFont.Create(10.5F, FontStyle.Regular);
             // TreeView 使用基准字体计算节点标签边界。基准字体小于流程节点粗体时，
             // WinForms 会在仍有可用宽度的情况下裁掉流程名称末尾。
             proc_treeView.Font = procNodeFont;
             proc_treeView.ForeColor = UiPalette.TextPrimary;
             proc_treeView.BackColor = UiPalette.Background;
             proc_treeView.BorderStyle = BorderStyle.None;
-            proc_treeView.ItemHeight = 30;
-            proc_treeView.Indent = 24;
+            proc_treeView.ItemHeight = 25;
+            // 流程树只有 Proc→Step 两级，步骤状态图标只需轻微错位即可表达层级。
+            // 避免沿用原生大缩进，把窄侧栏中本可显示名称的宽度浪费在空白区。
+            proc_treeView.Indent = CompactStepIndent;
             proc_treeView.ShowLines = false;
             proc_treeView.ShowRootLines = false;
+            proc_treeView.ShowNodeToolTips = false;
             proc_treeView.DrawMode = TreeViewDrawMode.OwnerDrawAll;
             proc_treeView.DrawNode += ProcTreeView_DrawNode;
 
             procStateImages = new ImageList
             {
                 ColorDepth = ColorDepth.Depth32Bit,
-                ImageSize = new Size(20, 20),
+                ImageSize = new Size(ProcTreeImageSize, ProcTreeImageSize),
                 TransparentColor = Color.Transparent
             };
             AddProcStateImage("proc-ready", ProcTreeIconKind.Ready);
@@ -321,19 +313,12 @@ namespace Automation
             AddProcStateImage("step-single", ProcTreeIconKind.StepSingle);
             AddProcStateImage("step-alarm", ProcTreeIconKind.StepAlarming);
             proc_treeView.ImageList = procStateImages;
-            ApplyNativeTreeDoubleBuffer();
         }
 
         private void ProcTreeView_DrawNode(object sender, DrawTreeNodeEventArgs e)
         {
             bool selected = (e.State & TreeNodeStates.Selected) == TreeNodeStates.Selected
                 || ReferenceEquals(proc_treeView.SelectedNode, e.Node);
-            if (!selected)
-            {
-                e.DrawDefault = true;
-                return;
-            }
-
             int rowHeight = Math.Max(proc_treeView.ItemHeight, e.Bounds.Height);
             int rowTop = e.Bounds.Top;
             var rowBounds = new Rectangle(
@@ -341,28 +326,35 @@ namespace Automation
                 rowTop,
                 Math.Max(1, proc_treeView.ClientSize.Width),
                 rowHeight);
-            using (var selectionBrush = new SolidBrush(UiPalette.Selection))
-            using (var accentBrush = new SolidBrush(UiPalette.Brand))
+            Color backgroundColor = selected
+                ? UiPalette.Selection
+                : e.Node.BackColor.IsEmpty
+                    ? proc_treeView.BackColor
+                    : e.Node.BackColor;
+            using (var backgroundBrush = new SolidBrush(backgroundColor))
             {
-                e.Graphics.FillRectangle(selectionBrush, rowBounds);
-                e.Graphics.FillRectangle(accentBrush, 0, rowTop, 3, rowHeight);
+                e.Graphics.FillRectangle(backgroundBrush, rowBounds);
+            }
+            if (selected)
+            {
+                using (var accentBrush = new SolidBrush(UiPalette.Brand))
+                {
+                    e.Graphics.FillRectangle(accentBrush, 0, rowTop, 3, rowHeight);
+                }
             }
 
-            const int imageSize = 20;
-            // FullRowSelect 会把 DrawNode 事件的 Bounds 扩展为整行，X 固定为 0。
-            // TreeNode.Bounds 始终保留原生标签位置，用它反推图标位置才能保持层级缩进。
-            Rectangle nativeLabelBounds = e.Node.Bounds;
-            int imageLeft = Math.Max(
-                0,
-                nativeLabelBounds.Left - imageSize - 3);
+            // 自定义绘制时直接从紧凑边距起排，避免原生 TreeView 为展开槽和层级
+            // 预留大块空白；子步骤只保留少量错位表达层级。
+            int imageLeft = ProcTreeImageLeft
+                + (e.Node.Parent == null ? 0 : CompactStepIndent);
             var imageBounds = new Rectangle(
                 imageLeft,
-                rowTop + Math.Max(0, (rowHeight - imageSize) / 2),
-                imageSize,
-                imageSize);
-            string imageKey = string.IsNullOrEmpty(e.Node.SelectedImageKey)
-                ? e.Node.ImageKey
-                : e.Node.SelectedImageKey;
+                rowTop + Math.Max(0, (rowHeight - ProcTreeImageSize) / 2),
+                ProcTreeImageSize,
+                ProcTreeImageSize);
+            string imageKey = selected && !string.IsNullOrEmpty(e.Node.SelectedImageKey)
+                ? e.Node.SelectedImageKey
+                : e.Node.ImageKey;
             if (proc_treeView.ImageList != null
                 && !string.IsNullOrEmpty(imageKey)
                 && proc_treeView.ImageList.Images.ContainsKey(imageKey))
@@ -370,79 +362,36 @@ namespace Automation
                 e.Graphics.DrawImage(proc_treeView.ImageList.Images[imageKey], imageBounds);
             }
 
-            if (e.Node.Nodes.Count > 0 && imageLeft >= 22)
-            {
-                DrawSelectedNodeChevron(
-                    e.Graphics,
-                    imageLeft - 11,
-                    rowTop + rowHeight / 2,
-                    e.Node.IsExpanded);
-            }
-
             Font font = e.Node.NodeFont ?? proc_treeView.Font;
+            int textLeft = imageBounds.Right + 2;
             var textBounds = new Rectangle(
-                Math.Max(nativeLabelBounds.Left, imageBounds.Right + 2),
+                textLeft,
                 rowTop,
                 Math.Max(
                     1,
-                    proc_treeView.ClientSize.Width - nativeLabelBounds.Left - 8),
+                    proc_treeView.ClientSize.Width - textLeft - 8),
                 rowHeight);
+            Color textColor = selected
+                ? UiPalette.SelectionText
+                : e.Node.ForeColor.IsEmpty
+                    ? proc_treeView.ForeColor
+                    : e.Node.ForeColor;
             TextRenderer.DrawText(
                 e.Graphics,
                 e.Node.Text,
                 font,
                 textBounds,
-                UiPalette.SelectionText,
+                textColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
-        }
-
-        private static void DrawSelectedNodeChevron(
-            Graphics graphics,
-            int centerX,
-            int centerY,
-            bool expanded)
-        {
-            using (var pen = new Pen(UiPalette.SelectionText, 1.4F)
-            {
-                StartCap = System.Drawing.Drawing2D.LineCap.Round,
-                EndCap = System.Drawing.Drawing2D.LineCap.Round
-            })
-            {
-                if (expanded)
-                {
-                    graphics.DrawLine(pen, centerX - 3, centerY - 1, centerX, centerY + 2);
-                    graphics.DrawLine(pen, centerX, centerY + 2, centerX + 3, centerY - 1);
-                    return;
-                }
-                graphics.DrawLine(pen, centerX - 1, centerY - 3, centerX + 2, centerY);
-                graphics.DrawLine(pen, centerX + 2, centerY, centerX - 1, centerY + 3);
-            }
-        }
-
-        private void ProcTreeView_HandleCreated(object sender, EventArgs e)
-        {
-            ApplyNativeTreeDoubleBuffer();
-        }
-
-        private void ApplyNativeTreeDoubleBuffer()
-        {
-            if (!proc_treeView.IsHandleCreated || proc_treeView.IsDisposed)
-            {
-                return;
-            }
-            SendMessage(
-                proc_treeView.Handle,
-                TvmSetExtendedStyle,
-                new IntPtr(TvsExDoubleBuffer),
-                new IntPtr(TvsExDoubleBuffer));
+                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPrefix);
         }
 
         private void AddProcStateImage(string key, ProcTreeIconKind kind)
         {
             // ImageList 在创建原生句柄时才读取源图像，图像由 ImageList 统一持有并释放。
             // 此处提前释放会在 TreeView.OnHandleCreated 中触发 GDI+“参数无效”。
-            procStateImages.Images.Add(key, ProcTreeIconFactory.Create(kind, 20));
+            procStateImages.Images.Add(key, ProcTreeIconFactory.Create(kind, ProcTreeImageSize));
         }
 
         private static void SetNodeImage(TreeNode node, string imageKey)
@@ -662,6 +611,7 @@ namespace Automation
         private void RefreshProcList(bool reloadConfiguration)
         {
             TreeNode currentSelectedNode = proc_treeView.SelectedNode;
+            bool synchronizeRestoredSelection = false;
             Guid selectedProcId = currentSelectedNode?.Parent == null
                 ? ReadNodeId(currentSelectedNode)
                 : ReadNodeId(currentSelectedNode.Parent);
@@ -724,7 +674,8 @@ namespace Automation
                 ReconcileProcessTree(procsListTemp);
                 editorWorkspace?.DataGrid?.dataGridView1
                     ?.RebuildJumpLinkCaches(procsList);
-                RestoreTreeState(
+                synchronizeRestoredSelection = RestoreTreeState(
+                    currentSelectedNode,
                     selectedProcId,
                     selectedStepId,
                     topProcId,
@@ -735,7 +686,6 @@ namespace Automation
                 proc_treeView.EndUpdate();
                 restoringTreeState = false;
             }
-
             if (reloadConfiguration && Workspace.Runtime.ProcessEngine?.Context != null)
             {
                 bool allStopped = true;
@@ -759,6 +709,10 @@ namespace Automation
                     Workspace.Runtime.ProcessEngine.Context.Procs = runtimeProcs;
                     Workspace.Runtime.ProcessEngine.ClearPendingProcUpdates();
                 }
+            }
+            if (synchronizeRestoredSelection)
+            {
+                SynchronizeRetainedSelection();
             }
             if (loadErrors.Count > 0)
             {
@@ -804,9 +758,10 @@ namespace Automation
             try
             {
                 procNode.Text = BuildProcNodeText(procIndex, proc);
+                procNode.ToolTipText = string.Empty;
                 procNode.Tag = proc?.head?.Id ?? Guid.Empty;
                 procNode.NodeFont = procNodeFont;
-                procNode.ForeColor = proc?.head?.Disable == true ? UiPalette.DisabledSoft : proc_treeView.ForeColor;
+                procNode.ForeColor = proc?.head?.Disable == true ? UiPalette.TextMuted : proc_treeView.ForeColor;
                 EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
                 SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
                 ReconcileStepNodes(procNode, procIndex, proc, snapshot);
@@ -864,10 +819,11 @@ namespace Automation
                 retained.Add(procNode);
                 EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
                 procNode.Text = BuildProcNodeText(procIndex, proc);
+                procNode.ToolTipText = string.Empty;
                 procNode.Tag = procId;
                 procNode.NodeFont = procNodeFont;
                 procNode.ForeColor = proc?.head?.Disable == true
-                    ? UiPalette.DisabledSoft
+                    ? UiPalette.TextMuted
                     : proc_treeView.ForeColor;
                 SetNodeImage(procNode, GetProcImageKey(proc, snapshot));
                 ReconcileStepNodes(procNode, procIndex, proc, snapshot);
@@ -915,10 +871,11 @@ namespace Automation
                         : new TreeNode();
                 retained.Add(stepNode);
                 stepNode.Text = BuildStepNodeText(procIndex, stepIndex, step);
+                stepNode.ToolTipText = string.Empty;
                 stepNode.Tag = stepId;
                 stepNode.NodeFont = stepNodeFont;
                 stepNode.ForeColor = proc?.head?.Disable == true || step?.Disable == true
-                    ? UiPalette.DisabledSoft
+                    ? UiPalette.TextMuted
                     : proc_treeView.ForeColor;
                 SetNodeImage(
                     stepNode,
@@ -951,7 +908,12 @@ namespace Automation
             collection.Insert(Math.Min(targetIndex, collection.Count), node);
         }
 
-        private void RestoreTreeState(Guid selectedProcId, Guid selectedStepId, Guid topProcId, HashSet<Guid> expandedProcIds)
+        private bool RestoreTreeState(
+            TreeNode previousSelectedNode,
+            Guid selectedProcId,
+            Guid selectedStepId,
+            Guid topProcId,
+            HashSet<Guid> expandedProcIds)
         {
             TreeNode selectedNode = null;
             TreeNode topNode = null;
@@ -988,6 +950,52 @@ namespace Automation
                 SelectedStepNum = -1;
                 RefreshCurrentBinding();
             }
+            return selectedNode != null;
+        }
+
+        /// <summary>
+        /// 全量刷新结束后按稳定 ID 的最终选中节点同步索引并重新绑定正式对象。
+        /// 不能依赖 AfterSelect：复用同一节点时事件不会触发，节点移动或换源时
+        /// 事件也可能早于 BindingSource 的最终数据源完成。
+        /// </summary>
+        private void SynchronizeRetainedSelection()
+        {
+            TreeNode selectedNode = proc_treeView.SelectedNode;
+            if (selectedNode == null)
+            {
+                SelectedProcNum = -1;
+                SelectedStepNum = -1;
+                RefreshCurrentBinding();
+                ApplySelectedProcessRunState();
+                return;
+            }
+
+            int procIndex = selectedNode.Parent?.Index ?? selectedNode.Index;
+            int stepIndex = selectedNode.Parent == null ? -1 : selectedNode.Index;
+            if (procIndex < 0 || procIndex >= procsList.Count
+                || stepIndex >= (procsList[procIndex]?.steps?.Count ?? 0))
+            {
+                SelectedProcNum = -1;
+                SelectedStepNum = -1;
+                RefreshCurrentBinding();
+                ApplySelectedProcessRunState();
+                return;
+            }
+
+            SelectedProcNum = procIndex;
+            SelectedStepNum = stepIndex;
+            RefreshCurrentBinding();
+            ApplySelectedProcessRunState();
+        }
+
+        private void ApplySelectedProcessRunState()
+        {
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine != null
+                && SelectedProcNum >= 0
+                ? Workspace.Runtime.ProcessEngine.GetSnapshot(SelectedProcNum)
+                : null;
+            Workspace.ToolBar?.ApplyProcessRunState(
+                snapshot?.State ?? ProcRunState.Ready);
         }
 
         private Guid GetProcId(int procIndex)
@@ -1159,10 +1167,9 @@ namespace Automation
                 bool restoredOperation = false;
                 if (grid != null && !grid.IsDisposed)
                 {
-                    if (!ReferenceEquals(grid.DataSource, bindingSource))
-                    {
-                        grid.DataSource = bindingSource;
-                    }
+                    // DataSource 属性内部还会核对 BindingSource.List 的真实引用。
+                    // 即使 BindingSource 对象未变，也必须经过该入口修复漏掉换源通知后的旧列表。
+                    grid.DataSource = bindingSource;
                     if (selectedOpId != Guid.Empty)
                     {
                         int selectedRowIndex = Enumerable.Range(0, grid.OperationCount)
@@ -1407,7 +1414,6 @@ namespace Automation
                     proc_treeView.SelectedNode.Bounds.Top,
                     proc_treeView.ClientSize.Width,
                     proc_treeView.ItemHeight));
-                proc_treeView.Update();
                 
                 if (proc_treeView.SelectedNode.Parent != null)
                 {
@@ -1476,16 +1482,7 @@ namespace Automation
                 }
                 Workspace.DataGrid.dataGridView1.DataSource = bindingSource;
 
-                if (Workspace.Runtime.ProcessEngine != null && Workspace.Proc.SelectedProcNum != -1)
-                {
-                    EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(Workspace.Proc.SelectedProcNum);
-                    Workspace.ToolBar.ApplyProcessRunState(
-                        snapshot?.State ?? ProcRunState.Ready);
-                }
-                else
-                {
-                    Workspace.ToolBar.ApplyProcessRunState(ProcRunState.Ready);
-                }
+                ApplySelectedProcessRunState();
               
             }
         }

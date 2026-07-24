@@ -66,6 +66,12 @@ namespace Automation
             IDictionary<string, DicValue> variables,
             IReadOnlyDictionary<Guid, string> runtimeValueOverrides)
         {
+            if (runtime.Editor.ActiveSession != null)
+            {
+                return Failed(
+                    $"当前存在未完成的编辑会话：{runtime.Editor.ActiveSession.Name}。"
+                    + "请先保存或取消，再提交 AI 变更集。");
+            }
             return Commit(
                 processes,
                 variables,

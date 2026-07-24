@@ -48,5 +48,24 @@ namespace Automation.Core.Tests
             Assert.IsTrue(analysis.Runnable);
             Assert.AreEqual(0, analysis.RunBlockers.Count);
         }
+
+        [TestMethod]
+        public void Analyze_WhenLegacyPendingGotoExists_RemainsRunBlocked()
+        {
+            Proc process = TestProcessFactory.CreateEndingProcess("历史待解析跳转");
+            process.steps[0].Ops.Insert(0, new Goto
+            {
+                Id = Guid.NewGuid(),
+                DefaultGoto = ProcessDefinitionService.PendingGotoPrefix + "bGVnYWN5"
+            });
+
+            ProcessReadinessAnalysis analysis = ProcessReadinessService.Analyze(
+                0, process, new[] { process });
+
+            Assert.AreEqual("incomplete", analysis.ReadinessStatus);
+            Assert.IsFalse(analysis.Runnable);
+            Assert.IsTrue(analysis.RunBlockers.Any(item =>
+                item.Contains("跳转目标尚未解析")));
+        }
     }
 }

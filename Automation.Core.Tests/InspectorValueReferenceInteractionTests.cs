@@ -586,6 +586,52 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void InspectorPropertyRows_UseCompactLabelColumn()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var operation = new ModifyValue { ChangeValue = "12345" };
+                var definition = new InspectorScalarFieldDefinition
+                {
+                    Label = "步骤名称",
+                    Owner = operation,
+                    Property = TypeDescriptor.GetProperties(operation)[
+                        nameof(ModifyValue.ChangeValue)]
+                };
+
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorScalarFieldControl(
+                    definition,
+                    true,
+                    toolTip))
+                using (var form = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(347, 80)
+                })
+                {
+                    control.Dock = DockStyle.Top;
+                    form.Controls.Add(control);
+                    form.Show();
+                    Application.DoEvents();
+
+                    Control editor = GetPrivateField<Control>(control, "editor");
+                    Assert.AreEqual(
+                        97,
+                        editor.Left,
+                        "347px 宽的 Inspector 中，属性名列应从旧布局的约 121px 收窄到 97px。");
+                    Assert.AreEqual(
+                        control.ClientSize.Width - editor.Left,
+                        editor.Width,
+                        "属性名列释放的空间应全部交给右侧值编辑区。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void InspectorHeader_UsesBorderlessLabelAndWhiteContentCanvas()
         {
             StaTestRunner.Run(() =>
@@ -835,6 +881,43 @@ namespace Automation.Core.Tests
 
                     Assert.AreEqual("1-2-3", operation.TrueGoto);
                     Assert.AreEqual("1-2-3", displayCell.DisplayText);
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void LegacyPendingGoto_UsesFriendlyDisplayWithoutChangingStoredValue()
+        {
+            StaTestRunner.Run(() =>
+            {
+                string pending = ProcessDefinitionService.PendingGotoPrefix + "bGVnYWN5";
+                var operation = new IoLogicGoto { TrueGoto = pending };
+                var definition = new InspectorScalarFieldDefinition
+                {
+                    Label = "成功跳转",
+                    Owner = operation,
+                    Property = TypeDescriptor.GetProperties(operation)[
+                        nameof(IoLogicGoto.TrueGoto)]
+                };
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorScalarFieldControl(
+                    definition,
+                    true,
+                    toolTip))
+                {
+                    InspectorValueCell displayCell =
+                        GetPrivateField<InspectorValueCell>(control, "displayCell");
+                    InspectorComboBox editor =
+                        GetPrivateField<InspectorComboBox>(control, "editor");
+
+                    Assert.AreEqual("未解析跳转（请重新选择）", displayCell.DisplayText);
+                    Assert.IsTrue(control.FocusEditor());
+                    Assert.AreEqual(pending, editor.Text,
+                        "进入编辑态时仍应保留原始值，避免展示文字被误写回配置。");
+                    control.EndEdit();
+                    Assert.AreEqual(pending, operation.TrueGoto);
+                    Assert.AreEqual("未解析跳转（请重新选择）", displayCell.DisplayText);
                 }
             }, TimeSpan.FromSeconds(10));
         }

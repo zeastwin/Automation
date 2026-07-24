@@ -15,326 +15,303 @@ namespace Automation.Hmi
 
         private void InitializeComponent()
         {
-            this.homeRoot = new System.Windows.Forms.Panel();
-            this.workspacePanel = new System.Windows.Forms.Panel();
-            this.pressureChart = new Automation.Hmi.PressureChart();
-            this.sidebarPanel = new System.Windows.Forms.Panel();
-            this.sidebarLayout = new System.Windows.Forms.TableLayoutPanel();
-            this.statisticsSection = new System.Windows.Forms.TableLayoutPanel();
-            this.statisticsHeader = new System.Windows.Forms.Panel();
-            this.lblStatisticsTitle = new System.Windows.Forms.Label();
-            this.statisticsLayout = new System.Windows.Forms.TableLayoutPanel();
-            this.lblInputTotal = new System.Windows.Forms.Label();
-            this.lblInputValue = new System.Windows.Forms.Label();
-            this.lblOutputTotal = new System.Windows.Forms.Label();
-            this.lblOutputValue = new System.Windows.Forms.Label();
-            this.lblDefectTotal = new System.Windows.Forms.Label();
-            this.lblDefectValue = new System.Windows.Forms.Label();
-            this.lblGoodTotal = new System.Windows.Forms.Label();
-            this.lblGoodValue = new System.Windows.Forms.Label();
-            this.lblYield = new System.Windows.Forms.Label();
-            this.lblYieldValue = new System.Windows.Forms.Label();
-            this.lblCycle = new System.Windows.Forms.Label();
-            this.lblCycleValue = new System.Windows.Forms.Label();
-            this.btnResetCounter = new System.Windows.Forms.Button();
-            this.systemSection = new System.Windows.Forms.TableLayoutPanel();
-            this.systemHeader = new System.Windows.Forms.Panel();
-            this.lblSystemTitle = new System.Windows.Forms.Label();
-            this.lblSystemStatus = new System.Windows.Forms.Label();
-            this.homeRoot.SuspendLayout();
-            this.workspacePanel.SuspendLayout();
-            this.sidebarPanel.SuspendLayout();
-            this.sidebarLayout.SuspendLayout();
-            this.statisticsSection.SuspendLayout();
-            this.statisticsHeader.SuspendLayout();
-            this.statisticsLayout.SuspendLayout();
-            this.systemSection.SuspendLayout();
-            this.systemHeader.SuspendLayout();
+            this.rootLayout = new System.Windows.Forms.TableLayoutPanel();
+            this.leftGroup = new System.Windows.Forms.GroupBox();
+            this.workModeCombo = new System.Windows.Forms.ComboBox();
+            this.runTimeLabel = new System.Windows.Forms.Label();
+            this.versionGroup = new System.Windows.Forms.GroupBox();
+            this.versionLabel = new System.Windows.Forms.Label();
+            this.productionGroup = new System.Windows.Forms.GroupBox();
+            this.pcManagedCheck = new System.Windows.Forms.CheckBox();
+            this.pdcaDisabledCheck = new System.Windows.Forms.CheckBox();
+            this.mesDisabledCheck = new System.Windows.Forms.CheckBox();
+            this.systemStatusLabel = new System.Windows.Forms.Label();
+            this.pageLayout = new System.Windows.Forms.TableLayoutPanel();
+            this.pageHost = new System.Windows.Forms.GroupBox();
+            this.mainPageButton = new System.Windows.Forms.Button();
+            this.logPageButton = new System.Windows.Forms.Button();
+            this.hivePageButton = new System.Windows.Forms.Button();
+            this.pressurePageButton = new System.Windows.Forms.Button();
+            this.torquePageButton = new System.Windows.Forms.Button();
+            this.alarmTicker = new Automation.Hmi.LegacyAlarmTickerControl();
+            this.rootLayout.SuspendLayout();
+            this.leftGroup.SuspendLayout();
+            this.versionGroup.SuspendLayout();
+            this.productionGroup.SuspendLayout();
+            this.pageLayout.SuspendLayout();
             this.SuspendLayout();
             //
-            // homeRoot
+            // rootLayout
             //
-            this.homeRoot.BackColor = global::Automation.UiPalette.HmiBackground;
-            this.homeRoot.Controls.Add(this.workspacePanel);
-            this.homeRoot.Controls.Add(this.sidebarPanel);
-            this.homeRoot.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.homeRoot.Location = new System.Drawing.Point(0, 0);
-            this.homeRoot.Name = "homeRoot";
-            this.homeRoot.Size = new System.Drawing.Size(1200, 656);
-            this.homeRoot.TabIndex = 0;
+            this.rootLayout.ColumnCount = 2;
+            this.rootLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 300F));
+            this.rootLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.rootLayout.Controls.Add(this.leftGroup, 0, 0);
+            this.rootLayout.Controls.Add(this.pageLayout, 1, 0);
+            this.rootLayout.Controls.Add(this.alarmTicker, 0, 1);
+            this.rootLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.rootLayout.Location = new System.Drawing.Point(0, 0);
+            this.rootLayout.Margin = new System.Windows.Forms.Padding(0);
+            this.rootLayout.Name = "rootLayout";
+            this.rootLayout.RowCount = 2;
+            this.rootLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 86.89F));
+            this.rootLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 13.11F));
+            this.rootLayout.Size = new System.Drawing.Size(1376, 662);
+            this.rootLayout.TabIndex = 0;
             //
-            // workspacePanel
+            // leftGroup
             //
-            this.workspacePanel.BackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.workspacePanel.Controls.Add(this.pressureChart);
-            this.workspacePanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.workspacePanel.Location = new System.Drawing.Point(370, 0);
-            this.workspacePanel.Name = "workspacePanel";
-            this.workspacePanel.Padding = new System.Windows.Forms.Padding(20, 16, 20, 16);
-            this.workspacePanel.Size = new System.Drawing.Size(830, 656);
-            this.workspacePanel.TabIndex = 1;
+            this.leftGroup.Controls.Add(this.workModeCombo);
+            this.leftGroup.Controls.Add(this.runTimeLabel);
+            this.leftGroup.Controls.Add(this.versionGroup);
+            this.leftGroup.Controls.Add(this.productionGroup);
+            this.leftGroup.Controls.Add(this.systemStatusLabel);
+            this.leftGroup.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.leftGroup.Location = new System.Drawing.Point(3, 3);
+            this.leftGroup.Name = "leftGroup";
+            this.leftGroup.Size = new System.Drawing.Size(294, 569);
+            this.leftGroup.TabIndex = 0;
+            this.leftGroup.TabStop = false;
             //
-            // pressureChart
+            // workModeCombo
             //
-            this.pressureChart.BackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.pressureChart.ChartTitle = "压力趋势 (MPa)";
-            this.pressureChart.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.pressureChart.Location = new System.Drawing.Point(20, 16);
-            this.pressureChart.Name = "pressureChart";
-            this.pressureChart.Size = new System.Drawing.Size(790, 624);
-            this.pressureChart.TabIndex = 0;
+            this.workModeCombo.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.workModeCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.workModeCombo.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.workModeCombo.Font = new System.Drawing.Font("宋体", 25.8F, System.Drawing.FontStyle.Bold);
+            this.workModeCombo.FormattingEnabled = true;
+            this.workModeCombo.Items.AddRange(new object[] {
+            "    工单模式",
+            "    单机模式"});
+            this.workModeCombo.Location = new System.Drawing.Point(0, 386);
+            this.workModeCombo.Name = "workModeCombo";
+            this.workModeCombo.Size = new System.Drawing.Size(292, 42);
+            this.workModeCombo.TabIndex = 5;
             //
-            // sidebarPanel
+            // runTimeLabel
             //
-            this.sidebarPanel.Controls.Add(this.sidebarLayout);
-            this.sidebarPanel.Dock = System.Windows.Forms.DockStyle.Left;
-            this.sidebarPanel.Location = new System.Drawing.Point(0, 0);
-            this.sidebarPanel.Name = "sidebarPanel";
-            this.sidebarPanel.Padding = new System.Windows.Forms.Padding(6, 6, 6, 0);
-            this.sidebarPanel.Size = new System.Drawing.Size(370, 656);
-            this.sidebarPanel.TabIndex = 0;
+            this.runTimeLabel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.runTimeLabel.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+            this.runTimeLabel.Font = new System.Drawing.Font("宋体", 12F);
+            this.runTimeLabel.Location = new System.Drawing.Point(0, 433);
+            this.runTimeLabel.Name = "runTimeLabel";
+            this.runTimeLabel.Size = new System.Drawing.Size(294, 61);
+            this.runTimeLabel.TabIndex = 6;
+            this.runTimeLabel.Text = "运行：00天00小时00分00秒";
+            this.runTimeLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
-            // sidebarLayout
+            // versionGroup
             //
-            this.sidebarLayout.ColumnCount = 1;
-            this.sidebarLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.sidebarLayout.Controls.Add(this.statisticsSection, 0, 0);
-            this.sidebarLayout.Controls.Add(this.systemSection, 0, 2);
-            this.sidebarLayout.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.sidebarLayout.Location = new System.Drawing.Point(6, 6);
-            this.sidebarLayout.Name = "sidebarLayout";
-            this.sidebarLayout.RowCount = 3;
-            this.sidebarLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 62F));
-            this.sidebarLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 6F));
-            this.sidebarLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 38F));
-            this.sidebarLayout.Size = new System.Drawing.Size(358, 650);
-            this.sidebarLayout.TabIndex = 0;
+            this.versionGroup.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.versionGroup.Controls.Add(this.versionLabel);
+            this.versionGroup.Location = new System.Drawing.Point(6, 502);
+            this.versionGroup.Name = "versionGroup";
+            this.versionGroup.Size = new System.Drawing.Size(285, 61);
+            this.versionGroup.TabIndex = 7;
+            this.versionGroup.TabStop = false;
+            this.versionGroup.Text = "软件版本";
             //
-            // statisticsSection
+            // versionLabel
             //
-            this.statisticsSection.BackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.statisticsSection.ColumnCount = 1;
-            this.statisticsSection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.statisticsSection.Controls.Add(this.statisticsHeader, 0, 0);
-            this.statisticsSection.Controls.Add(this.statisticsLayout, 0, 1);
-            this.statisticsSection.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.statisticsSection.Margin = new System.Windows.Forms.Padding(0);
-            this.statisticsSection.Name = "statisticsSection";
-            this.statisticsSection.RowCount = 2;
-            this.statisticsSection.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 56F));
-            this.statisticsSection.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.statisticsSection.TabIndex = 0;
+            this.versionLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.versionLabel.Font = new System.Drawing.Font("宋体", 12F);
+            this.versionLabel.Location = new System.Drawing.Point(3, 19);
+            this.versionLabel.Name = "versionLabel";
+            this.versionLabel.Size = new System.Drawing.Size(279, 39);
+            this.versionLabel.TabIndex = 0;
+            this.versionLabel.Text = "EW_Version_3.0.0";
+            this.versionLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
-            // statisticsHeader
+            // productionGroup
             //
-            this.statisticsHeader.BackColor = global::Automation.UiPalette.HmiSection;
-            this.statisticsHeader.Controls.Add(this.lblStatisticsTitle);
-            this.statisticsHeader.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.statisticsHeader.Margin = new System.Windows.Forms.Padding(1);
-            this.statisticsHeader.Name = "statisticsHeader";
-            this.statisticsHeader.TabIndex = 0;
+            this.productionGroup.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.productionGroup.Controls.Add(this.pcManagedCheck);
+            this.productionGroup.Controls.Add(this.pdcaDisabledCheck);
+            this.productionGroup.Controls.Add(this.mesDisabledCheck);
+            this.productionGroup.Location = new System.Drawing.Point(3, 82);
+            this.productionGroup.Name = "productionGroup";
+            this.productionGroup.Size = new System.Drawing.Size(291, 298);
+            this.productionGroup.TabIndex = 4;
+            this.productionGroup.TabStop = false;
+            this.productionGroup.Text = "生产参数";
             //
-            // lblStatisticsTitle
+            // pcManagedCheck
             //
-            this.lblStatisticsTitle.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblStatisticsTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold);
-            this.lblStatisticsTitle.ForeColor = global::Automation.UiPalette.NavigationText;
-            this.lblStatisticsTitle.Text = "统计数据";
-            this.lblStatisticsTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.pcManagedCheck.AutoSize = true;
+            this.pcManagedCheck.Location = new System.Drawing.Point(212, 20);
+            this.pcManagedCheck.Name = "pcManagedCheck";
+            this.pcManagedCheck.Size = new System.Drawing.Size(63, 21);
+            this.pcManagedCheck.TabIndex = 2;
+            this.pcManagedCheck.Text = "PC管理";
+            this.pcManagedCheck.UseVisualStyleBackColor = true;
             //
-            // statisticsLayout
+            // pdcaDisabledCheck
             //
-            this.statisticsLayout.ColumnCount = 2;
-            this.statisticsLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 55F));
-            this.statisticsLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 45F));
-            this.statisticsLayout.Controls.Add(this.lblInputTotal, 0, 0);
-            this.statisticsLayout.Controls.Add(this.lblInputValue, 1, 0);
-            this.statisticsLayout.Controls.Add(this.lblOutputTotal, 0, 1);
-            this.statisticsLayout.Controls.Add(this.lblOutputValue, 1, 1);
-            this.statisticsLayout.Controls.Add(this.lblDefectTotal, 0, 2);
-            this.statisticsLayout.Controls.Add(this.lblDefectValue, 1, 2);
-            this.statisticsLayout.Controls.Add(this.lblGoodTotal, 0, 3);
-            this.statisticsLayout.Controls.Add(this.lblGoodValue, 1, 3);
-            this.statisticsLayout.Controls.Add(this.lblYield, 0, 4);
-            this.statisticsLayout.Controls.Add(this.lblYieldValue, 1, 4);
-            this.statisticsLayout.Controls.Add(this.lblCycle, 0, 5);
-            this.statisticsLayout.Controls.Add(this.lblCycleValue, 1, 5);
-            this.statisticsLayout.Controls.Add(this.btnResetCounter, 0, 6);
-            this.statisticsLayout.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.statisticsLayout.Padding = new System.Windows.Forms.Padding(24, 12, 24, 14);
-            this.statisticsLayout.Name = "statisticsLayout";
-            this.statisticsLayout.RowCount = 7;
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 14F));
-            this.statisticsLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 16F));
-            this.statisticsLayout.SetColumnSpan(this.btnResetCounter, 2);
+            this.pdcaDisabledCheck.AutoSize = true;
+            this.pdcaDisabledCheck.Location = new System.Drawing.Point(118, 20);
+            this.pdcaDisabledCheck.Name = "pdcaDisabledCheck";
+            this.pdcaDisabledCheck.Size = new System.Drawing.Size(82, 21);
+            this.pdcaDisabledCheck.TabIndex = 1;
+            this.pdcaDisabledCheck.Text = "禁用PDCA";
+            this.pdcaDisabledCheck.UseVisualStyleBackColor = true;
             //
-            this.lblInputTotal.Text = "投入总数";
-            this.lblOutputTotal.Text = "产出总数";
-            this.lblDefectTotal.Text = "次品总数";
-            this.lblGoodTotal.Text = "良品总数";
-            this.lblYield.Text = "良品率";
-            this.lblCycle.Text = "周期";
-            this.lblInputValue.Text = "--";
-            this.lblOutputValue.Text = "--";
-            this.lblDefectValue.Text = "--";
-            this.lblGoodValue.Text = "--";
-            this.lblYieldValue.Text = "--";
-            this.lblCycleValue.Text = "-- s";
-            this.lblInputTotal.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblInputTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblInputTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblInputTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblOutputTotal.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblOutputTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblOutputTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblOutputTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblDefectTotal.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblDefectTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblDefectTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblDefectTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblGoodTotal.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblGoodTotal.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblGoodTotal.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblGoodTotal.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblYield.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblYield.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblYield.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblYield.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblCycle.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblCycle.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F);
-            this.lblCycle.ForeColor = global::Automation.UiPalette.TextPrimary;
-            this.lblCycle.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.lblInputValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblInputValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblInputValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblInputValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.lblOutputValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblOutputValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblOutputValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblOutputValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.lblDefectValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblDefectValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblDefectValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblDefectValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.lblGoodValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblGoodValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblGoodValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblGoodValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.lblYieldValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblYieldValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblYieldValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblYieldValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.lblCycleValue.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblCycleValue.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.lblCycleValue.ForeColor = global::Automation.UiPalette.SelectionText;
-            this.lblCycleValue.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            // mesDisabledCheck
             //
-            // btnResetCounter
+            this.mesDisabledCheck.AutoSize = true;
+            this.mesDisabledCheck.Location = new System.Drawing.Point(9, 20);
+            this.mesDisabledCheck.Name = "mesDisabledCheck";
+            this.mesDisabledCheck.Size = new System.Drawing.Size(79, 21);
+            this.mesDisabledCheck.TabIndex = 0;
+            this.mesDisabledCheck.Text = "禁用MES";
+            this.mesDisabledCheck.UseVisualStyleBackColor = true;
             //
-            this.btnResetCounter.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right;
-            this.btnResetCounter.BackColor = global::Automation.UiPalette.HmiSection;
-            this.btnResetCounter.FlatAppearance.BorderSize = 0;
-            this.btnResetCounter.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnResetCounter.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
-            this.btnResetCounter.ForeColor = global::Automation.UiPalette.NavigationText;
-            this.btnResetCounter.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
-            this.btnResetCounter.Name = "btnResetCounter";
-            this.btnResetCounter.Size = new System.Drawing.Size(132, 36);
-            this.btnResetCounter.Text = "重新计数";
-            this.btnResetCounter.UseVisualStyleBackColor = false;
+            // systemStatusLabel
             //
-            // systemSection
+            this.systemStatusLabel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.systemStatusLabel.BackColor = System.Drawing.Color.White;
+            this.systemStatusLabel.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+            this.systemStatusLabel.Font = new System.Drawing.Font("宋体", 22.2F, System.Drawing.FontStyle.Bold);
+            this.systemStatusLabel.Location = new System.Drawing.Point(3, 9);
+            this.systemStatusLabel.Name = "systemStatusLabel";
+            this.systemStatusLabel.Size = new System.Drawing.Size(288, 65);
+            this.systemStatusLabel.TabIndex = 3;
+            this.systemStatusLabel.Text = "就绪";
+            this.systemStatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
-            this.systemSection.BackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.systemSection.ColumnCount = 1;
-            this.systemSection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.systemSection.Controls.Add(this.systemHeader, 0, 0);
-            this.systemSection.Controls.Add(this.lblSystemStatus, 0, 1);
-            this.systemSection.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.systemSection.Margin = new System.Windows.Forms.Padding(0);
-            this.systemSection.Name = "systemSection";
-            this.systemSection.RowCount = 2;
-            this.systemSection.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 56F));
-            this.systemSection.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.systemSection.TabIndex = 1;
+            // pageLayout
             //
-            // systemHeader
+            this.pageLayout.ColumnCount = 6;
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 100F));
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 100F));
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 100F));
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 100F));
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 100F));
+            this.pageLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.pageLayout.Controls.Add(this.pageHost, 0, 1);
+            this.pageLayout.Controls.Add(this.mainPageButton, 0, 0);
+            this.pageLayout.Controls.Add(this.logPageButton, 1, 0);
+            this.pageLayout.Controls.Add(this.hivePageButton, 2, 0);
+            this.pageLayout.Controls.Add(this.pressurePageButton, 3, 0);
+            this.pageLayout.Controls.Add(this.torquePageButton, 4, 0);
+            this.pageLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pageLayout.Location = new System.Drawing.Point(303, 3);
+            this.pageLayout.Name = "pageLayout";
+            this.pageLayout.RowCount = 2;
+            this.pageLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 51F));
+            this.pageLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.pageLayout.Size = new System.Drawing.Size(1070, 569);
+            this.pageLayout.TabIndex = 1;
             //
-            this.systemHeader.BackColor = global::Automation.UiPalette.HmiSection;
-            this.systemHeader.Controls.Add(this.lblSystemTitle);
-            this.systemHeader.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.systemHeader.Margin = new System.Windows.Forms.Padding(1);
-            this.systemHeader.Name = "systemHeader";
-            this.systemHeader.TabIndex = 0;
+            // pageHost
             //
-            // lblSystemTitle
+            this.pageLayout.SetColumnSpan(this.pageHost, 6);
+            this.pageHost.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pageHost.Location = new System.Drawing.Point(3, 54);
+            this.pageHost.Name = "pageHost";
+            this.pageHost.Padding = new System.Windows.Forms.Padding(3);
+            this.pageHost.Size = new System.Drawing.Size(1064, 512);
+            this.pageHost.TabIndex = 5;
+            this.pageHost.TabStop = false;
             //
-            this.lblSystemTitle.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblSystemTitle.Font = new System.Drawing.Font("Microsoft YaHei UI", 13F, System.Drawing.FontStyle.Bold);
-            this.lblSystemTitle.ForeColor = global::Automation.UiPalette.NavigationText;
-            this.lblSystemTitle.Text = "系统状态栏";
-            this.lblSystemTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // page buttons
             //
-            // lblSystemStatus
+            this.mainPageButton.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.mainPageButton.Font = new System.Drawing.Font("微软雅黑", 9F);
+            this.mainPageButton.Location = new System.Drawing.Point(3, 3);
+            this.mainPageButton.Name = "mainPageButton";
+            this.mainPageButton.Size = new System.Drawing.Size(94, 45);
+            this.mainPageButton.TabIndex = 0;
+            this.mainPageButton.Text = "主页面";
+            this.mainPageButton.UseVisualStyleBackColor = false;
+            this.logPageButton.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.logPageButton.Font = new System.Drawing.Font("微软雅黑", 9F);
+            this.logPageButton.Location = new System.Drawing.Point(103, 3);
+            this.logPageButton.Name = "logPageButton";
+            this.logPageButton.Size = new System.Drawing.Size(94, 45);
+            this.logPageButton.TabIndex = 1;
+            this.logPageButton.Text = "查看Log";
+            this.logPageButton.UseVisualStyleBackColor = false;
+            this.hivePageButton.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.hivePageButton.Font = new System.Drawing.Font("微软雅黑", 9F);
+            this.hivePageButton.Location = new System.Drawing.Point(203, 3);
+            this.hivePageButton.Name = "hivePageButton";
+            this.hivePageButton.Size = new System.Drawing.Size(94, 45);
+            this.hivePageButton.TabIndex = 2;
+            this.hivePageButton.Text = "Hive";
+            this.hivePageButton.UseVisualStyleBackColor = false;
+            this.pressurePageButton.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pressurePageButton.Font = new System.Drawing.Font("微软雅黑", 9F);
+            this.pressurePageButton.Location = new System.Drawing.Point(303, 3);
+            this.pressurePageButton.Name = "pressurePageButton";
+            this.pressurePageButton.Size = new System.Drawing.Size(94, 45);
+            this.pressurePageButton.TabIndex = 3;
+            this.pressurePageButton.Text = "压力曲线图";
+            this.pressurePageButton.UseVisualStyleBackColor = false;
+            this.torquePageButton.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.torquePageButton.Font = new System.Drawing.Font("微软雅黑", 9F);
+            this.torquePageButton.Location = new System.Drawing.Point(403, 3);
+            this.torquePageButton.Name = "torquePageButton";
+            this.torquePageButton.Size = new System.Drawing.Size(94, 45);
+            this.torquePageButton.TabIndex = 4;
+            this.torquePageButton.Text = "扭力曲线图";
+            this.torquePageButton.UseVisualStyleBackColor = false;
             //
-            this.lblSystemStatus.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblSystemStatus.Font = new System.Drawing.Font("Microsoft YaHei UI", 38F);
-            this.lblSystemStatus.ForeColor = global::Automation.UiPalette.Danger;
-            this.lblSystemStatus.Text = "未复位";
-            this.lblSystemStatus.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // alarmTicker
+            //
+            this.alarmTicker.BackColor = System.Drawing.Color.White;
+            this.alarmTicker.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+            this.rootLayout.SetColumnSpan(this.alarmTicker, 2);
+            this.alarmTicker.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.alarmTicker.Location = new System.Drawing.Point(5, 580);
+            this.alarmTicker.Margin = new System.Windows.Forms.Padding(5);
+            this.alarmTicker.Name = "alarmTicker";
+            this.alarmTicker.Size = new System.Drawing.Size(1366, 77);
+            this.alarmTicker.TabIndex = 2;
             //
             // HmiHomePage
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = global::Automation.UiPalette.SurfaceStrong;
-            this.ClientSize = new System.Drawing.Size(1200, 656);
-            this.Controls.Add(this.homeRoot);
+            this.BackColor = System.Drawing.SystemColors.Control;
+            this.ClientSize = new System.Drawing.Size(1376, 662);
+            this.Controls.Add(this.rootLayout);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
             this.Name = "HmiHomePage";
             this.Text = "主页";
-            this.homeRoot.ResumeLayout(false);
-            this.workspacePanel.ResumeLayout(false);
-            this.sidebarPanel.ResumeLayout(false);
-            this.sidebarLayout.ResumeLayout(false);
-            this.statisticsSection.ResumeLayout(false);
-            this.statisticsHeader.ResumeLayout(false);
-            this.statisticsLayout.ResumeLayout(false);
-            this.systemSection.ResumeLayout(false);
-            this.systemHeader.ResumeLayout(false);
+            this.rootLayout.ResumeLayout(false);
+            this.leftGroup.ResumeLayout(false);
+            this.leftGroup.PerformLayout();
+            this.versionGroup.ResumeLayout(false);
+            this.productionGroup.ResumeLayout(false);
+            this.productionGroup.PerformLayout();
+            this.pageLayout.ResumeLayout(false);
             this.ResumeLayout(false);
         }
 
-        private System.Windows.Forms.Panel homeRoot;
-        private System.Windows.Forms.Panel workspacePanel;
-        private PressureChart pressureChart;
-        private System.Windows.Forms.Panel sidebarPanel;
-        private System.Windows.Forms.TableLayoutPanel sidebarLayout;
-        private System.Windows.Forms.TableLayoutPanel statisticsSection;
-        private System.Windows.Forms.Panel statisticsHeader;
-        private System.Windows.Forms.Label lblStatisticsTitle;
-        private System.Windows.Forms.TableLayoutPanel statisticsLayout;
-        private System.Windows.Forms.Label lblInputTotal;
-        private System.Windows.Forms.Label lblInputValue;
-        private System.Windows.Forms.Label lblOutputTotal;
-        private System.Windows.Forms.Label lblOutputValue;
-        private System.Windows.Forms.Label lblDefectTotal;
-        private System.Windows.Forms.Label lblDefectValue;
-        private System.Windows.Forms.Label lblGoodTotal;
-        private System.Windows.Forms.Label lblGoodValue;
-        private System.Windows.Forms.Label lblYield;
-        private System.Windows.Forms.Label lblYieldValue;
-        private System.Windows.Forms.Label lblCycle;
-        private System.Windows.Forms.Label lblCycleValue;
-        private System.Windows.Forms.Button btnResetCounter;
-        private System.Windows.Forms.TableLayoutPanel systemSection;
-        private System.Windows.Forms.Panel systemHeader;
-        private System.Windows.Forms.Label lblSystemTitle;
-        private System.Windows.Forms.Label lblSystemStatus;
+        private System.Windows.Forms.TableLayoutPanel rootLayout;
+        private System.Windows.Forms.GroupBox leftGroup;
+        private System.Windows.Forms.ComboBox workModeCombo;
+        private System.Windows.Forms.Label runTimeLabel;
+        private System.Windows.Forms.GroupBox versionGroup;
+        private System.Windows.Forms.Label versionLabel;
+        private System.Windows.Forms.GroupBox productionGroup;
+        private System.Windows.Forms.CheckBox pcManagedCheck;
+        private System.Windows.Forms.CheckBox pdcaDisabledCheck;
+        private System.Windows.Forms.CheckBox mesDisabledCheck;
+        private System.Windows.Forms.Label systemStatusLabel;
+        private System.Windows.Forms.TableLayoutPanel pageLayout;
+        private System.Windows.Forms.GroupBox pageHost;
+        private System.Windows.Forms.Button mainPageButton;
+        private System.Windows.Forms.Button logPageButton;
+        private System.Windows.Forms.Button hivePageButton;
+        private System.Windows.Forms.Button pressurePageButton;
+        private System.Windows.Forms.Button torquePageButton;
+        private Automation.Hmi.LegacyAlarmTickerControl alarmTicker;
     }
 }

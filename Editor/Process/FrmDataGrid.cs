@@ -376,15 +376,16 @@ namespace Automation
                 contextMenuStrip2.Items.Add(copy);
                 contextMenuStrip2.Items.Add(paste);
                 contextMenuStrip2.Items.Add(Others);
+                contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
+                contextMenuStrip2.Items.Add(Delete);
+                contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
+                contextMenuStrip2.Items.Add(SetStopPoint);
+                contextMenuStrip2.Items.Add(Enable);
                 separatorStartOps.AutoSize = false;
                 separatorStartOps.Size = new Size(202, 5);
                 separatorStartOps.Margin = Padding.Empty;
                 contextMenuStrip2.Items.Add(separatorStartOps);
                 contextMenuStrip2.Items.Add(SetStartOps);
-                contextMenuStrip2.Items.Add(SetStopPoint);
-                contextMenuStrip2.Items.Add(Enable);
-                contextMenuStrip2.Items.Add(CreateContextMenuSeparator());
-                contextMenuStrip2.Items.Add(Delete);
             }
             finally
             {
@@ -1747,6 +1748,28 @@ namespace Automation
                     inspector.EndUpdate();
                 }
             }
+        }
+
+        internal bool TryRestoreSelectedOperationPresentation()
+        {
+            int procIndex = Workspace.ProcessSelection.ProcIndex;
+            int stepIndex = Workspace.ProcessSelection.StepIndex;
+            int rowIndex = iSelectedRow;
+            if (rowIndex < 0
+                || procIndex < 0
+                || stepIndex < 0
+                || procIndex >= Workspace.ProcessDefinitions.Count
+                || stepIndex >= Workspace.ProcessDefinitions[procIndex].steps.Count
+                || rowIndex >= Workspace.ProcessDefinitions[procIndex].steps[stepIndex].Ops.Count
+                || Workspace.ProcessDefinitions[procIndex].steps[stepIndex].Ops[rowIndex] == null)
+            {
+                return false;
+            }
+
+            ShowOperationProperties(rowIndex);
+            return ReferenceEquals(
+                Workspace.Inspector.SelectedObject,
+                Workspace.ProcessDefinitions[procIndex].steps[stepIndex].Ops[rowIndex]);
         }
 
         public bool SelectOperationForNavigation(Guid opId)

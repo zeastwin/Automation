@@ -511,27 +511,11 @@ namespace Automation
             }
             if (pending != null)
             {
-                TreeView processTree = frmProc?.proc_treeView;
-                bool suspendTreeDrawing = processTree != null
-                    && !processTree.IsDisposed
-                    && processTree.IsHandleCreated;
-                if (suspendTreeDrawing)
+                // 节点属性变更产生的局部无效区域会由消息队列自动合并。
+                // 不对整棵树 BeginUpdate/EndUpdate，否则每轮快照都会触发全树重绘。
+                foreach (EngineSnapshot snapshot in pending)
                 {
-                    processTree.BeginUpdate();
-                }
-                try
-                {
-                    foreach (EngineSnapshot snapshot in pending)
-                    {
-                        UpdateProcText(snapshot);
-                    }
-                }
-                finally
-                {
-                    if (suspendTreeDrawing && !processTree.IsDisposed)
-                    {
-                        processTree.EndUpdate();
-                    }
+                    UpdateProcText(snapshot);
                 }
             }
             UpdateHighlightFromCache();
@@ -680,7 +664,7 @@ namespace Automation
                 Color nextColor;
                 if (isDisabled)
                 {
-                    nextColor = UiPalette.DisabledSoft;
+                    nextColor = UiPalette.TextMuted;
                 }
                 else
                 {
@@ -809,6 +793,7 @@ namespace Automation
             editorWorkspacePage.Controls.Add(DataGrid_panel);
             editorWorkspacePage.Controls.Add(panel_Info);
             editorWorkspacePage.Controls.Add(inspector_panel);
+            editorWorkspacePage.Controls.Add(processTreeSplitter);
             editorWorkspacePage.Controls.Add(treeView_panel);
             editorWorkspacePage.Controls.Add(ToolBar_panel);
             editorWorkspacePage.Controls.Add(state_panel);

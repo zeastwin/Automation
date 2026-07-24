@@ -50,7 +50,7 @@ namespace Automation
         void RefreshAlarmConfiguration();
         void BeginEditSession(object draft);
         void PresentEditDraft(object draft);
-        void ClearEditDraft();
+        void ClearEditDraft(object canceledDraft);
         void EndEditSession();
         void RefreshEditorHistoryActions();
         void WriteInfo(string message, LogLevel level);
@@ -223,8 +223,13 @@ namespace Automation
             owner.frmInspector?.ShowObject(draft);
         }
 
-        public void ClearEditDraft()
+        public void ClearEditDraft(object canceledDraft)
         {
+            if (canceledDraft is OperationType
+                && owner.frmDataGrid?.TryRestoreSelectedOperationPresentation() == true)
+            {
+                return;
+            }
             owner.frmInspector?.ClearObject();
         }
 

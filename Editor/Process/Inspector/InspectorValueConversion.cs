@@ -229,6 +229,27 @@ namespace Automation
             return Convert.ToString(value, CultureInfo.CurrentCulture) ?? string.Empty;
         }
 
+        public static string ToPresentationText(
+            object owner,
+            PropertyDescriptor property,
+            object value)
+        {
+            string text = ToDisplayText(owner, property, value);
+            if (!(property?.Attributes[typeof(MarkedGotoAttribute)] is MarkedGotoAttribute))
+            {
+                return text;
+            }
+            if (text.StartsWith(ProcessDefinitionService.PendingGotoPrefix, StringComparison.Ordinal))
+            {
+                return "未解析跳转（请重新选择）";
+            }
+            if (text.StartsWith(ProcessDefinitionService.DeletedGotoPrefix, StringComparison.Ordinal))
+            {
+                return "原跳转目标已删除（请重新选择）";
+            }
+            return text;
+        }
+
         public static object FromText(object owner, PropertyDescriptor property, string text)
         {
             Type propertyType = property.PropertyType;

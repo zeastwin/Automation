@@ -233,7 +233,10 @@ namespace Automation
             }
             if (!_operationKeyLocations.TryGetValue(mapKey, out OperationReferenceLocation keyLocation))
             {
-                return ProcessDefinitionService.BuildPendingGoto(mapKey);
+                throw new InvalidOperationException(
+                    $"{path}.operationKey 未在当前 ChangeSet 的最终结构中找到："
+                    + $"步骤[{stepDisplay}] 指令[{operationKey}]。"
+                    + "局部 key 仅限当前 ChangeSet；已提交目标请改用 operationId。");
             }
             return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
         }
@@ -417,10 +420,18 @@ namespace Automation
                 ["selectorRule"] = "operationId与operationKey二选一",
                 ["currentStep"] = new JObject { ["operationKey"] = "当前ChangeSet内的指令key" },
                 ["crossStep"] = new JArray(
-                    new JObject { ["stepId"] = "现有步骤Guid", ["operationKey"] = "目标指令key" },
-                    new JObject { ["stepKey"] = "当前ChangeSet内的步骤key", ["operationKey"] = "目标指令key" }),
+                    new JObject
+                    {
+                        ["stepId"] = "现有步骤Guid",
+                        ["operationKey"] = "该步骤内当前ChangeSet新建的指令key"
+                    },
+                    new JObject
+                    {
+                        ["stepKey"] = "当前ChangeSet内的新步骤key",
+                        ["operationKey"] = "该步骤内当前ChangeSet新建的指令key"
+                    }),
                 ["existingOperation"] = new JObject { ["operationId"] = "现有指令Guid" },
-                ["unresolvedReference"] = "未定义的operationKey可先保存为未就绪引用；后续创建同标签指令后由Bridge解析",
+                ["scopeRule"] = "operationKey必须在当前ChangeSet最终结构内解析；已提交目标必须使用operationId",
                 ["physicalIndexAllowed"] = false
             };
         }

@@ -47,7 +47,6 @@ namespace Automation.Bridge
                 listenCts = new CancellationTokenSource();
                 listenTask = Task.Run(() => ListenLoop(listenCts.Token));
                 started = true;
-                ReportInfo($"Automation Bridge 已启动：{DefaultPipePath}");
             }
         }
 
@@ -363,17 +362,6 @@ namespace Automation.Bridge
                 await stream.WriteAsync(payloadBuffer, 0, payloadBuffer.Length).ConfigureAwait(false);
             }
             await stream.FlushAsync().ConfigureAwait(false);
-        }
-
-        private void ReportInfo(string message)
-        {
-            try
-            {
-                owner.BeginInvoke((Action)(() => owner.frmInfo?.PrintInfo(message, FrmInfo.Level.Normal)));
-            }
-            catch
-            {
-            }
         }
 
         private void ReportError(string message)

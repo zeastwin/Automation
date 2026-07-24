@@ -857,8 +857,8 @@ namespace Automation
                     }
                 }
                 string stepName = string.IsNullOrWhiteSpace(step?.Name)
-                    ? $"步骤 {stepIndex + 1}"
-                    : $"{stepIndex + 1}. {step.Name}";
+                    ? $"步骤 {stepIndex}"
+                    : $"{stepIndex}. {step.Name}";
                 groups.Add(new PickerGroupDefinition(
                     stepName,
                     InspectorIconKind.Step,

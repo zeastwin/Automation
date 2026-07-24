@@ -35,6 +35,7 @@ namespace Automation
             this.DataGrid_panel = new System.Windows.Forms.Panel();
             this.panel_Info = new System.Windows.Forms.Panel();
             this.inspector_panel = new System.Windows.Forms.Panel();
+            this.processTreeSplitter = new System.Windows.Forms.Splitter();
             this.treeView_panel = new System.Windows.Forms.Panel();
             this.ToolBar_panel = new System.Windows.Forms.Panel();
             this.main_panel.SuspendLayout();
@@ -61,6 +62,7 @@ namespace Automation
             this.main_panel.Controls.Add(this.DataGrid_panel);
             this.main_panel.Controls.Add(this.panel_Info);
             this.main_panel.Controls.Add(this.inspector_panel);
+            this.main_panel.Controls.Add(this.processTreeSplitter);
             this.main_panel.Controls.Add(this.treeView_panel);
             this.main_panel.Controls.Add(this.ToolBar_panel);
             this.main_panel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -93,6 +95,19 @@ namespace Automation
             this.inspector_panel.Name = "inspector_panel";
             this.inspector_panel.Size = new System.Drawing.Size(360, 759);
             this.inspector_panel.TabIndex = 6;
+            //
+            // processTreeSplitter
+            //
+            this.processTreeSplitter.BackColor = global::Automation.UiPalette.Stroke;
+            this.processTreeSplitter.Cursor = System.Windows.Forms.Cursors.VSplit;
+            this.processTreeSplitter.Dock = System.Windows.Forms.DockStyle.Left;
+            this.processTreeSplitter.Location = new System.Drawing.Point(235, 43);
+            this.processTreeSplitter.MinExtra = 320;
+            this.processTreeSplitter.MinSize = 150;
+            this.processTreeSplitter.Name = "processTreeSplitter";
+            this.processTreeSplitter.Size = new System.Drawing.Size(5, 759);
+            this.processTreeSplitter.TabIndex = 10;
+            this.processTreeSplitter.TabStop = false;
             // 
             // treeView_panel
             // 
@@ -135,6 +150,7 @@ namespace Automation
         private System.Windows.Forms.Panel MenuPanel;
         public System.Windows.Forms.Panel main_panel;
         public System.Windows.Forms.Panel inspector_panel;
+        public System.Windows.Forms.Splitter processTreeSplitter;
         public System.Windows.Forms.Panel treeView_panel;
         public System.Windows.Forms.Panel ToolBar_panel;
         public System.Windows.Forms.Panel state_panel;

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using Automation.DeviceSdk;
 
 // 模块：平台内置 HMI / 自定义函数。
@@ -13,47 +12,31 @@ namespace Automation.Hmi
     /// </summary>
     internal static class CustomFunctions
     {
-        private static readonly Stopwatch Stopwatch = new Stopwatch();
+        public static EquipmentProcessMessageService Register(IAutomationPlatform platform)
+        {
+            return Register(platform, null);
+        }
 
-        public static void Register(IAutomationPlatform platform)
+        internal static EquipmentProcessMessageService Register(
+            IAutomationPlatform platform,
+            LegacyEquipmentServices equipmentServices)
         {
             if (platform == null)
             {
                 throw new ArgumentNullException(nameof(platform));
             }
 
-            platform.RegisterCustomFunction("FunctionA", Stopwatch.Restart);
-            platform.RegisterCustomFunction("FunctionB", () =>
-                platform.Values.Set("耗时毫秒", Stopwatch.Elapsed.TotalMilliseconds, out _));
-            platform.RegisterCustomFunction("CalcSumTiming", () => CalculateFixedSum(platform));
-            platform.RegisterCustomFunction("EndTiming", () => FinishLoopTiming(platform));
-        }
-
-        private static void CalculateFixedSum(IAutomationPlatform platform)
-        {
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            long sum = 0;
-            for (int i = 1; i <= 100000; i++)
+            var processMessages = new EquipmentProcessMessageService(
+                platform.Values,
+                equipmentServices: equipmentServices);
+            foreach (string legacyMessageName in processMessages.GetRegisteredFunctionNames())
             {
-                sum += i;
+                string functionName = legacyMessageName;
+                platform.RegisterCustomFunction(
+                    functionName,
+                    () => processMessages.ExecuteMessage(functionName));
             }
-            timer.Stop();
-            platform.Values.Set("累加和", sum, out _);
-            platform.Values.Set("耗时毫秒", timer.Elapsed.TotalMilliseconds, out _);
-        }
-
-        private static void FinishLoopTiming(IAutomationPlatform platform)
-        {
-            if (!platform.Values.TryGet("循环计数", out ValueSnapshot countValue, out _)
-                || !double.TryParse(countValue.Value, out double count))
-            {
-                return;
-            }
-
-            long integerCount = (long)count;
-            long sum = integerCount * (integerCount + 1) / 2;
-            platform.Values.Set("累加和", sum, out _);
-            platform.Values.Set("耗时毫秒", Stopwatch.Elapsed.TotalMilliseconds, out _);
+            return processMessages;
         }
     }
 }

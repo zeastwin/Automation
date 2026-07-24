@@ -152,9 +152,6 @@ namespace Automation
                 EnsureUiThread();
                 EnsureReadyOrFaulted();
                 EnsurePlatformEditorCreated();
-                runtime.ProcessEngine?.Logger?.Log(
-                    "平台编辑器隐藏预加载完成。",
-                    LogLevel.Normal);
                 return true;
             }
             catch (Exception ex)

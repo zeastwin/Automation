@@ -27,6 +27,32 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void ProcessTreeWidth_CanBeAdjustedWithSplitter()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Assert.AreEqual(
+                        System.Windows.Forms.DockStyle.Left,
+                        form.processTreeSplitter.Dock);
+                    Assert.AreEqual(150, form.processTreeSplitter.MinSize);
+                    Assert.AreSame(
+                        form.treeView_panel.Parent,
+                        form.processTreeSplitter.Parent,
+                        "流程树与拖动分隔条必须位于同一个编辑器布局容器中。");
+                    Assert.AreEqual(
+                        form.treeView_panel.Right,
+                        form.processTreeSplitter.Left,
+                        "分隔条应紧贴流程树右侧，供用户直接拖动调整宽度。");
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void ReturningToProcessWorkspace_RestoresActiveOperationDraftAndSelection()
         {
             StaTestRunner.Run(() =>
@@ -65,6 +91,18 @@ namespace Automation.Core.Tests
                     Assert.IsTrue(form.frmToolBar.btnCancel.Enabled);
 
                     form.Runtime.Editor.Cancel();
+
+                    Assert.AreSame(
+                        process.steps[0].Ops[0],
+                        form.frmInspector.SelectedObject,
+                        "取消指令编辑后应继续查看当前选中的已保存指令。");
+                    Assert.AreNotSame(
+                        draft,
+                        form.frmInspector.SelectedObject,
+                        "取消后不应继续呈现已丢弃的编辑草稿。");
+                    Assert.AreEqual(0, form.frmDataGrid.iSelectedRow);
+                    Assert.IsFalse(form.frmToolBar.btnSave.Enabled);
+                    Assert.IsFalse(form.frmToolBar.btnCancel.Enabled);
                 }
             }, TimeSpan.FromSeconds(20));
         }

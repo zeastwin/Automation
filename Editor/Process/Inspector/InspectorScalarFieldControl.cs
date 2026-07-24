@@ -163,14 +163,14 @@ namespace Automation
                         definition.Property,
                         value,
                         false);
-                    displayCell.DisplayText = InspectorValueConversion.ToDisplayText(
+                    displayCell.DisplayText = InspectorValueConversion.ToPresentationText(
                         definition.Owner,
                         definition.Property,
                         value);
                 }
                 else if (editor is TextBox textBox)
                 {
-                    string displayText = InspectorValueConversion.ToDisplayText(
+                    string displayText = InspectorValueConversion.ToPresentationText(
                         definition.Owner,
                         definition.Property,
                         value);

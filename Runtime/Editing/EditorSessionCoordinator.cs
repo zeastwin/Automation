@@ -184,7 +184,7 @@ namespace Automation
             IEditSession session = ActiveSession;
             ActiveSession = null;
             session?.Cancel();
-            runtime.EditorUi?.ClearEditDraft();
+            runtime.EditorUi?.ClearEditDraft(session?.Draft);
             End();
         }
 

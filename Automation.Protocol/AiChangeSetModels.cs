@@ -317,7 +317,7 @@ namespace Automation.Protocol
         [Description("当前ChangeSet内跨步骤定位时可提供目标步骤局部key；当前步骤内定位无需提供。")]
         public string StepKey { get; set; }
 
-        [Description("按指令key形成符号目标；当前步骤只需operationKey，跨步骤时附加stepId或stepKey。空对象不是顺序执行；需要继续下一条时填写下一条指令的operationKey。未定义目标可先保存为未就绪引用，并在后续创建同标签指令时解析；该标签不用于读取已提交对象。")]
+        [Description("按指令key形成符号目标；仅可指向当前ChangeSet内新建指令。当前步骤只需operationKey；跨到当前ChangeSet新步骤时附加stepKey，跨到现有步骤内的新指令时附加stepId。空对象不是顺序执行；需要继续下一条时填写下一条指令的operationKey。目标必须在本次预演的最终结构中存在；已提交目标必须使用operationId。")]
         public string OperationKey { get; set; }
     }
 }

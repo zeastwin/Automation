@@ -29,7 +29,7 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            this.proc_treeView = new Automation.ProcessTreeView();
+            this.processOutline = new Automation.ProcessOutlineList();
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.AddProc = new System.Windows.Forms.ToolStripMenuItem();
             this.AddStep = new System.Windows.Forms.ToolStripMenuItem();
@@ -42,18 +42,15 @@
             this.contextMenuStrip1.SuspendLayout();
             this.SuspendLayout();
             // 
-            // proc_treeView
+            // processOutline
             // 
-            this.proc_treeView.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.proc_treeView.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.proc_treeView.FullRowSelect = true;
-            this.proc_treeView.Location = new System.Drawing.Point(0, 0);
-            this.proc_treeView.Name = "proc_treeView";
-            this.proc_treeView.ShowLines = false;
-            this.proc_treeView.Size = new System.Drawing.Size(465, 585);
-            this.proc_treeView.TabIndex = 0;
-            this.proc_treeView.AfterSelect += new System.Windows.Forms.TreeViewEventHandler(this.proc_treeView_AfterSelect);
-            this.proc_treeView.MouseDown += new System.Windows.Forms.MouseEventHandler(this.proc_treeView_MouseDown);
+            this.processOutline.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.processOutline.Font = new System.Drawing.Font("微软雅黑", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.processOutline.Location = new System.Drawing.Point(0, 0);
+            this.processOutline.Name = "processOutline";
+            this.processOutline.Size = new System.Drawing.Size(465, 585);
+            this.processOutline.TabIndex = 0;
+            this.processOutline.SelectedIndexChanged += new System.EventHandler(this.ProcessOutline_SelectedIndexChanged);
             // 
             // contextMenuStrip1
             // 
@@ -132,7 +129,7 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(465, 585);
             this.ContextMenuStrip = this.contextMenuStrip1;
-            this.Controls.Add(this.proc_treeView);
+            this.Controls.Add(this.processOutline);
             this.Name = "FrmProc";
             this.Text = "FrmProc";
             this.contextMenuStrip1.ResumeLayout(false);
@@ -149,7 +146,7 @@
         private System.Windows.Forms.ToolStripMenuItem CopyProcStep;
         private System.Windows.Forms.ToolStripMenuItem PasteProcStep;
         private System.Windows.Forms.ToolStripMenuItem ToggleDisable;
-        public System.Windows.Forms.TreeView proc_treeView;
+        internal Automation.ProcessOutlineList processOutline;
         private System.Windows.Forms.ToolStripMenuItem startProc;
     }
 }
