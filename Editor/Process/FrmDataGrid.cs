@@ -132,6 +132,33 @@ namespace Automation
                 // 绘制留给消息循环合并处理，不在鼠标事件中强制同步刷新。
                 ShowOperationProperties(rowIndex);
             }
+            else if (rowIndex < 0
+                && editorWorkspace?.Runtime?.Editor?.ActiveSession == null)
+            {
+                ShowCurrentProcessSelectionProperties();
+            }
+        }
+
+        private void ShowCurrentProcessSelectionProperties()
+        {
+            int procIndex = Workspace.ProcessSelection.ProcIndex;
+            int stepIndex = Workspace.ProcessSelection.StepIndex;
+            object selected = null;
+            if (procIndex >= 0
+                && procIndex < Workspace.ProcessDefinitions.Count)
+            {
+                Proc proc = Workspace.ProcessDefinitions[procIndex];
+                selected = stepIndex >= 0
+                    && stepIndex < (proc?.steps?.Count ?? 0)
+                        ? (object)proc.steps[stepIndex]
+                        : proc?.head;
+            }
+            if (selected == null)
+            {
+                Workspace.Inspector?.ClearObject();
+                return;
+            }
+            Workspace.Inspector?.ShowObject(selected);
         }
 
         private void dataGridView1_JumpLinkClicked(
@@ -1298,7 +1325,6 @@ namespace Automation
             if (dataGridView1.GetSelectedIndexes().Count == 0)
                 iSelectedRow = -1;
             OperationTemp = new HomeRun() { Num = iSelectedRow == -1 ? dataGridView1.OperationCount : iSelectedRow + 1 };
-            Workspace.Inspector.ShowObject(OperationTemp);
             Workspace.Runtime.Editor.IsAddingOperations = true;
             BeginOperationEditSession(true);
             // 编辑期间保留指令表交互，用作跳转地址的拖拽来源。

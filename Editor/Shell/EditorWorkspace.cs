@@ -122,8 +122,6 @@ namespace Automation
             {
                 DataGrid.OperationTemp = operationDraft;
                 Inspector.ShowObject(operationDraft);
-                ToolBar.btnSave.Enabled = true;
-                ToolBar.btnCancel.Enabled = true;
                 ToolBar.RefreshHistoryAvailability();
                 return;
             }

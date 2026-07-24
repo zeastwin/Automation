@@ -67,9 +67,16 @@ namespace Automation
                     BeginInvoke((Action)(() => DeactivateEditors(true)));
                 }
             };
+            value.Validating += (sender, args) =>
+            {
+                if (value.Visible && !CommitValue())
+                {
+                    args.Cancel = true;
+                }
+            };
             value.Validated += (sender, args) =>
             {
-                if (value.Visible && CommitValue())
+                if (value.Visible)
                 {
                     DeactivateEditors(true);
                 }

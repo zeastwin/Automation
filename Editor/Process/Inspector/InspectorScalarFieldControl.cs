@@ -113,10 +113,6 @@ namespace Automation
             {
                 DeactivateEditor(true);
             }
-            else if (editor is InspectorTextBox)
-            {
-                ShowPersistentTextEditor();
-            }
             if (editor is TextBox textBox)
             {
                 textBox.ReadOnly = !allow;
@@ -315,11 +311,18 @@ namespace Automation
                         BeginInvoke((Action)(() => DeactivateEditor(true)));
                     }
                 };
-                comboBox.Validated += (sender, args) =>
+                comboBox.Validating += (sender, args) =>
                 {
                     if (comboBox.Visible
                         && comboBox.DropDownStyle != ComboBoxStyle.DropDownList
-                        && CommitComboBox(comboBox))
+                        && !CommitComboBox(comboBox))
+                    {
+                        args.Cancel = true;
+                    }
+                };
+                comboBox.Validated += (sender, args) =>
+                {
+                    if (comboBox.Visible)
                     {
                         DeactivateEditor(true);
                     }
@@ -334,9 +337,16 @@ namespace Automation
             {
                 Font = InspectorFonts.Bold95
             };
+            textEditor.Validating += (sender, args) =>
+            {
+                if (textEditor.Visible && !CommitText(textEditor))
+                {
+                    args.Cancel = true;
+                }
+            };
             textEditor.Validated += (sender, args) =>
             {
-                if (textEditor.Visible && CommitText(textEditor))
+                if (textEditor.Visible)
                 {
                     DeactivateEditor(true);
                 }
@@ -439,11 +449,6 @@ namespace Automation
                 {
                     RefreshValue(true);
                 }
-                if (editor is InspectorTextBox && displayCell.Editable)
-                {
-                    ShowPersistentTextEditor();
-                    return;
-                }
                 editor.Visible = false;
                 editor.TabStop = false;
                 displayCell.Visible = true;
@@ -453,14 +458,6 @@ namespace Automation
             {
                 endingEdit = false;
             }
-        }
-
-        private void ShowPersistentTextEditor()
-        {
-            displayCell.Visible = false;
-            editor.Visible = true;
-            editor.TabStop = true;
-            editor.BringToFront();
         }
 
         private void Editor_KeyDown(object sender, KeyEventArgs args)

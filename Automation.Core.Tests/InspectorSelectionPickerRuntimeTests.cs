@@ -428,6 +428,35 @@ namespace Automation.Core.Tests
             }, TimeSpan.FromSeconds(10));
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ReusedInspectorPage_KeepsExpansionStatePerObject()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var first = new ModifyValue();
+                var second = new ModifyValue();
+                using (var view = new InspectorView())
+                {
+                    view.SetObject(first, false);
+                    List<InspectorSectionControl> sections =
+                        GetPrivateField<List<InspectorSectionControl>>(
+                            view,
+                            "sectionControls");
+                    Assert.IsTrue(sections.Count > 0);
+                    sections[0].SetExpanded(false);
+
+                    view.SetObject(second, false);
+                    Assert.IsTrue(sections[0].Expanded,
+                        "结构相同的新对象不得继承上一对象的折叠状态。");
+
+                    view.SetObject(first, false);
+                    Assert.IsFalse(sections[0].Expanded,
+                        "返回原对象时应恢复它自己的折叠状态。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
         private static InspectorCollectionFieldControl CreateCollectionControl(
             ProcHead owner,
             string propertyName,

@@ -419,6 +419,17 @@ namespace Automation
             }
             try
             {
+                if (Workspace.Inspector != null
+                    && !Workspace.Inspector.TryCommitPendingEdit(
+                        out string inputError))
+                {
+                    MessageBox.Show(
+                        inputError,
+                        "输入校验失败",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
                 if (!Workspace.Runtime.Editor.TryCommit(out string error))
                 {
                     MessageBox.Show(error, "配置校验失败", MessageBoxButtons.OK, MessageBoxIcon.Error);

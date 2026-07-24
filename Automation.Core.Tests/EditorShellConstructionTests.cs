@@ -106,5 +106,51 @@ namespace Automation.Core.Tests
                 }
             }, TimeSpan.FromSeconds(20));
         }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void InspectorCannotEnableOrCommitLiveObjectDuringDraftSession()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc process = TestProcessFactory.CreateEndingProcess(
+                        "检查器草稿身份");
+                    form.Runtime.Stores.Processes.Items.Add(process);
+                    form.frmProc.SelectedProcNum = 0;
+                    form.frmProc.SelectedStepNum = 0;
+                    form.frmDataGrid.iSelectedRow = 0;
+
+                    var draft = new EndProcess
+                    {
+                        Id = process.steps[0].Ops[0].Id,
+                        Name = "草稿"
+                    };
+                    form.Runtime.Editor.ModifyKind = ModifyKind.Operation;
+                    form.Runtime.Editor.Begin(new EditSession<OperationType>(
+                        "修改指令",
+                        draft,
+                        null,
+                        value => { }));
+
+                    form.frmInspector.ShowObject(
+                        process.steps[0].Ops[0]);
+                    form.frmInspector.SetEditingState(true);
+
+                    Assert.IsFalse(form.frmToolBar.btnSave.Enabled);
+                    Assert.IsTrue(form.frmToolBar.btnCancel.Enabled,
+                        "草稿显示失配时仍必须允许用户取消会话。");
+                    Assert.IsFalse(
+                        form.frmInspector.TryCommitPendingEdit(
+                            out string error));
+                    StringAssert.Contains(error, "不是当前编辑草稿");
+
+                    form.Runtime.Editor.Cancel();
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
     }
 }

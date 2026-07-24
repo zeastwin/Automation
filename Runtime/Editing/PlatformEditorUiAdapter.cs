@@ -198,12 +198,6 @@ namespace Automation
         public void BeginEditSession(object draft)
         {
             owner.frmInspector?.ShowObject(draft);
-            owner.frmInspector?.SetEditingState(true);
-            if (owner.frmToolBar != null)
-            {
-                owner.frmToolBar.btnSave.Enabled = true;
-                owner.frmToolBar.btnCancel.Enabled = true;
-            }
             owner.RefreshEditorNavigationActions();
             owner.frmToolBar?.RefreshHistoryAvailability();
         }
@@ -235,11 +229,6 @@ namespace Automation
         public void EndEditSession()
         {
             owner.frmInspector?.SetEditingState(false);
-            if (owner.frmToolBar != null)
-            {
-                owner.frmToolBar.btnSave.Enabled = false;
-                owner.frmToolBar.btnCancel.Enabled = false;
-            }
             owner.RefreshEditorNavigationActions();
             owner.frmToolBar?.RefreshHistoryAvailability();
         }

@@ -5,12 +5,22 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Automation
 {
     public sealed partial class FrmInspector : Form
     {
+        private const int WmSetRedraw = 0x000B;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            int message,
+            IntPtr wordParameter,
+            IntPtr longParameter);
+
         private readonly Panel header = new Panel();
         private readonly Label operationTypeLabel = new Label();
         private readonly InspectorIconButton operationTypeButton = new InspectorIconButton();
@@ -25,6 +35,8 @@ namespace Automation
         private Button cancelButton;
         private bool editing;
         private object presentedObject;
+        private int updateDepth;
+        private bool redrawSuspended;
 
         public FrmInspector()
         {
@@ -33,6 +45,7 @@ namespace Automation
             InitializeLayout();
             InitializeOperationTypePicker();
             KeyPreview = true;
+            AutoValidate = AutoValidate.EnablePreventFocusChange;
             KeyDown += FrmInspector_KeyDown;
             Disposed += (sender, args) =>
             {
@@ -78,48 +91,145 @@ namespace Automation
             {
                 EditorServiceRegistry.AttachGraph(value, Workspace.Runtime);
             }
-            bool allowEdit = Workspace.Runtime.Editor.ActiveSession != null
-                && ReferenceEquals(Workspace.Runtime.Editor.ActiveSession.Draft, value);
-            editing = allowEdit;
-            UpdatePresentation(value);
-            if (IsHandleCreated)
+            BeginUpdate();
+            try
             {
-                // 标题区先呈现目标指令，属性控件的首次构建随后同步完成。
-                Update();
+                editing = IsActiveDraft(value);
+                inspectorView.SetObject(value, editing);
+                UpdatePresentation(value);
             }
-            inspectorView.SetObject(value, allowEdit);
+            finally
+            {
+                EndUpdate();
+            }
         }
 
         public void ClearObject()
         {
-            editing = false;
-            UpdatePresentation(null);
-            inspectorView.SetObject(null, false);
+            BeginUpdate();
+            try
+            {
+                editing = false;
+                inspectorView.SetObject(null, false);
+                UpdatePresentation(null);
+            }
+            finally
+            {
+                EndUpdate();
+            }
         }
 
         public void SetEditingState(bool allowEdit)
         {
-            editing = allowEdit;
-            inspectorView.SetEditable(allowEdit);
-            UpdatePresentation(inspectorView.SelectedObject);
+            BeginUpdate();
+            try
+            {
+                editing = allowEdit
+                    && IsActiveDraft(inspectorView.SelectedObject);
+                inspectorView.SetEditable(editing);
+                UpdatePresentation(inspectorView.SelectedObject);
+            }
+            finally
+            {
+                EndUpdate();
+            }
         }
 
         public void RefreshObject()
         {
-            inspectorView.RefreshDocument();
-            UpdatePresentation(inspectorView.SelectedObject);
+            BeginUpdate();
+            try
+            {
+                inspectorView.RefreshDocument();
+                UpdatePresentation(inspectorView.SelectedObject);
+            }
+            finally
+            {
+                EndUpdate();
+            }
         }
 
         public void BeginUpdate()
         {
+            updateDepth++;
+            if (updateDepth != 1)
+            {
+                return;
+            }
+            if (IsHandleCreated)
+            {
+                SendMessage(Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+                redrawSuspended = true;
+            }
             SuspendLayout();
             inspectorView.BeginUpdate();
         }
 
         public void EndUpdate()
         {
-            inspectorView.EndUpdate();
-            ResumeLayout(true);
+            if (updateDepth <= 0)
+            {
+                return;
+            }
+            updateDepth--;
+            if (updateDepth != 0)
+            {
+                return;
+            }
+            try
+            {
+                inspectorView.EndUpdate();
+                ResumeLayout(false);
+                LayoutControls();
+                PerformLayout();
+            }
+            finally
+            {
+                if (redrawSuspended)
+                {
+                    if (IsHandleCreated)
+                    {
+                        SendMessage(
+                            Handle,
+                            WmSetRedraw,
+                            new IntPtr(1),
+                            IntPtr.Zero);
+                        Invalidate(true);
+                    }
+                    redrawSuspended = false;
+                }
+            }
+        }
+
+        internal bool TryCommitPendingEdit(out string error)
+        {
+            error = null;
+            if (editorWorkspace?.Runtime?.Editor?.ActiveSession == null)
+            {
+                return true;
+            }
+            if (!editing || !IsActiveDraft(inspectorView.SelectedObject))
+            {
+                error = "检查器中的对象已不是当前编辑草稿，请重新打开编辑。";
+                return false;
+            }
+            if (ValidateChildren(
+                ValidationConstraints.Enabled
+                    | ValidationConstraints.Visible))
+            {
+                return true;
+            }
+            error = "部分字段尚未通过输入校验，请修正红色提示后再保存。";
+            return false;
+        }
+
+        private bool IsActiveDraft(object value)
+        {
+            return value != null
+                && editorWorkspace?.Runtime?.Editor?.ActiveSession != null
+                && ReferenceEquals(
+                    editorWorkspace.Runtime.Editor.ActiveSession.Draft,
+                    value);
         }
 
         private void InitializeLayout()
@@ -217,6 +327,7 @@ namespace Automation
         {
             button.Anchor = AnchorStyles.Top | AnchorStyles.Left;
             button.AutoSize = false;
+            button.CausesValidation = primary;
             button.Cursor = Cursors.Hand;
             button.Dock = DockStyle.None;
             button.FlatAppearance.BorderSize = 0;
@@ -336,6 +447,16 @@ namespace Automation
         private void UpdateActionBar()
         {
             actionBar.Visible = saveButton != null && cancelButton != null;
+            bool sessionActive =
+                editorWorkspace?.Runtime?.Editor?.ActiveSession != null;
+            if (saveButton != null)
+            {
+                saveButton.Enabled = editing;
+            }
+            if (cancelButton != null)
+            {
+                cancelButton.Enabled = sessionActive;
+            }
         }
 
         private void OperationTypeButton_Click(object sender, EventArgs e)
@@ -469,9 +590,38 @@ namespace Automation
             }
             if (e.KeyCode == Keys.Escape)
             {
+                Control focused = FindFocusedControl(inspectorView);
+                if (focused is TextBoxBase
+                    || focused is ComboBox
+                    || activeOperationTypePicker?.Visible == true)
+                {
+                    return;
+                }
                 cancelButton?.PerformClick();
                 e.Handled = true;
+                e.SuppressKeyPress = true;
             }
+        }
+
+        private static Control FindFocusedControl(Control root)
+        {
+            if (root == null || !root.ContainsFocus)
+            {
+                return null;
+            }
+            Control current = root;
+            while (current != null)
+            {
+                Control focusedChild = current.Controls
+                    .Cast<Control>()
+                    .FirstOrDefault(child => child.ContainsFocus);
+                if (focusedChild == null)
+                {
+                    return current.Focused ? current : null;
+                }
+                current = focusedChild;
+            }
+            return null;
         }
     }
 }

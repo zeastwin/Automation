@@ -534,7 +534,7 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
-        public void EditableTextField_UsesRealTextBoxForEntireEditSession()
+        public void EditableTextField_KeepsStableCellUntilUserActivatesEditor()
         {
             StaTestRunner.Run(() =>
             {
@@ -570,16 +570,34 @@ namespace Automation.Core.Tests
                     InspectorValueCell displayCell =
                         GetPrivateField<InspectorValueCell>(control, "displayCell");
 
-                    Assert.IsTrue(editor.Visible,
-                        "进入编辑态后应全程显示真实文本框。");
-                    Assert.IsFalse(displayCell.Visible,
-                        "编辑态不应再用展示层覆盖真实文本框。");
+                    Assert.IsFalse(editor.Visible,
+                        "进入编辑态时不应立即替换整页字段控件。");
+                    Assert.IsTrue(displayCell.Visible,
+                        "编辑态应先保持与查看态相同的稳定展示单元格。");
+                    Assert.AreEqual(
+                        displayCell.Bounds,
+                        editor.Bounds,
+                        "真实编辑器必须覆盖同一矩形，激活时不得移动字段。");
+
+                    InvokeProtected(
+                        displayCell,
+                        "OnMouseDown",
+                        new MouseEventArgs(MouseButtons.Left, 1, 8, 8, 0));
+                    InvokeProtected(
+                        displayCell,
+                        "OnMouseUp",
+                        new MouseEventArgs(MouseButtons.Left, 1, 8, 8, 0));
+                    Application.DoEvents();
+                    Assert.IsTrue(editor.Visible);
+                    Assert.IsFalse(displayCell.Visible);
 
                     editor.Text = "123456";
+                    AssertValidates(editor);
                     InvokeProtected(editor, "OnValidated");
-                    Assert.IsTrue(editor.Visible,
-                        "字段提交后仍处于编辑会话时应保持真实文本框。");
-                    Assert.IsFalse(displayCell.Visible);
+                    Assert.IsFalse(editor.Visible,
+                        "字段提交后应回到稳定展示单元格。");
+                    Assert.IsTrue(displayCell.Visible);
+                    Assert.AreEqual("123456", operation.ChangeValue);
                 }
             }, TimeSpan.FromSeconds(10));
         }
@@ -626,6 +644,97 @@ namespace Automation.Core.Tests
                         control.ClientSize.Width - editor.Left,
                         editor.Width,
                         "属性名列释放的空间应全部交给右侧值编辑区。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void InvalidActiveEditor_BlocksValidationWithoutChangingDraft()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var setting = new TimeoutSetting { TimeoutMs = 3000 };
+                var definition = new InspectorScalarFieldDefinition
+                {
+                    Label = "超时",
+                    Owner = setting,
+                    Property = TypeDescriptor.GetProperties(setting)[
+                        nameof(TimeoutSetting.TimeoutMs)]
+                };
+
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorScalarFieldControl(
+                    definition,
+                    true,
+                    toolTip))
+                {
+                    Assert.IsTrue(control.FocusEditor());
+                    var editor = GetPrivateField<InspectorTextBox>(
+                        control,
+                        "editor");
+                    editor.Text = "不是数字";
+                    var args = new CancelEventArgs();
+                    InvokeProtected(editor, "OnValidating", args);
+
+                    Assert.IsTrue(args.Cancel,
+                        "无效输入必须阻止保存动作取得焦点。");
+                    Assert.AreEqual(3000, setting.TimeoutMs,
+                        "校验失败不得把无效文本写入草稿。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void CollectionEditActions_DoNotMoveHeadersBetweenModes()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var processHead = new ProcHead();
+                processHead.PauseIoParams.Add(
+                    new PauseIoParam { IoName = "输入一" });
+                var definition = new InspectorCollectionFieldDefinition
+                {
+                    Label = "暂停IO",
+                    Owner = processHead,
+                    Property = TypeDescriptor.GetProperties(processHead)[
+                        nameof(ProcHead.PauseIoParams)]
+                };
+
+                using (var toolTip = new ToolTip())
+                using (var control = new InspectorCollectionFieldControl(
+                    definition,
+                    false,
+                    toolTip))
+                {
+                    control.Width = 340;
+                    InspectorFlowPanel itemsPanel =
+                        GetPrivateField<InspectorFlowPanel>(
+                            control,
+                            "itemsPanel");
+                    InspectorCollectionItemControl item =
+                        itemsPanel.Controls
+                            .OfType<InspectorCollectionItemControl>()
+                            .Single();
+                    Label title = GetPrivateField<Label>(control, "title");
+                    InspectorSectionButton itemHeader =
+                        GetPrivateField<InspectorSectionButton>(
+                            item,
+                            "header");
+                    Rectangle viewTitleBounds = title.Bounds;
+                    Rectangle viewHeaderBounds = itemHeader.Bounds;
+
+                    control.SetEditable(true);
+
+                    Assert.AreEqual(
+                        viewTitleBounds,
+                        title.Bounds,
+                        "显示添加按钮时集合标题不得改变位置或宽度。");
+                    Assert.AreEqual(
+                        viewHeaderBounds,
+                        itemHeader.Bounds,
+                        "显示移动和删除按钮时集合项标题不得改变位置或宽度。");
                 }
             }, TimeSpan.FromSeconds(10));
         }
@@ -701,6 +810,9 @@ namespace Automation.Core.Tests
                         operationTypeLabel.Right + 8,
                         operationTypeButton.Left,
                         "指令类型选择框应与属性值列的起始线对齐。");
+                    Assert.IsTrue(saveButton.CausesValidation);
+                    Assert.IsFalse(cancelButton.CausesValidation,
+                        "无效输入不得阻止用户取消整个编辑会话。");
                 }
             }, TimeSpan.FromSeconds(10));
         }
@@ -963,6 +1075,7 @@ namespace Automation.Core.Tests
                     Assert.AreEqual(ComboBoxStyle.DropDown, gotoEditor.DropDownStyle);
                     Assert.IsTrue(gotoControl.FocusEditor());
                     gotoEditor.Text = "2-3-4";
+                    AssertValidates(gotoEditor);
                     InvokeProtected(gotoEditor, "OnValidated");
                     Assert.AreEqual("2-3-4", gotoOperation.TrueGoto);
 
@@ -971,6 +1084,7 @@ namespace Automation.Core.Tests
                     Assert.AreEqual(ComboBoxStyle.DropDown, valueEditor.DropDownStyle);
                     Assert.IsTrue(valueControl.FocusEditor());
                     valueEditor.Text = "手工变量";
+                    AssertValidates(valueEditor);
                     InvokeProtected(valueEditor, "OnValidated");
                     Assert.AreEqual("手工变量", valueOperation.ValueSourceName);
                 }
@@ -1290,6 +1404,13 @@ namespace Automation.Core.Tests
                     BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException($"未找到方法：{methodName}");
             method.Invoke(control, new object[] { eventArgs });
+        }
+
+        private static void AssertValidates(Control control)
+        {
+            var args = new CancelEventArgs();
+            InvokeProtected(control, "OnValidating", args);
+            Assert.IsFalse(args.Cancel, "有效输入不应阻止字段失去焦点。");
         }
 
         private static void AssertFontEquals(Font expected, Font actual, string message)

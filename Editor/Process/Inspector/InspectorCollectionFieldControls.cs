@@ -35,6 +35,13 @@ namespace Automation
             title.AutoEllipsis = true;
             title.Font = InspectorFonts.Bold9;
             title.ForeColor = UiPalette.TextPrimary;
+            title.Padding = new Padding(
+                0,
+                0,
+                !definition.IsReadOnly && CanCreateItem(definition)
+                    ? 64
+                    : 0,
+                0);
             title.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(title);
 
@@ -143,6 +150,13 @@ namespace Automation
             definition = (InspectorCollectionFieldDefinition)next;
             Definition = next;
             addButton.AccessibleName = "添加" + definition.Label;
+            title.Padding = new Padding(
+                0,
+                0,
+                !definition.IsReadOnly && CanCreateItem(definition)
+                    ? 64
+                    : 0,
+                0);
             AttachDescription(title, addButton);
             Editable = editable;
             bool nextShowAddButton = editable && !definition.IsReadOnly
@@ -213,6 +227,7 @@ namespace Automation
                             index,
                             itemCount,
                             item,
+                            !definition.IsReadOnly,
                             Editable && !definition.IsReadOnly))
                     {
                         itemControl = CreateItemControl(
@@ -248,6 +263,7 @@ namespace Automation
                 index,
                 itemCount,
                 item,
+                !definition.IsReadOnly,
                 Editable && !definition.IsReadOnly,
                 itemCount <= 6 || index == 0,
                 DescriptionToolTip);
@@ -520,13 +536,8 @@ namespace Automation
             try
             {
                 int width = Math.Max(180, ClientSize.Width);
-                int right = width;
-                if (showAddButton)
-                {
-                    addButton.SetBounds(Math.Max(0, right - 60), 1, 60, 23);
-                    right -= 64;
-                }
-                title.SetBounds(0, 0, Math.Max(70, right), 25);
+                addButton.SetBounds(Math.Max(0, width - 60), 1, 60, 23);
+                title.SetBounds(0, 0, width, 25);
                 foreach (InspectorCollectionItemControl item in itemsPanel.Controls
                     .OfType<InspectorCollectionItemControl>())
                 {
@@ -557,6 +568,7 @@ namespace Automation
         private int itemCount;
         private readonly ToolTip descriptionToolTip;
         private bool expanded;
+        private bool actionsAvailable;
         private bool editable;
         private bool updatingLayout;
 
@@ -565,6 +577,7 @@ namespace Automation
             int index,
             int itemCount,
             object item,
+            bool actionsAvailable,
             bool editable,
             bool expanded,
             ToolTip descriptionToolTip)
@@ -574,7 +587,8 @@ namespace Automation
             this.item = item;
             itemLabel = label;
             this.descriptionToolTip = descriptionToolTip;
-            this.editable = editable;
+            this.actionsAvailable = actionsAvailable;
+            this.editable = actionsAvailable && editable;
             this.expanded = expanded;
             AutoSize = false;
             BackColor = UiPalette.Stroke;
@@ -592,6 +606,7 @@ namespace Automation
             header.ForeColor = UiPalette.TextPrimary;
             header.Expanded = expanded;
             header.ShowDivider = false;
+            header.TextRightPadding = actionsAvailable ? 82 : 8;
             header.Click += (sender, args) => ToggleExpanded();
             Controls.Add(header);
 
@@ -640,15 +655,15 @@ namespace Automation
 
         public void SetEditable(bool allowEdit)
         {
-            editable = allowEdit;
-            moveUp.Visible = allowEdit;
-            moveDown.Visible = allowEdit;
-            delete.Visible = allowEdit;
-            moveUp.Enabled = allowEdit && ItemIndex > 0;
-            moveDown.Enabled = allowEdit && ItemIndex < itemCount - 1;
+            editable = actionsAvailable && allowEdit;
+            moveUp.Visible = editable;
+            moveDown.Visible = editable;
+            delete.Visible = editable;
+            moveUp.Enabled = editable && ItemIndex > 0;
+            moveDown.Enabled = editable && ItemIndex < itemCount - 1;
             foreach (InspectorFieldControl field in fieldControls)
             {
-                field.SetEditable(allowEdit);
+                field.SetEditable(editable);
             }
             LayoutControls();
         }
@@ -693,6 +708,7 @@ namespace Automation
             int index,
             int nextItemCount,
             object nextItem,
+            bool canEditActions,
             bool allowEdit)
         {
             IReadOnlyList<InspectorFieldDefinition> definitions
@@ -713,17 +729,23 @@ namespace Automation
             ItemIndex = index;
             itemCount = nextItemCount;
             item = nextItem;
-            bool layoutChanged = editable != allowEdit;
+            bool nextEditable = canEditActions && allowEdit;
+            bool layoutChanged = actionsAvailable != canEditActions
+                || editable != nextEditable;
+            actionsAvailable = canEditActions;
             for (int fieldIndex = 0; fieldIndex < definitions.Count; fieldIndex++)
             {
-                fieldControls[fieldIndex].Rebind(definitions[fieldIndex], allowEdit);
+                fieldControls[fieldIndex].Rebind(
+                    definitions[fieldIndex],
+                    nextEditable);
             }
-            editable = allowEdit;
-            moveUp.Visible = allowEdit;
-            moveDown.Visible = allowEdit;
-            delete.Visible = allowEdit;
-            moveUp.Enabled = allowEdit && ItemIndex > 0;
-            moveDown.Enabled = allowEdit && ItemIndex < itemCount - 1;
+            editable = nextEditable;
+            header.TextRightPadding = actionsAvailable ? 82 : 8;
+            moveUp.Visible = editable;
+            moveDown.Visible = editable;
+            delete.Visible = editable;
+            moveUp.Enabled = editable && ItemIndex > 0;
+            moveDown.Enabled = editable && ItemIndex < itemCount - 1;
             UpdateHeaderText();
             if (layoutChanged)
             {
@@ -838,16 +860,12 @@ namespace Automation
             {
                 int width = Math.Max(170, ClientSize.Width);
                 int right = width - 4;
-                if (editable)
-                {
-                    delete.SetBounds(right - 22, 2, 21, 21);
-                    right -= 25;
-                    moveDown.SetBounds(right - 22, 2, 21, 21);
-                    right -= 25;
-                    moveUp.SetBounds(right - 22, 2, 21, 21);
-                    right -= 25;
-                }
-                header.SetBounds(1, 1, Math.Max(80, right - 1), HeaderHeight);
+                delete.SetBounds(right - 22, 2, 21, 21);
+                right -= 25;
+                moveDown.SetBounds(right - 22, 2, 21, 21);
+                right -= 25;
+                moveUp.SetBounds(right - 22, 2, 21, 21);
+                header.SetBounds(1, 1, Math.Max(80, width - 2), HeaderHeight);
                 fieldsPanel.Width = width - 2;
                 int fieldWidth = Math.Max(
                     150,

@@ -506,6 +506,8 @@ namespace Automation
 
         public bool ShowDivider { get; set; } = true;
 
+        public int TextRightPadding { get; set; } = 8;
+
         protected override void OnMouseEnter(EventArgs e)
         {
             pointerOver = true;
@@ -586,7 +588,11 @@ namespace Automation
                 e.Graphics,
                 Text,
                 Font,
-                new Rectangle(textLeft, 0, Math.Max(1, Width - textLeft - 8), Height),
+                new Rectangle(
+                    textLeft,
+                    0,
+                    Math.Max(1, Width - textLeft - TextRightPadding),
+                    Height),
                 Enabled ? ForeColor : UiPalette.TextDisabled,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis

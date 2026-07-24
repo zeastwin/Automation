@@ -81,6 +81,27 @@ namespace Automation
 
         public event EventHandler FieldValueChanged;
 
+        internal bool Expanded => expanded;
+
+        internal void SetExpanded(bool value)
+        {
+            if (expanded == value)
+            {
+                return;
+            }
+            expanded = value;
+            if (!expanded)
+            {
+                foreach (InspectorFieldControl field in fields)
+                {
+                    field.EndEdit();
+                }
+            }
+            body.Visible = expanded;
+            headerButton.Expanded = expanded;
+            UpdateWidths();
+        }
+
         public void SetEditable(bool editable)
         {
             foreach (InspectorFieldControl field in fields)
@@ -161,17 +182,7 @@ namespace Automation
 
         private void ToggleExpanded()
         {
-            expanded = !expanded;
-            if (!expanded)
-            {
-                foreach (InspectorFieldControl field in fields)
-                {
-                    field.EndEdit();
-                }
-            }
-            body.Visible = expanded;
-            headerButton.Expanded = expanded;
-            UpdateWidths();
+            SetExpanded(!expanded);
         }
 
         private void UpdateWidths()

@@ -44,6 +44,8 @@ namespace Automation
             = new Dictionary<string, CachedInspectorPage>(StringComparer.Ordinal);
         private readonly ConditionalWeakTable<object, InspectorDocument> documentCache =
             new ConditionalWeakTable<object, InspectorDocument>();
+        private readonly ConditionalWeakTable<object, InspectorObjectViewState> objectViewStates =
+            new ConditionalWeakTable<object, InspectorObjectViewState>();
         private readonly InspectorSelectionPickerPrewarmSession selectionPickerPrewarmSession =
             new InspectorSelectionPickerPrewarmSession();
         private InspectorDocument document;
@@ -55,6 +57,7 @@ namespace Automation
         private bool refreshPending;
         private bool redrawSuspended;
         private bool layoutRequired;
+        private long prewarmGeneration;
 
         public InspectorView()
         {
@@ -88,9 +91,14 @@ namespace Automation
         public void SetObject(object value, bool allowEdit)
         {
             bool objectChanged = !ReferenceEquals(selectedObject, value);
+            if (objectChanged)
+            {
+                StoreObjectViewState(selectedObject);
+            }
             selectedObject = value;
             if (objectChanged || document == null)
             {
+                prewarmGeneration++;
                 editable = allowEdit;
                 if (allowEdit)
                 {
@@ -109,6 +117,7 @@ namespace Automation
                 {
                     Rebuild(next);
                 }
+                RestoreObjectViewState(selectedObject);
                 QueueSelectionPickerPrewarm();
                 return;
             }
@@ -119,10 +128,24 @@ namespace Automation
         public void SetEditable(bool allowEdit)
         {
             bool editingChanged = editable != allowEdit;
-            editable = allowEdit;
-            foreach (InspectorSectionControl section in sectionControls)
+            if (!editingChanged)
             {
-                section.SetEditable(allowEdit);
+                QueueSelectionPickerPrewarm();
+                return;
+            }
+            prewarmGeneration++;
+            editable = allowEdit;
+            BeginUpdate();
+            try
+            {
+                foreach (InspectorSectionControl section in sectionControls)
+                {
+                    section.SetEditable(allowEdit);
+                }
+            }
+            finally
+            {
+                EndUpdate();
             }
             if (!allowEdit)
             {
@@ -146,9 +169,15 @@ namespace Automation
                 return;
             }
             selectionPickerPrewarmPending = true;
+            long queuedGeneration = prewarmGeneration;
             BeginInvoke((Action)(() =>
             {
                 selectionPickerPrewarmPending = false;
+                if (queuedGeneration != prewarmGeneration)
+                {
+                    QueueSelectionPickerPrewarm();
+                    return;
+                }
                 if (!editable || IsDisposed)
                 {
                     return;
@@ -528,6 +557,43 @@ namespace Automation
                 - (content.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0));
         }
 
+        private void StoreObjectViewState(object value)
+        {
+            if (value == null || sectionControls.Count == 0)
+            {
+                return;
+            }
+            objectViewStates.Remove(value);
+            objectViewStates.Add(
+                value,
+                new InspectorObjectViewState(
+                    new Point(
+                        Math.Abs(content.AutoScrollPosition.X),
+                        Math.Abs(content.AutoScrollPosition.Y)),
+                    sectionControls
+                        .Select(section => section.Expanded)
+                        .ToArray()));
+        }
+
+        private void RestoreObjectViewState(object value)
+        {
+            InspectorObjectViewState state = null;
+            if (value != null)
+            {
+                objectViewStates.TryGetValue(value, out state);
+            }
+            for (int index = 0; index < sectionControls.Count; index++)
+            {
+                bool expanded = state != null
+                    && index < state.ExpandedSections.Length
+                        ? state.ExpandedSections[index]
+                        : true;
+                sectionControls[index].SetExpanded(expanded);
+            }
+            content.AutoScrollPosition = state?.ScrollPosition
+                ?? Point.Empty;
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -575,6 +641,22 @@ namespace Automation
             public List<InspectorSectionControl> Sections { get; }
             public Point ScrollPosition { get; }
             public long LastUsed { get; set; }
+        }
+
+        private sealed class InspectorObjectViewState
+        {
+            public InspectorObjectViewState(
+                Point scrollPosition,
+                bool[] expandedSections)
+            {
+                ScrollPosition = scrollPosition;
+                ExpandedSections = expandedSections
+                    ?? Array.Empty<bool>();
+            }
+
+            public Point ScrollPosition { get; }
+
+            public bool[] ExpandedSections { get; }
         }
     }
 
