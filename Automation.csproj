@@ -347,7 +347,9 @@
     <Compile Include="FrmIODebugConfig.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="UI\\EditorUiInfrastructure.cs" />
+    <Compile Include="UI\\EditorUiInfrastructure.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="UI\\WinFormsProcessInteractionCoordinator.cs" />
     <Compile Include="FrmMain.cs">
       <SubType>Form</SubType>

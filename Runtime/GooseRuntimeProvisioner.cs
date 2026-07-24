@@ -10,7 +10,7 @@ namespace Automation
     {
         public const int SystemPromptVersion = 19;
         public const int IntegrationContextVersion = 45;
-        public const int CliIntegrationContextVersion = 3;
+        public const int CliIntegrationContextVersion = 4;
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledProcessAuthoringSkillVersion();
         public static int McpCliSkillVersion { get; } = ReadBundledMcpCliSkillVersion();
         public const string ProcessAuthoringSkillName = "automation-process-authoring";

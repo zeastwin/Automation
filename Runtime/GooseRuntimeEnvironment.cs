@@ -14,6 +14,10 @@ namespace Automation
         public static string MachineGitExecutablePath =>
             Path.Combine(MachineGitCommandPath, "git.exe");
 
+        /// <summary>EW-AI Developer Shell 使用的 Git Bash，与 git 同属 AutomationTools 部署。</summary>
+        public static string MachineGitBashPath =>
+            Path.GetFullPath(Path.Combine(MachineGitCommandPath, @"..\bin\bash.exe"));
+
         public static bool TryValidate(string gooseExecutablePath, out string error)
         {
             var missingComponents = new List<string>();
@@ -27,6 +31,10 @@ namespace Automation
             if (!File.Exists(MachineGitExecutablePath))
             {
                 missingComponents.Add("Git：" + MachineGitExecutablePath);
+            }
+            if (!File.Exists(MachineGitBashPath))
+            {
+                missingComponents.Add("Git Bash：" + MachineGitBashPath);
             }
 
             if (missingComponents.Count == 0)

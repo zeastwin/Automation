@@ -612,11 +612,14 @@ namespace Automation
                         : hostExecutablePath;
             }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
-            // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
+            // UTF-8 适配器启动 Git Bash，避免系统代码页把中文不可逆地解码成乱码。
             string developerShellPath = runtimeDiagnostic ? null : ResolveGooseDeveloperShellPath();
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
                 startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
+                // 适配器经该变量定位随 AutomationTools 部署的 Git Bash。
+                startInfo.EnvironmentVariables["AUTOMATION_GOOSE_SHELL"] =
+                    GooseRuntimeEnvironment.MachineGitBashPath;
             }
             // Hmi 是客户可修改目录，不从其中加载平台内部规范。
             // Automation 专用上下文由 TOM 注入编辑会话；运行诊断会话不加载流程编写路由。
@@ -817,7 +820,7 @@ namespace Automation
         private static string ResolveGooseDeveloperShellPath()
         {
             string adapterPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "GooseShell", "pwsh.exe");
+                "GooseShell", "bash.exe");
             if (!File.Exists(adapterPath))
             {
                 throw new FileNotFoundException("EW-AI UTF-8 Shell 适配器不存在。", adapterPath);

@@ -11,7 +11,7 @@ namespace Automation.GooseShell
 {
     internal static class Program
     {
-        private const string ShellOverrideEnvironmentVariable = "AUTOMATION_GOOSE_POWERSHELL";
+        private const string ShellOverrideEnvironmentVariable = "AUTOMATION_GOOSE_SHELL";
         private const string HostProcessIdEnvironmentVariable = "AUTOMATION_HOST_PROCESS_ID";
         private const string HostExecutableEnvironmentVariable = "AUTOMATION_HOST_EXECUTABLE";
 
@@ -24,38 +24,29 @@ namespace Automation.GooseShell
                     || string.Equals(value, "-c", StringComparison.OrdinalIgnoreCase));
             if (commandIndex < 0 || commandIndex + 1 >= args.Length)
             {
-                await Console.Error.WriteLineAsync("Goose Shell 缺少 -Command 参数。");
+                await Console.Error.WriteLineAsync("Goose Shell 缺少 -c/-Command 参数。");
                 return 2;
             }
 
-            string shellPath = ResolvePowerShellPath();
+            string shellPath = ResolveGitBashPath();
             if (shellPath == null)
             {
-                await Console.Error.WriteLineAsync("未找到 PowerShell 7 或系统 PowerShell。");
+                await Console.Error.WriteLineAsync("未找到 Git Bash（bash.exe）。");
                 return 3;
             }
 
-            string command = UnwrapNestedPowerShellCommand(args[commandIndex + 1]);
+            string command = args[commandIndex + 1];
             if (TargetsProtectedHostProcess(command))
             {
                 await Console.Error.WriteLineAsync(
                     "{\"ok\":false,\"type\":\"developer.shell.error\",\"errorCode\":\"HOST_PROCESS_PROTECTED\",\"message\":\"目标进程是当前 EW-AI 宿主进程。\",\"recovery\":{\"reason\":\"current_host_process_is_protected\",\"retryableWhen\":\"command_does_not_terminate_current_host\",\"sideEffects\":\"none\"}}");
                 return 5;
             }
-            const string utf8Bootstrap =
-                "$utf8NoBom=[System.Text.UTF8Encoding]::new($false);"
-                + "[Console]::InputEncoding=$utf8NoBom;"
-                + "[Console]::OutputEncoding=$utf8NoBom;"
-                + "$global:OutputEncoding=$utf8NoBom;"
-                + "$global:ProgressPreference='SilentlyContinue';"
-                + "$PSDefaultParameterValues['*:Encoding']='utf8';";
-            string encodedCommand = Convert.ToBase64String(
-                Encoding.Unicode.GetBytes(utf8Bootstrap + command));
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = shellPath,
-                Arguments = "-NoLogo -NoProfile -NonInteractive -InputFormat Text -OutputFormat Text -EncodedCommand " + encodedCommand,
+                Arguments = "--noprofile --norc -c " + QuoteArgument(command),
                 UseShellExecute = false,
                 RedirectStandardInput = false,
                 RedirectStandardOutput = true,
@@ -63,12 +54,15 @@ namespace Automation.GooseShell
                 CreateNoWindow = true,
                 WorkingDirectory = Environment.CurrentDirectory
             };
+            // MSYS2 默认按当前代码页输出；固定 UTF-8，保证 Goose 侧严格 UTF-8 解码不错乱。
+            startInfo.EnvironmentVariables["LANG"] = "C.UTF-8";
+            startInfo.EnvironmentVariables["LC_ALL"] = "C.UTF-8";
 
             using (var process = new Process { StartInfo = startInfo })
             {
                 if (!process.Start())
                 {
-                    await Console.Error.WriteLineAsync("PowerShell 启动失败。");
+                    await Console.Error.WriteLineAsync("Git Bash 启动失败。");
                     return 4;
                 }
 
@@ -80,24 +74,32 @@ namespace Automation.GooseShell
             }
         }
 
-        private static string UnwrapNestedPowerShellCommand(string command)
+        /// <summary>命令整体作为单个 -c 参数传递，只需处理双引号与反斜杠的 Windows 命令行转义。</summary>
+        private static string QuoteArgument(string value)
         {
-            Match match = Regex.Match(command ?? string.Empty,
-                @"^\s*(?:powershell|pwsh)(?:\.exe)?\s+(?:(?:-NoLogo|-NoProfile|-NonInteractive)\s+)*(?:-Command|-c)\s+(?<script>[\s\S]+?)\s*$",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (!match.Success)
+            var builder = new StringBuilder("\"");
+            int backslashes = 0;
+            foreach (char c in value)
             {
-                return command;
+                if (c == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+                if (c == '"')
+                {
+                    builder.Append('\\', backslashes * 2 + 1);
+                    builder.Append('"');
+                    backslashes = 0;
+                    continue;
+                }
+                builder.Append('\\', backslashes);
+                backslashes = 0;
+                builder.Append(c);
             }
-
-            string script = match.Groups["script"].Value.Trim();
-            if (script.Length >= 2
-                && ((script[0] == '"' && script[script.Length - 1] == '"')
-                    || (script[0] == '\'' && script[script.Length - 1] == '\'')))
-            {
-                script = script.Substring(1, script.Length - 2);
-            }
-            return script;
+            builder.Append('\\', backslashes * 2);
+            builder.Append('"');
+            return builder.ToString();
         }
 
         private static bool TargetsProtectedHostProcess(string command)
@@ -158,7 +160,7 @@ namespace Automation.GooseShell
                        options);
         }
 
-        private static string ResolvePowerShellPath()
+        private static string ResolveGitBashPath()
         {
             string overridePath = Environment.GetEnvironmentVariable(ShellOverrideEnvironmentVariable);
             if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
@@ -170,18 +172,32 @@ namespace Automation.GooseShell
             foreach (string programFiles in new[]
             {
                 Environment.GetEnvironmentVariable("ProgramW6432"),
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetEnvironmentVariable("ProgramFiles(x86)")
             })
             {
                 if (!string.IsNullOrWhiteSpace(programFiles))
                 {
-                    candidates.Add(Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"));
+                    candidates.Add(Path.Combine(programFiles, "Git", "bin", "bash.exe"));
                 }
             }
 
-            candidates.Add(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "WindowsPowerShell", "v1.0", "powershell.exe"));
+            // git.exe 位于 <Git>\cmd，bash.exe 位于 <Git>\bin，按 PATH 中的 git 位置推导。
+            string pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (string pathEntry in pathValue.Split(Path.PathSeparator))
+            {
+                string directory = pathEntry.Trim().Trim('"');
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    continue;
+                }
+                string gitExe = Path.Combine(directory, "git.exe");
+                if (File.Exists(gitExe))
+                {
+                    candidates.Add(Path.GetFullPath(Path.Combine(directory, @"..\bin\bash.exe")));
+                }
+            }
+
             return candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
         }
     }

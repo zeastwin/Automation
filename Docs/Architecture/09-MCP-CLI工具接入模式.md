@@ -51,11 +51,12 @@ flowchart LR
 - 前台"完全权限"按钮在 Cli 模式下不再走 `/tool-profile`：`SetFullPermissionToolsAsync` 直接更新 `GooseAcpClient.FullPermissionEnabled` 并重建 Goose 进程，经 `AUTOMATION_MCP_FULL_PERMISSION` 注入子进程。
 - 退出码：0 = 调用已执行；1 = 本地故障（如 Bridge 未运行）；2 = 用法错误（未知工具、缺必填参数、JSON 无效，参数解析失败会回显实际收到的参数前缀）。
 - 入口在 `McpServer/Program.cs` 按 `--verify-profile` 先例拦截，不启动 HTTP 与托盘。
+- 反序列化失败的 message 翻译为 JSON 层事实（字段路径、期望 JSON 类型、实际收到的值）；出错字段位于 `actions[N].operation` 时，`recovery` 附带该指令的 `semanticKind` 与 `contractTool`（`get_semantic_operation_schema`），把恢复导向单 kind 精确读取，而不是检索整个 ChangeSet Schema。
 
 ## Cli 模式的会话装配（`GooseAcpClient`）
 
 - `session/new.mcpServers` 为空数组；`ReloadAutomationExtensionAsync` 直接返回。
-- `--with-builtin developer,skills,tom` 不变，developer 提供 shell。
+- `--with-builtin developer,skills,tom` 不变，developer 提供 shell；`GOOSE_SHELL` 指向随程序发布的 `GooseShell/bash.exe`（UTF-8 Git Bash 适配器），真实 bash 经 `AUTOMATION_GOOSE_SHELL` 定位到 `D:\AutomationTools\Git\bin\bash.exe`（与 git 同属 AutomationTools 部署，`GooseRuntimeEnvironment.TryValidate` 一并校验），适配器保留宿主进程保护；PowerShell 时代的引号剥落问题在 bash 下不存在，内联 `--json` 恢复可用。
 - 当前子进程环境变量：`AUTOMATION_MCP_CLI_PATH`（由 `AutomationMcpServerManager.ResolveMcpServerExecutablePath` 解析，已改为 public）、`AUTOMATION_MCP_PROFILE`（取 `config.ToolProfile`）；Tools 模式显式 Remove。
 - `GOOSE_MOIM_MESSAGE_FILE` 改指 `Assets/Goose/automation-cli.md` 的部署副本（独立版本 `GooseRuntimeProvisioner.CliIntegrationContextVersion`）。
 - 追加部署 Skill `automation-mcp-cli` 到 `<Goose工作目录>/.agents/skills/`（`GooseRuntimeProvisioner.TryEnsureMcpCliSkill`）。
@@ -64,7 +65,7 @@ flowchart LR
 ## 上下文与 Skill 分层
 
 - `Assets/Goose/automation-cli.md`：与 `automation.md` 同层的任务入口/契约分层/证据路由，只把调用机制替换为 `cli list/schema/call`，不复制字段级事实。
-- `Assets/Goose/Skills/automation-mcp-cli/SKILL.md`：只承载 CLI 机制（命令、PowerShell JSON 引用、退出码、大输出落盘、预演确认行为）。流程编写方法仍由 `automation-process-authoring` 单一承担，两个 Skill 都部署时按 description 各取所需。
+- `Assets/Goose/Skills/automation-mcp-cli/SKILL.md`：只承载 CLI 机制（命令、bash JSON 引用、退出码、大输出落盘、预演确认行为）。流程编写方法仍由 `automation-process-authoring` 单一承担，两个 Skill 都部署时按 description 各取所需。
 - 部署与校验沿用既有双通道：Manifest 内嵌资源优先、程序目录 `Assets/Goose/` 副本回退；`GooseRuntimeProvisioner` 对 cli 上下文和 Skill 做锚点与退役路由校验，失败只禁用 EW-AI。
 
 ## 预演确认兼容（`FrmAiAssistant`）
@@ -126,6 +127,16 @@ python Scripts/Invoke-McpCliSessionTest.py --log Logs/cli_session_test.jsonl --r
 2. **harness 自身 bug**：`goal_state` 用 `limit=200` 调 `list_variables`，被 Bridge 范围校验（1..100）拒绝，导致两轮误报 `variableCreated:false`。已修为 100。
 
 第五轮复测（修复后全链路）：**单轮 GOAL REACHED**——244.8s / 40.9k token，cli 调用 12 次（preview 8 次中 2 次编译失败当场修正、apply 1 次），Get-Content 分段读取 12 次，失败调用 5 次全部恢复；提交后 `validate_proc` = `ready/runnable`，变量声明同步提交。基线（>100 调用未完成）→ 单轮完成，本地小模型下进入稳定可用区间。
+
+### 第四轮调优结论（2026-07-24，通用 CLI Agent / Git Bash 终端实测）
+
+依据 `Logs/llm_io.jsonl`（Kimi Code CLI 经 OpenAI 兼容端点，任务「新增循环流程 1 到 4444 相加」）：全链路成功，preview confirmed → apply committed，12 次 shell 调用中 5 次失败全部当场恢复。按浪费调用数排序的问题及处置：
+
+1. **shell 方言混淆**（3 次连续失败，最高频）：模型已先加载 `automation-mcp-cli` Skill，仍依次写出 cmd 的 `"%AUTOMATION_MCP_CLI_PATH%" cli list`（bash 按作业符解析，报 `fg: no job control`）、PowerShell 的 `$env:VAR=...; & $env:VAR cli list`（bash 语法错误），第三次才改用 `export CLI=... && "$CLI" cli list`。Skill 的「shell 是 Git Bash」原先只出现在 JSON 引用一节，命令节没有环境变量引用方式的正面事实。处置：命令节顶部补 Git Bash 环境变量引用契约——直接 `"$AUTOMATION_MCP_CLI_PATH"`、每次 shell 调用都是新进程（自定义 export 不保留）、不要 echo 后硬编码字面量路径，并附两种失败写法的实际报错作为反例（Skill v6）。
+2. **语义 kind 选择偏差**（1 次失败）：`sum += i` 误用 `variable.add` 并把 `amount` 写成字符串 `"i"`。结构化错误（字段路径 + 期望类型 + `semanticKind`/`contractTool`）引导模型两次调用内恢复。根因是骨架示例只演示了常量自增 `variable.add`，未给变量间运算的 kind 路由。处置：骨架补一条路由事实——常量自增用 `variable.add`，变量间运算用 `variable.compute`（字段仍以其精确 Schema 为准）（authoring Skill v6）。
+3. **`policy: "create"` 撞已有变量**（1 次失败）：`i`/`sum` 已是 public 变量，create 策略编译失败。模型 `list_variables` 后改 `update` 一次通过。Bridge 错误文本本身足够精确，处置：骨架 `policy` 说明补一句「`create` 要求同名变量尚不存在，无法确认时用缺省 `reuse`」（authoring Skill v6）。
+
+经验：结构化错误的恢复引导（`recovery.semanticKind/contractTool`、字段路径）本轮全部一次命中，问题集中在 shell 方言与 kind 路由这类「机制事实缺失」，适合在 Skill 层补正面事实，不需要改 Bridge 或提示词训话。
 
 ## 验证事实
 

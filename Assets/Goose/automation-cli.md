@@ -4,9 +4,9 @@
 
 ## 工具调用机制
 
-- 首次执行 `cli call` 前先 `load_skill(name="automation-mcp-cli")`：参数 JSON 的 PowerShell 引用写法、返回结构、退出码和大输出处理以该 Skill 为准。
+- 首次执行 `cli call` 前先 `load_skill(name="automation-mcp-cli")`：参数 JSON 的 bash 引用写法、返回结构、退出码和大输出处理以该 Skill 为准。
 - 可执行文件路径在环境变量 `AUTOMATION_MCP_CLI_PATH`；当前工具范围由环境变量 `AUTOMATION_MCP_PROFILE` 决定。
-- 调用工具：`& $env:AUTOMATION_MCP_CLI_PATH cli call <name> --json '<argsJson>'`；大体积参数（如 ChangeSet）写入 UTF-8 文件后用 `--json-file <path>`。
+- 调用工具：`"$AUTOMATION_MCP_CLI_PATH" cli call <name> --json '<argsJson>'`（单引号包裹、内部双引号不转义）；大体积参数（如 ChangeSet）写入 UTF-8 文件后用 `--json-file <path>`。
 - 发现工具：`cli list`（名称与描述）；读取单个工具的精确输入契约：`cli schema <name>`。
 
 ## 任务入口

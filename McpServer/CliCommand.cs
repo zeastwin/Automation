@@ -210,7 +210,8 @@ namespace Automation.McpServer
             }
             catch (ArgumentException ex)
             {
-                Console.WriteLine(BuildErrorJson("INVALID_ARGUMENT", ex.Message));
+                Console.WriteLine(BuildErrorJson(
+                    "INVALID_ARGUMENT", ex.Message, (ex as InvalidToolArgumentException)?.SemanticKind));
                 return ExitUsage;
             }
 
@@ -279,8 +280,9 @@ namespace Automation.McpServer
                 }
                 catch (JsonException ex)
                 {
-                    throw new ArgumentException(
-                        $"参数 {parameter.Name} 反序列化失败:{DescribeJsonTypeMismatch(ex, value)}", ex);
+                    throw new InvalidToolArgumentException(
+                        $"参数 {parameter.Name} 反序列化失败:{DescribeJsonTypeMismatch(ex, value)}",
+                        TryResolveSemanticKind(ex.Path, value), ex);
                 }
             }
 
@@ -289,6 +291,39 @@ namespace Automation.McpServer
                 throw new ArgumentException($"缺少必填参数:{string.Join(", ", missing)}");
             }
             return bound;
+        }
+
+        /// <summary>携带出错语义 kind 的参数错误，供错误输出附加精确契约读取入口。</summary>
+        private sealed class InvalidToolArgumentException : ArgumentException
+        {
+            public string? SemanticKind { get; }
+
+            public InvalidToolArgumentException(string message, string? semanticKind, Exception innerException)
+                : base(message, innerException)
+            {
+                SemanticKind = semanticKind;
+            }
+        }
+
+        /// <summary>
+        /// 出错字段位于 actions[N].operation 内时取回该指令的语义 kind，
+        /// 让错误恢复能直接指向这一种 kind 的精确契约，而不是整个 ChangeSet Schema。
+        /// </summary>
+        private static string? TryResolveSemanticKind(string? path, JsonNode argumentRoot)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+            Match operation = Regex.Match(path, @"^\$\.actions\[\d+\]\.operation(?=\.|$)");
+            if (!operation.Success)
+            {
+                return null;
+            }
+            JsonNode? kindNode = ResolveJsonPath(argumentRoot, operation.Value + ".kind");
+            return kindNode is JsonValue value && value.TryGetValue<string>(out string? kind)
+                ? kind
+                : null;
         }
 
         /// <summary>
@@ -418,15 +453,29 @@ namespace Automation.McpServer
             return ExitUsage;
         }
 
-        private static string BuildErrorJson(string errorCode, string message)
+        private static string BuildErrorJson(string errorCode, string message, string? semanticKind = null)
         {
-            return new JsonObject
+            var error = new JsonObject
             {
                 ["ok"] = false,
                 ["type"] = "cli.error",
                 ["errorCode"] = errorCode,
                 ["message"] = message
-            }.ToJsonString(IndentedOptions);
+            };
+            if (!string.IsNullOrEmpty(semanticKind))
+            {
+                // 语义指令字段错误直接给出该 kind 的精确契约读取入口（Editor/Diagnostic 均开放），
+                // 避免模型退化为在整个 ChangeSet Schema 中检索。
+                error["recovery"] = new JsonObject
+                {
+                    ["reason"] = "fix_invalid_argument",
+                    ["retryableWhen"] = "argument_matches_tool_input_schema",
+                    ["sideEffects"] = "none",
+                    ["semanticKind"] = semanticKind,
+                    ["contractTool"] = "get_semantic_operation_schema"
+                };
+            }
+            return error.ToJsonString(IndentedOptions);
         }
 
         private static bool IsTruthyEnvironment(string name)

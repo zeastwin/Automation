@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <OutputType>Exe</OutputType>
-    <AssemblyName>pwsh</AssemblyName>
+    <AssemblyName>bash</AssemblyName>
     <RootNamespace>Automation.GooseShell</RootNamespace>
     <LangVersion>latest</LangVersion>
     <PlatformTarget>x64</PlatformTarget>
