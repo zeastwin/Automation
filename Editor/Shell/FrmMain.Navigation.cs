@@ -12,13 +12,10 @@ namespace Automation
 {
     public partial class FrmMain
     {
-        private void EditorTreeSelectionChanged(object sender, TreeViewEventArgs e)
+        private void EditorProcessSelectionChanged(object sender, EventArgs e)
         {
-            if (e.Action != TreeViewAction.Unknown)
-            {
-                uiWarmupCoordinator.NotifyInteraction();
-                RecordCurrentEditorLocation();
-            }
+            uiWarmupCoordinator.NotifyInteraction();
+            RecordCurrentEditorLocation();
         }
 
         private void EditorOperationListMouseUp(object sender, MouseEventArgs e)
@@ -211,7 +208,7 @@ namespace Automation
                 {
                     frmDataGrid.iSelectedRow = -1;
                     frmDataGrid.dataGridView1.ClearSelection();
-                    frmProc.proc_treeView.Focus();
+                    frmProc.FocusProcessOutline();
                 }
                 return true;
             }

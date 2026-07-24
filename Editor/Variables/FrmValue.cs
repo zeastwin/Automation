@@ -8,6 +8,7 @@ using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Automation.Protocol;
 
@@ -25,6 +26,9 @@ namespace Automation
         private const int VariableToolbarHeight = 44;
         private const int VariableToolbarButtonHeight = 32;
         private const int PreferredSidePanelWidth = 320;
+        private const string UnconfiguredScopeOptionKey = "__unconfigured__";
+        private const string SystemScopeOptionKey = "__system__";
+        private const string MissingScopeOptionKey = "__missing_scope__";
 
         private sealed class CommonValueItem
         {
@@ -368,7 +372,7 @@ namespace Automation
         private ValueConfigStore hookedValueStore;
         private ValueMonitorForm monitorForm;
         private readonly TreeView scopeTree;
-        private readonly DataGridViewTextBoxColumn scopeColumn;
+        private readonly DataGridViewComboBoxColumn scopeColumn;
         private readonly Button btnClearSearch;
         private readonly Button btnAddCommon;
         private readonly Button btnShowCommon;
@@ -383,19 +387,27 @@ namespace Automation
         private readonly ToolTip uiToolTip;
         private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
+        private readonly Timer viewportRefreshTimer;
         private readonly Font scopeGroupFont;
         private readonly Font scopeChevronFont;
         private readonly DicValue[] variableSnapshot = new DicValue[ValueConfigStore.ValueCapacity];
-        private readonly int[] variableRowLoadedVersions = new int[ValueConfigStore.ValueCapacity];
         private readonly int[] displayRowByVariableSlot = new int[ValueConfigStore.ValueCapacity];
+        private readonly Dictionary<long, object> pendingVirtualCellValues =
+            new Dictionary<long, object>();
+        private readonly object variableProjectionPrewarmLock = new object();
         private List<int> displayedVariableSlots = new List<int>();
         private Dictionary<Guid, string> processNamesById = new Dictionary<Guid, string>();
         private List<VariableScopeOption> variableScopeOptions = new List<VariableScopeOption>();
+        private List<VariableScopeOption> variableScopeDisplayOptions = new List<VariableScopeOption>();
+        private VariableTableProjectionCache variableProjectionCache;
+        private VariableTableProjectionCache prewarmedProjectionCache;
+        private DicValue[] prewarmedVariableSnapshot;
+        private long prewarmedProjectionConfigurationVersion = -1;
+        private int variableProjectionPrewarmGeneration;
         private readonly Dictionary<string, VariableGridViewState> variableGridViewStates =
             new Dictionary<string, VariableGridViewState>(StringComparer.Ordinal);
         private string selectedScope = AllVariableScopes;
         private Guid? selectedOwnerProcId;
-        private TreeNode hoveredScopeNode;
         private bool isStructViewAttached;
         private bool isValueGridReady;
         private bool isValueEditValid = true;
@@ -412,8 +424,6 @@ namespace Automation
         private bool isRebuildingVariableRows;
         private long renderedVariableConfigVersion = -1;
         private long renderedProcessVersion = -1;
-        private int variableGridPresentationVersion = 1;
-        private string appliedGridScopeKey;
         private int variableGridUpdateDepth;
         private bool variableGridRedrawSuspended;
         private const int MaxMonitorHistoryRows = 2000;
@@ -427,6 +437,56 @@ namespace Automation
             variableEditorService = new VariableEditorService(
                 Workspace.Runtime,
                 () => Workspace.Runtime.Stores.Processes.Items);
+        }
+
+        internal void QueueVariableProjectionPrewarm()
+        {
+            if (IsDisposed || Disposing || Workspace.Runtime.Stores.Values == null)
+            {
+                return;
+            }
+            ValueConfigStore valueStore = Workspace.Runtime.Stores.Values;
+            long configurationVersion = valueStore.ConfigurationVersion;
+            int generation = System.Threading.Interlocked.Increment(
+                ref variableProjectionPrewarmGeneration);
+            Task.Run(() =>
+            {
+                try
+                {
+                    DicValue[] snapshot =
+                        CreateVariableSnapshot(valueStore.GetValuesSnapshot());
+                    VariableTableProjectionCache cache =
+                        VariableTableProjectionCache.Build(snapshot);
+                    if (generation != System.Threading.Volatile.Read(
+                            ref variableProjectionPrewarmGeneration)
+                        || valueStore.ConfigurationVersion != configurationVersion)
+                    {
+                        return;
+                    }
+                    lock (variableProjectionPrewarmLock)
+                    {
+                        prewarmedVariableSnapshot = snapshot;
+                        prewarmedProjectionCache = cache;
+                        prewarmedProjectionConfigurationVersion =
+                            configurationVersion;
+                    }
+                }
+                catch
+                {
+                    // 预热失败不影响变量页按正常路径初始化。
+                }
+            });
+        }
+
+        internal void PrewarmVariableGridControl()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            EnsureVariableGridRowsInitialized();
+            dgvValue.CreateControl();
+            IntPtr unusedHandle = dgvValue.Handle;
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -459,12 +519,21 @@ namespace Automation
             btnSearch = new MaterialButton();
             btnSearch.Click += btnSearch_Click;
             value.HeaderText = "当前值";
-            scopeColumn = new DataGridViewTextBoxColumn
+            scopeColumn = new DataGridViewComboBoxColumn
             {
                 Name = "variableScope",
                 HeaderText = "作用域",
                 ReadOnly = false,
                 Width = 90,
+                DisplayMember = nameof(VariableScopeOption.Text),
+                ValueMember = nameof(VariableScopeOption.Key),
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+                DisplayStyleForCurrentCellOnly = true,
+                FlatStyle = FlatStyle.Flat,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                },
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
             dgvValue.Columns.Add(scopeColumn);
@@ -511,14 +580,12 @@ namespace Automation
                 ShowLines = false,
                 ShowPlusMinus = false,
                 ShowRootLines = false,
-                ShowNodeToolTips = true,
+                ShowNodeToolTips = false,
                 BackColor = UiPalette.SurfaceSubtle
             };
             scopeTree.AfterSelect += ScopeTree_AfterSelect;
             scopeTree.DrawNode += ScopeTree_DrawNode;
             scopeTree.NodeMouseClick += ScopeTree_NodeMouseClick;
-            scopeTree.MouseMove += ScopeTree_MouseMove;
-            scopeTree.MouseLeave += ScopeTree_MouseLeave;
             scopeGroupFont = new Font(scopeTree.Font, FontStyle.Bold);
             scopeChevronFont = new Font("Microsoft YaHei UI", 11F);
 
@@ -539,6 +606,12 @@ namespace Automation
                 variableSearchTimer.Stop();
                 ApplyScopeFilter();
             };
+            viewportRefreshTimer = new Timer { Interval = 90 };
+            viewportRefreshTimer.Tick += (sender, args) =>
+            {
+                viewportRefreshTimer.Stop();
+                RefreshViewportRows();
+            };
             btnPrevious.Visible = false;
             BtnNext.Visible = false;
             btnCancel.Visible = false;
@@ -556,14 +629,12 @@ namespace Automation
             type.SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.RowHeadersVisible = false;
             dgvValue.AutoGenerateColumns = false;
-            dgvValue.Scroll += (sender, args) =>
-            {
-                if (variableGridUpdateDepth == 0) RefreshViewportRows();
-            };
-            dgvValue.Resize += (sender, args) =>
-            {
-                if (variableGridUpdateDepth == 0) RefreshViewportRows();
-            };
+            dgvValue.CellValueNeeded += dgvValue_CellValueNeeded;
+            dgvValue.CellValuePushed += dgvValue_CellValuePushed;
+            dgvValue.CellBeginEdit += dgvValue_CellBeginEdit;
+            dgvValue.DataError += dgvValue_DataError;
+            dgvValue.Scroll += (sender, args) => ScheduleViewportRefresh();
+            dgvValue.Resize += (sender, args) => ScheduleViewportRefresh();
             DoubleBuffered = true;
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -1091,7 +1162,9 @@ namespace Automation
 
         private void FrmValue_Disposed(object sender, EventArgs e)
         {
+            System.Threading.Interlocked.Increment(ref variableProjectionPrewarmGeneration);
             variableSearchTimer?.Dispose();
+            viewportRefreshTimer?.Dispose();
             if (isValueStoreHooked && hookedValueStore != null)
             {
                 hookedValueStore.ValueChanged -= ValueStore_ValueChanged;
@@ -1134,7 +1207,6 @@ namespace Automation
                 RefreshVariableSnapshot();
                 RefreshVariableScopeOptions();
                 RefreshCommonList();
-                EnsureVariableGridRowsInitialized();
                 RefreshScopeTree();
                 ApplyScopeFilter();
                 RefreshMonitorTitle();
@@ -1150,8 +1222,7 @@ namespace Automation
 
         private void EnsureVariableGridRowsInitialized()
         {
-            if (variableGridRowsInitialized
-                && dgvValue.Rows.Count == ValueConfigStore.ValueCapacity)
+            if (variableGridRowsInitialized)
             {
                 return;
             }
@@ -1160,15 +1231,9 @@ namespace Automation
             try
             {
                 dgvValue.Rows.Clear();
-                displayedVariableSlots.Clear();
-                for (int slotIndex = 0; slotIndex < ValueConfigStore.ValueCapacity; slotIndex++)
-                {
-                    displayedVariableSlots.Add(slotIndex);
-                    displayRowByVariableSlot[slotIndex] = slotIndex;
-                }
-                dgvValue.Rows.Add(ValueConfigStore.ValueCapacity);
+                dgvValue.VirtualMode = true;
+                dgvValue.RowCount = 0;
                 variableGridRowsInitialized = true;
-                AdvanceVariableGridPresentationVersion();
             }
             finally
             {
@@ -1237,38 +1302,48 @@ namespace Automation
 
         private void RefreshVariableSnapshot()
         {
-            Array.Clear(variableSnapshot, 0, variableSnapshot.Length);
-            foreach (DicValue variable in Workspace.Runtime.Stores.Values?.GetValuesSnapshot() ?? new List<DicValue>())
+            long configurationVersion =
+                Workspace.Runtime.Stores.Values.ConfigurationVersion;
+            DicValue[] snapshot;
+            if (!TryTakePrewarmedVariableState(
+                    configurationVersion,
+                    out snapshot,
+                    out VariableTableProjectionCache projectionCache))
             {
-                if (variable != null && variable.Index >= 0 && variable.Index < variableSnapshot.Length)
-                {
-                    variableSnapshot[variable.Index] = variable;
-                }
+                snapshot = CreateVariableSnapshot(
+                    Workspace.Runtime.Stores.Values?.GetValuesSnapshot());
+                projectionCache =
+                    VariableTableProjectionCache.Build(snapshot);
             }
+            Array.Copy(snapshot, variableSnapshot, variableSnapshot.Length);
             hasVariableSnapshot = true;
-            AdvanceVariableGridPresentationVersion();
+            pendingVirtualCellValues.Clear();
+            variableProjectionCache = projectionCache;
         }
 
         private void UpdateVariableGridRow(int rowIndex, int slotIndex, DicValue variable)
         {
-            DataGridViewRow row = dgvValue.Rows[rowIndex];
-            SetCellValueIfChanged(row.Cells[0], slotIndex);
-            SetCellValueIfChanged(row.Cells[1], variable?.Name ?? string.Empty);
-            SetCellValueIfChanged(row.Cells[2], variable?.Type ?? DefaultValueType);
-            SetCellValueIfChanged(row.Cells[3], variable?.Value ?? DefaultValueText);
-            SetCellValueIfChanged(row.Cells[4], variable?.Note ?? string.Empty);
-            ConfigureVariableScopeCell(row, slotIndex, variable);
-            ApplyVariableRowEditingState(row, variable);
-            variableRowLoadedVersions[slotIndex] = variableGridPresentationVersion;
+            if (rowIndex >= 0
+                && rowIndex < dgvValue.RowCount
+                && GetVariableSlotIndex(rowIndex) == slotIndex)
+            {
+                dgvValue.InvalidateRow(rowIndex);
+            }
         }
 
         private void RefreshViewportRows()
         {
-            if (!hasVariableSnapshot || dgvValue.Rows.Count == 0)
+            if (!Visible
+                || !isValueGridReady
+                || !hasVariableSnapshot
+                || dgvValue.Rows.Count == 0
+                || Workspace.Runtime.Stores.Values == null)
             {
                 return;
             }
-            var rowIndexes = new List<int>();
+            int editingRowIndex = dgvValue.IsCurrentCellInEditMode && dgvValue.CurrentCell != null
+                ? dgvValue.CurrentCell.RowIndex
+                : -1;
             int firstDisplayed = dgvValue.Rows.GetFirstRow(DataGridViewElementStates.Displayed);
             if (firstDisplayed < 0)
             {
@@ -1277,65 +1352,42 @@ namespace Automation
             int rowIndex = firstDisplayed;
             while (rowIndex >= 0)
             {
-                rowIndexes.Add(rowIndex);
-                rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
-            }
-
-            int nearbyIndex = firstDisplayed;
-            for (int count = 0; count < 8; count++)
-            {
-                nearbyIndex = dgvValue.Rows.GetPreviousRow(nearbyIndex, DataGridViewElementStates.Visible);
-                if (nearbyIndex < 0) break;
-                rowIndexes.Add(nearbyIndex);
-            }
-            nearbyIndex = rowIndexes[0];
-            int lastDisplayed = dgvValue.Rows.GetLastRow(DataGridViewElementStates.Displayed);
-            if (lastDisplayed >= 0)
-            {
-                nearbyIndex = lastDisplayed;
-            }
-            for (int count = 0; count < 12; count++)
-            {
-                nearbyIndex = dgvValue.Rows.GetNextRow(nearbyIndex, DataGridViewElementStates.Visible);
-                if (nearbyIndex < 0) break;
-                rowIndexes.Add(nearbyIndex);
-            }
-
-            int editingRowIndex = dgvValue.IsCurrentCellInEditMode && dgvValue.CurrentCell != null
-                ? dgvValue.CurrentCell.RowIndex
-                : -1;
-            bool allowGridEvents = isValueGridReady;
-            isValueGridReady = false;
-            try
-            {
-                foreach (int index in rowIndexes)
+                int slotIndex = GetVariableSlotIndex(rowIndex);
+                if (rowIndex != editingRowIndex
+                    && slotIndex >= 0
+                    && Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                        slotIndex,
+                        out DicValue liveVariable))
                 {
-                    if (index != editingRowIndex)
+                    string liveValue = liveVariable.Value ?? string.Empty;
+                    if (variableSnapshot[slotIndex] != null
+                        && !string.Equals(
+                            variableSnapshot[slotIndex].Value,
+                            liveValue,
+                            StringComparison.Ordinal))
                     {
-                        int slotIndex = GetVariableSlotIndex(index);
-                        if (slotIndex < 0) continue;
-                        if (variableSnapshot[slotIndex] != null
-                            && Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out DicValue liveVariable))
-                        {
-                            variableSnapshot[slotIndex].Value = liveVariable.Value;
-                        }
-                        if (variableRowLoadedVersions[slotIndex] != variableGridPresentationVersion)
-                        {
-                            UpdateVariableGridRow(index, slotIndex, variableSnapshot[slotIndex]);
-                        }
-                        else
-                        {
-                            SetCellValueIfChanged(
-                                dgvValue.Rows[index].Cells[3],
-                                variableSnapshot[slotIndex]?.Value ?? DefaultValueText);
-                        }
+                        variableSnapshot[slotIndex].Value = liveValue;
+                        dgvValue.InvalidateCell(3, rowIndex);
                     }
                 }
+                rowIndex = dgvValue.Rows.GetNextRow(
+                    rowIndex,
+                    DataGridViewElementStates.Displayed);
             }
-            finally
+        }
+
+        private void ScheduleViewportRefresh()
+        {
+            if (variableGridUpdateDepth != 0
+                || !Visible
+                || !isValueGridReady
+                || IsDisposed
+                || Disposing)
             {
-                isValueGridReady = allowGridEvents;
+                return;
             }
+            viewportRefreshTimer.Stop();
+            viewportRefreshTimer.Start();
         }
 
         private int GetVariableSlotIndex(int displayRowIndex)
@@ -1365,15 +1417,43 @@ namespace Automation
             }
         }
 
-        private void AdvanceVariableGridPresentationVersion()
+        private static DicValue[] CreateVariableSnapshot(IEnumerable<DicValue> values)
         {
-            if (variableGridPresentationVersion == int.MaxValue)
+            var snapshot = new DicValue[ValueConfigStore.ValueCapacity];
+            foreach (DicValue variable in values ?? Enumerable.Empty<DicValue>())
             {
-                Array.Clear(variableRowLoadedVersions, 0, variableRowLoadedVersions.Length);
-                variableGridPresentationVersion = 1;
-                return;
+                if (variable != null
+                    && variable.Index >= 0
+                    && variable.Index < snapshot.Length)
+                {
+                    snapshot[variable.Index] = variable;
+                }
             }
-            variableGridPresentationVersion++;
+            return snapshot;
+        }
+
+        private bool TryTakePrewarmedVariableState(
+            long configurationVersion,
+            out DicValue[] snapshot,
+            out VariableTableProjectionCache cache)
+        {
+            lock (variableProjectionPrewarmLock)
+            {
+                if (prewarmedProjectionCache != null
+                    && prewarmedVariableSnapshot != null
+                    && prewarmedProjectionConfigurationVersion == configurationVersion)
+                {
+                    snapshot = prewarmedVariableSnapshot;
+                    cache = prewarmedProjectionCache;
+                    prewarmedVariableSnapshot = null;
+                    prewarmedProjectionCache = null;
+                    prewarmedProjectionConfigurationVersion = -1;
+                    return true;
+                }
+            }
+            snapshot = null;
+            cache = null;
+            return false;
         }
 
         private void BeginVariableGridUpdate()
@@ -1477,7 +1557,6 @@ namespace Automation
                     string processName = proc.head.Name ?? proc.head.Id.ToString("D");
                     processRoot.Nodes.Add(new TreeNode($"{processName}    {ownedCount}")
                     {
-                        ToolTipText = processName,
                         Tag = new VariableScopeSelection
                         {
                             Scope = VariableScopeContract.Process,
@@ -1526,13 +1605,12 @@ namespace Automation
                 Math.Max(0, scopeTree.ItemHeight - 6));
             bool selectable = e.Node.Tag is VariableScopeSelection;
             bool selected = selectable && e.Node == scopeTree.SelectedNode;
-            bool hovered = selectable && e.Node == hoveredScopeNode;
 
             using (var background = new SolidBrush(scopeTree.BackColor))
             {
                 e.Graphics.FillRectangle(background, new Rectangle(0, e.Bounds.Top, scopeTree.ClientSize.Width, scopeTree.ItemHeight));
             }
-            if ((selected || hovered) && rowBounds.Width > 0 && rowBounds.Height > 0)
+            if (selected && rowBounds.Width > 0 && rowBounds.Height > 0)
             {
                 using (GraphicsPath path = CreateRoundedPath(rowBounds, 10))
                 using (var selectionBrush = new SolidBrush(
@@ -1605,7 +1683,6 @@ namespace Automation
             {
                 if (e.Node.IsExpanded) e.Node.Collapse();
                 else e.Node.Expand();
-                scopeTree.Invalidate();
             }
         }
 
@@ -1630,50 +1707,8 @@ namespace Automation
             selectedScope = selection.Scope;
             selectedOwnerProcId = selection.OwnerProcId;
 
-            // 先反馈树节点选中，再把1200行显隐处理合并到下一条UI消息。
-            scopeTree.Invalidate();
-            scopeTree.Update();
+            scopeTree.Invalidate(e.Node.Bounds);
             ScheduleScopeSelectionApply();
-        }
-
-        private void ScopeTree_MouseMove(object sender, MouseEventArgs e)
-        {
-            TreeNode node = scopeTree.GetNodeAt(e.Location);
-            TreeNode hoverTarget = node?.Tag is VariableScopeSelection ? node : null;
-            if (hoveredScopeNode == hoverTarget)
-            {
-                return;
-            }
-            TreeNode previous = hoveredScopeNode;
-            hoveredScopeNode = hoverTarget;
-            scopeTree.Cursor = hoveredScopeNode == null ? Cursors.Default : Cursors.Hand;
-            InvalidateScopeNode(previous);
-            InvalidateScopeNode(hoveredScopeNode);
-        }
-
-        private void ScopeTree_MouseLeave(object sender, EventArgs e)
-        {
-            if (hoveredScopeNode == null)
-            {
-                return;
-            }
-            TreeNode previous = hoveredScopeNode;
-            hoveredScopeNode = null;
-            scopeTree.Cursor = Cursors.Default;
-            InvalidateScopeNode(previous);
-        }
-
-        private void InvalidateScopeNode(TreeNode node)
-        {
-            if (node == null)
-            {
-                return;
-            }
-            scopeTree.Invalidate(new Rectangle(
-                0,
-                node.Bounds.Top,
-                scopeTree.ClientSize.Width,
-                scopeTree.ItemHeight));
         }
 
         private void ScheduleScopeSelectionApply()
@@ -1744,7 +1779,7 @@ namespace Automation
                 return;
             }
             int currentRowIndex = GetVariableDisplayRowIndex(state.CurrentSlotIndex);
-            if (currentRowIndex >= 0 && dgvValue.Rows[currentRowIndex].Visible)
+            if (currentRowIndex >= 0)
             {
                 int columnIndex = state.CurrentColumnIndex >= 0
                     && state.CurrentColumnIndex < dgvValue.Columns.Count
@@ -1754,7 +1789,7 @@ namespace Automation
                 dgvValue.Rows[currentRowIndex].Selected = true;
             }
             int firstDisplayedRowIndex = GetVariableDisplayRowIndex(state.FirstDisplayedSlotIndex);
-            if (firstDisplayedRowIndex >= 0 && dgvValue.Rows[firstDisplayedRowIndex].Visible)
+            if (firstDisplayedRowIndex >= 0)
             {
                 try
                 {
@@ -1801,67 +1836,69 @@ namespace Automation
             EnsureVariableGridRowsInitialized();
             string searchText = txtVariableSearch?.Text?.Trim() ?? string.Empty;
             bool searching = searchText.Length > 0;
-            bool allScopesSelected = string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal);
-            var targetVisibility = new bool[ValueConfigStore.ValueCapacity];
-            int visibleCount = 0;
-            for (int slotIndex = 0; slotIndex < ValueConfigStore.ValueCapacity; slotIndex++)
+            if (variableProjectionCache == null)
             {
-                bool visible = ShouldDisplayVariableRow(
-                    slotIndex, searching, searchText, allScopesSelected);
-                targetVisibility[slotIndex] = visible;
-                if (visible) visibleCount++;
+                variableProjectionCache =
+                    VariableTableProjectionCache.Build(variableSnapshot);
             }
-            string gridScopeKey = BuildVariableGridViewStateKey(selectedScope, selectedOwnerProcId);
-            if (!string.Equals(appliedGridScopeKey, gridScopeKey, StringComparison.Ordinal))
-            {
-                appliedGridScopeKey = gridScopeKey;
-                AdvanceVariableGridPresentationVersion();
-            }
+            IReadOnlyList<int> targetProjection = searching
+                ? VariableTableProjectionCache.Search(
+                    variableSnapshot,
+                    searchText,
+                    processNamesById)
+                : variableProjectionCache.GetSlots(selectedScope, selectedOwnerProcId);
             BeginVariableGridUpdate();
             try
             {
-                int currentRowIndex = dgvValue.CurrentCell?.RowIndex ?? -1;
-                if (currentRowIndex >= 0 && !targetVisibility[currentRowIndex])
+                bool projectionChanged =
+                    displayedVariableSlots.Count != targetProjection.Count;
+                for (int rowIndex = 0;
+                    !projectionChanged && rowIndex < targetProjection.Count;
+                    rowIndex++)
                 {
-                    dgvValue.CurrentCell = null;
+                    projectionChanged =
+                        displayedVariableSlots[rowIndex] != targetProjection[rowIndex];
                 }
-                for (int rowIndex = 0; rowIndex < ValueConfigStore.ValueCapacity; rowIndex++)
+                if (projectionChanged)
                 {
-                    DataGridViewRow row = dgvValue.Rows[rowIndex];
-                    bool targetVisible = targetVisibility[rowIndex];
-                    if (row.Visible != targetVisible)
+                    if (dgvValue.IsCurrentCellInEditMode)
                     {
-                        row.Visible = targetVisible;
+                        dgvValue.EndEdit();
                     }
+                    dgvValue.CurrentCell = null;
+                    pendingVirtualCellValues.Clear();
+                    for (int slotIndex = 0;
+                        slotIndex < displayRowByVariableSlot.Length;
+                        slotIndex++)
+                    {
+                        displayRowByVariableSlot[slotIndex] = -1;
+                    }
+                    displayedVariableSlots = targetProjection.ToList();
+                    for (int rowIndex = 0; rowIndex < displayedVariableSlots.Count; rowIndex++)
+                    {
+                        displayRowByVariableSlot[displayedVariableSlots[rowIndex]] = rowIndex;
+                    }
+                    dgvValue.RowCount = displayedVariableSlots.Count;
                 }
                 lblEmptyState.Text = searching
                     ? "没有找到匹配的变量\r\n可尝试名称、槽位、类型、备注或流程名称"
                     : string.Equals(selectedScope, VariableScopeContract.System, StringComparison.Ordinal)
                         ? "当前没有可显示的系统变量"
                         : "当前筛选范围没有已配置变量";
-                lblEmptyState.Visible = visibleCount == 0;
+                lblEmptyState.Visible = targetProjection.Count == 0;
                 if (btnClearSearch.Visible != searching)
                 {
                     btnClearSearch.Visible = searching;
                 }
-                RefreshViewportRows();
+                if (!projectionChanged)
+                {
+                    dgvValue.Invalidate();
+                }
             }
             finally
             {
                 EndVariableGridUpdate();
             }
-        }
-
-        private bool ShouldDisplayVariableRow(
-            int index, bool searching, string searchText, bool allScopesSelected)
-        {
-            return VariableEditor.ShouldDisplay(
-                index,
-                variableSnapshot[index],
-                selectedScope,
-                selectedOwnerProcId,
-                searching ? searchText : string.Empty,
-                processNamesById);
         }
 
         private void ScheduleScopeFilter(bool refreshScopeTree = false)
@@ -1918,52 +1955,55 @@ namespace Automation
             if (optionsChanged)
             {
                 variableScopeOptions = options;
-                AdvanceVariableGridPresentationVersion();
+                variableScopeDisplayOptions = new List<VariableScopeOption>(options)
+                {
+                    new VariableScopeOption
+                    {
+                        Key = UnconfiguredScopeOptionKey,
+                        Text = "未配置"
+                    },
+                    new VariableScopeOption
+                    {
+                        Key = SystemScopeOptionKey,
+                        Text = "系统",
+                        Scope = VariableScopeContract.System
+                    },
+                    new VariableScopeOption
+                    {
+                        Key = MissingScopeOptionKey,
+                        Text = "所属流程缺失"
+                    }
+                };
+                scopeColumn.DataSource = null;
+                scopeColumn.DataSource = variableScopeDisplayOptions;
             }
         }
 
-        private void ConfigureVariableScopeCell(DataGridViewRow row, int slotIndex, DicValue variable)
+        private string GetVariableScopeOptionKey(int slotIndex, DicValue variable)
         {
-            if (variable != null && !ValueConfigStore.IsSystemValueIndex(variable.Index))
+            if (variable == null)
             {
-                string optionKey = VariableEditorService.BuildScopeOptionKey(variable.Scope, variable.OwnerProcId);
-                if (variableScopeOptions.Any(option => string.Equals(option.Key, optionKey, StringComparison.Ordinal)))
-                {
-                    var comboCell = row.Cells[5] as DataGridViewComboBoxCell;
-                    if (comboCell == null)
-                    {
-                        comboCell = new DataGridViewComboBoxCell();
-                        row.Cells[5] = comboCell;
-                        comboCell.DisplayMember = nameof(VariableScopeOption.Text);
-                        comboCell.ValueMember = nameof(VariableScopeOption.Key);
-                        comboCell.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
-                        comboCell.DisplayStyleForCurrentCellOnly = true;
-                        comboCell.FlatStyle = FlatStyle.Flat;
-                    }
-                    comboCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
-                    if (!ReferenceEquals(comboCell.DataSource, variableScopeOptions))
-                    {
-                        comboCell.DataSource = variableScopeOptions;
-                    }
-                    SetCellValueIfChanged(comboCell, optionKey);
-                    bool readOnly = !string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal);
-                    if (comboCell.ReadOnly != readOnly) comboCell.ReadOnly = readOnly;
-                    return;
-                }
+                return ValueConfigStore.IsSystemValueIndex(slotIndex)
+                    ? SystemScopeOptionKey
+                    : UnconfiguredScopeOptionKey;
             }
-
-            var textCell = row.Cells[5] as DataGridViewTextBoxCell;
-            if (textCell == null)
+            if (ValueConfigStore.IsSystemValueIndex(slotIndex)
+                || string.Equals(
+                    variable.Scope,
+                    VariableScopeContract.System,
+                    StringComparison.Ordinal))
             {
-                textCell = new DataGridViewTextBoxCell();
-                row.Cells[5] = textCell;
+                return SystemScopeOptionKey;
             }
-            textCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            string scopeText = variable == null
-                ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
-                : VariableEditor.FormatScope(variable, processNamesById);
-            SetCellValueIfChanged(textCell, scopeText);
-            if (!textCell.ReadOnly) textCell.ReadOnly = true;
+            string optionKey = VariableEditorService.BuildScopeOptionKey(
+                variable.Scope,
+                variable.OwnerProcId);
+            return variableScopeOptions.Any(option => string.Equals(
+                    option.Key,
+                    optionKey,
+                    StringComparison.Ordinal))
+                ? optionKey
+                : MissingScopeOptionKey;
         }
 
         private bool TryResolveVariableScopeOption(
@@ -1975,20 +2015,6 @@ namespace Automation
             scope = option?.Scope;
             ownerProcId = option?.OwnerProcId;
             return option != null;
-        }
-
-        private static void ApplyVariableRowEditingState(DataGridViewRow row, DicValue variable)
-        {
-            bool protectedSystemVariable = variable != null
-                && ValueConfigStore.IsProtectedValueName(variable.Name);
-            if (row.Cells[1].ReadOnly != protectedSystemVariable)
-            {
-                row.Cells[1].ReadOnly = protectedSystemVariable;
-            }
-            if (row.Cells[2].ReadOnly != protectedSystemVariable)
-            {
-                row.Cells[2].ReadOnly = protectedSystemVariable;
-            }
         }
 
         /*=============================================================================================*/
@@ -2086,7 +2112,6 @@ namespace Automation
             int editingRowIndex = dgvValue.IsCurrentCellInEditMode && dgvValue.CurrentCell != null
                 ? dgvValue.CurrentCell.RowIndex
                 : -1;
-            var updates = new List<KeyValuePair<int, string>>();
             int rowIndex = dgvValue.Rows.GetFirstRow(DataGridViewElementStates.Displayed);
             while (rowIndex >= 0)
             {
@@ -2096,35 +2121,17 @@ namespace Automation
                     && Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out DicValue variable))
                 {
                     string currentValue = variable.Value ?? string.Empty;
-                    DataGridViewCell valueCell = dgvValue.Rows[rowIndex].Cells[3];
-                    if (!string.Equals(Convert.ToString(valueCell.Value), currentValue, StringComparison.Ordinal))
+                    if (variableSnapshot[slotIndex] != null
+                        && !string.Equals(
+                            variableSnapshot[slotIndex].Value,
+                            currentValue,
+                            StringComparison.Ordinal))
                     {
-                        if (variableSnapshot[slotIndex] != null)
-                        {
-                            variableSnapshot[slotIndex].Value = currentValue;
-                        }
-                        updates.Add(new KeyValuePair<int, string>(rowIndex, currentValue));
+                        variableSnapshot[slotIndex].Value = currentValue;
+                        dgvValue.InvalidateCell(3, rowIndex);
                     }
                 }
                 rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
-            }
-            if (updates.Count == 0)
-            {
-                return;
-            }
-
-            bool allowGridEvents = isValueGridReady;
-            isValueGridReady = false;
-            try
-            {
-                foreach (KeyValuePair<int, string> update in updates)
-                {
-                    SetCellValueIfChanged(dgvValue.Rows[update.Key].Cells[3], update.Value);
-                }
-            }
-            finally
-            {
-                isValueGridReady = allowGridEvents;
             }
         }
 
@@ -2176,22 +2183,136 @@ namespace Automation
             AlignVariableToolbarWithSplit();
         }
 
+        private void dgvValue_CellValueNeeded(
+            object sender,
+            DataGridViewCellValueEventArgs e)
+        {
+            int slotIndex = GetVariableSlotIndex(e.RowIndex);
+            if (slotIndex < 0 || e.ColumnIndex < 0)
+            {
+                return;
+            }
+            e.Value = GetVirtualCellValue(slotIndex, e.ColumnIndex);
+        }
+
+        private void dgvValue_CellValuePushed(
+            object sender,
+            DataGridViewCellValueEventArgs e)
+        {
+            int slotIndex = GetVariableSlotIndex(e.RowIndex);
+            if (slotIndex < 0 || e.ColumnIndex < 0)
+            {
+                return;
+            }
+            pendingVirtualCellValues[BuildVirtualCellKey(slotIndex, e.ColumnIndex)] =
+                e.Value;
+        }
+
+        private void dgvValue_CellBeginEdit(
+            object sender,
+            DataGridViewCellCancelEventArgs e)
+        {
+            if (!dgvValue.VirtualMode)
+            {
+                return;
+            }
+            int slotIndex = GetVariableSlotIndex(e.RowIndex);
+            if (slotIndex < 0
+                || e.ColumnIndex < 0
+                || dgvValue.Rows[e.RowIndex].Cells[e.ColumnIndex].ReadOnly
+                || !CanEditVariableCell(slotIndex, e.ColumnIndex))
+            {
+                e.Cancel = true;
+            }
+        }
+
+        private void dgvValue_DataError(
+            object sender,
+            DataGridViewDataErrorEventArgs e)
+        {
+            if (e.ColumnIndex == scopeColumn.Index)
+            {
+                e.ThrowException = false;
+            }
+        }
+
+        private bool CanEditVariableCell(int slotIndex, int columnIndex)
+        {
+            if (columnIndex == 0)
+            {
+                return false;
+            }
+            DicValue variable = variableSnapshot[slotIndex];
+            if ((columnIndex == 1 || columnIndex == 2)
+                && variable != null
+                && ValueConfigStore.IsProtectedValueName(variable.Name))
+            {
+                return false;
+            }
+            if (columnIndex != scopeColumn.Index)
+            {
+                return true;
+            }
+            if (!string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal)
+                || variable == null
+                || ValueConfigStore.IsSystemValueIndex(slotIndex))
+            {
+                return false;
+            }
+            string optionKey = VariableEditorService.BuildScopeOptionKey(
+                variable.Scope,
+                variable.OwnerProcId);
+            return variableScopeOptions.Any(option => string.Equals(
+                option.Key,
+                optionKey,
+                StringComparison.Ordinal));
+        }
+
+        private object GetVirtualCellValue(int slotIndex, int columnIndex)
+        {
+            if (pendingVirtualCellValues.TryGetValue(
+                BuildVirtualCellKey(slotIndex, columnIndex),
+                out object pendingValue))
+            {
+                return pendingValue;
+            }
+            DicValue variable = variableSnapshot[slotIndex];
+            switch (columnIndex)
+            {
+                case 0:
+                    return slotIndex;
+                case 1:
+                    return variable?.Name ?? string.Empty;
+                case 2:
+                    return variable?.Type ?? DefaultValueType;
+                case 3:
+                    return variable?.Value ?? DefaultValueText;
+                case 4:
+                    return variable?.Note ?? string.Empty;
+                case 5:
+                    return GetVariableScopeOptionKey(slotIndex, variable);
+                default:
+                    return null;
+            }
+        }
+
+        private static long BuildVirtualCellKey(int slotIndex, int columnIndex)
+        {
+            return ((long)slotIndex << 32) | (uint)columnIndex;
+        }
+
+        private void ClearPendingVirtualCellValues(int slotIndex)
+        {
+            for (int columnIndex = 0; columnIndex < dgvValue.Columns.Count; columnIndex++)
+            {
+                pendingVirtualCellValues.Remove(
+                    BuildVirtualCellKey(slotIndex, columnIndex));
+            }
+        }
+
         private void dgvValue_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
-            if (isValueGridReady)
-            {
-                // 确保值变化发生在单元格中而不是在行标题或列标题
-                if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
-                {
-                    if (e.ColumnIndex == 2)
-                    {
-                        DataGridViewTextBoxCell textboxCell = new DataGridViewTextBoxCell();
-                        dgvValue[e.ColumnIndex + 1, e.RowIndex] = textboxCell;
-                    }
-                   
-                }
-            }
-           
+            // 虚拟表格由 CellValuePushed 保存编辑草稿，不再替换行内单元格对象。
         }
 
         private void dgvValue_KeyDown(object sender, KeyEventArgs e)
@@ -2441,19 +2562,18 @@ namespace Automation
             value = string.Empty;
             note = string.Empty;
 
-            DataGridViewRow row = dataGridView.Rows[rowIndex];
             num = GetVariableSlotIndex(rowIndex);
             if (num < 0)
             {
                 return false;
             }
-            key = row.Cells[1].Value?.ToString()?.Trim();
+            key = GetVirtualCellValue(num, 1)?.ToString()?.Trim();
             if (string.IsNullOrEmpty(key))
             {
                 return false;
             }
 
-            type = row.Cells[2].Value?.ToString()?.Trim();
+            type = GetVirtualCellValue(num, 2)?.ToString()?.Trim();
             if (string.IsNullOrEmpty(type))
             {
                 type = DefaultValueType;
@@ -2463,7 +2583,7 @@ namespace Automation
                 return false;
             }
 
-            value = row.Cells[3].Value?.ToString() ?? string.Empty;
+            value = GetVirtualCellValue(num, 3)?.ToString() ?? string.Empty;
             if (string.Equals(type, "double", StringComparison.Ordinal))
             {
                 if (string.IsNullOrWhiteSpace(value))
@@ -2476,62 +2596,150 @@ namespace Automation
                 }
             }
 
-            note = row.Cells[4].Value?.ToString() ?? string.Empty;
+            note = GetVirtualCellValue(num, 4)?.ToString() ?? string.Empty;
             return true;
         }
 
         private void dgvValue_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
-            if (isValueGridReady)
+            if (!isValueGridReady || e.RowIndex < 0 || e.ColumnIndex < 0)
             {
-                // 确保值变化发生在单元格中而不是在行标题或列标题
-                if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+                return;
+            }
+            int editedSlotIndex = GetVariableSlotIndex(e.RowIndex);
+            if (editedSlotIndex < 0)
+            {
+                return;
+            }
+            try
+            {
+                if (e.ColumnIndex == 3
+                    && Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                        editedSlotIndex,
+                        out DicValue existing))
                 {
-                    DataGridView dataGridView = (DataGridView)sender;
-                    int editedSlotIndex = GetVariableSlotIndex(e.RowIndex);
-                    if (editedSlotIndex < 0) return;
-                    if (e.ColumnIndex == 3
-                        && Workspace.Runtime.Stores.Values.TryGetValueByIndex(editedSlotIndex, out DicValue existing))
-                    {
-                        string editedValue = dataGridView.Rows[e.RowIndex].Cells[3].Value?.ToString() ?? string.Empty;
-                        if (!VariableEditor.TrySetRuntimeValue(existing, editedValue, out string runtimeValueError))
-                        {
-                            isValueEditValid = false;
-                            MessageBox.Show(runtimeValueError, "设置当前值失败",
-                                MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            FreshFrmValue();
-                            return;
-                        }
-                        if (variableSnapshot[editedSlotIndex] != null)
-                        {
-                            variableSnapshot[editedSlotIndex].Value = editedValue;
-                        }
-                        isValueEditValid = true;
-                        return;
-                    }
-                    if (!Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration())
+                    string editedValue =
+                        GetVirtualCellValue(editedSlotIndex, 3)?.ToString()
+                        ?? string.Empty;
+                    if (!VariableEditor.TrySetRuntimeValue(
+                        existing,
+                        editedValue,
+                        out string runtimeValueError))
                     {
                         isValueEditValid = false;
+                        MessageBox.Show(runtimeValueError, "设置当前值失败",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
                         FreshFrmValue();
                         return;
                     }
-                    isValueEditValid = !string.IsNullOrWhiteSpace(dataGridView.Rows[e.RowIndex].Cells[1].Value?.ToString());
-                    if (!TryBuildRowValueForSave(dataGridView, e.RowIndex, out int num, out string key, out string type, out string value, out string note))
+                    if (variableSnapshot[editedSlotIndex] != null)
+                    {
+                        variableSnapshot[editedSlotIndex].Value = editedValue;
+                    }
+                    isValueEditValid = true;
+                    return;
+                }
+                if (!Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration())
+                {
+                    isValueEditValid = false;
+                    FreshFrmValue();
+                    return;
+                }
+                isValueEditValid = !string.IsNullOrWhiteSpace(
+                    GetVirtualCellValue(editedSlotIndex, 1)?.ToString());
+                if (!TryBuildRowValueForSave(
+                    (DataGridView)sender,
+                    e.RowIndex,
+                    out int num,
+                    out string key,
+                    out string type,
+                    out string value,
+                    out string note))
+                {
+                    isValueEditValid = false;
+                    return;
+                }
+                if (e.ColumnIndex == 1
+                    && Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                        num,
+                        out DicValue renamedVariable)
+                    && !string.Equals(
+                        renamedVariable.Name,
+                        key,
+                        StringComparison.Ordinal))
+                {
+                    int usageCount = VariableEditor.CountUsages(renamedVariable);
+                    if (usageCount > 0)
+                    {
+                        bool confirmed = false;
+                        new Message(Workspace.Runtime,
+                            "确认重命名变量",
+                            $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
+                            () => confirmed = true,
+                            () => { },
+                            "是(Y)",
+                            "否(N)",
+                            true);
+                        if (!confirmed)
+                        {
+                            isValueEditValid = false;
+                            FreshFrmValue();
+                            return;
+                        }
+                    }
+                }
+                string targetScope = ValueConfigStore.IsSystemValueIndex(num)
+                    ? VariableScopeContract.System
+                    : string.Equals(
+                        selectedScope,
+                        VariableScopeContract.Process,
+                        StringComparison.Ordinal)
+                        ? VariableScopeContract.Process
+                        : VariableScopeContract.Public;
+                Guid? targetOwnerProcId = string.Equals(
+                    targetScope,
+                    VariableScopeContract.Process,
+                    StringComparison.Ordinal)
+                        ? selectedOwnerProcId
+                        : null;
+                Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                    num,
+                    out DicValue scopedVariable);
+                if (scopedVariable != null)
+                {
+                    targetScope = scopedVariable.Scope;
+                    targetOwnerProcId = scopedVariable.OwnerProcId;
+                }
+                if (e.ColumnIndex == scopeColumn.Index)
+                {
+                    if (!string.Equals(
+                            selectedScope,
+                            AllVariableScopes,
+                            StringComparison.Ordinal)
+                        || ValueConfigStore.IsSystemValueIndex(num)
+                        || scopedVariable == null
+                        || !TryResolveVariableScopeOption(
+                            GetVirtualCellValue(num, scopeColumn.Index),
+                            out targetScope,
+                            out targetOwnerProcId))
                     {
                         isValueEditValid = false;
                         return;
                     }
-                    if (e.ColumnIndex == 1
-                        && Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue renamedVariable)
-                        && !string.Equals(renamedVariable.Name, key, StringComparison.Ordinal))
+                    bool scopeChanged = !string.Equals(
+                            scopedVariable.Scope,
+                            targetScope,
+                            StringComparison.Ordinal)
+                        || scopedVariable.OwnerProcId != targetOwnerProcId;
+                    if (scopeChanged)
                     {
-                        int usageCount = VariableEditor.CountUsages(renamedVariable);
+                        int usageCount = VariableEditor.CountUsages(scopedVariable);
                         if (usageCount > 0)
                         {
                             bool confirmed = false;
                             new Message(Workspace.Runtime,
-                                "确认重命名变量",
-                                $"变量[{renamedVariable.Name}]存在{usageCount}个已知引用。重命名后引用文本保持不变，受影响流程会变为 incomplete。是否提交？",
+                                "确认更改变量归属",
+                                $"变量[{scopedVariable.Name}]存在{usageCount}个已知引用。更改归属后，不可访问该变量的流程会变为 incomplete。是否提交？",
                                 () => confirmed = true,
                                 () => { },
                                 "是(Y)",
@@ -2540,103 +2748,69 @@ namespace Automation
                             if (!confirmed)
                             {
                                 isValueEditValid = false;
-                                FreshFrmValue();
                                 return;
                             }
                         }
                     }
-                    string targetScope = ValueConfigStore.IsSystemValueIndex(num)
-                        ? VariableScopeContract.System
-                        : string.Equals(selectedScope, VariableScopeContract.Process, StringComparison.Ordinal)
-                            ? VariableScopeContract.Process
-                            : VariableScopeContract.Public;
-                    Guid? targetOwnerProcId = string.Equals(targetScope, VariableScopeContract.Process, StringComparison.Ordinal)
-                        ? selectedOwnerProcId
-                        : null;
-                    if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue scopedVariable))
-                    {
-                        targetScope = scopedVariable.Scope;
-                        targetOwnerProcId = scopedVariable.OwnerProcId;
-                    }
-                    if (e.ColumnIndex == scopeColumn.Index)
-                    {
-                        if (!string.Equals(selectedScope, AllVariableScopes, StringComparison.Ordinal)
-                            || ValueConfigStore.IsSystemValueIndex(num)
-                            || scopedVariable == null
-                            || !TryResolveVariableScopeOption(
-                                dataGridView.Rows[e.RowIndex].Cells[scopeColumn.Index].Value,
-                                out targetScope,
-                                out targetOwnerProcId))
-                        {
-                            isValueEditValid = false;
-                            ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, scopedVariable);
-                            return;
-                        }
-                        bool scopeChanged = !string.Equals(
-                                scopedVariable.Scope, targetScope, StringComparison.Ordinal)
-                            || scopedVariable.OwnerProcId != targetOwnerProcId;
-                        if (scopeChanged)
-                        {
-                            int usageCount = VariableEditor.CountUsages(scopedVariable);
-                            if (usageCount > 0)
-                            {
-                                bool confirmed = false;
-                                new Message(Workspace.Runtime,
-                                    "确认更改变量归属",
-                                    $"变量[{scopedVariable.Name}]存在{usageCount}个已知引用。更改归属后，不可访问该变量的流程会变为 incomplete。是否提交？",
-                                    () => confirmed = true,
-                                    () => { },
-                                    "是(Y)",
-                                    "否(N)",
-                                    true);
-                                if (!confirmed)
-                                {
-                                    isValueEditValid = false;
-                                    ConfigureVariableScopeCell(dataGridView.Rows[e.RowIndex], num, scopedVariable);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    if (!VariableEditor.TryCommitRow(new VariableRowUpdate
-                    {
-                        Index = num,
-                        Name = key,
-                        Type = type,
-                        CurrentValue = value,
-                        Note = note,
-                        Scope = targetScope,
-                        OwnerProcId = targetOwnerProcId,
-                        SetCurrentValue = scopedVariable == null,
-                        HistoryDescription = scopedVariable == null ? "新增变量" : "修改变量"
-                    }, out string commitError))
-                    {
-                        isValueEditValid = false;
-                        MessageBox.Show(commitError, "保存变量失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return;
-                    }
-                    bool scopeProjectionChanged = scopedVariable == null
-                        || !string.Equals(scopedVariable.Scope, targetScope, StringComparison.Ordinal)
-                        || scopedVariable.OwnerProcId != targetOwnerProcId;
-                    bool commonVariableNameChanged = scopedVariable?.isMark == true
-                        && !string.Equals(scopedVariable.Name, key, StringComparison.Ordinal);
-                    if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(num, out DicValue committedVariable))
-                    {
-                        variableSnapshot[num] = ObjectGraphCloner.Clone(committedVariable);
-                        UpdateVariableGridRow(e.RowIndex, num, variableSnapshot[num]);
-                    }
-                    renderedVariableConfigVersion =
-                        Workspace.Runtime.Stores.Values.ConfigurationVersion;
-                    if (commonVariableNameChanged)
-                    {
-                        RefreshCommonList();
-                    }
-                    bool searchMayHaveChanged = !string.IsNullOrWhiteSpace(txtVariableSearch.Text);
-                    if (scopeProjectionChanged || searchMayHaveChanged)
-                    {
-                        ScheduleScopeFilter(scopeProjectionChanged);
-                    }
-                    isValueEditValid = true;
+                }
+                if (!VariableEditor.TryCommitRow(new VariableRowUpdate
+                {
+                    Index = num,
+                    Name = key,
+                    Type = type,
+                    CurrentValue = value,
+                    Note = note,
+                    Scope = targetScope,
+                    OwnerProcId = targetOwnerProcId,
+                    SetCurrentValue = scopedVariable == null,
+                    HistoryDescription = scopedVariable == null ? "新增变量" : "修改变量"
+                }, out string commitError))
+                {
+                    isValueEditValid = false;
+                    MessageBox.Show(commitError, "保存变量失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                bool scopeProjectionChanged = scopedVariable == null
+                    || !string.Equals(
+                        scopedVariable.Scope,
+                        targetScope,
+                        StringComparison.Ordinal)
+                    || scopedVariable.OwnerProcId != targetOwnerProcId;
+                bool commonVariableNameChanged = scopedVariable?.isMark == true
+                    && !string.Equals(scopedVariable.Name, key, StringComparison.Ordinal);
+                if (Workspace.Runtime.Stores.Values.TryGetValueByIndex(
+                    num,
+                    out DicValue committedVariable))
+                {
+                    variableSnapshot[num] = ObjectGraphCloner.Clone(committedVariable);
+                    UpdateVariableGridRow(e.RowIndex, num, variableSnapshot[num]);
+                }
+                variableProjectionCache =
+                    VariableTableProjectionCache.Build(variableSnapshot);
+                renderedVariableConfigVersion =
+                    Workspace.Runtime.Stores.Values.ConfigurationVersion;
+                if (commonVariableNameChanged)
+                {
+                    RefreshCommonList();
+                }
+                bool searchMayHaveChanged =
+                    !string.IsNullOrWhiteSpace(txtVariableSearch.Text);
+                if (scopeProjectionChanged || searchMayHaveChanged)
+                {
+                    ScheduleScopeFilter(scopeProjectionChanged);
+                }
+                isValueEditValid = true;
+            }
+            finally
+            {
+                ClearPendingVirtualCellValues(editedSlotIndex);
+                int currentRowIndex =
+                    GetVariableDisplayRowIndex(editedSlotIndex);
+                if (currentRowIndex >= 0
+                    && currentRowIndex < dgvValue.RowCount)
+                {
+                    dgvValue.InvalidateRow(currentRowIndex);
                 }
             }
         }
@@ -2664,7 +2838,11 @@ namespace Automation
                 return;
             }
             DataGridViewCell targetCell = dgvValue.Rows[e.RowIndex].Cells[e.ColumnIndex];
-            if (targetCell.ReadOnly)
+            int slotIndex = GetVariableSlotIndex(e.RowIndex);
+            if (targetCell.ReadOnly
+                || (dgvValue.VirtualMode
+                    && (slotIndex < 0
+                        || !CanEditVariableCell(slotIndex, e.ColumnIndex))))
             {
                 return;
             }
@@ -2782,49 +2960,9 @@ namespace Automation
         {
             if (isRebuildingVariableRows) return;
             int slotIndex = GetVariableSlotIndex(e.RowIndex);
-            DataGridViewCell currentCell = dgvValue.CurrentCell;
-            if (hasVariableSnapshot
-                && slotIndex >= 0
-                && variableRowLoadedVersions[slotIndex] != variableGridPresentationVersion
-                && e.ColumnIndex >= 0
-                && e.ColumnIndex <= scopeColumn.Index
-                && !(dgvValue.IsCurrentCellInEditMode
-                    && currentCell != null
-                    && currentCell.RowIndex == e.RowIndex
-                    && currentCell.ColumnIndex == e.ColumnIndex))
-            {
-                DicValue variable = variableSnapshot[slotIndex];
-                switch (e.ColumnIndex)
-                {
-                    case 0:
-                        e.Value = slotIndex;
-                        break;
-                    case 1:
-                        e.Value = variable?.Name ?? string.Empty;
-                        break;
-                    case 2:
-                        e.Value = variable?.Type ?? DefaultValueType;
-                        break;
-                    case 3:
-                        e.Value = variable?.Value ?? DefaultValueText;
-                        break;
-                    case 4:
-                        e.Value = variable?.Note ?? string.Empty;
-                        break;
-                    case 5:
-                        if (!(dgvValue.Rows[e.RowIndex].Cells[e.ColumnIndex] is DataGridViewComboBoxCell))
-                        {
-                            e.Value = variable == null
-                                ? ValueConfigStore.IsSystemValueIndex(slotIndex) ? "系统" : "未配置"
-                                : VariableEditor.FormatScope(variable, processNamesById);
-                        }
-                        break;
-                }
-            }
             if (e.ColumnIndex == 0 && slotIndex >= 0)
             {
-                // 获取当前行对应的数据项
-                if (Workspace.Runtime.Stores.Values.IsMarked(slotIndex))
+                if (variableSnapshot[slotIndex]?.isMark == true)
                 {
                     e.CellStyle.BackColor = UiPalette.DangerSoft;
                     e.CellStyle.ForeColor = UiPalette.DangerHover;
@@ -3173,7 +3311,6 @@ namespace Automation
             }
             if (listCommon.SelectedItem is CommonValueItem item)
             {
-                listCommon.Update();
                 currentIndex = item.Index;
                 LocateValueIndex(item.Index);
             }

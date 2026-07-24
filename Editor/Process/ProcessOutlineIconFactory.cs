@@ -1,12 +1,12 @@
 // 模块：编辑器 / 流程。
-// 职责范围：流程树、指令表、对象选择、搜索和导航。
+// 职责范围：流程导航、指令表、对象选择、搜索和导航。
 
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
 namespace Automation
 {
-    internal enum ProcTreeIconKind
+    internal enum ProcessOutlineIconKind
     {
         Ready,
         Stopped,
@@ -29,11 +29,11 @@ namespace Automation
     }
 
     /// <summary>
-    /// 绘制流程树状态图形。颜色只映射引擎或配置能够确定的状态。
+    /// 绘制流程导航状态图形。颜色只映射引擎或配置能够确定的状态。
     /// </summary>
-    internal static class ProcTreeIconFactory
+    internal static class ProcessOutlineIconFactory
     {
-        public static Bitmap Create(ProcTreeIconKind kind, int size)
+        public static Bitmap Create(ProcessOutlineIconKind kind, int size)
         {
             Bitmap bitmap = new Bitmap(size, size);
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -44,58 +44,58 @@ namespace Automation
                 graphics.ScaleTransform(scale, scale);
                 switch (kind)
                 {
-                    case ProcTreeIconKind.Ready:
+                    case ProcessOutlineIconKind.Ready:
                         DrawReady(graphics);
                         break;
-                    case ProcTreeIconKind.Stopped:
+                    case ProcessOutlineIconKind.Stopped:
                         DrawStopped(graphics);
                         break;
-                    case ProcTreeIconKind.Running:
+                    case ProcessOutlineIconKind.Running:
                         DrawPlayBadge(graphics, UiPalette.Success);
                         break;
-                    case ProcTreeIconKind.Paused:
+                    case ProcessOutlineIconKind.Paused:
                         DrawPauseBadge(graphics, UiPalette.Warning);
                         break;
-                    case ProcTreeIconKind.SingleStep:
+                    case ProcessOutlineIconKind.SingleStep:
                         DrawStepBadge(graphics, UiPalette.Brand);
                         break;
-                    case ProcTreeIconKind.Alarming:
+                    case ProcessOutlineIconKind.Alarming:
                         DrawAlarm(graphics, UiPalette.Danger);
                         break;
-                    case ProcTreeIconKind.Pausing:
+                    case ProcessOutlineIconKind.Pausing:
                         DrawTransitionBadge(graphics, UiPalette.Transition, true);
                         break;
-                    case ProcTreeIconKind.Stopping:
+                    case ProcessOutlineIconKind.Stopping:
                         DrawTransitionBadge(graphics, UiPalette.Stopping, false);
                         break;
-                    case ProcTreeIconKind.EmptyProc:
+                    case ProcessOutlineIconKind.EmptyProc:
                         DrawEmptyProc(graphics, UiPalette.TextMuted, false);
                         break;
-                    case ProcTreeIconKind.EmptyProcDisabled:
+                    case ProcessOutlineIconKind.EmptyProcDisabled:
                         DrawEmptyProc(graphics, UiPalette.Disabled, true);
                         break;
-                    case ProcTreeIconKind.Disabled:
+                    case ProcessOutlineIconKind.Disabled:
                         DrawDisabled(graphics);
                         break;
-                    case ProcTreeIconKind.Step:
-                        DrawStepNode(graphics, UiPalette.TextMuted, false);
+                    case ProcessOutlineIconKind.Step:
+                        DrawStepStatus(graphics, UiPalette.TextMuted, false);
                         break;
-                    case ProcTreeIconKind.EmptyStep:
-                        DrawEmptyStepNode(graphics, UiPalette.TextMuted, false);
+                    case ProcessOutlineIconKind.EmptyStep:
+                        DrawEmptyStepStatus(graphics, UiPalette.TextMuted, false);
                         break;
-                    case ProcTreeIconKind.EmptyStepDisabled:
-                        DrawEmptyStepNode(graphics, UiPalette.Disabled, true);
+                    case ProcessOutlineIconKind.EmptyStepDisabled:
+                        DrawEmptyStepStatus(graphics, UiPalette.Disabled, true);
                         break;
-                    case ProcTreeIconKind.StepRunning:
-                        DrawStepNode(graphics, UiPalette.Success, true);
+                    case ProcessOutlineIconKind.StepRunning:
+                        DrawStepStatus(graphics, UiPalette.Success, true);
                         break;
-                    case ProcTreeIconKind.StepPaused:
+                    case ProcessOutlineIconKind.StepPaused:
                         DrawPauseBadge(graphics, UiPalette.Warning);
                         break;
-                    case ProcTreeIconKind.StepSingle:
+                    case ProcessOutlineIconKind.StepSingle:
                         DrawStepBadge(graphics, UiPalette.Brand);
                         break;
-                    case ProcTreeIconKind.StepAlarming:
+                    case ProcessOutlineIconKind.StepAlarming:
                         DrawAlarm(graphics, UiPalette.Danger);
                         break;
                 }
@@ -215,7 +215,7 @@ namespace Automation
             }
         }
 
-        private static void DrawStepNode(Graphics graphics, Color color, bool active)
+        private static void DrawStepStatus(Graphics graphics, Color color, bool active)
         {
             using (Pen pen = CreatePen(color, active ? 2F : 1.7F))
             using (SolidBrush brush = new SolidBrush(color))
@@ -231,7 +231,7 @@ namespace Automation
             }
         }
 
-        private static void DrawEmptyStepNode(Graphics graphics, Color color, bool disabled)
+        private static void DrawEmptyStepStatus(Graphics graphics, Color color, bool disabled)
         {
             using (Pen pen = CreatePen(color, 1.7F))
             {

@@ -1,5 +1,5 @@
 // 模块：编辑器 / 流程。
-// 职责范围：流程树、指令表、对象选择、搜索和导航。
+// 职责范围：流程导航、指令表、对象选择、搜索和导航。
 // 排查入口：本页负责选择、确认和渲染；指令结构变更结果应沿 OperationEditingService 与统一提交链排查。
 
 using System;
@@ -128,8 +128,8 @@ namespace Automation
                 && editorWorkspace.Inspector != null
                 && !editorWorkspace.Inspector.IsDisposed)
             {
-                // 此时原生选中状态已经稳定，只绘制最终状态，再同步更新检查器。
-                dataGridView1.Update();
+                // 此时原生选中状态已经稳定，只同步最终检查器状态；
+                // 绘制留给消息循环合并处理，不在鼠标事件中强制同步刷新。
                 ShowOperationProperties(rowIndex);
             }
         }
@@ -953,8 +953,9 @@ namespace Automation
                             {
                                 if (snapshot.StepIndex >= 0
                                     && selectedProc >= 0
-                                    && selectedProc < Workspace.Proc.proc_treeView.Nodes.Count
-                                    && snapshot.StepIndex < Workspace.Proc.proc_treeView.Nodes[selectedProc].Nodes.Count)
+                                    && selectedProc < Workspace.ProcessDefinitions.Count
+                                    && snapshot.StepIndex
+                                        < (Workspace.ProcessDefinitions[selectedProc]?.steps?.Count ?? 0))
                                 {
                                     SelectChildNode(selectedProc, snapshot.StepIndex);
                                 }
@@ -1060,14 +1061,14 @@ namespace Automation
 
         public void SelectChildNode(int parentIndex, int childIndex)
         {
-
-            TreeNode parentNode = Workspace.Proc.proc_treeView.Nodes[parentIndex];
-            if (childIndex >= 0 && childIndex < parentNode.Nodes.Count)
+            if (parentIndex >= 0
+                && parentIndex < Workspace.ProcessDefinitions.Count
+                && childIndex >= 0
+                && childIndex < (Workspace.ProcessDefinitions[parentIndex]?.steps?.Count ?? 0))
             {
                 Invoke(new Action(() =>
                 {
-                    Workspace.Proc.proc_treeView.SelectedNode = parentNode.Nodes[childIndex];
-
+                    Workspace.Proc.TrySelectProcessStep(parentIndex, childIndex);
                 }));
             }
 
@@ -1620,15 +1621,8 @@ namespace Automation
                     dataGridView1.SelectSingle(rowIndex);
                 }
                 iSelectedRow = rowIndex;
-                if (editorWorkspace?.Proc != null
-                    && editorWorkspace.Inspector != null
-                    && !editorWorkspace.Inspector.IsDisposed)
-                {
-                    // 鼠标按下时直接呈现目标指令；原生 SelectedIndexChanged
-                    // 仍负责键盘、多选等最终状态校正。
-                    dataGridView1.Update();
-                    ShowOperationProperties(rowIndex);
-                }
+                // 检查器由 SelectedIndexChanged 在本轮原生通知稳定后统一更新，
+                // 避免鼠标按下时强制绘制指令表并与流程导航争抢同一帧。
             }
             if (ModifierKeys == Keys.Alt && e.Button == MouseButtons.Left)
             {
@@ -1787,7 +1781,6 @@ namespace Automation
             }
             iSelectedRow = rowIndex;
             dataGridView1.SelectSingle(rowIndex);
-            dataGridView1.Update();
             ShowOperationProperties(rowIndex);
             return true;
         }

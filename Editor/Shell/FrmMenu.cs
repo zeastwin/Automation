@@ -467,13 +467,13 @@ namespace Automation
                     {
                         Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.IO);
                     }
-                    if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
+                    if (!Workspace.Main.processOutlinePanel.Controls.Contains(Workspace.Card))
                     {
-                        Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Card);
+                        Workspace.Main.loadFillForm(Workspace.Main.processOutlinePanel, Workspace.Card);
                     }
 
                     Workspace.Main.ToolBar_panel.Visible = true;
-                    Workspace.Main.treeView_panel.Visible = true;
+                    Workspace.Main.processOutlinePanel.Visible = true;
                     Workspace.Main.inspector_panel.Visible = true;
                     Workspace.Main.DataGrid_panel.Visible = true;
                     Workspace.Main.panel_Info.Visible = false;
@@ -519,13 +519,13 @@ namespace Automation
                     {
                         Workspace.Main.loadFillForm(Workspace.Main.DataGrid_panel, Workspace.DataGrid);
                     }
-                    if (!Workspace.Main.treeView_panel.Controls.Contains(Workspace.Proc))
+                    if (!Workspace.Main.processOutlinePanel.Controls.Contains(Workspace.Proc))
                     {
-                        Workspace.Main.loadFillForm(Workspace.Main.treeView_panel, Workspace.Proc);
+                        Workspace.Main.loadFillForm(Workspace.Main.processOutlinePanel, Workspace.Proc);
                     }
 
                     Workspace.Main.ToolBar_panel.Visible = true;
-                    Workspace.Main.treeView_panel.Visible = true;
+                    Workspace.Main.processOutlinePanel.Visible = true;
                     Workspace.Main.inspector_panel.Visible = true;
                     Workspace.Main.DataGrid_panel.Visible = true;
                     Workspace.Main.panel_Info.Visible = true;
@@ -537,7 +537,7 @@ namespace Automation
                     {
                         Workspace.IO.Visible = false;
                     }
-                    if (Workspace.Main.treeView_panel.Controls.Contains(Workspace.Card))
+                    if (Workspace.Main.processOutlinePanel.Controls.Contains(Workspace.Card))
                     {
                         Workspace.Card.Visible = false;
                     }

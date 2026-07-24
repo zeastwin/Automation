@@ -394,7 +394,7 @@
     <Compile Include="Editor\Process\ProcessOutlineList.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="Editor\Process\ProcTreeIconFactory.cs" />
+    <Compile Include="Editor\Process\ProcessOutlineIconFactory.cs" />
     <Compile Include="Editor\Shell\EditorWorkspace.cs" />
     <Compile Include="Editor\Shell\FrmAppConfig.cs">
       <SubType>Form</SubType>
@@ -447,6 +447,7 @@
       <DependentUpon>FrmValueDebug.cs</DependentUpon>
     </Compile>
     <Compile Include="Editor\Variables\VariableEditorService.cs" />
+    <Compile Include="Editor\Variables\VariableTableProjectionCache.cs" />
     <Compile Include="Engine\Compilation\AiChangeSetCompiler.cs" />
     <Compile Include="Engine\Compilation\AiOperationCompilerRegistry.cs" />
     <Compile Include="Engine\Compilation\StructuredOperationCompiler.cs" />

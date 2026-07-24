@@ -1,5 +1,5 @@
 // 模块：编辑器 / 流程。
-// 职责范围：以稳定 ID 驱动两级流程列表的展开、选择、滚动和无闪烁绘制。
+// 职责范围：以单一缓冲画布呈现两级流程导航，独立管理展开、选择和像素滚动。
 
 using System;
 using System.Collections.Generic;
@@ -28,7 +28,70 @@ namespace Automation
         }
     }
 
-    internal sealed class ProcessOutlineList : ListBox
+    internal struct ProcessOutlineScrollAnchor
+    {
+        public ProcessOutlineScrollAnchor(
+            Guid procId,
+            Guid stepId,
+            int offsetWithinRow,
+            int absoluteOffset)
+        {
+            ProcId = procId;
+            StepId = stepId;
+            OffsetWithinRow = Math.Max(0, offsetWithinRow);
+            AbsoluteOffset = Math.Max(0, absoluteOffset);
+        }
+
+        public Guid ProcId { get; }
+
+        public Guid StepId { get; }
+
+        public int OffsetWithinRow { get; }
+
+        public int AbsoluteOffset { get; }
+
+        public bool IsEmpty => ProcId == Guid.Empty;
+
+        public static ProcessOutlineScrollAnchor Empty =>
+            new ProcessOutlineScrollAnchor(
+                Guid.Empty,
+                Guid.Empty,
+                0,
+                0);
+    }
+
+    internal struct ProcessOutlineStepIdentity : IEquatable<ProcessOutlineStepIdentity>
+    {
+        public ProcessOutlineStepIdentity(Guid procId, Guid stepId)
+        {
+            ProcId = procId;
+            StepId = stepId;
+        }
+
+        public Guid ProcId { get; }
+
+        public Guid StepId { get; }
+
+        public bool Equals(ProcessOutlineStepIdentity other)
+        {
+            return ProcId == other.ProcId && StepId == other.StepId;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ProcessOutlineStepIdentity other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (ProcId.GetHashCode() * 397) ^ StepId.GetHashCode();
+            }
+        }
+    }
+
+    internal sealed class ProcessOutlineList : ScrollableControl
     {
         private const int ToggleAreaWidth = 9;
         private const int RootImageLeft = 8;
@@ -39,66 +102,118 @@ namespace Automation
 
         private readonly List<ProcessOutlineItem> allItems =
             new List<ProcessOutlineItem>();
+        private readonly List<ProcessOutlineItem> visibleItems =
+            new List<ProcessOutlineItem>();
         private readonly HashSet<Guid> expandedProcIds =
             new HashSet<Guid>();
         private readonly Dictionary<Guid, ProcessOutlineItem> processItems =
             new Dictionary<Guid, ProcessOutlineItem>();
-        private readonly Dictionary<Guid, ProcessOutlineItem> stepItems =
-            new Dictionary<Guid, ProcessOutlineItem>();
-        private bool suppressSelectionEvents;
-        private bool userInteraction;
+        private readonly Dictionary<ProcessOutlineStepIdentity, ProcessOutlineItem> stepItems =
+            new Dictionary<ProcessOutlineStepIdentity, ProcessOutlineItem>();
+        private ProcessOutlineItem selectedItem;
+        private ImageList stateImages;
+        private Font processFont;
+        private Font stepFont;
+        private int itemHeight = 25;
 
         public ProcessOutlineList()
         {
-            DrawMode = DrawMode.OwnerDrawFixed;
-            ItemHeight = 25;
-            IntegralHeight = false;
-            BorderStyle = BorderStyle.None;
-            SelectionMode = SelectionMode.One;
+            AutoScroll = true;
+            TabStop = true;
             SetStyle(
-                ControlStyles.OptimizedDoubleBuffer
-                    | ControlStyles.AllPaintingInWmPaint,
+                ControlStyles.UserPaint
+                    | ControlStyles.AllPaintingInWmPaint
+                    | ControlStyles.OptimizedDoubleBuffer
+                    | ControlStyles.ResizeRedraw
+                    | ControlStyles.Selectable,
                 true);
             DoubleBuffered = true;
         }
 
+        public event EventHandler SelectedIndexChanged;
+
         public event EventHandler UserSelectionChanged;
 
-        public ImageList StateImages { get; set; }
+        public ImageList StateImages
+        {
+            get => stateImages;
+            set
+            {
+                if (ReferenceEquals(stateImages, value))
+                {
+                    return;
+                }
+                stateImages = value;
+                Invalidate();
+            }
+        }
 
-        public Font ProcessFont { get; set; }
+        public Font ProcessFont
+        {
+            get => processFont;
+            set
+            {
+                if (ReferenceEquals(processFont, value))
+                {
+                    return;
+                }
+                processFont = value;
+                Invalidate();
+            }
+        }
 
-        public Font StepFont { get; set; }
+        public Font StepFont
+        {
+            get => stepFont;
+            set
+            {
+                if (ReferenceEquals(stepFont, value))
+                {
+                    return;
+                }
+                stepFont = value;
+                Invalidate();
+            }
+        }
 
-        public ProcessOutlineItem SelectedOutlineItem =>
-            SelectedItem as ProcessOutlineItem;
+        public int ItemHeight
+        {
+            get => itemHeight;
+            set
+            {
+                int nextHeight = Math.Max(1, value);
+                if (itemHeight == nextHeight)
+                {
+                    return;
+                }
+                ProcessOutlineScrollAnchor anchor = CaptureScrollAnchor();
+                itemHeight = nextHeight;
+                UpdateScrollExtent();
+                RestoreScrollAnchor(anchor);
+                Invalidate();
+            }
+        }
 
-        public bool HasSelection => SelectedOutlineItem != null;
+        public ProcessOutlineItem SelectedOutlineItem => selectedItem;
 
-        public int VisibleItemCount => Items.Count;
+        public bool HasSelection => selectedItem != null;
+
+        public int VisibleItemCount => visibleItems.Count;
 
         public IReadOnlyCollection<Guid> ExpandedProcIds =>
             expandedProcIds.ToArray();
 
-        public Guid TopVisibleProcId
-        {
-            get
-            {
-                if (TopIndex < 0 || TopIndex >= Items.Count)
-                {
-                    return Guid.Empty;
-                }
-                return (Items[TopIndex] as ProcessOutlineItem)?.ProcId
-                    ?? Guid.Empty;
-            }
-        }
+        public ProcessOutlineScrollAnchor ScrollAnchor =>
+            CaptureScrollAnchor();
+
+        internal int ScrollOffset => GetScrollOffset();
 
         public void ReplaceItems(
             IEnumerable<ProcessOutlineItem> items,
             IEnumerable<Guid> expandedIds,
             Guid selectedProcId,
             Guid selectedStepId,
-            Guid topProcId)
+            ProcessOutlineScrollAnchor scrollAnchor)
         {
             allItems.Clear();
             processItems.Clear();
@@ -117,7 +232,10 @@ namespace Automation
                 }
                 else if (item.StepId != Guid.Empty)
                 {
-                    stepItems[item.StepId] = item;
+                    stepItems[
+                        new ProcessOutlineStepIdentity(
+                            item.ProcId,
+                            item.StepId)] = item;
                 }
             }
 
@@ -130,17 +248,20 @@ namespace Automation
                 }
             }
             if (selectedStepId != Guid.Empty
-                && stepItems.TryGetValue(selectedStepId, out ProcessOutlineItem selectedStep))
+                && stepItems.TryGetValue(
+                    new ProcessOutlineStepIdentity(
+                        selectedProcId,
+                        selectedStepId),
+                    out ProcessOutlineItem selectedStep))
             {
                 expandedProcIds.Add(selectedStep.ProcId);
             }
 
-            RebuildVisibleItems(
-                selectedProcId,
-                selectedStepId,
-                topProcId,
-                false,
-                false);
+            RebuildVisibleItems();
+            selectedItem = ResolveSelection(selectedProcId, selectedStepId);
+            UpdateScrollExtent();
+            RestoreScrollAnchor(scrollAnchor);
+            Invalidate();
         }
 
         public bool SelectIdentity(
@@ -148,46 +269,39 @@ namespace Automation
             Guid stepId,
             bool ensureVisible)
         {
-            if (procId == Guid.Empty || !processItems.ContainsKey(procId))
+            if (procId == Guid.Empty
+                || !processItems.TryGetValue(
+                    procId,
+                    out ProcessOutlineItem process))
             {
                 ClearSelection();
                 return false;
             }
+
+            ProcessOutlineItem target = process;
             if (stepId != Guid.Empty)
             {
-                if (!stepItems.TryGetValue(stepId, out ProcessOutlineItem step)
-                    || step.ProcId != procId)
+                if (!stepItems.TryGetValue(
+                        new ProcessOutlineStepIdentity(procId, stepId),
+                        out ProcessOutlineItem step))
                 {
-                    stepId = Guid.Empty;
+                    return false;
                 }
-                else if (!expandedProcIds.Contains(procId))
+                if (!expandedProcIds.Contains(procId))
                 {
-                    expandedProcIds.Add(procId);
-                    RebuildVisibleItems(
-                        procId,
-                        stepId,
-                        TopVisibleProcId,
-                        false,
-                        false);
+                    ExpandProcess(procId);
+                    UpdateScrollExtent();
                 }
+                target = step;
             }
 
-            int index = FindVisibleIndex(procId, stepId);
-            if (index < 0)
-            {
-                return false;
-            }
-            SelectedIndex = index;
-            if (ensureVisible)
-            {
-                TopIndex = Math.Max(0, Math.Min(index, Items.Count - 1));
-            }
+            SetSelection(target, false, ensureVisible);
             return true;
         }
 
         public void ClearSelection()
         {
-            SelectedIndex = -1;
+            SetSelection(null, false, false);
         }
 
         public bool TryGetProcess(Guid procId, out ProcessOutlineItem item)
@@ -195,90 +309,271 @@ namespace Automation
             return processItems.TryGetValue(procId, out item);
         }
 
-        public bool TryGetStep(Guid stepId, out ProcessOutlineItem item)
+        public bool TryGetStep(
+            Guid procId,
+            Guid stepId,
+            out ProcessOutlineItem item)
         {
-            return stepItems.TryGetValue(stepId, out item);
+            return stepItems.TryGetValue(
+                new ProcessOutlineStepIdentity(procId, stepId),
+                out item);
         }
 
         public void InvalidateProcess(Guid procId)
         {
-            for (int index = 0; index < Items.Count; index++)
+            Rectangle invalidBounds = Rectangle.Empty;
+            for (int index = 0; index < visibleItems.Count; index++)
             {
-                if (Items[index] is ProcessOutlineItem item
-                    && item.ProcId == procId)
+                if (visibleItems[index].ProcId != procId)
                 {
-                    Invalidate(GetItemRectangle(index));
+                    continue;
                 }
+                Rectangle rowBounds = GetItemRectangle(index);
+                if (!rowBounds.IntersectsWith(ClientRectangle))
+                {
+                    continue;
+                }
+                invalidBounds = invalidBounds.IsEmpty
+                    ? rowBounds
+                    : Rectangle.Union(invalidBounds, rowBounds);
+            }
+            if (!invalidBounds.IsEmpty)
+            {
+                Invalidate(Rectangle.Intersect(
+                    invalidBounds,
+                    ClientRectangle));
             }
         }
 
         public ProcessOutlineItem GetVisibleItem(int index)
         {
-            return index >= 0 && index < Items.Count
-                ? Items[index] as ProcessOutlineItem
+            return index >= 0 && index < visibleItems.Count
+                ? visibleItems[index]
                 : null;
         }
 
-        protected override void OnDrawItem(DrawItemEventArgs e)
+        protected override void OnPaintBackground(PaintEventArgs e)
         {
-            if (e.Index < 0 || e.Index >= Items.Count
-                || !(Items[e.Index] is ProcessOutlineItem item))
+            // 背景与行在同一个缓冲帧中绘制，避免背景擦除后再绘制内容造成闪烁。
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using (var backgroundBrush = new SolidBrush(BackColor))
+            {
+                e.Graphics.FillRectangle(
+                    backgroundBrush,
+                    ClientRectangle);
+            }
+
+            if (visibleItems.Count == 0 || ClientSize.Height <= 0)
             {
                 return;
             }
 
-            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            Color backgroundColor = selected ? UiPalette.Selection : BackColor;
+            int scrollOffset = GetScrollOffset();
+            int firstIndex = Math.Max(
+                0,
+                Math.Min(
+                    visibleItems.Count - 1,
+                    scrollOffset / ItemHeight));
+            int rowTop = firstIndex * ItemHeight - scrollOffset;
+            for (int index = firstIndex;
+                index < visibleItems.Count && rowTop < ClientSize.Height;
+                index++, rowTop += ItemHeight)
+            {
+                Rectangle rowBounds = new Rectangle(
+                    0,
+                    rowTop,
+                    ClientSize.Width,
+                    ItemHeight);
+                if (rowBounds.Bottom > 0)
+                {
+                    DrawItem(
+                        e.Graphics,
+                        visibleItems[index],
+                        rowBounds,
+                        IsVisuallySelected(visibleItems[index]));
+                }
+            }
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (CanFocus)
+            {
+                Focus();
+            }
+
+            int index = IndexFromPoint(e.Location);
+            if (index < 0)
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    SetSelection(null, true, false);
+                }
+                return;
+            }
+
+            ProcessOutlineItem item = visibleItems[index];
+            if (e.Button == MouseButtons.Left
+                && e.Clicks == 1
+                && e.X <= ToggleAreaWidth
+                && item.IsProcess
+                && item.HasChildren)
+            {
+                ToggleProcess(item.ProcId);
+                return;
+            }
+
+            if (e.Button == MouseButtons.Left
+                || e.Button == MouseButtons.Right)
+            {
+                SetSelection(item, true, false);
+            }
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+            if (e.Button != MouseButtons.Left
+                || e.X <= ToggleAreaWidth)
+            {
+                return;
+            }
+            int index = IndexFromPoint(e.Location);
+            if (index >= 0)
+            {
+                ProcessOutlineItem item = visibleItems[index];
+                if (item.IsProcess && item.HasChildren)
+                {
+                    ToggleProcess(item.ProcId);
+                }
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (HandleExpansionKey(e)
+                || HandleNavigationKey(e))
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            switch (keyData & Keys.KeyCode)
+            {
+                case Keys.Up:
+                case Keys.Down:
+                case Keys.Left:
+                case Keys.Right:
+                case Keys.Home:
+                case Keys.End:
+                case Keys.PageUp:
+                case Keys.PageDown:
+                    return true;
+                default:
+                    return base.IsInputKey(keyData);
+            }
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            Invalidate();
+        }
+
+        protected override void OnScroll(ScrollEventArgs se)
+        {
+            base.OnScroll(se);
+            Invalidate();
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            ProcessOutlineScrollAnchor anchor = CaptureScrollAnchor();
+            base.OnSizeChanged(e);
+            UpdateScrollExtent();
+            RestoreScrollAnchor(anchor);
+            Invalidate();
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            base.OnEnabledChanged(e);
+            Invalidate();
+        }
+
+        private void DrawItem(
+            Graphics graphics,
+            ProcessOutlineItem item,
+            Rectangle bounds,
+            bool selected)
+        {
+            Color backgroundColor = selected
+                ? UiPalette.Selection
+                : BackColor;
             using (var backgroundBrush = new SolidBrush(backgroundColor))
             {
-                e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+                graphics.FillRectangle(backgroundBrush, bounds);
             }
             if (selected)
             {
                 using (var accentBrush = new SolidBrush(UiPalette.Brand))
                 {
-                    e.Graphics.FillRectangle(
+                    graphics.FillRectangle(
                         accentBrush,
-                        e.Bounds.Left,
-                        e.Bounds.Top,
+                        bounds.Left,
+                        bounds.Top,
                         3,
-                        e.Bounds.Height);
+                        bounds.Height);
                 }
             }
 
             if (item.IsProcess && item.HasChildren)
             {
                 DrawChevron(
-                    e.Graphics,
-                    e.Bounds.Left + 4,
-                    e.Bounds.Top + e.Bounds.Height / 2,
+                    graphics,
+                    bounds.Left + 4,
+                    bounds.Top + bounds.Height / 2,
                     expandedProcIds.Contains(item.ProcId),
-                    selected ? UiPalette.SelectionText : UiPalette.TextMuted);
+                    selected
+                        ? UiPalette.SelectionText
+                        : UiPalette.TextMuted);
             }
 
-            int imageLeft = e.Bounds.Left
+            int imageLeft = bounds.Left
                 + RootImageLeft
                 + (item.IsProcess ? 0 : StepIndent);
             var imageBounds = new Rectangle(
                 imageLeft,
-                e.Bounds.Top + Math.Max(0, (e.Bounds.Height - ImageSize) / 2),
+                bounds.Top
+                    + Math.Max(0, (bounds.Height - ImageSize) / 2),
                 ImageSize,
                 ImageSize);
             if (StateImages != null
                 && !string.IsNullOrEmpty(item.ImageKey)
                 && StateImages.Images.ContainsKey(item.ImageKey))
             {
-                e.Graphics.DrawImage(StateImages.Images[item.ImageKey], imageBounds);
+                graphics.DrawImage(
+                    StateImages.Images[item.ImageKey],
+                    imageBounds);
             }
 
             int textLeft = imageBounds.Right + TextGap;
             var textBounds = new Rectangle(
                 textLeft,
-                e.Bounds.Top,
+                bounds.Top,
                 Math.Max(
                     1,
                     ClientSize.Width - textLeft - TextRightPadding),
-                e.Bounds.Height);
+                bounds.Height);
             Font font = item.IsProcess
                 ? ProcessFont ?? Font
                 : StepFont ?? Font;
@@ -288,207 +583,272 @@ namespace Automation
                     ? item.ForeColor
                     : UiPalette.TextDisabled;
             TextRenderer.DrawText(
-                e.Graphics,
+                graphics,
                 item.Text ?? string.Empty,
                 font,
                 textBounds,
                 textColor,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                    | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                TextFormatFlags.Left
+                    | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine
+                    | TextFormatFlags.EndEllipsis
                     | TextFormatFlags.NoPrefix);
         }
 
-        protected override void OnSelectedIndexChanged(EventArgs e)
+        private bool HandleExpansionKey(KeyEventArgs e)
         {
-            if (suppressSelectionEvents)
+            if (selectedItem == null)
             {
+                return false;
+            }
+            if (e.KeyCode == Keys.Right
+                && selectedItem.IsProcess
+                && selectedItem.HasChildren
+                && !expandedProcIds.Contains(selectedItem.ProcId))
+            {
+                ToggleProcess(selectedItem.ProcId);
+                return true;
+            }
+            if (e.KeyCode == Keys.Left)
+            {
+                if (selectedItem.IsProcess
+                    && expandedProcIds.Contains(selectedItem.ProcId))
+                {
+                    ToggleProcess(selectedItem.ProcId);
+                    return true;
+                }
+                if (!selectedItem.IsProcess
+                    && processItems.TryGetValue(
+                        selectedItem.ProcId,
+                        out ProcessOutlineItem process))
+                {
+                    SetSelection(process, true, true);
+                    return true;
+                }
+            }
+            if ((e.KeyCode == Keys.Enter
+                    || e.KeyCode == Keys.Space)
+                && selectedItem.IsProcess
+                && selectedItem.HasChildren)
+            {
+                ToggleProcess(selectedItem.ProcId);
+                return true;
+            }
+            return false;
+        }
+
+        private bool HandleNavigationKey(KeyEventArgs e)
+        {
+            if (visibleItems.Count == 0)
+            {
+                return false;
+            }
+            int currentIndex = FindVisibleIndex(selectedItem);
+            int targetIndex;
+            switch (e.KeyCode)
+            {
+                case Keys.Up:
+                    targetIndex = currentIndex < 0
+                        ? 0
+                        : Math.Max(0, currentIndex - 1);
+                    break;
+                case Keys.Down:
+                    targetIndex = currentIndex < 0
+                        ? 0
+                        : Math.Min(
+                            visibleItems.Count - 1,
+                            currentIndex + 1);
+                    break;
+                case Keys.Home:
+                    targetIndex = 0;
+                    break;
+                case Keys.End:
+                    targetIndex = visibleItems.Count - 1;
+                    break;
+                case Keys.PageUp:
+                    targetIndex = Math.Max(
+                        0,
+                        (currentIndex < 0 ? 0 : currentIndex)
+                            - GetPageRowCount());
+                    break;
+                case Keys.PageDown:
+                    targetIndex = Math.Min(
+                        visibleItems.Count - 1,
+                        (currentIndex < 0 ? 0 : currentIndex)
+                            + GetPageRowCount());
+                    break;
+                default:
+                    return false;
+            }
+            SetSelection(
+                visibleItems[targetIndex],
+                true,
+                true);
+            return true;
+        }
+
+        private int GetPageRowCount()
+        {
+            return Math.Max(
+                1,
+                ClientSize.Height / ItemHeight - 1);
+        }
+
+        private void SetSelection(
+            ProcessOutlineItem target,
+            bool initiatedByUser,
+            bool ensureVisible)
+        {
+            if (SameIdentity(selectedItem, target))
+            {
+                if (ensureVisible)
+                {
+                    EnsureItemVisible(target);
+                }
                 return;
             }
-            base.OnSelectedIndexChanged(e);
-            if (userInteraction)
+
+            ProcessOutlineItem previous = selectedItem;
+            selectedItem = target;
+            InvalidateItem(previous);
+            InvalidateItem(target);
+            if (ensureVisible)
             {
-                UserSelectionChanged?.Invoke(this, EventArgs.Empty);
+                EnsureItemVisible(target);
+            }
+
+            SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+            if (initiatedByUser
+                && SameIdentity(selectedItem, target))
+            {
+                UserSelectionChanged?.Invoke(
+                    this,
+                    EventArgs.Empty);
             }
         }
 
-        protected override void OnMouseDown(MouseEventArgs e)
+        private void ToggleProcess(Guid procId)
         {
-            int index = IndexFromPoint(e.Location);
-            userInteraction = true;
-            try
-            {
-                if (index < 0)
-                {
-                    ClearSelection();
-                    base.OnMouseDown(e);
-                    return;
-                }
-                if (e.Button == MouseButtons.Right)
-                {
-                    SelectedIndex = index;
-                }
-                base.OnMouseDown(e);
-                if (e.Button == MouseButtons.Left
-                    && e.X <= ToggleAreaWidth
-                    && Items[index] is ProcessOutlineItem item
-                    && item.IsProcess
-                    && item.HasChildren)
-                {
-                    ToggleProcess(item.ProcId, true);
-                }
-            }
-            finally
-            {
-                userInteraction = false;
-            }
-        }
-
-        protected override void OnMouseDoubleClick(MouseEventArgs e)
-        {
-            base.OnMouseDoubleClick(e);
-            if (e.Button != MouseButtons.Left || e.X <= ToggleAreaWidth)
-            {
-                return;
-            }
-            int index = IndexFromPoint(e.Location);
-            if (index >= 0
-                && Items[index] is ProcessOutlineItem item
-                && item.IsProcess
-                && item.HasChildren)
-            {
-                ToggleProcess(item.ProcId, true);
-            }
-        }
-
-        protected override void OnKeyDown(KeyEventArgs e)
-        {
-            ProcessOutlineItem selected = SelectedOutlineItem;
-            if (selected != null)
-            {
-                if (e.KeyCode == Keys.Right
-                    && selected.IsProcess
-                    && selected.HasChildren
-                    && !expandedProcIds.Contains(selected.ProcId))
-                {
-                    ToggleProcess(selected.ProcId, true);
-                    e.Handled = true;
-                    return;
-                }
-                if (e.KeyCode == Keys.Left)
-                {
-                    if (selected.IsProcess && expandedProcIds.Contains(selected.ProcId))
-                    {
-                        ToggleProcess(selected.ProcId, true);
-                    }
-                    else if (!selected.IsProcess)
-                    {
-                        userInteraction = true;
-                        try
-                        {
-                            SelectIdentity(selected.ProcId, Guid.Empty, true);
-                        }
-                        finally
-                        {
-                            userInteraction = false;
-                        }
-                    }
-                    e.Handled = true;
-                    return;
-                }
-                if ((e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
-                    && selected.IsProcess
-                    && selected.HasChildren)
-                {
-                    ToggleProcess(selected.ProcId, true);
-                    e.Handled = true;
-                    return;
-                }
-            }
-
-            userInteraction = true;
-            try
-            {
-                base.OnKeyDown(e);
-            }
-            finally
-            {
-                userInteraction = false;
-            }
-        }
-
-        private void ToggleProcess(Guid procId, bool initiatedByUser)
-        {
-            if (!processItems.TryGetValue(procId, out ProcessOutlineItem process)
+            if (!processItems.TryGetValue(
+                    procId,
+                    out ProcessOutlineItem process)
                 || !process.HasChildren)
             {
                 return;
             }
-            ProcessOutlineItem selected = SelectedOutlineItem;
-            Guid selectedProcId = selected?.ProcId ?? procId;
-            Guid selectedStepId = selected?.StepId ?? Guid.Empty;
-            if (!expandedProcIds.Add(procId))
+
+            ProcessOutlineScrollAnchor anchor = CaptureScrollAnchor();
+            if (expandedProcIds.Contains(procId))
             {
-                expandedProcIds.Remove(procId);
-                if (selectedProcId == procId && selectedStepId != Guid.Empty)
-                {
-                    selectedStepId = Guid.Empty;
-                }
+                CollapseProcess(procId);
             }
-            RebuildVisibleItems(
-                selectedProcId,
-                selectedStepId,
-                TopVisibleProcId,
-                selected?.StepId != selectedStepId,
-                initiatedByUser);
+            else
+            {
+                ExpandProcess(procId);
+            }
+            UpdateScrollExtent();
+            RestoreScrollAnchor(anchor);
+            Invalidate();
         }
 
-        private void RebuildVisibleItems(
-            Guid selectedProcId,
-            Guid selectedStepId,
-            Guid topProcId,
-            bool notifySelectionChanged,
-            bool initiatedByUser)
+        private void ExpandProcess(Guid procId)
         {
-            suppressSelectionEvents = true;
-            BeginUpdate();
-            try
+            if (!expandedProcIds.Add(procId))
             {
-                Items.Clear();
-                foreach (ProcessOutlineItem item in allItems)
-                {
-                    if (item.IsProcess || expandedProcIds.Contains(item.ProcId))
-                    {
-                        Items.Add(item);
-                    }
-                }
-                int selectedIndex = FindVisibleIndex(selectedProcId, selectedStepId);
-                if (selectedIndex < 0)
-                {
-                    selectedIndex = FindVisibleIndex(selectedProcId, Guid.Empty);
-                }
-                SelectedIndex = selectedIndex;
-
-                int topIndex = FindVisibleIndex(topProcId, Guid.Empty);
-                if (topIndex >= 0)
-                {
-                    TopIndex = topIndex;
-                }
+                return;
             }
-            finally
+            int processIndex = FindVisibleIndex(procId, Guid.Empty);
+            if (processIndex < 0)
             {
-                EndUpdate();
-                suppressSelectionEvents = false;
+                return;
             }
 
-            if (notifySelectionChanged)
+            int insertIndex = processIndex + 1;
+            foreach (ProcessOutlineItem item in allItems)
             {
-                base.OnSelectedIndexChanged(EventArgs.Empty);
-                if (initiatedByUser)
+                if (!item.IsProcess && item.ProcId == procId)
                 {
-                    UserSelectionChanged?.Invoke(this, EventArgs.Empty);
+                    visibleItems.Insert(insertIndex++, item);
                 }
             }
-            Invalidate();
+        }
+
+        private void CollapseProcess(Guid procId)
+        {
+            if (!expandedProcIds.Remove(procId))
+            {
+                return;
+            }
+            for (int index = visibleItems.Count - 1;
+                index >= 0;
+                index--)
+            {
+                ProcessOutlineItem item = visibleItems[index];
+                if (!item.IsProcess && item.ProcId == procId)
+                {
+                    visibleItems.RemoveAt(index);
+                }
+            }
+        }
+
+        private void RebuildVisibleItems()
+        {
+            visibleItems.Clear();
+            foreach (ProcessOutlineItem item in allItems)
+            {
+                if (item.IsProcess
+                    || expandedProcIds.Contains(item.ProcId))
+                {
+                    visibleItems.Add(item);
+                }
+            }
+        }
+
+        private ProcessOutlineItem ResolveSelection(
+            Guid procId,
+            Guid stepId)
+        {
+            if (procId == Guid.Empty
+                || !processItems.TryGetValue(
+                    procId,
+                    out ProcessOutlineItem process))
+            {
+                return null;
+            }
+            if (stepId == Guid.Empty)
+            {
+                return process;
+            }
+            return stepItems.TryGetValue(
+                    new ProcessOutlineStepIdentity(procId, stepId),
+                    out ProcessOutlineItem step)
+                    ? step
+                    : process;
+        }
+
+        private int IndexFromPoint(Point location)
+        {
+            if (location.X < 0
+                || location.X >= ClientSize.Width
+                || location.Y < 0
+                || location.Y >= ClientSize.Height)
+            {
+                return -1;
+            }
+            int index = (location.Y + GetScrollOffset())
+                / ItemHeight;
+            return index >= 0 && index < visibleItems.Count
+                ? index
+                : -1;
+        }
+
+        private int FindVisibleIndex(ProcessOutlineItem item)
+        {
+            if (item == null)
+            {
+                return -1;
+            }
+            return FindVisibleIndex(item.ProcId, item.StepId);
         }
 
         private int FindVisibleIndex(Guid procId, Guid stepId)
@@ -497,10 +857,12 @@ namespace Automation
             {
                 return -1;
             }
-            for (int index = 0; index < Items.Count; index++)
+            for (int index = 0;
+                index < visibleItems.Count;
+                index++)
             {
-                if (!(Items[index] is ProcessOutlineItem item)
-                    || item.ProcId != procId)
+                ProcessOutlineItem item = visibleItems[index];
+                if (item.ProcId != procId)
                 {
                     continue;
                 }
@@ -508,12 +870,171 @@ namespace Automation
                 {
                     return index;
                 }
-                if (stepId != Guid.Empty && item.StepId == stepId)
+                if (stepId != Guid.Empty
+                    && item.StepId == stepId)
                 {
                     return index;
                 }
             }
             return -1;
+        }
+
+        private Rectangle GetItemRectangle(int index)
+        {
+            return new Rectangle(
+                0,
+                index * ItemHeight - GetScrollOffset(),
+                ClientSize.Width,
+                ItemHeight);
+        }
+
+        private void InvalidateItem(ProcessOutlineItem item)
+        {
+            int index = FindVisibleIndex(item);
+            if (index < 0)
+            {
+                return;
+            }
+            Rectangle bounds = GetItemRectangle(index);
+            if (bounds.IntersectsWith(ClientRectangle))
+            {
+                Invalidate(Rectangle.Intersect(
+                    bounds,
+                    ClientRectangle));
+            }
+        }
+
+        private void EnsureItemVisible(ProcessOutlineItem item)
+        {
+            int index = FindVisibleIndex(item);
+            if (index < 0 || ClientSize.Height <= 0)
+            {
+                return;
+            }
+
+            int viewportTop = GetScrollOffset();
+            int viewportBottom = viewportTop + ClientSize.Height;
+            int rowTop = index * ItemHeight;
+            int rowBottom = rowTop + ItemHeight;
+            if (rowTop < viewportTop)
+            {
+                SetScrollOffset(rowTop);
+            }
+            else if (rowBottom > viewportBottom)
+            {
+                SetScrollOffset(
+                    rowBottom - ClientSize.Height);
+            }
+        }
+
+        private ProcessOutlineScrollAnchor CaptureScrollAnchor()
+        {
+            int absoluteOffset = GetScrollOffset();
+            if (visibleItems.Count == 0)
+            {
+                return new ProcessOutlineScrollAnchor(
+                    Guid.Empty,
+                    Guid.Empty,
+                    0,
+                    absoluteOffset);
+            }
+            int index = Math.Max(
+                0,
+                Math.Min(
+                    visibleItems.Count - 1,
+                    absoluteOffset / ItemHeight));
+            ProcessOutlineItem item = visibleItems[index];
+            return new ProcessOutlineScrollAnchor(
+                item.ProcId,
+                item.StepId,
+                absoluteOffset - index * ItemHeight,
+                absoluteOffset);
+        }
+
+        private void RestoreScrollAnchor(
+            ProcessOutlineScrollAnchor anchor)
+        {
+            if (anchor.IsEmpty)
+            {
+                SetScrollOffset(anchor.AbsoluteOffset);
+                return;
+            }
+
+            int index = FindVisibleIndex(
+                anchor.ProcId,
+                anchor.StepId);
+            if (index < 0)
+            {
+                index = FindVisibleIndex(
+                    anchor.ProcId,
+                    Guid.Empty);
+            }
+            int offset = index >= 0
+                ? index * ItemHeight + anchor.OffsetWithinRow
+                : anchor.AbsoluteOffset;
+            SetScrollOffset(offset);
+        }
+
+        private int GetScrollOffset()
+        {
+            return Math.Max(0, -AutoScrollPosition.Y);
+        }
+
+        private void SetScrollOffset(int offset)
+        {
+            int maximumOffset = Math.Max(
+                0,
+                visibleItems.Count * ItemHeight
+                    - ClientSize.Height);
+            int boundedOffset = Math.Max(
+                0,
+                Math.Min(offset, maximumOffset));
+            if (GetScrollOffset() == boundedOffset)
+            {
+                return;
+            }
+            AutoScrollPosition = new Point(
+                0,
+                boundedOffset);
+            Invalidate();
+        }
+
+        private void UpdateScrollExtent()
+        {
+            AutoScrollMinSize = new Size(
+                0,
+                visibleItems.Count * ItemHeight);
+            VerticalScroll.SmallChange = ItemHeight;
+            VerticalScroll.LargeChange = Math.Max(
+                ItemHeight,
+                ClientSize.Height - ItemHeight);
+        }
+
+        private static bool SameIdentity(
+            ProcessOutlineItem first,
+            ProcessOutlineItem second)
+        {
+            if (ReferenceEquals(first, second))
+            {
+                return true;
+            }
+            return first != null
+                && second != null
+                && first.ProcId == second.ProcId
+                && first.StepId == second.StepId;
+        }
+
+        private bool IsVisuallySelected(ProcessOutlineItem item)
+        {
+            if (SameIdentity(item, selectedItem))
+            {
+                return true;
+            }
+            return item?.IsProcess == true
+                && selectedItem != null
+                && !selectedItem.IsProcess
+                && selectedItem.ProcId == item.ProcId
+                && !expandedProcIds.Contains(item.ProcId);
         }
 
         private static void DrawChevron(
@@ -527,12 +1048,32 @@ namespace Automation
             {
                 if (expanded)
                 {
-                    graphics.DrawLine(pen, centerX - 2, centerY - 1, centerX, centerY + 1);
-                    graphics.DrawLine(pen, centerX, centerY + 1, centerX + 2, centerY - 1);
+                    graphics.DrawLine(
+                        pen,
+                        centerX - 2,
+                        centerY - 1,
+                        centerX,
+                        centerY + 1);
+                    graphics.DrawLine(
+                        pen,
+                        centerX,
+                        centerY + 1,
+                        centerX + 2,
+                        centerY - 1);
                     return;
                 }
-                graphics.DrawLine(pen, centerX - 1, centerY - 2, centerX + 1, centerY);
-                graphics.DrawLine(pen, centerX + 1, centerY, centerX - 1, centerY + 2);
+                graphics.DrawLine(
+                    pen,
+                    centerX - 1,
+                    centerY - 2,
+                    centerX + 1,
+                    centerY);
+                graphics.DrawLine(
+                    pen,
+                    centerX + 1,
+                    centerY,
+                    centerX - 1,
+                    centerY + 2);
             }
         }
     }

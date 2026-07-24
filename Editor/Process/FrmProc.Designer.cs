@@ -50,6 +50,7 @@
             this.processOutline.Name = "processOutline";
             this.processOutline.Size = new System.Drawing.Size(465, 585);
             this.processOutline.TabIndex = 0;
+            this.processOutline.ContextMenuStrip = this.contextMenuStrip1;
             this.processOutline.SelectedIndexChanged += new System.EventHandler(this.ProcessOutline_SelectedIndexChanged);
             // 
             // contextMenuStrip1

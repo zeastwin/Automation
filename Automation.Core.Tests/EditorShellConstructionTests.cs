@@ -27,7 +27,7 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
-        public void ProcessTreeWidth_CanBeAdjustedWithSplitter()
+        public void ProcessOutlineWidth_CanBeAdjustedWithSplitter()
         {
             StaTestRunner.Run(() =>
             {
@@ -37,16 +37,16 @@ namespace Automation.Core.Tests
                 {
                     Assert.AreEqual(
                         System.Windows.Forms.DockStyle.Left,
-                        form.processTreeSplitter.Dock);
-                    Assert.AreEqual(150, form.processTreeSplitter.MinSize);
+                        form.processOutlineSplitter.Dock);
+                    Assert.AreEqual(150, form.processOutlineSplitter.MinSize);
                     Assert.AreSame(
-                        form.treeView_panel.Parent,
-                        form.processTreeSplitter.Parent,
-                        "流程树与拖动分隔条必须位于同一个编辑器布局容器中。");
+                        form.processOutlinePanel.Parent,
+                        form.processOutlineSplitter.Parent,
+                        "流程导航与拖动分隔条必须位于同一个编辑器布局容器中。");
                     Assert.AreEqual(
-                        form.treeView_panel.Right,
-                        form.processTreeSplitter.Left,
-                        "分隔条应紧贴流程树右侧，供用户直接拖动调整宽度。");
+                        form.processOutlinePanel.Right,
+                        form.processOutlineSplitter.Left,
+                        "分隔条应紧贴流程导航右侧，供用户直接拖动调整宽度。");
                 }
             }, TimeSpan.FromSeconds(20));
         }

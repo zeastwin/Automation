@@ -155,6 +155,19 @@ namespace Automation.Core.Tests
                         81F,
                         ((TableLayoutPanel)commandBar.Parent).RowStyles[0].Height,
                         "顶部栏应保持旧项目的 81px 紧凑高度。");
+                    Assert.IsFalse(
+                        Descendants(form).Any(control =>
+                            string.Equals(control.Name, "btnLogin", StringComparison.Ordinal)),
+                        "当前平台没有登录机制，顶部栏不应保留登录按钮。");
+                    TableLayoutPanel statusLayout = Descendants(form)
+                        .OfType<TableLayoutPanel>()
+                        .Single(layout => layout.Name == "statusLayout");
+                    Assert.AreEqual(1, statusLayout.RowCount);
+                    Assert.IsTrue(
+                        statusLayout.Controls
+                            .OfType<Label>()
+                            .Any(label => label.Name == "lblFixtureStatus"),
+                        "移除登录按钮后，设备状态应占满右上角状态区域。");
 
                     Assert.IsTrue(Descendants(form).Any(control => control is HmiHomePage));
                     Assert.IsTrue(Descendants(form).Any(control => control is HmiDebugPage));

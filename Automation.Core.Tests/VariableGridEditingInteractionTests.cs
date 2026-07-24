@@ -67,6 +67,26 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void VariableGridPrewarm_UsesEmptyVirtualGridWithoutPhysicalSlotRows()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var form = new FrmValue())
+                {
+                    form.PrewarmVariableGridControl();
+
+                    Assert.IsTrue(form.dgvValue.VirtualMode);
+                    Assert.AreEqual(0, form.dgvValue.RowCount);
+                    TreeView scopeTree =
+                        ReadPrivateField<TreeView>(form, "scopeTree");
+                    Assert.IsFalse(scopeTree.ShowNodeToolTips,
+                        "作用域节点不应创建原生悬停提示窗口。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void VariableToolbar_UsesCompactAlignedButtonsAndSidePanel()
         {
             StaTestRunner.Run(() =>

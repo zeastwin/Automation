@@ -1,12 +1,12 @@
 // 模块：编辑器 / 流程。
-// 职责范围：流程树、指令表、对象选择、搜索和导航。
+// 职责范围：流程导航、指令表、对象选择、搜索和导航。
 
 using System;
 
 namespace Automation
 {
     /// <summary>
-    /// 流程树、指令表和检查器共享的编辑选择。索引用于当前显示，稳定 ID 用于刷新后恢复。
+    /// 流程导航、指令表和检查器共享的编辑选择。索引用于当前显示，稳定 ID 用于刷新后恢复。
     /// </summary>
     internal sealed class ProcessEditorSelectionState
     {

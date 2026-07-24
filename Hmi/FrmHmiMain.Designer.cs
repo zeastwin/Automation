@@ -32,7 +32,6 @@ namespace Automation.Hmi
             this.btnExcel = new System.Windows.Forms.Button();
             this.btnLog = new System.Windows.Forms.Button();
             this.statusLayout = new System.Windows.Forms.TableLayoutPanel();
-            this.btnLogin = new System.Windows.Forms.Button();
             this.lblFixtureStatus = new System.Windows.Forms.Label();
             this.pageHost = new System.Windows.Forms.Panel();
             this.footerLayout = new System.Windows.Forms.TableLayoutPanel();
@@ -166,31 +165,18 @@ namespace Automation.Hmi
             //
             this.statusLayout.ColumnCount = 1;
             this.statusLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.statusLayout.Controls.Add(this.btnLogin, 0, 0);
-            this.statusLayout.Controls.Add(this.lblFixtureStatus, 0, 1);
+            this.statusLayout.Controls.Add(this.lblFixtureStatus, 0, 0);
             this.statusLayout.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.statusLayout.RowCount = 2;
-            this.statusLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.statusLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            //
-            // btnLogin
-            //
-            this.btnLogin.BackColor = System.Drawing.Color.FromArgb(204, 204, 204);
-            this.btnLogin.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnLogin.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnLogin.Font = new System.Drawing.Font("微软雅黑", 10F);
-            this.btnLogin.Margin = new System.Windows.Forms.Padding(3, 3, 3, 1);
-            this.btnLogin.Name = "btnLogin";
-            this.btnLogin.Text = "请登录";
-            this.btnLogin.UseVisualStyleBackColor = false;
-            this.btnLogin.Click += new System.EventHandler(this.btnLogin_Click);
+            this.statusLayout.Name = "statusLayout";
+            this.statusLayout.RowCount = 1;
+            this.statusLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
             //
             // lblFixtureStatus
             //
             this.lblFixtureStatus.BackColor = System.Drawing.SystemColors.ControlLight;
             this.lblFixtureStatus.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblFixtureStatus.Font = new System.Drawing.Font("微软雅黑", 11F);
-            this.lblFixtureStatus.Margin = new System.Windows.Forms.Padding(3, 1, 3, 8);
+            this.lblFixtureStatus.Margin = new System.Windows.Forms.Padding(3, 10, 3, 10);
             this.lblFixtureStatus.Name = "lblFixtureStatus";
             this.lblFixtureStatus.Text = "None";
             this.lblFixtureStatus.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -310,7 +296,6 @@ namespace Automation.Hmi
         private System.Windows.Forms.Button btnExcel;
         private System.Windows.Forms.Button btnLog;
         private System.Windows.Forms.TableLayoutPanel statusLayout;
-        private System.Windows.Forms.Button btnLogin;
         private System.Windows.Forms.Label lblFixtureStatus;
         private System.Windows.Forms.Panel pageHost;
         private System.Windows.Forms.TableLayoutPanel footerLayout;

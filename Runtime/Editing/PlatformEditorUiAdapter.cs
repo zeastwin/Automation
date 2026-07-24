@@ -114,7 +114,6 @@ namespace Automation
             owner.RefreshProcessFlowGraph();
             try
             {
-                owner.frmProc?.FlashProcNode(procIndex, kind);
                 if (owner.frmProc == null || owner.frmProc.IsDisposed
                     || owner.frmDataGrid == null || owner.frmDataGrid.IsDisposed
                     || owner.frmProc.SelectedProcNum != procIndex)

@@ -145,9 +145,6 @@ namespace Automation.Hmi
                 && !string.IsNullOrWhiteSpace(userName)
                 ? userName
                 : "User";
-            btnLogin.Text = string.IsNullOrWhiteSpace(userName)
-                ? "请登录"
-                : userName;
 
             IReadOnlyList<ProcessSnapshot> processes = platform.Processes.GetAll();
             ProcessSnapshot main = processes.FirstOrDefault(process => process.Index == 0);
@@ -166,10 +163,7 @@ namespace Automation.Hmi
             bool paused = mainState == ProcessRuntimeStatus.Paused
                 || mainState == ProcessRuntimeStatus.Pausing;
             btnPause.BackColor = paused ? Color.Khaki : Color.Transparent;
-            btnStop.BackColor = mainState == ProcessRuntimeStatus.Stopped
-                || mainState == ProcessRuntimeStatus.Ready
-                ? Color.LightCoral
-                : Color.Transparent;
+            btnStop.BackColor = Color.Transparent;
         }
 
         private void btnHome_Click(object sender, EventArgs e)
@@ -282,21 +276,6 @@ namespace Automation.Hmi
                     MessageBoxIcon.Error);
             }
             debugPage.MarkProcessListDirty();
-        }
-
-        private void btnLogin_Click(object sender, EventArgs e)
-        {
-            string user = TryReadValue("登录用户名称", out string value)
-                ? value
-                : string.Empty;
-            MessageBox.Show(
-                this,
-                string.IsNullOrWhiteSpace(user)
-                    ? "新平台尚未公开用户认证接口；请在调试页 FingerPrint 查看适配状态。"
-                    : "当前用户：" + user,
-                "登录",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
         }
 
         private void lblFixtureStatus_Click(object sender, EventArgs e)

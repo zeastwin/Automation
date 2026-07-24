@@ -226,13 +226,13 @@ namespace Automation
             bool diagnosticsEnabled = AppConfigStorage.TryGetCached(out AppConfig appConfig, out _)
                 && appConfig.EnableRuntimeDiagnostics;
             ApplyRuntimeDiagnosticsConfiguration(diagnosticsEnabled);
-            loadFillForm(treeView_panel, frmProc);
+            loadFillForm(processOutlinePanel, frmProc);
             loadFillForm(DataGrid_panel, frmDataGrid);
             loadFillForm(inspector_panel, frmInspector);
             loadFillForm(ToolBar_panel, frmToolBar);
             loadFillForm(state_panel, frmState);
             loadFillForm(panel_Info, frmInfo);
-            frmProc.proc_treeView.AfterSelect += EditorTreeSelectionChanged;
+            frmProc.UserSelectionChanged += EditorProcessSelectionChanged;
             frmDataGrid.dataGridView1.MouseUp += EditorOperationListMouseUp;
             frmDataGrid.dataGridView1.KeyUp += EditorOperationListKeyUp;
             editorNavigationMouseMessageFilter = new EditorNavigationMouseMessageFilter(this);
@@ -584,6 +584,14 @@ namespace Automation
                 return;
             }
             frmSearch?.PrewarmIndex();
+            frmValue?.QueueVariableProjectionPrewarm();
+            uiWarmupCoordinator.Schedule("variable-table-control", 10, () =>
+            {
+                if (!IsDisposed && !Disposing && platformInitialized)
+                {
+                    frmValue?.PrewarmVariableGridControl();
+                }
+            });
             QueueProcessFlowHostPrewarm();
         }
 
@@ -625,98 +633,27 @@ namespace Automation
 
         private void UpdateProcText(EngineSnapshot snapshot)
         {
-            if (frmProc?.proc_treeView == null || frmProc.procsList == null)
+            if (frmProc == null || frmProc.IsDisposed || snapshot == null)
             {
                 return;
             }
-            if (snapshot == null)
+            int procNum;
+            if (snapshot.ProcId != Guid.Empty)
             {
-                return;
-            }
-            int procNum = snapshot.ProcIndex;
-            TreeNode targetNode = null;
-            if (snapshot.ProcId != Guid.Empty
-                && frmProc.TryGetProcNode(snapshot.ProcId, out TreeNode mappedNode, out int mappedIndex))
-            {
-                procNum = mappedIndex;
-                targetNode = mappedNode;
-            }
-            else
-            {
-                if (procNum < 0 || procNum >= frmProc.procsList.Count || procNum >= frmProc.proc_treeView.Nodes.Count)
+                if (!frmProc.TryGetProcIndex(snapshot.ProcId, out procNum))
                 {
                     return;
                 }
-                targetNode = frmProc.proc_treeView.Nodes[procNum];
-            }
-            if (procNum < 0 || procNum >= frmProc.procsList.Count || targetNode == null)
-            {
-                return;
-            }
-
-            void ApplyProcText()
-            {
-                bool isDisabled = procNum >= 0
-                    && procNum < frmProc.procsList.Count
-                    && frmProc.procsList[procNum]?.head?.Disable == true;
-                Proc proc = frmProc.procsList[procNum];
-                string nextText = frmProc.BuildProcNodeTextWithState(procNum, proc, snapshot);
-                Color nextColor;
-                if (isDisabled)
-                {
-                    nextColor = UiPalette.TextMuted;
-                }
-                else
-                {
-                    switch (snapshot.State)
-                    {
-                        case ProcRunState.Running:
-                            nextColor = UiPalette.Success;
-                            break;
-                        case ProcRunState.Paused:
-                            nextColor = UiPalette.Warning;
-                            break;
-                        case ProcRunState.SingleStep:
-                            nextColor = UiPalette.Focus;
-                            break;
-                        case ProcRunState.Alarming:
-                            nextColor = UiPalette.Danger;
-                            break;
-                        case ProcRunState.Pausing:
-                            nextColor = UiPalette.Warning;
-                            break;
-                        case ProcRunState.Stopping:
-                            nextColor = UiPalette.Danger;
-                            break;
-                        case ProcRunState.Stopped:
-                            nextColor = UiPalette.TextPrimary;
-                            break;
-                        case ProcRunState.Ready:
-                            nextColor = UiPalette.Success;
-                            break;
-                        default:
-                            nextColor = UiPalette.TextPrimary;
-                            break;
-                    }
-                }
-                if (!string.Equals(targetNode.Text, nextText, StringComparison.Ordinal))
-                {
-                    targetNode.Text = nextText;
-                }
-                if (targetNode.ForeColor != nextColor)
-                {
-                    targetNode.ForeColor = nextColor;
-                }
-                frmProc.UpdateProcStateIcons(procNum, snapshot);
-            }
-            if (frmProc.proc_treeView.InvokeRequired)
-            {
-                frmProc.proc_treeView.BeginInvoke((Action)ApplyProcText);
             }
             else
             {
-                ApplyProcText();
+                procNum = snapshot.ProcIndex;
             }
+            if (procNum < 0 || procNum >= frmProc.procsList.Count)
+            {
+                return;
+            }
+            frmProc.UpdateProcessSnapshot(snapshot);
 
             if (frmToolBar?.btnPause != null && procNum == frmProc.SelectedProcNum)
             {
@@ -793,8 +730,8 @@ namespace Automation
             editorWorkspacePage.Controls.Add(DataGrid_panel);
             editorWorkspacePage.Controls.Add(panel_Info);
             editorWorkspacePage.Controls.Add(inspector_panel);
-            editorWorkspacePage.Controls.Add(processTreeSplitter);
-            editorWorkspacePage.Controls.Add(treeView_panel);
+            editorWorkspacePage.Controls.Add(processOutlineSplitter);
+            editorWorkspacePage.Controls.Add(processOutlinePanel);
             editorWorkspacePage.Controls.Add(ToolBar_panel);
             editorWorkspacePage.Controls.Add(state_panel);
 

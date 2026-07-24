@@ -1323,14 +1323,7 @@ namespace Automation
                 return;
             }
 
-            TreeView tree = Workspace.Proc.proc_treeView;
-            if (tree == null || procIndex >= tree.Nodes.Count || stepIndex >= tree.Nodes[procIndex].Nodes.Count)
-            {
-                PrintInfo("流程树未就绪，无法跳转。", Level.Error);
-                return;
-            }
-            tree.SelectedNode = tree.Nodes[procIndex].Nodes[stepIndex];
-            if (Workspace.Proc.SelectedProcNum != procIndex || Workspace.Proc.SelectedStepNum != stepIndex)
+            if (!Workspace.Proc.TrySelectProcessStep(procIndex, stepIndex))
             {
                 PrintInfo("流程选择被阻止，无法跳转。", Level.Error);
                 return;
