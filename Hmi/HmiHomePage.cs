@@ -115,12 +115,6 @@ namespace Automation.Hmi
             mesDisabledCheck.Enabled = pcManaged;
             pdcaDisabledCheck.Enabled = pcManaged;
 
-            versionLabel.Text = ReadString(
-                "软件版本",
-                string.IsNullOrWhiteSpace(platform.PlatformVersion)
-                    ? "EW_Version_3.0.0"
-                    : platform.PlatformVersion);
-
             TimeSpan elapsed = DateTime.Now - startedAt;
             runTimeLabel.Text = string.Format(
                 CultureInfo.InvariantCulture,

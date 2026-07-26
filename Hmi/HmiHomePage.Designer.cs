@@ -19,8 +19,6 @@ namespace Automation.Hmi
             this.leftGroup = new System.Windows.Forms.GroupBox();
             this.workModeCombo = new System.Windows.Forms.ComboBox();
             this.runTimeLabel = new System.Windows.Forms.Label();
-            this.versionGroup = new System.Windows.Forms.GroupBox();
-            this.versionLabel = new System.Windows.Forms.Label();
             this.productionGroup = new System.Windows.Forms.GroupBox();
             this.pcManagedCheck = new System.Windows.Forms.CheckBox();
             this.pdcaDisabledCheck = new System.Windows.Forms.CheckBox();
@@ -36,7 +34,6 @@ namespace Automation.Hmi
             this.alarmTicker = new Automation.Hmi.LegacyAlarmTickerControl();
             this.rootLayout.SuspendLayout();
             this.leftGroup.SuspendLayout();
-            this.versionGroup.SuspendLayout();
             this.productionGroup.SuspendLayout();
             this.pageLayout.SuspendLayout();
             this.SuspendLayout();
@@ -63,7 +60,6 @@ namespace Automation.Hmi
             //
             this.leftGroup.Controls.Add(this.workModeCombo);
             this.leftGroup.Controls.Add(this.runTimeLabel);
-            this.leftGroup.Controls.Add(this.versionGroup);
             this.leftGroup.Controls.Add(this.productionGroup);
             this.leftGroup.Controls.Add(this.systemStatusLabel);
             this.leftGroup.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -84,7 +80,7 @@ namespace Automation.Hmi
             this.workModeCombo.Items.AddRange(new object[] {
             "    工单模式",
             "    单机模式"});
-            this.workModeCombo.Location = new System.Drawing.Point(0, 386);
+            this.workModeCombo.Location = new System.Drawing.Point(0, 455);
             this.workModeCombo.Name = "workModeCombo";
             this.workModeCombo.Size = new System.Drawing.Size(292, 42);
             this.workModeCombo.TabIndex = 5;
@@ -95,35 +91,12 @@ namespace Automation.Hmi
             | System.Windows.Forms.AnchorStyles.Right)));
             this.runTimeLabel.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
             this.runTimeLabel.Font = new System.Drawing.Font("宋体", 12F);
-            this.runTimeLabel.Location = new System.Drawing.Point(0, 433);
+            this.runTimeLabel.Location = new System.Drawing.Point(0, 502);
             this.runTimeLabel.Name = "runTimeLabel";
             this.runTimeLabel.Size = new System.Drawing.Size(294, 61);
             this.runTimeLabel.TabIndex = 6;
             this.runTimeLabel.Text = "运行：00天00小时00分00秒";
             this.runTimeLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            //
-            // versionGroup
-            //
-            this.versionGroup.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.versionGroup.Controls.Add(this.versionLabel);
-            this.versionGroup.Location = new System.Drawing.Point(6, 502);
-            this.versionGroup.Name = "versionGroup";
-            this.versionGroup.Size = new System.Drawing.Size(285, 61);
-            this.versionGroup.TabIndex = 7;
-            this.versionGroup.TabStop = false;
-            this.versionGroup.Text = "软件版本";
-            //
-            // versionLabel
-            //
-            this.versionLabel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.versionLabel.Font = new System.Drawing.Font("宋体", 12F);
-            this.versionLabel.Location = new System.Drawing.Point(3, 19);
-            this.versionLabel.Name = "versionLabel";
-            this.versionLabel.Size = new System.Drawing.Size(279, 39);
-            this.versionLabel.TabIndex = 0;
-            this.versionLabel.Text = "EW_Version_3.0.0";
-            this.versionLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
             // productionGroup
             //
@@ -135,7 +108,7 @@ namespace Automation.Hmi
             this.productionGroup.Controls.Add(this.mesDisabledCheck);
             this.productionGroup.Location = new System.Drawing.Point(3, 82);
             this.productionGroup.Name = "productionGroup";
-            this.productionGroup.Size = new System.Drawing.Size(291, 298);
+            this.productionGroup.Size = new System.Drawing.Size(291, 367);
             this.productionGroup.TabIndex = 4;
             this.productionGroup.TabStop = false;
             this.productionGroup.Text = "生产参数";
@@ -287,7 +260,6 @@ namespace Automation.Hmi
             this.rootLayout.ResumeLayout(false);
             this.leftGroup.ResumeLayout(false);
             this.leftGroup.PerformLayout();
-            this.versionGroup.ResumeLayout(false);
             this.productionGroup.ResumeLayout(false);
             this.productionGroup.PerformLayout();
             this.pageLayout.ResumeLayout(false);
@@ -298,8 +270,6 @@ namespace Automation.Hmi
         private System.Windows.Forms.GroupBox leftGroup;
         private System.Windows.Forms.ComboBox workModeCombo;
         private System.Windows.Forms.Label runTimeLabel;
-        private System.Windows.Forms.GroupBox versionGroup;
-        private System.Windows.Forms.Label versionLabel;
         private System.Windows.Forms.GroupBox productionGroup;
         private System.Windows.Forms.CheckBox pcManagedCheck;
         private System.Windows.Forms.CheckBox pdcaDisabledCheck;
