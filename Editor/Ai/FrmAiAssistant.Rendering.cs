@@ -86,7 +86,8 @@ namespace Automation
                 }
 
                 if (!string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
-                    || data["committed"]?.Value<bool>() != true)
+                    || !string.Equals(
+                        data["status"]?.Value<string>(), "committed", StringComparison.Ordinal))
                 {
                     return;
                 }

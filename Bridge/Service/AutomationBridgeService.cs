@@ -104,12 +104,6 @@ namespace Automation.Bridge
 
             public JObject Patch { get; set; }
 
-            public string PatchHash { get; set; }
-
-            public int ProcIndex { get; set; }
-
-            public string BaseProcId { get; set; }
-
             public DateTime CreatedAtUtc { get; set; }
 
             public DateTime ExpiresAtUtc { get; set; }
@@ -119,10 +113,6 @@ namespace Automation.Bridge
             public bool Rejected { get; set; }
 
             public bool IsChangeSetPreview { get; set; }
-
-            public string ReplacedPreviewId { get; set; }
-
-            public Proc DraftProc { get; set; }
 
             public AiChangeSetCompileResult AiChangeSetPreview { get; set; }
 

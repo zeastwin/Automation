@@ -1922,6 +1922,14 @@ namespace Automation
 
             string toolName = request["toolCall"]?["name"]?.Value<string>() ?? "";
             JObject arguments = request["toolCall"]?["arguments"] as JObject;
+            if (IsDeveloperWriteBlockedByProfile(toolProfile, toolName))
+            {
+                AppendConversation(
+                    "系统",
+                    "⛔ 当前诊断模式只允许读取源码，已拒绝修改文件。",
+                    UiPalette.Danger);
+                return BuildPermissionCancelled();
+            }
             if (IsDeveloperWriteOutsideHmi(toolName, arguments, out string rejectedPath))
             {
                 AppendConversation(
@@ -1986,8 +1994,7 @@ namespace Automation
             out string rejectedPath)
         {
             rejectedPath = null;
-            if (!string.Equals(toolName, "write", StringComparison.Ordinal)
-                && !string.Equals(toolName, "edit", StringComparison.Ordinal))
+            if (!IsDeveloperWriteTool(toolName))
             {
                 return false;
             }
@@ -2011,6 +2018,18 @@ namespace Automation
                 return true;
             }
             return false;
+        }
+
+        private static bool IsDeveloperWriteTool(string toolName)
+        {
+            return string.Equals(toolName, "write", StringComparison.Ordinal)
+                || string.Equals(toolName, "edit", StringComparison.Ordinal);
+        }
+
+        internal static bool IsDeveloperWriteBlockedByProfile(string profile, string toolName)
+        {
+            return !string.Equals(profile, "Editor", StringComparison.Ordinal)
+                && IsDeveloperWriteTool(toolName);
         }
 
         private static string ResolveHmiSourceDirectory()

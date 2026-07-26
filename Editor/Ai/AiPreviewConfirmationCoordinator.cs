@@ -31,40 +31,70 @@ namespace Automation
             }
 
             JObject data = result["data"] as JObject;
+            if (result["ok"]?.Value<bool>() != true || data == null)
+            {
+                return AiPreviewObservation.None;
+            }
             string previewId = data?["previewId"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(previewId)) return AiPreviewObservation.None;
 
             string resultType = result["type"]?.Value<string>() ?? string.Empty;
-            bool confirmed = data?["confirmed"]?.Value<bool?>()
-                ?? data?["preview"]?["confirmed"]?.Value<bool?>()
-                ?? false;
-            bool committed = data?["committed"]?.Value<bool?>() == true;
-            bool rejected = data?["rejected"]?.Value<bool?>() == true
-                || string.Equals(resultType, "preview.reject", StringComparison.Ordinal);
-            string mode = data?["mode"]?.Value<string>()
-                ?? data?["apply"]?["mode"]?.Value<string>()
-                ?? string.Empty;
-
             AiPreviewObservationKind kind;
-            if (committed || string.Equals(mode, "apply", StringComparison.Ordinal))
+            JArray changes = null;
+            JArray messages = null;
+            if (string.Equals(resultType, "change_set.apply", StringComparison.Ordinal))
+            {
+                if (!string.Equals(data["status"]?.Value<string>(), "committed", StringComparison.Ordinal)
+                    || data["configurationSaved"]?.Value<bool>() != true)
+                {
+                    return AiPreviewObservation.None;
+                }
                 kind = AiPreviewObservationKind.Applied;
-            else if (rejected)
+            }
+            else if (string.Equals(resultType, "preview.reject", StringComparison.Ordinal))
+            {
+                if (data["rejected"]?.Value<bool>() != true)
+                {
+                    return AiPreviewObservation.None;
+                }
                 kind = AiPreviewObservationKind.Rejected;
-            else if (confirmed)
-                kind = AiPreviewObservationKind.Confirmed;
-            else if (autoApproveMode)
-                kind = AiPreviewObservationKind.AutoApprovalMismatch;
-            else if (!presentedPreviewIds.Add(previewId))
-                kind = AiPreviewObservationKind.AlreadyPresented;
+            }
+            else if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal))
+            {
+                bool? confirmed = data["confirmed"]?.Value<bool?>();
+                string status = data["status"]?.Value<string>() ?? string.Empty;
+                bool validStatus = confirmed == true
+                    ? string.Equals(status, "confirmed", StringComparison.Ordinal)
+                    : confirmed == false
+                        && string.Equals(status, "awaiting_confirmation", StringComparison.Ordinal);
+                if (!confirmed.HasValue || !validStatus
+                    || data["changes"] is not JArray directChanges
+                    || data["messages"] is not JArray directMessages)
+                {
+                    return AiPreviewObservation.None;
+                }
+                changes = directChanges;
+                messages = directMessages;
+                if (confirmed.Value)
+                    kind = AiPreviewObservationKind.Confirmed;
+                else if (autoApproveMode)
+                    kind = AiPreviewObservationKind.AutoApprovalMismatch;
+                else if (!presentedPreviewIds.Add(previewId))
+                    kind = AiPreviewObservationKind.AlreadyPresented;
+                else
+                    kind = AiPreviewObservationKind.AwaitingConfirmation;
+            }
             else
-                kind = AiPreviewObservationKind.AwaitingConfirmation;
+            {
+                return AiPreviewObservation.None;
+            }
 
             return new AiPreviewObservation(
                 kind,
                 previewId,
                 resultType,
-                FindFirstArray(result, "changes"),
-                FindFirstArray(result, "messages"));
+                changes,
+                messages);
         }
 
         public void Reset()
@@ -72,32 +102,6 @@ namespace Automation
             presentedPreviewIds.Clear();
         }
 
-        private static JArray FindFirstArray(JToken token, string fieldName)
-        {
-            if (token == null) return null;
-            if (token is JObject obj)
-            {
-                if (obj.TryGetValue(fieldName, StringComparison.OrdinalIgnoreCase, out JToken value)
-                    && value is JArray direct)
-                {
-                    return direct;
-                }
-                foreach (JProperty property in obj.Properties())
-                {
-                    JArray nested = FindFirstArray(property.Value, fieldName);
-                    if (nested != null) return nested;
-                }
-            }
-            else if (token is JArray array)
-            {
-                foreach (JToken item in array)
-                {
-                    JArray nested = FindFirstArray(item, fieldName);
-                    if (nested != null) return nested;
-                }
-            }
-            return null;
-        }
     }
 
     internal enum AiPreviewObservationKind

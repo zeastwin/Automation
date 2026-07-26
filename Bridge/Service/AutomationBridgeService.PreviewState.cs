@@ -35,41 +35,32 @@ namespace Automation.Bridge
             if (active != null)
             {
                 bool canReplace = supportsExplicitReplacement && active.IsChangeSetPreview;
-                var allowedTransitions = new JArray();
-                if (canReplace)
+                JArray allowedTransitions;
+                if (active.IsChangeSetPreview)
                 {
-                    allowedTransitions.Add(new JObject
-                    {
-                        ["tool"] = "preview_change_set",
-                        ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
-                        ["fixedArguments"] = new JObject { ["replacePreviewId"] = active.PreviewId },
-                        ["changeSetMode"] = "complete_replacement",
-                        ["previousPreviewActionsInherited"] = false,
-                        ["previousPreviewLocalKeysInherited"] = false
-                    });
+                    allowedTransitions = BuildChangeSetAllowedTransitions(
+                        active,
+                        includeReplacement: canReplace,
+                        includeDiscard: false);
                 }
-                if (active.IsChangeSetPreview && active.Confirmed)
+                else
                 {
-                    allowedTransitions.Add(new JObject
+                    allowedTransitions = new JArray();
+                    if (active.MigrationConfigurationPreview != null && active.Confirmed)
                     {
-                        ["tool"] = "apply_change_set",
-                        ["arguments"] = new JObject { ["previewId"] = active.PreviewId }
-                    });
-                }
-                else if (active.MigrationConfigurationPreview != null && active.Confirmed)
-                {
-                    allowedTransitions.Add(new JObject
+                        allowedTransitions.Add(new JObject
+                        {
+                            ["tool"] = "apply_migration_configuration",
+                            ["arguments"] = new JObject { ["previewId"] = active.PreviewId }
+                        });
+                    }
+                    else if (!active.Confirmed)
                     {
-                        ["tool"] = "apply_migration_configuration",
-                        ["arguments"] = new JObject { ["previewId"] = active.PreviewId }
-                    });
-                }
-                else if (!active.Confirmed)
-                {
-                    allowedTransitions.Add(new JObject
-                    {
-                        ["state"] = "awaiting_foreground_confirmation"
-                    });
+                        allowedTransitions.Add(new JObject
+                        {
+                            ["state"] = "awaiting_foreground_confirmation"
+                        });
+                    }
                 }
                 throw new BridgeRequestException(
                     409,
@@ -120,22 +111,6 @@ namespace Automation.Bridge
             foreach (string expiredId in expiredIds)
             {
                 previewRecords.Remove(expiredId);
-            }
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private void EnsurePreviewProcVersion(PreviewApprovalRecord record)
-        {
-            // 流程结构操作（创建/删除/重排/复制）不绑定单个 procIndex，跳过版本校验
-            if (record.ProcIndex < 0)
-            {
-                return;
-            }
-            Proc current = GetProcByIndex(record.ProcIndex);
-            string currentProcId = current.head?.Id.ToString("D") ?? string.Empty;
-            if (!string.Equals(currentProcId, record.BaseProcId, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new BridgeRequestException(409, "PROC_VERSION_MISMATCH", "流程版本已变化，请重新读取流程详情并重新预演。");
             }
         }
 

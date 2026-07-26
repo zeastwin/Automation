@@ -13,7 +13,7 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "get_native_operation_schemas"), Description(
-            "按当前配置阶段实际使用的精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写；critical优先列出运行必填及业务跳转。已在会话中验证且契约未变化的类型可复用；后续阶段出现新类型时再读取。适用于精确复刻或语义kind无法表达的指令，资源候选按字段需要另行查询。")]
+            "按精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写。")]
         public static async Task<string> GetOperationSchemas(
             [Description("精确原生指令类型数组，例如 跳转、延时、修改变量")] string[] operaTypes)
         {
@@ -35,13 +35,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2配置阶段。现有对象使用稳定ID，当前阶段的新对象使用局部key；插入和移动使用锚点定位。"
-            + "当前流程阶段依赖的新变量通过variables逐项声明，与actions同事务预演；独立变量维护使用单变量工具。"
-            + "指令字段遵循所选语义或精确原生Schema。返回configurationSaved、objectState、localKeyScope、variableResolutions、配置就绪事实和合法状态迁移；提交前的新对象仍为preview_only。"
-            + "新预演不继承旧预演的动作或局部key；replacePreviewId只标识被完整修正版替换的活动预演，不能代替完整changeSet参数。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。现有对象使用稳定ID，新对象使用当前阶段局部key。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移；修正活动预演时用replacePreviewId提交完整替代阶段。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("当前原子阶段；actions按依赖顺序执行，variables逐项声明同阶段依赖变量，两者整体预演")] AtomicChangeSetDefinition changeSet,
-            [Description("可选；显式指定被完整修正版替换的未提交previewId。无论是否省略，新changeSet都必须自包含，不继承旧预演动作或局部key")] string? replacePreviewId = null)
+            [Description("当前完整原子阶段；actions与variables整体预演")] AtomicChangeSetDefinition changeSet,
+            [Description("可选；被完整替代的活动previewId，新changeSet必须自包含")] string? replacePreviewId = null)
         {
             if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
             if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
@@ -66,7 +63,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
-            "提交一个已由前台确认的冻结V2预演，只接收previewId。平台在事务内校验版本并保存，正式提交要求所有流程处于非活动状态（Ready或Stopped）；成功结果以configurationSaved=true确认已保存，并通过createdObjects、affectedProcesses和variableResolutions返回稳定身份与变量处理事实。")]
+            "提交一个已由前台确认的冻结V2预演，只接收previewId。成功结果返回configurationSaved、稳定对象身份、受影响流程、变量处理和就绪事实。")]
         public static async Task<string> ApplyChangeSet(
             [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
         {

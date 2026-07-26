@@ -38,8 +38,6 @@ namespace Automation.Bridge
                 {
                     return BridgeError(409, "PREVIEW_REJECTED", $"预演已结束，不能再次确认：{previewId}");
                 }
-
-                EnsurePreviewProcVersion(record);
                 record.Confirmed = true;
                 record.ConfirmedAtUtc = previewUtcNow();
                 Monitor.PulseAll(previewLock);
@@ -48,9 +46,6 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["previewId"] = record.PreviewId,
-                ["patchHash"] = record.PatchHash,
-                ["procIndex"] = record.ProcIndex,
-                ["baseProcId"] = record.BaseProcId,
                 ["confirmed"] = true,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             };
@@ -434,7 +429,6 @@ namespace Automation.Bridge
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
-                string replacedPreviewId = null;
                 if (!string.IsNullOrWhiteSpace(replacePreviewId))
                 {
                     ValidatePreviewIdFormat(replacePreviewId);
@@ -446,7 +440,6 @@ namespace Automation.Bridge
                             $"要替换的 ChangeSet 预演不存在、已结束或已过期：{replacePreviewId}");
                     }
                     replaced.Rejected = true;
-                    replacedPreviewId = replaced.PreviewId;
                     Monitor.PulseAll(previewLock);
                 }
                 else if (supportsExplicitReplacement)
@@ -459,7 +452,6 @@ namespace Automation.Bridge
                     if (activeChangeSet != null)
                     {
                         activeChangeSet.Rejected = true;
-                        replacedPreviewId = activeChangeSet.PreviewId;
                         Monitor.PulseAll(previewLock);
                     }
                 }
@@ -470,14 +462,10 @@ namespace Automation.Bridge
                 {
                     PreviewId = previewId,
                     Patch = previewData,
-                    PatchHash = ComputePatchHash(previewData),
-                    ProcIndex = -1,  // 流程结构操作不绑定单个 procIndex
-                    BaseProcId = string.Empty,
                     CreatedAtUtc = createdAtUtc,
                     ExpiresAtUtc = createdAtUtc.Add(previewLifetime),
                     Confirmed = autoConfirmed,
-                    IsChangeSetPreview = supportsExplicitReplacement,
-                    ReplacedPreviewId = replacedPreviewId
+                    IsChangeSetPreview = supportsExplicitReplacement
                 };
                 if (autoConfirmed)
                 {

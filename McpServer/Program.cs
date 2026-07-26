@@ -214,7 +214,6 @@ namespace Automation.McpServer
                 "list_intent_templates", "get_intent_template", "build_patch_from_intent",
                 "patch_contract", "get_patch_action_schema",
                 "delete_procs", "reorder_proc", "copy_proc",
-                "get_operation_schema",
                 "add_station", "update_station", "delete_station", "set_point",
                 "delete_point", "set_data_struct_field",
                 "get_change_capabilities", "get_operation_contracts", "get_native_operation_contract",
@@ -340,9 +339,7 @@ namespace Automation.McpServer
                 || addVariableScopeSchema?["enum"] is not JsonArray addScopes
                 || !addScopes.Any(value => value?.GetValue<string>() == VariableScopeContract.Public)
                 || !addScopes.Any(value => value?.GetValue<string>() == VariableScopeContract.Process)
-                || addVariableProperties?["ownerProcId"] == null
-                || !(addVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "系统变量区配置对 AI 只读", StringComparison.Ordinal))
+                || addVariableProperties?["ownerProcId"] == null)
             {
                 throw new InvalidOperationException("add_variable 未严格限制为普通变量区配置写入。");
             }
@@ -357,14 +354,10 @@ namespace Automation.McpServer
                 || updateVariableProperties.ContainsKey("initialValue")
                 || updateVariableProperties.ContainsKey("applyInitialValueToRuntime")
                 || updateVariableProperties.ContainsKey("configValue")
-                || updateVariableProperties.ContainsKey("runtimeValue")
-                || !(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "value修改当前值", StringComparison.Ordinal))
+                || updateVariableProperties.ContainsKey("runtimeValue"))
             {
                 throw new InvalidOperationException("update_variable 未使用单一当前值契约。");
             }
-            McpServerTool deleteVariableTool = editorTools.Single(tool =>
-                string.Equals(tool.ProtocolTool.Name, "delete_variable", StringComparison.Ordinal));
             McpServerTool getVariableByNameTool = editorTools.Single(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_variable_by_name", StringComparison.Ordinal));
             McpServerTool getVariableByIndexTool = editorTools.Single(tool =>
@@ -381,11 +374,7 @@ namespace Automation.McpServer
                 setVariableByNameTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
             JsonObject? setByIndexProperties = (JsonNode.Parse(
                 setVariableByIndexTool.ProtocolTool.InputSchema.GetRawText()) as JsonObject)?["properties"] as JsonObject;
-            if (!(updateVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "系统变量区配置对 AI 只读", StringComparison.Ordinal)
-                || !(deleteVariableTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "系统变量区配置对 AI 只读", StringComparison.Ordinal)
-                || getByNameProperties?["name"] == null
+            if (getByNameProperties?["name"] == null
                 || getByNameProperties.ContainsKey("ownerProcId")
                 || getByIndexProperties?["index"] == null
                 || (getByIndexProperties["index"] as JsonObject)?["minimum"]?.GetValue<int>() != 0
@@ -400,15 +389,7 @@ namespace Automation.McpServer
                 || (setByIndexProperties["index"] as JsonObject)?["minimum"]?.GetValue<int>() != 0
                 || (setByIndexProperties["index"] as JsonObject)?["maximum"]?.GetValue<int>()
                     != VariableIndexContract.MaximumValueIndex
-                || setByIndexProperties.ContainsKey("ownerProcId")
-                || !(getVariableByNameTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "私有变量也无需提供所属流程", StringComparison.Ordinal)
-                || !(getVariableByIndexTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "私有变量也无需提供所属流程", StringComparison.Ordinal)
-                || !(setVariableByNameTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "公共、私有和系统变量均可使用", StringComparison.Ordinal)
-                || !(setVariableByIndexTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "公共、私有和系统变量均可使用", StringComparison.Ordinal))
+                || setByIndexProperties.ContainsKey("ownerProcId"))
             {
                 throw new InvalidOperationException("变量管理边界或按唯一名称/索引直接读写私有变量的契约不完整。");
             }
@@ -416,22 +397,8 @@ namespace Automation.McpServer
             {
                 "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc", "create_proc_batch"
             };
-            string[] ambiguousRoutingTerms =
-            {
-                "AI不得", "请告知用户", "fix_change_set_and_retry", "后续阶段可继续使用"
-            };
-            string[] pollutedDescriptions = editorTools
-                .Where(tool => retiredRoutingTerms.Concat(ambiguousRoutingTerms).Any(term =>
-                    (tool.ProtocolTool.Description ?? string.Empty).Contains(term, StringComparison.Ordinal)))
-                .Select(tool => tool.ProtocolTool.Name)
-                .ToArray();
-            if (pollutedDescriptions.Length > 0)
-            {
-                throw new InvalidOperationException("Editor Profile 工具描述含旧链或歧义表达："
-                    + string.Join(", ", pollutedDescriptions));
-            }
             string[] pollutedSchemas = editorTools
-                .Where(tool => retiredRoutingTerms.Concat(ambiguousRoutingTerms).Any(term =>
+                .Where(tool => retiredRoutingTerms.Any(term =>
                     tool.ProtocolTool.InputSchema.ToString().Contains(term, StringComparison.Ordinal)))
                 .Select(tool => tool.ProtocolTool.Name)
                 .ToArray();
@@ -440,16 +407,6 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("Editor Profile 参数Schema含旧链或歧义表达："
                     + string.Join(", ", pollutedSchemas));
             }
-            string[] editorOnlyDiagnosticTools =
-            {
-                "search_ops", "diagnose_issue", "get_operation_schema",
-                "search_operation_fields", "find_references",
-                "audit_proc_batch", "diagnose_proc", "list_io"
-            };
-            string? exposedDiagnostic = editorOnlyDiagnosticTools.FirstOrDefault(name =>
-                names.Contains(name, StringComparer.Ordinal));
-            if (exposedDiagnostic != null)
-                throw new InvalidOperationException($"Editor Profile 意外暴露诊断工具：{exposedDiagnostic}");
             McpServerTool previewTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
             string previewSchema = previewTool.ProtocolTool.InputSchema.ToString();
@@ -464,8 +421,7 @@ namespace Automation.McpServer
                 "targetProcess", "targetOperation", "position", "oneOf",
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
                 "replacePreviewId", "operation.replace", "afterKey", "current_change_set",
-                "branch.io", "conditions", "conditionLogic", "onFailure",
-                "IO运行时逻辑目标值", "不统一表示安全位或工作位", "系统变量区配置只读"
+                "branch.io", "conditions", "conditionLogic", "onFailure"
             };
             schemaIssues.AddRange(requiredSchemaTerms
                 .Where(term => !previewSchema.Contains(term, StringComparison.Ordinal)
@@ -475,7 +431,7 @@ namespace Automation.McpServer
                 .Select(term => "缺少 " + term));
             string[] retiredSchemaTerms =
             {
-                "draftId", "expectedOperationCount", "后续阶段可继续使用"
+                "draftId", "expectedOperationCount"
             };
             schemaIssues.AddRange(retiredSchemaTerms
                 .Where(term => previewSchema.Contains(term, StringComparison.Ordinal)
@@ -502,43 +458,12 @@ namespace Automation.McpServer
             }
             VerifyPreviewChangeSetDiscriminatedUnions(previewTool.ProtocolTool.InputSchema.GetRawText());
             VerifyDiagnosticPagingSchemas();
-            McpServerTool runTestTool = editorTools.First(tool =>
-                string.Equals(tool.ProtocolTool.Name, "run_proc_test", StringComparison.Ordinal));
-            McpServerTool startTool = editorTools.First(tool =>
-                string.Equals(tool.ProtocolTool.Name, "start_proc", StringComparison.Ordinal));
-            McpServerTool discardPreviewTool = editorTools.First(tool =>
-                string.Equals(tool.ProtocolTool.Name, "discard_change_set_preview", StringComparison.Ordinal));
             McpServerTool nativeSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
             McpServerTool semanticSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_semantic_operation_schema", StringComparison.Ordinal));
             McpServerTool processDesignTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_process_design_guide", StringComparison.Ordinal));
-            McpServerTool getIoTool = editorTools.First(tool =>
-                string.Equals(tool.ProtocolTool.Name, "get_io", StringComparison.Ordinal));
-            McpServerTool getIoStateTool = editorTools.First(tool =>
-                string.Equals(tool.ProtocolTool.Name, "get_io_state", StringComparison.Ordinal));
-            if (!(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("明确要求测试或试运行", StringComparison.Ordinal)
-                || !(runTestTool.ProtocolTool.Description ?? string.Empty).Contains("负责启动、观察和安全停止", StringComparison.Ordinal)
-                || !(startTool.ProtocolTool.Description ?? string.Empty).Contains("由run_proc_test一次完成", StringComparison.Ordinal)
-                || !(discardPreviewTool.ProtocolTool.Description ?? string.Empty).Contains("不修改配置", StringComparison.Ordinal)
-                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("preview_only", StringComparison.Ordinal)
-                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("configurationSaved", StringComparison.Ordinal)
-                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("localKeyScope", StringComparison.Ordinal)
-                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("variableResolutions", StringComparison.Ordinal)
-                || !(previewTool.ProtocolTool.Description ?? string.Empty).Contains("replacePreviewId", StringComparison.Ordinal)
-                || !(nativeSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("native.operation", StringComparison.Ordinal)
-                || !(semanticSchemaTool.ProtocolTool.Description ?? string.Empty).Contains("保存必填项", StringComparison.Ordinal)
-                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("简单赋值", StringComparison.Ordinal)
-                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("不提供具体字段", StringComparison.Ordinal)
-                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("mechanical对应IO、气缸、真空和运动反馈", StringComparison.Ordinal)
-                || !(processDesignTool.ProtocolTool.Description ?? string.Empty).Contains("review对应设计前、中、后审查", StringComparison.Ordinal)
-                || !(getIoTool.ProtocolTool.Description ?? string.Empty).Contains("不自动定义机构的安全位或工作位", StringComparison.Ordinal)
-                || !(getIoStateTool.ProtocolTool.Description ?? string.Empty).Contains("运行时逻辑状态", StringComparison.Ordinal)
-                || !(getIoStateTool.ProtocolTool.Description ?? string.Empty).Contains("不统一表示电气高低电平、安全位或工作位", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("预演生命周期或流程验证工具职责未完整公开。");
-            }
             string semanticSchema = semanticSchemaTool.ProtocolTool.InputSchema.GetRawText();
             string nativeSchema = nativeSchemaTool.ProtocolTool.InputSchema.GetRawText();
             string processDesignSchema = processDesignTool.ProtocolTool.InputSchema.GetRawText();
@@ -576,10 +501,6 @@ namespace Automation.McpServer
                     .Select(section => section?["markdown"]?.GetValue<string>() ?? string.Empty));
             if (processDesignRoot?["ok"]?.GetValue<bool>() != true
                 || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
-                || !processDesignMarkdown.Contains("检查前置条件", StringComparison.Ordinal)
-                || !processDesignMarkdown.Contains("异常路径", StringComparison.Ordinal)
-                || !processDesignMarkdown.Contains("单电磁阀气缸缩回到原位", StringComparison.Ordinal)
-                || !processDesignMarkdown.Contains("原位输入为 `true`，动位输入为 `false`", StringComparison.Ordinal)
                 || processDesignPollution.Any(term => processDesignMarkdown.Contains(term, StringComparison.Ordinal)))
             {
                 throw new InvalidOperationException("流程设计指南资源缺失核心闭环或仍含项目专用内容。");
@@ -608,16 +529,15 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("Diagnostic Profile 工具边界错误。");
             }
-            McpServerTool diagnoseIssueTool = diagnosticTools.Single(tool =>
-                string.Equals(tool.ProtocolTool.Name, "diagnose_issue", StringComparison.Ordinal));
-            if (!(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "运行黑匣子", StringComparison.Ordinal)
-                || !(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "evidenceLimits", StringComparison.Ordinal)
-                || !(diagnoseIssueTool.ProtocolTool.Description ?? string.Empty).Contains(
-                    "只读", StringComparison.Ordinal))
+            string[] editorMissingDiagnosticTools = diagnosticNames
+                .Where(name => !names.Contains(name, StringComparer.Ordinal))
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (editorMissingDiagnosticTools.Length > 0)
             {
-                throw new InvalidOperationException("diagnose_issue 缺少黑匣子证据边界或只读契约。");
+                throw new InvalidOperationException(
+                    "Editor Profile 必须完整包含 Diagnostic 能力："
+                    + string.Join(", ", editorMissingDiagnosticTools));
             }
             string[] runtimeDiagnosticNames = McpToolProfile.CreateTools("RuntimeDiagnostic")
                 .Select(tool => tool.ProtocolTool.Name).ToArray();

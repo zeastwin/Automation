@@ -364,18 +364,9 @@ namespace Automation.Bridge
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
-                ["committed"] = false,
-                ["configurationSaved"] = false,
-                ["objectState"] = "preview_only",
-                ["localKeyScope"] = "current_change_set",
-                ["readAfterApplyFrom"] = "apply_change_set.createdObjects/affectedProcesses",
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
                 ["allowedTransitions"] = allowedTransitions,
-                ["draftSaveAllowed"] = true,
-                ["revisionMode"] = "full_stage_replacement",
-                ["replacedPreviewId"] = record.ReplacedPreviewId,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                ["title"] = changeSet.Title ?? string.Empty,
                 ["summary"] = new JObject
                 {
                     ["deletedProcesses"] = draft.DeletedProcessCount,
@@ -387,7 +378,6 @@ namespace Automation.Bridge
                 },
                 ["variableResolutions"] = draft.VariableResolutions?.DeepClone() ?? new JArray(),
                 ["changes"] = BuildPreviewOnlyView(draft.Changes, createdPreviewProcIds),
-                ["processAnalyses"] = BuildPreviewOnlyView(draft.ProcessAnalyses, createdPreviewProcIds),
                 ["readinessStatus"] = draft.ReadinessStatus,
                 ["runnable"] = draft.Runnable,
                 ["warnings"] = BuildPreviewOnlyView(draft.ConfigurationWarnings, createdPreviewProcIds),
@@ -399,7 +389,10 @@ namespace Automation.Bridge
             };
         }
 
-        private static JArray BuildChangeSetAllowedTransitions(PreviewApprovalRecord record)
+        private static JArray BuildChangeSetAllowedTransitions(
+            PreviewApprovalRecord record,
+            bool includeReplacement = true,
+            bool includeDiscard = true)
         {
             var allowedTransitions = new JArray();
             if (record.Confirmed)
@@ -417,20 +410,24 @@ namespace Automation.Bridge
                     ["state"] = "awaiting_foreground_confirmation"
                 });
             }
-            allowedTransitions.Add(new JObject
+            if (includeReplacement)
             {
-                ["tool"] = "preview_change_set",
-                ["requiredArguments"] = new JArray("changeSet", "replacePreviewId"),
-                ["fixedArguments"] = new JObject { ["replacePreviewId"] = record.PreviewId },
-                ["changeSetMode"] = "complete_replacement",
-                ["previousPreviewActionsInherited"] = false,
-                ["previousPreviewLocalKeysInherited"] = false
-            });
-            allowedTransitions.Add(new JObject
+                allowedTransitions.Add(new JObject
+                {
+                    ["tool"] = "preview_change_set",
+                    ["requiredArguments"] = new JArray("changeSet"),
+                    ["fixedArguments"] = new JObject { ["replacePreviewId"] = record.PreviewId },
+                    ["changeSetMode"] = "complete_replacement"
+                });
+            }
+            if (includeDiscard)
             {
-                ["tool"] = "discard_change_set_preview",
-                ["arguments"] = new JObject { ["previewId"] = record.PreviewId }
-            });
+                allowedTransitions.Add(new JObject
+                {
+                    ["tool"] = "discard_change_set_preview",
+                    ["arguments"] = new JObject { ["previewId"] = record.PreviewId }
+                });
+            }
             return allowedTransitions;
         }
 
@@ -621,7 +618,6 @@ namespace Automation.Bridge
             ValidateConfirmedManagePreview(previewId);
             AiChangeSetCompileResult draft;
             string expectedStateHash;
-            JArray changes;
             lock (previewLock)
             {
                 if (!previewRecords.TryGetValue(previewId, out PreviewApprovalRecord record)
@@ -632,7 +628,6 @@ namespace Automation.Bridge
                 }
                 draft = record.AiChangeSetPreview;
                 expectedStateHash = record.BaseStateHash;
-                changes = draft.Changes == null ? new JArray() : (JArray)draft.Changes.DeepClone();
             }
 
             Dictionary<string, DicValue> currentVariables = runtime.Stores.Values?.BuildSaveData()
@@ -654,7 +649,6 @@ namespace Automation.Bridge
             // 提交的是预演时冻结的结果。成功后立即关闭局部 key 作用域，后续编辑改用返回的稳定 ID。
             CommitChangeSet(draft);
             RemovePreview(previewId);
-            var createdProcesses = new JArray();
             var affectedProcesses = new JArray();
             var createdProcIds = new HashSet<string>(
                 (draft.CreatedObjects?["processes"] as JArray ?? new JArray())
@@ -678,30 +672,22 @@ namespace Automation.Bridge
                         ["name"] = analysis["name"]?.Value<string>() ?? string.Empty,
                         ["changeType"] = changeType,
                         ["readinessStatus"] = analysis["readinessStatus"]?.Value<string>() ?? "ready",
-                        ["runnable"] = analysis["runnable"]?.Value<bool>() ?? true,
-                        ["warnings"] = analysis["warnings"]?.DeepClone() ?? new JArray(),
-                        ["runBlockers"] = analysis["runBlockers"]?.DeepClone() ?? new JArray()
+                        ["runnable"] = analysis["runnable"]?.Value<bool>() ?? true
                     };
                     affectedProcesses.Add(item);
-                    if (string.Equals(changeType, "process.create", StringComparison.Ordinal))
-                    {
-                        createdProcesses.Add(item.DeepClone());
-                    }
                 }
             }
             return new JObject
             {
                 ["previewId"] = previewId,
-                ["committed"] = true,
                 ["configurationSaved"] = true,
                 ["status"] = "committed",
-                ["localKeyScope"] = "closed_after_apply",
-                ["procCount"] = draft.Processes.Count,
-                ["variableCount"] = draft.Variables.Count,
-                ["totalVariableCount"] = draft.Variables.Count,
-                ["changedVariableCount"] = draft.ChangedVariableCount,
+                ["summary"] = new JObject
+                {
+                    ["affectedProcesses"] = affectedProcesses.Count,
+                    ["changedVariables"] = draft.ChangedVariableCount
+                },
                 ["variableResolutions"] = draft.VariableResolutions?.DeepClone() ?? new JArray(),
-                ["createdProcesses"] = createdProcesses,
                 ["affectedProcesses"] = affectedProcesses,
                 ["createdObjects"] = draft.CreatedObjects?.DeepClone() ?? new JObject
                 {
@@ -709,12 +695,10 @@ namespace Automation.Bridge
                     ["steps"] = new JArray(),
                     ["operations"] = new JArray()
                 },
-                ["processAnalyses"] = draft.ProcessAnalyses?.DeepClone() ?? new JArray(),
                 ["readinessStatus"] = draft.ReadinessStatus,
                 ["runnable"] = draft.Runnable,
                 ["warnings"] = draft.ConfigurationWarnings?.DeepClone() ?? new JArray(),
                 ["runBlockers"] = draft.RunBlockers?.DeepClone() ?? new JArray(),
-                ["changes"] = changes,
                 ["message"] = "语义变更集已按冻结预演原子提交。"
             };
         }

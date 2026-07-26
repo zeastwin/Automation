@@ -3,6 +3,7 @@ using System;
 // 职责范围：验证流程结构只有一条公开写入链，并覆盖预演、替换、确认、提交和版本冲突。
 
 using System.IO;
+using System.Linq;
 using Automation.Bridge;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
@@ -83,6 +84,10 @@ namespace Automation.Core.Tests
                     string firstPreviewId = first["previewId"]?.Value<string>();
                     JObject replacement = PreviewProcess(service, "最终流程", firstPreviewId);
                     string replacementPreviewId = replacement["previewId"]?.Value<string>();
+                    AssertExactProperties(replacement,
+                        "previewId", "confirmed", "status", "allowedTransitions", "expiresAt",
+                        "summary", "variableResolutions", "changes", "readinessStatus", "runnable",
+                        "warnings", "runBlockers", "stageIssues", "messages");
 
                     AutomationBridgeResponse replacedConfirmation = Confirm(service, firstPreviewId);
                     Assert.AreEqual(409, replacedConfirmation.StatusCode);
@@ -91,12 +96,18 @@ namespace Automation.Core.Tests
 
                     AutomationBridgeResponse confirmation = Confirm(service, replacementPreviewId);
                     Assert.AreEqual(200, confirmation.StatusCode);
+                    AssertExactProperties(
+                        ReadData(confirmation), "previewId", "confirmed", "expiresAt");
                     AutomationBridgeResponse apply = Apply(service, replacementPreviewId);
                     JObject applied = ReadData(apply);
 
                     Assert.AreEqual(200, apply.StatusCode);
                     Assert.IsTrue(applied["configurationSaved"]?.Value<bool>() == true);
                     Assert.AreEqual("committed", applied["status"]?.Value<string>());
+                    AssertExactProperties(applied,
+                        "previewId", "configurationSaved", "status", "summary",
+                        "variableResolutions", "affectedProcesses", "createdObjects",
+                        "readinessStatus", "runnable", "warnings", "runBlockers", "message");
                     Assert.AreEqual("最终流程", form.Runtime.Stores.Processes.Items[0].head.Name);
                     Assert.IsTrue(File.Exists(Path.Combine(directory.FullPath, "Work", "0.json")));
 
@@ -521,6 +532,13 @@ namespace Automation.Core.Tests
         {
             return JObject.Parse(response.Body)["data"] as JObject
                 ?? throw new AssertFailedException("Bridge 成功响应缺少 data 对象：" + response.Body);
+        }
+
+        private static void AssertExactProperties(JObject value, params string[] expected)
+        {
+            CollectionAssert.AreEquivalent(
+                expected,
+                value.Properties().Select(property => property.Name).ToArray());
         }
     }
 }

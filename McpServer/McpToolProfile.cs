@@ -63,11 +63,6 @@ namespace Automation.McpServer
             "set_alarm", "delete_alarm"
         };
 
-        private static readonly HashSet<string> EditorDiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "get_operation_context", "get_info_log_tail"
-        };
-
         private static readonly HashSet<string> FullPermissionTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_migration_configuration",
@@ -92,7 +87,7 @@ namespace Automation.McpServer
             else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase))
             {
                 enabled.UnionWith(KnowledgeAndReadTools);
-                enabled.UnionWith(EditorDiagnosticTools);
+                enabled.UnionWith(DiagnosticAnalysisTools);
                 enabled.UnionWith(EditorMutationTools);
                 if (fullPermissionEnabled)
                 {
