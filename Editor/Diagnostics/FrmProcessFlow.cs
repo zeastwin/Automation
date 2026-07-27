@@ -366,7 +366,8 @@ namespace Automation
                         break;
                     case "openProcess":
                         int? procIndex = request["procIndex"]?.Value<int?>();
-                        if (procIndex.HasValue)
+                        if (procIndex.HasValue
+                            && currentProcIndex != procIndex.Value)
                         {
                             ShowProcessGraph(procIndex.Value);
                         }

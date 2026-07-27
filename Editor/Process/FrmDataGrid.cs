@@ -1645,6 +1645,9 @@ namespace Automation
                     // 在任何 Inspector 构建和跳转关系绘制之前先提交选中状态，
                     // 保证鼠标按下这一帧就能看到目标行，不等待 MouseUp。
                     dataGridView1.SelectSingle(rowIndex);
+                    // 属性检查器会在选中通知稳定后刷新；先完成当前无效区域绘制，
+                    // 避免检查器重绑和布局占用 UI 线程时把选中反馈压到后面。
+                    dataGridView1.Update();
                 }
                 iSelectedRow = rowIndex;
                 // 检查器由 SelectedIndexChanged 在本轮原生通知稳定后统一更新，
@@ -1757,7 +1760,12 @@ namespace Automation
             }
             try
             {
-                EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
+                if (!ReferenceEquals(
+                    EditorServiceRegistry.GetRuntime(OperationTemp),
+                    Workspace.Runtime))
+                {
+                    EditorServiceRegistry.AttachGraph(OperationTemp, Workspace.Runtime);
+                }
                 OperationTemp.RefreshInspector?.Invoke();
                 inspector.ShowObject(OperationTemp, true);
             }

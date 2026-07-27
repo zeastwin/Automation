@@ -619,8 +619,6 @@ namespace Automation
             Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
             dgvValue.Font = uiFont;
             dgvValue.ColumnHeadersDefaultCellStyle.Font = new Font("宋体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
-            dgvValue.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            dgvValue.MultiSelect = true;
             dgvValue.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             dgvValue.Columns[0].ReadOnly = true;
             type.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
@@ -1786,7 +1784,6 @@ namespace Automation
                     ? state.CurrentColumnIndex
                     : 0;
                 dgvValue.CurrentCell = dgvValue.Rows[currentRowIndex].Cells[columnIndex];
-                dgvValue.Rows[currentRowIndex].Selected = true;
             }
             int firstDisplayedRowIndex = GetVariableDisplayRowIndex(state.FirstDisplayedSlotIndex);
             if (firstDisplayedRowIndex >= 0)
@@ -2372,16 +2369,6 @@ namespace Automation
         private bool TryGetSingleSelectedSlotIndex(out int slotIndex)
         {
             slotIndex = -1;
-            if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
-            {
-                if (dgvValue.SelectedRows.Count > 1)
-                {
-                    MessageBox.Show("一次只能操作一行");
-                    return false;
-                }
-                slotIndex = GetVariableSlotIndex(dgvValue.SelectedRows[0].Index);
-                return slotIndex >= 0;
-            }
             if (dgvValue.CurrentCell == null)
             {
                 MessageBox.Show("没有选定的变量");
@@ -2393,24 +2380,13 @@ namespace Automation
 
         private List<int> GetSelectedSlotIndexes()
         {
-            HashSet<int> indexes = new HashSet<int>();
-            if (dgvValue.SelectedRows != null && dgvValue.SelectedRows.Count > 0)
-            {
-                foreach (DataGridViewRow row in dgvValue.SelectedRows)
-                {
-                    if (row != null && row.Index >= 0)
-                    {
-                        int slotIndex = GetVariableSlotIndex(row.Index);
-                        if (slotIndex >= 0) indexes.Add(slotIndex);
-                    }
-                }
-            }
-            else if (dgvValue.CurrentCell != null)
+            var indexes = new List<int>();
+            if (dgvValue.CurrentCell != null)
             {
                 int slotIndex = GetSelectedVariableSlotIndex();
                 if (slotIndex >= 0) indexes.Add(slotIndex);
             }
-            return new List<int>(indexes);
+            return indexes;
         }
 
         private void CopySelectedValueRow()
@@ -2820,7 +2796,6 @@ namespace Automation
             if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
             {
                 dgvValue.ClearSelection();
-                dgvValue.Rows[e.RowIndex].Selected = true;
                 dgvValue.CurrentCell = dgvValue.Rows[e.RowIndex].Cells[Math.Max(0, e.ColumnIndex)];
             }
         }
@@ -2831,7 +2806,7 @@ namespace Automation
         {
             if (e.Button != MouseButtons.Left
                 || e.RowIndex < 0
-                || (e.ColumnIndex != name.Index && e.ColumnIndex != value.Index)
+                || e.ColumnIndex < 0
                 || dgvValue.ReadOnly
                 || !dgvValue.Enabled)
             {

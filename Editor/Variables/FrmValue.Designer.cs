@@ -385,13 +385,15 @@
             this.value,
             this.Note});
             this.dgvValue.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dgvValue.EditMode = System.Windows.Forms.DataGridViewEditMode.EditProgrammatically;
             this.dgvValue.Location = new System.Drawing.Point(240, 0);
+            this.dgvValue.MultiSelect = false;
             this.dgvValue.Name = "dgvValue";
             this.dgvValue.RowHeadersVisible = false;
             this.dgvValue.RowHeadersWidth = 20;
             this.dgvValue.RowTemplate.Height = 28;
             this.dgvValue.ScrollBars = System.Windows.Forms.ScrollBars.Both;
-            this.dgvValue.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvValue.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
             this.dgvValue.Size = new System.Drawing.Size(1080, 812);
             this.dgvValue.TabIndex = 4;
             this.dgvValue.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvValue_CellEndEdit);

@@ -47,7 +47,10 @@ namespace Automation
         private int runtimeIndex = -1;
         private ProcRunState runtimeState = ProcRunState.Ready;
         private bool runtimeBreakpoint;
-        private readonly List<JumpLink> jumpLinks = new List<JumpLink>();
+        private IReadOnlyDictionary<long, IReadOnlyList<JumpLink>> jumpLinksByEndpoint =
+            new Dictionary<long, IReadOnlyList<JumpLink>>();
+        private IReadOnlyList<JumpLink> focusedOutgoingJumpLinks = Array.Empty<JumpLink>();
+        private IReadOnlyList<JumpLink> focusedIncomingJumpLinks = Array.Empty<JumpLink>();
         private readonly Dictionary<int, JumpLinkCacheEntry> jumpLinkCacheByProcIndex =
             new Dictionary<int, JumpLinkCacheEntry>();
         private static readonly ConcurrentDictionary<Type, JumpPropertyMetadata[]> JumpPropertyCache =
@@ -96,7 +99,7 @@ namespace Automation
         private sealed class JumpLinkCacheEntry
         {
             public Proc Proc { get; set; }
-            public IReadOnlyList<JumpLink> Links { get; set; }
+            public IReadOnlyDictionary<long, IReadOnlyList<JumpLink>> LinksByEndpoint { get; set; }
         }
 
         private sealed class JumpLink
@@ -249,6 +252,12 @@ namespace Automation
 
         internal int JumpLinkBuildCount { get; private set; }
 
+        internal int JumpLinkEndpointCount => jumpLinksByEndpoint.Count;
+
+        internal int FocusedOutgoingJumpLinkCount => focusedOutgoingJumpLinks.Count;
+
+        internal int FocusedIncomingJumpLinkCount => focusedIncomingJumpLinks.Count;
+
         public void SetFlowContext(int procIndex, int stepIndex, Proc proc)
         {
             bool processChanged = flowProcIndex != procIndex || !ReferenceEquals(flowProc, proc);
@@ -259,11 +268,12 @@ namespace Automation
             {
                 if (!TryActivateJumpLinkCache(procIndex, proc))
                 {
-                    jumpLinks.Clear();
+                    jumpLinksByEndpoint = new Dictionary<long, IReadOnlyList<JumpLink>>();
                     jumpLinkSourceProc = proc;
                     jumpLinksValid = false;
                 }
             }
+            RefreshFocusedJumpLinks();
             if (proc != null && stepIndex < 0)
             {
                 QueueJumpLinkPrewarm();
@@ -621,6 +631,7 @@ namespace Automation
                 return;
             }
             base.OnSelectedIndexChanged(e);
+            RefreshFocusedJumpLinks();
             InvalidateFlowColumn();
         }
 
@@ -631,6 +642,7 @@ namespace Automation
             {
                 selectionChangedPending = false;
                 base.OnSelectedIndexChanged(EventArgs.Empty);
+                RefreshFocusedJumpLinks();
                 InvalidateFlowColumn();
             }
         }
@@ -773,16 +785,13 @@ namespace Automation
         {
             if (flowProcIndex < 0 || flowProc?.steps == null)
             {
-                jumpLinks.Clear();
+                jumpLinksByEndpoint = new Dictionary<long, IReadOnlyList<JumpLink>>();
+                RefreshFocusedJumpLinks();
                 jumpLinksValid = false;
                 return;
             }
 
-            var entry = new JumpLinkCacheEntry
-            {
-                Proc = flowProc,
-                Links = BuildJumpLinks(flowProcIndex, flowProc)
-            };
+            JumpLinkCacheEntry entry = BuildJumpLinkCacheEntry(flowProcIndex, flowProc);
             jumpLinkCacheByProcIndex[flowProcIndex] = entry;
             ActivateJumpLinkCache(flowProcIndex, entry);
         }
@@ -797,11 +806,8 @@ namespace Automation
                 {
                     continue;
                 }
-                jumpLinkCacheByProcIndex[procIndex] = new JumpLinkCacheEntry
-                {
-                    Proc = proc,
-                    Links = BuildJumpLinks(procIndex, proc)
-                };
+                jumpLinkCacheByProcIndex[procIndex] =
+                    BuildJumpLinkCacheEntry(procIndex, proc);
             }
 
             if (flowProc != null && TryActivateJumpLinkCache(flowProcIndex, flowProc))
@@ -809,7 +815,8 @@ namespace Automation
                 InvalidateFlowColumn();
                 return;
             }
-            jumpLinks.Clear();
+            jumpLinksByEndpoint = new Dictionary<long, IReadOnlyList<JumpLink>>();
+            RefreshFocusedJumpLinks();
             jumpLinksValid = false;
         }
 
@@ -820,11 +827,7 @@ namespace Automation
                 jumpLinkCacheByProcIndex.Remove(procIndex);
                 return;
             }
-            var entry = new JumpLinkCacheEntry
-            {
-                Proc = proc,
-                Links = BuildJumpLinks(procIndex, proc)
-            };
+            JumpLinkCacheEntry entry = BuildJumpLinkCacheEntry(procIndex, proc);
             jumpLinkCacheByProcIndex[procIndex] = entry;
             if (flowProcIndex == procIndex && ReferenceEquals(flowProc, proc))
             {
@@ -904,6 +907,60 @@ namespace Automation
             return distinctLinks;
         }
 
+        private JumpLinkCacheEntry BuildJumpLinkCacheEntry(int procIndex, Proc proc)
+        {
+            IReadOnlyList<JumpLink> links = BuildJumpLinks(procIndex, proc);
+            return new JumpLinkCacheEntry
+            {
+                Proc = proc,
+                LinksByEndpoint = BuildJumpLinkEndpointIndex(links)
+            };
+        }
+
+        private static IReadOnlyDictionary<long, IReadOnlyList<JumpLink>>
+            BuildJumpLinkEndpointIndex(IReadOnlyList<JumpLink> links)
+        {
+            var mutable = new Dictionary<long, List<JumpLink>>();
+            foreach (JumpLink link in links ?? Array.Empty<JumpLink>())
+            {
+                AddJumpLinkEndpoint(
+                    mutable,
+                    BuildJumpLinkEndpointKey(link.SourceStepIndex, link.SourceOpIndex),
+                    link);
+                long targetKey = BuildJumpLinkEndpointKey(
+                    link.TargetStepIndex,
+                    link.TargetOpIndex);
+                long sourceKey = BuildJumpLinkEndpointKey(
+                    link.SourceStepIndex,
+                    link.SourceOpIndex);
+                if (targetKey != sourceKey)
+                {
+                    AddJumpLinkEndpoint(mutable, targetKey, link);
+                }
+            }
+            return mutable.ToDictionary(
+                pair => pair.Key,
+                pair => (IReadOnlyList<JumpLink>)pair.Value);
+        }
+
+        private static void AddJumpLinkEndpoint(
+            IDictionary<long, List<JumpLink>> index,
+            long key,
+            JumpLink link)
+        {
+            if (!index.TryGetValue(key, out List<JumpLink> endpointLinks))
+            {
+                endpointLinks = new List<JumpLink>();
+                index[key] = endpointLinks;
+            }
+            endpointLinks.Add(link);
+        }
+
+        private static long BuildJumpLinkEndpointKey(int stepIndex, int opIndex)
+        {
+            return ((long)stepIndex << 32) | (uint)opIndex;
+        }
+
         private void EnsureJumpLinks()
         {
             if (jumpLinksValid && ReferenceEquals(jumpLinkSourceProc, flowProc))
@@ -932,10 +989,46 @@ namespace Automation
 
         private void ActivateJumpLinkCache(int procIndex, JumpLinkCacheEntry entry)
         {
-            jumpLinks.Clear();
-            jumpLinks.AddRange(entry.Links);
+            jumpLinksByEndpoint = entry.LinksByEndpoint
+                ?? new Dictionary<long, IReadOnlyList<JumpLink>>();
             jumpLinkSourceProc = entry.Proc;
             jumpLinksValid = flowProcIndex == procIndex && ReferenceEquals(flowProc, entry.Proc);
+            RefreshFocusedJumpLinks();
+        }
+
+        private IReadOnlyList<JumpLink> GetEndpointJumpLinks(int stepIndex, int opIndex)
+        {
+            return jumpLinksByEndpoint.TryGetValue(
+                BuildJumpLinkEndpointKey(stepIndex, opIndex),
+                out IReadOnlyList<JumpLink> endpointLinks)
+                    ? endpointLinks
+                    : Array.Empty<JumpLink>();
+        }
+
+        private void RefreshFocusedJumpLinks()
+        {
+            int focusRow = GetJumpFocusRow();
+            if (focusRow < 0 || flowStepIndex < 0)
+            {
+                focusedOutgoingJumpLinks = Array.Empty<JumpLink>();
+                focusedIncomingJumpLinks = Array.Empty<JumpLink>();
+                return;
+            }
+            IReadOnlyList<JumpLink> endpointLinks =
+                GetEndpointJumpLinks(flowStepIndex, focusRow);
+            focusedOutgoingJumpLinks = endpointLinks
+                .Where(link => !link.IsCrossStep
+                    && link.SourceStepIndex == flowStepIndex
+                    && link.SourceOpIndex == focusRow)
+                .OrderBy(link => link.TargetOpIndex)
+                .ToArray();
+            focusedIncomingJumpLinks = endpointLinks
+                .Where(link => !link.IsCrossStep
+                    && link.TargetStepIndex == flowStepIndex
+                    && link.TargetOpIndex == focusRow
+                    && link.SourceOpIndex != focusRow)
+                .OrderBy(link => link.SourceOpIndex)
+                .ToArray();
         }
 
         private void QueueJumpLinkPrewarm()
@@ -1090,15 +1183,23 @@ namespace Automation
             }
         }
 
-        private bool IsEndpointOnCurrentStep(JumpLink link, int opIndex)
-        {
-            return (link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == opIndex)
-                || (link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == opIndex);
-        }
-
         private int GetJumpFocusRow()
         {
             return SelectedIndices.Cast<int>().DefaultIfEmpty(-1).First();
+        }
+
+        private static int IndexOfJumpLink(
+            IReadOnlyList<JumpLink> links,
+            JumpLink target)
+        {
+            for (int index = 0; index < links.Count; index++)
+            {
+                if (ReferenceEquals(links[index], target))
+                {
+                    return index;
+                }
+            }
+            return -1;
         }
 
         private void InstructionListView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
@@ -1245,9 +1346,8 @@ namespace Automation
                     graphics.FillRectangle(accentBrush, bounds.Left, bounds.Top + 2, 3, Math.Max(1, bounds.Height - 4));
                 }
             }
-            List<JumpLink> endpointLinks = jumpLinks
-                .Where(link => IsEndpointOnCurrentStep(link, index))
-                .ToList();
+            IReadOnlyList<JumpLink> endpointLinks =
+                GetEndpointJumpLinks(flowStepIndex, index);
             List<JumpKind> outgoingKinds = endpointLinks.Where(link =>
                     link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == index)
                 .SelectMany(link => link.Kinds)
@@ -1357,19 +1457,8 @@ namespace Automation
             {
                 return;
             }
-            List<JumpLink> outgoingLinks = jumpLinks.Where(link =>
-                    !link.IsCrossStep
-                    && link.SourceStepIndex == flowStepIndex
-                    && link.SourceOpIndex == focusRow)
-                .OrderBy(link => link.TargetOpIndex)
-                .ToList();
-            List<JumpLink> incomingLinks = jumpLinks.Where(link =>
-                    !link.IsCrossStep
-                    && link.TargetStepIndex == flowStepIndex
-                    && link.TargetOpIndex == focusRow
-                    && link.SourceOpIndex != focusRow)
-                .OrderBy(link => link.SourceOpIndex)
-                .ToList();
+            IReadOnlyList<JumpLink> outgoingLinks = focusedOutgoingJumpLinks;
+            IReadOnlyList<JumpLink> incomingLinks = focusedIncomingJumpLinks;
             foreach (JumpLink link in outgoingLinks.Concat(incomingLinks))
             {
                 int first = Math.Min(link.SourceOpIndex, link.TargetOpIndex);
@@ -1379,8 +1468,9 @@ namespace Automation
                     continue;
                 }
                 bool isOutput = link.SourceOpIndex == focusRow;
-                List<JumpLink> directionLinks = isOutput ? outgoingLinks : incomingLinks;
-                int laneIndex = directionLinks.IndexOf(link);
+                IReadOnlyList<JumpLink> directionLinks =
+                    isOutput ? outgoingLinks : incomingLinks;
+                int laneIndex = IndexOfJumpLink(directionLinks, link);
                 int visibleLaneIndex = laneIndex % JumpVisibleLaneCount;
                 int laneX = isOutput
                     ? centerX - 22 - visibleLaneIndex * JumpLaneSpacing
@@ -1473,10 +1563,9 @@ namespace Automation
                 return;
             }
             int focusRow = GetJumpFocusRow();
-            if (focusRow < 0 || !jumpLinks.Any(link =>
-                    !link.IsCrossStep
-                    && ((link.SourceStepIndex == flowStepIndex && link.SourceOpIndex == focusRow)
-                        || (link.TargetStepIndex == flowStepIndex && link.TargetOpIndex == focusRow))))
+            if (focusRow < 0
+                || (focusedOutgoingJumpLinks.Count == 0
+                    && focusedIncomingJumpLinks.Count == 0))
             {
                 return;
             }
@@ -1723,16 +1812,16 @@ namespace Automation
             }
             int centerX = GetRailCenterX(new Rectangle(0, rowBounds.Top, base.Columns[0].Width, rowBounds.Height));
             int centerY = rowBounds.Top + rowBounds.Height / 2;
-            List<JumpLink> outgoingLinks = jumpLinks
+            IReadOnlyList<JumpLink> endpointLinks =
+                GetEndpointJumpLinks(flowStepIndex, rowIndex);
+            List<JumpLink> outgoingLinks = endpointLinks
                 .Where(item => item.IsCrossStep
-                    && item.SourceStepIndex == flowStepIndex
-                    && item.SourceOpIndex == rowIndex)
+                    && item.SourceStepIndex == flowStepIndex)
                 .OrderBy(item => item.CrossId)
                 .ToList();
-            List<JumpLink> incomingLinks = jumpLinks
+            List<JumpLink> incomingLinks = endpointLinks
                 .Where(item => item.IsCrossStep
-                    && item.TargetStepIndex == flowStepIndex
-                    && item.TargetOpIndex == rowIndex)
+                    && item.TargetStepIndex == flowStepIndex)
                 .OrderBy(item => item.CrossId)
                 .ToList();
 

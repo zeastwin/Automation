@@ -269,6 +269,58 @@ namespace Automation.Core.Tests
             }, TimeSpan.FromSeconds(10));
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void SelectingOperations_UsesEndpointIndexWithoutRebuildingJumpLinks()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var proc = new Proc();
+                var step = new Step { Name = "步骤" };
+                step.Ops.Add(new Goto { DefaultGoto = "0-0-2" });
+                step.Ops.Add(new Delay());
+                step.Ops.Add(new EndProcess());
+                proc.steps.Add(step);
+
+                using (var bindingSource = new BindingSource())
+                using (var list = new InstructionListView { Dock = DockStyle.Fill })
+                using (var form = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(640, 320)
+                })
+                {
+                    form.Controls.Add(list);
+                    form.Show();
+                    Application.DoEvents();
+
+                    list.RebuildJumpLinkCaches(new[] { proc });
+                    list.SetFlowContext(0, 0, proc);
+                    bindingSource.DataSource = step.Ops;
+                    list.DataSource = bindingSource;
+
+                    Assert.AreEqual(
+                        2,
+                        list.JumpLinkEndpointCount,
+                        "一条跳转应只在来源和目标两个端点建立索引。");
+
+                    list.SelectSingle(0);
+                    Assert.AreEqual(1, list.FocusedOutgoingJumpLinkCount);
+                    Assert.AreEqual(0, list.FocusedIncomingJumpLinkCount);
+
+                    list.SelectSingle(2);
+                    Assert.AreEqual(0, list.FocusedOutgoingJumpLinkCount);
+                    Assert.AreEqual(1, list.FocusedIncomingJumpLinkCount);
+                    Assert.AreEqual(
+                        1,
+                        list.JumpLinkBuildCount,
+                        "切换选中指令只能切换端点投影，不能重新扫描流程跳转关系。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
         private static Proc CreateProcess(string name)
         {
             var proc = new Proc
