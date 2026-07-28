@@ -223,7 +223,7 @@ namespace Automation
                 case SystemStatus.ProcAlarm:
                     return UiPalette.Danger;
                 case SystemStatus.Ready:
-                    return UiPalette.Brand;
+                    return UiPalette.Success;
                 case SystemStatus.Working:
                     return UiPalette.Success;
                 case SystemStatus.Paused:

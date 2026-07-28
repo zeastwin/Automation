@@ -336,6 +336,29 @@ namespace Automation
             return true;
         }
 
+        internal static bool TryBindSelectedOperation(
+            Proc proc,
+            int procIndex,
+            ValueConfigStore valueStore,
+            DataStructStore dataStructStore,
+            OperationType operation,
+            out string error)
+        {
+            if (operation == null)
+            {
+                error = "指令为空";
+                return false;
+            }
+            return TryBindOperation(
+                proc,
+                procIndex,
+                proc?.head?.Id ?? Guid.Empty,
+                valueStore,
+                dataStructStore,
+                operation,
+                out error);
+        }
+
         internal static bool TryBindStandalone(
             Guid procId,
             ValueConfigStore valueStore,

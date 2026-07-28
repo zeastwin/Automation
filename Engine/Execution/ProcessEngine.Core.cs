@@ -804,16 +804,6 @@ namespace Automation
                 Logger?.Log($"启动流程失败:{stateError}", LogLevel.Error);
                 return false;
             }
-            if (!TryValidateProcessStart(proc, procIndex, out string gateError))
-            {
-                Logger?.Log($"启动流程失败:{gateError}", LogLevel.Error);
-                return false;
-            }
-            if (!TryValidateCustomFunctions(proc, out string customFunctionError))
-            {
-                Logger?.Log($"启动流程失败:{customFunctionError}", LogLevel.Error);
-                return false;
-            }
             if (proc.head?.Disable == true)
             {
                 string name = string.IsNullOrWhiteSpace(proc.head?.Name) ? $"索引{procIndex}" : proc.head.Name;
@@ -834,14 +824,12 @@ namespace Automation
                 Logger?.Log($"启动流程失败：启动状态无效:{startState}", LogLevel.Error);
                 return false;
             }
-            if (!ProcessRuntimeBinder.TryBind(
-                proc,
-                procIndex,
-                Context?.ValueStore,
-                Context?.DataStructStore,
-                out string bindError))
+            bool canStart = startState == ProcRunState.Running
+                ? TryValidateProcessStart(proc, procIndex, out string startError)
+                : TryValidateStartGate(out startError);
+            if (!canStart)
             {
-                Logger?.Log($"启动流程失败:{bindError}", LogLevel.Error);
+                Logger?.Log($"启动流程失败:{startError}", LogLevel.Error);
                 return false;
             }
             return EnqueueCommand(procIndex,
@@ -947,9 +935,9 @@ namespace Automation
             return agent != null
                 && agent.RequestDataBreakpointPause(hitId);
         }
-        public void Resume(int procIndex)
+        public bool Resume(int procIndex)
         {
-            EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
+            return EnqueueCommand(procIndex, EngineCommand.Resume(procIndex));
         }
         public bool Step(int procIndex)
         {
@@ -976,22 +964,18 @@ namespace Automation
                 Logger?.Log($"单次执行指令失败:{stateError}", LogLevel.Error);
                 return false;
             }
-            if (!TryValidateCustomFunctions(proc, out string customFunctionError))
-            {
-                Logger?.Log($"单次执行指令失败:{customFunctionError}", LogLevel.Error);
-                return false;
-            }
             if (proc.steps == null || stepIndex < 0 || stepIndex >= proc.steps.Count
                 || proc.steps[stepIndex]?.Ops == null || opIndex < 0 || opIndex >= proc.steps[stepIndex].Ops.Count)
             {
                 Logger?.Log($"单次执行指令失败：位置无效:{procIndex}-{stepIndex}-{opIndex}", LogLevel.Error);
                 return false;
             }
-            if (!ProcessRuntimeBinder.TryBind(
+            if (!ProcessRuntimeBinder.TryBindSelectedOperation(
                 proc,
                 procIndex,
                 Context?.ValueStore,
                 Context?.DataStructStore,
+                proc.steps[stepIndex].Ops[opIndex],
                 out string bindError))
             {
                 Logger?.Log($"单次执行指令失败:{bindError}", LogLevel.Error);
@@ -1401,6 +1385,19 @@ namespace Automation
                 Context?.ValidationContextFactory?.Invoke(), Context?.ValueStore);
             if (readiness.Runnable)
             {
+                if (!TryValidateCustomFunctions(proc, out error))
+                {
+                    return false;
+                }
+                if (!ProcessRuntimeBinder.TryBind(
+                    proc,
+                    procIndex,
+                    Context?.ValueStore,
+                    Context?.DataStructStore,
+                    out error))
+                {
+                    return false;
+                }
                 return true;
             }
             error = "流程配置尚不可运行：" + string.Join("；", readiness.RunBlockers);
@@ -1786,6 +1783,17 @@ namespace Automation
                     }
                     try
                     {
+                        if (singleStepExecution
+                            && !ProcessRuntimeBinder.TryBindSelectedOperation(
+                                evt.Proc,
+                                evt.procNum,
+                                Context?.ValueStore,
+                                Context?.DataStructStore,
+                                operation,
+                                out string bindError))
+                        {
+                            throw new InvalidOperationException($"当前单步指令运行计划编译失败:{bindError}");
+                        }
                         ExecuteOperation(evt, operation);
                         if (evt.HasAlarm)
                         {
@@ -2400,8 +2408,7 @@ namespace Automation
                 case EngineCommandType.Pause:
                     return PauseInternal(command.DataBreakpointHitId);
                 case EngineCommandType.Resume:
-                    ResumeInternal();
-                    return true;
+                    return ResumeInternal(command);
                 case EngineCommandType.Step:
                     return StepInternal();
                 case EngineCommandType.Stop:
@@ -2495,8 +2502,7 @@ namespace Automation
                 engine.Logger?.Log("启动流程失败：流程为空。", LogLevel.Error);
                 return false;
             }
-            // 入队前已经完成完整 readiness 校验；调度线程只重查可能变化的全局运行闸门，
-            // 避免长流程在一次 Start 中重复全量扫描。
+            // 入队前已按启动模式完成校验；调度线程只重查所有模式都必须遵守的全局闸门。
             if (!engine.TryValidateStartGate(out string startError))
             {
                 engine.Logger?.Log($"启动流程失败:{startError}", LogLevel.Error);
@@ -2636,7 +2642,7 @@ namespace Automation
             return true;
         }
 
-        private void ResumeInternal()
+        private bool ResumeInternal(EngineCommand command)
         {
             ProcHandle handle;
             ProcessControl control;
@@ -2647,15 +2653,24 @@ namespace Automation
             }
             if (handle == null || control == null)
             {
-                return;
+                command.FailureReason = $"流程{procIndex}没有可继续的活动实例。";
+                return false;
             }
             if (handle.State != ProcRunState.Paused
                 && handle.State != ProcRunState.Pausing
                 && handle.State != ProcRunState.SingleStep)
             {
-                return;
+                command.FailureReason = $"流程{procIndex}当前状态为{handle.State}，无法继续运行。";
+                return false;
             }
             bool resumeFromSingleStep = handle.State == ProcRunState.SingleStep;
+            if (!engine.TryValidateProcessStart(
+                handle.Proc, procIndex, out string resumeError))
+            {
+                command.FailureReason = resumeError;
+                engine.Logger?.Log($"流程继续运行失败:{resumeError}", LogLevel.Error);
+                return false;
+            }
             handle.State = ProcRunState.Running;
             handle.isBreakpoint = false;
             handle.PauseBySignal = false;
@@ -2665,6 +2680,7 @@ namespace Automation
                 control.RequestStep();
             }
             engine.PublishHandleSnapshot(handle);
+            return true;
         }
 
         private bool StepInternal()

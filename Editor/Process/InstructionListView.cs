@@ -168,7 +168,7 @@ namespace Automation
             contentFont = ProcessPageFont.Create(10F, FontStyle.Regular);
             headerFont = ProcessPageFont.Create(9.5F, FontStyle.Bold);
             Font = contentFont;
-            BackColor = UiPalette.Background;
+            BackColor = UiPalette.SurfaceStrong;
             ForeColor = UiPalette.TextPrimary;
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
@@ -1241,7 +1241,7 @@ namespace Automation
             bool selected = SelectedIndices.Contains(index);
             bool isRuntime = index == runtimeIndex;
             bool hasTransientColor = rowBackColors.ContainsKey(index) || !allRowsBackColor.IsEmpty;
-            // 第0列承载流程轨道和跳转动画，不叠加选中蓝底。
+            // 第0列承载流程轨道和跳转动画，不叠加选中背景。
             // 选择变化时只重绘轨道事实，避免原生选中刷新与动画刷新产生半拍色差。
             bool paintSelection = e.ColumnIndex != 0 && selected;
             Color backColor = ResolveRowBackColor(

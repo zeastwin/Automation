@@ -579,8 +579,16 @@ namespace Automation
                     ApplyProcessRunState(current?.State ?? ProcRunState.Ready);
                     return;
                 }
-                Workspace.Runtime.ProcessEngine.Resume(procIndex);
-                ApplyProcessRunState(ProcRunState.Running);
+                if (Workspace.Runtime.ProcessEngine.Resume(procIndex))
+                {
+                    ApplyProcessRunState(ProcRunState.Running);
+                }
+                else
+                {
+                    Workspace.Info?.PrintInfo(
+                        "流程未通过全速运行校验，请查看流程日志中的具体原因。",
+                        FrmInfo.Level.Error);
+                }
             }
             finally
             {

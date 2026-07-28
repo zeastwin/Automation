@@ -1,6 +1,6 @@
 using System;
 // 模块：核心测试 / 流程引擎生命周期。
-// 职责范围：验证无 UI 运行与重复启动保护；失败的重复请求不得替换当前实例。
+// 职责范围：验证无 UI 运行、按模式启动校验与重复启动保护；失败请求不得替换当前实例。
 
 using System.Collections.Generic;
 using System.Threading;
@@ -69,6 +69,76 @@ namespace Automation.Core.Tests
                     WaitForPosition(engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
                     engine.Stop(0);
                     WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void StartProcAt_WhenProcessIsIncomplete_SingleStepSkipsReadinessButFullSpeedRemainsBlocked()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("调试不完整流程",
+                        new Goto
+                        {
+                            Id = Guid.NewGuid(),
+                            Name = "未完成跳转",
+                            DefaultGoto = ProcessDefinitionService.PendingGotoPrefix + "ZGVidWc="
+                        },
+                        new Delay { Id = Guid.NewGuid(), Name = "待调试指令", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                    0, process, new[] { process });
+                Assert.IsFalse(readiness.Runnable);
+
+                var runtime = new PlatformRuntime(directory.FullPath);
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsFalse(engine.StartProc(process, 0), "全速启动仍应执行完整校验。");
+
+                    Assert.IsTrue(
+                        engine.StartProcAt(process, 0, 0, 1, ProcRunState.SingleStep),
+                        "单步启动不应被未调试位置的不完整配置阻断。");
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
+
+                    Assert.IsFalse(
+                        engine.Resume(0),
+                        "从单步切换到全速运行时应补做完整校验。");
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 1, TimeSpan.FromSeconds(3));
+
+                    Assert.IsTrue(engine.Step(0));
+                    WaitForPosition(
+                        engine, ProcRunState.SingleStep, 0, 2, TimeSpan.FromSeconds(3));
+
+                    engine.Stop(0);
+                    WaitForState(engine, ProcRunState.Stopped, TimeSpan.FromSeconds(3));
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
+        public void StartProcAt_WhenSafetyIsLocked_SingleStepStillHonorsGlobalGate()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = CreateProcess(
+                    CreateStep("安全闸门",
+                        new Delay { Id = Guid.NewGuid(), Name = "待调试指令", DelayMs = 0 },
+                        new EndProcess { Id = Guid.NewGuid() }));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                runtime.Safety.Lock("测试安全锁");
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    Assert.IsFalse(
+                        engine.StartProcAt(process, 0, 0, 0, ProcRunState.SingleStep),
+                        "单步只跳过单流程校验，不能绕过全局安全闸门。");
                 }
                 runtime.ShutdownCoordinator.Shutdown(
                     TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));

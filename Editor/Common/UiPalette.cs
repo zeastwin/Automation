@@ -6,85 +6,85 @@ using System.Drawing;
 namespace Automation
 {
     /// <summary>
-    /// 平台界面的唯一颜色契约。基础界面使用冷调蓝灰，运行状态使用独立语义色。
+    /// 平台界面的唯一颜色契约。基础界面使用深海军蓝与冷中性灰，专业蓝表达交互，
+    /// 运行状态继续使用相互独立的语义色。
     /// </summary>
     internal static class UiPalette
     {
-        public static readonly Color Background = Color.FromArgb(244, 247, 250);
+        public static readonly Color Background = Color.FromArgb(246, 248, 251);
         public static readonly Color Surface = Color.FromArgb(251, 252, 254);
         public static readonly Color SurfaceStrong = Color.White;
-        public static readonly Color SurfaceSubtle = Color.FromArgb(238, 243, 246);
-        public static readonly Color SurfaceHover = Color.FromArgb(230, 239, 244);
-        public static readonly Color SurfacePressed = Color.FromArgb(220, 232, 238);
-        public static readonly Color Input = Color.FromArgb(248, 250, 252);
-        public static readonly Color InputFocused = Color.FromArgb(241, 247, 251);
+        public static readonly Color SurfaceSubtle = Color.FromArgb(241, 245, 249);
+        public static readonly Color SurfaceHover = Color.FromArgb(239, 246, 255);
+        public static readonly Color SurfacePressed = Color.FromArgb(226, 232, 240);
+        public static readonly Color Input = Color.White;
+        public static readonly Color InputFocused = Color.FromArgb(247, 250, 255);
 
-        public static readonly Color TextPrimary = Color.FromArgb(38, 57, 70);
-        public static readonly Color TextSecondary = Color.FromArgb(82, 102, 115);
-        public static readonly Color TextMuted = Color.FromArgb(96, 116, 128);
-        public static readonly Color TextDisabled = Color.FromArgb(135, 150, 158);
-        public static readonly Color TextInverse = Color.FromArgb(246, 250, 252);
+        public static readonly Color TextPrimary = Color.FromArgb(15, 23, 42);
+        public static readonly Color TextSecondary = Color.FromArgb(71, 85, 105);
+        public static readonly Color TextMuted = Color.FromArgb(100, 116, 139);
+        public static readonly Color TextDisabled = Color.FromArgb(148, 163, 184);
+        public static readonly Color TextInverse = Color.White;
 
-        public static readonly Color Stroke = Color.FromArgb(216, 226, 232);
-        public static readonly Color StrokeStrong = Color.FromArgb(185, 200, 209);
-        public static readonly Color Divider = Color.FromArgb(227, 234, 239);
+        public static readonly Color Stroke = Color.FromArgb(226, 232, 240);
+        public static readonly Color StrokeStrong = Color.FromArgb(203, 213, 225);
+        public static readonly Color Divider = Color.FromArgb(237, 242, 247);
 
-        public static readonly Color Brand = Color.FromArgb(34, 111, 183);
-        public static readonly Color BrandHover = Color.FromArgb(28, 97, 159);
-        public static readonly Color BrandPressed = Color.FromArgb(21, 74, 121);
-        public static readonly Color BrandAccent = Color.FromArgb(43, 139, 192);
-        public static readonly Color BrandSoft = Color.FromArgb(228, 242, 249);
-        public static readonly Color BrandSoftHover = Color.FromArgb(216, 235, 245);
-        public static readonly Color Selection = Color.FromArgb(217, 234, 247);
-        public static readonly Color SelectionText = Color.FromArgb(22, 76, 112);
-        public static readonly Color Focus = Color.FromArgb(43, 126, 201);
+        public static readonly Color Brand = Color.FromArgb(37, 99, 235);
+        public static readonly Color BrandHover = Color.FromArgb(29, 78, 216);
+        public static readonly Color BrandPressed = Color.FromArgb(30, 64, 175);
+        public static readonly Color BrandAccent = Color.FromArgb(59, 130, 246);
+        public static readonly Color BrandSoft = Color.FromArgb(239, 246, 255);
+        public static readonly Color BrandSoftHover = Color.FromArgb(219, 234, 254);
+        public static readonly Color Selection = Color.FromArgb(219, 234, 254);
+        public static readonly Color SelectionText = Color.FromArgb(30, 58, 138);
+        public static readonly Color Focus = Color.FromArgb(59, 130, 246);
 
-        public static readonly Color Navigation = Color.FromArgb(24, 39, 52);
-        public static readonly Color NavigationHover = Color.FromArgb(29, 49, 65);
-        public static readonly Color NavigationActive = Color.FromArgb(31, 53, 71);
-        public static readonly Color NavigationActiveHighlight = Color.FromArgb(37, 67, 88);
-        public static readonly Color NavigationBorder = Color.FromArgb(48, 71, 87);
-        public static readonly Color NavigationText = Color.FromArgb(221, 233, 239);
-        public static readonly Color NavigationTextMuted = Color.FromArgb(193, 208, 217);
-        public static readonly Color NavigationIcon = Color.FromArgb(184, 201, 211);
-        public static readonly Color NavigationIconAccent = Color.FromArgb(75, 153, 211);
-        public static readonly Color NavigationAccent = Color.FromArgb(74, 164, 235);
+        public static readonly Color Navigation = Color.FromArgb(15, 23, 42);
+        public static readonly Color NavigationHover = Color.FromArgb(23, 32, 51);
+        public static readonly Color NavigationActive = Color.FromArgb(31, 59, 82);
+        public static readonly Color NavigationActiveAccent = Color.FromArgb(87, 155, 213);
+        public static readonly Color NavigationBorder = Color.FromArgb(36, 50, 74);
+        public static readonly Color NavigationText = Color.FromArgb(248, 250, 252);
+        public static readonly Color NavigationTextMuted = Color.FromArgb(203, 213, 225);
+        public static readonly Color NavigationIcon = Color.FromArgb(148, 163, 184);
+        public static readonly Color NavigationAccent = Color.FromArgb(96, 165, 250);
 
-        public static readonly Color Success = Color.FromArgb(37, 122, 85);
-        public static readonly Color SuccessHover = Color.FromArgb(31, 104, 72);
-        public static readonly Color SuccessSoft = Color.FromArgb(231, 244, 237);
-        public static readonly Color Warning = Color.FromArgb(150, 96, 13);
-        public static readonly Color WarningHover = Color.FromArgb(126, 80, 11);
-        public static readonly Color WarningSoft = Color.FromArgb(255, 242, 214);
-        public static readonly Color Danger = Color.FromArgb(185, 54, 61);
-        public static readonly Color DangerHover = Color.FromArgb(158, 41, 49);
-        public static readonly Color DangerSoft = Color.FromArgb(251, 234, 236);
+        public static readonly Color Success = Color.FromArgb(21, 128, 61);
+        public static readonly Color SuccessHover = Color.FromArgb(22, 101, 52);
+        public static readonly Color SuccessSoft = Color.FromArgb(240, 253, 244);
+        public static readonly Color Warning = Color.FromArgb(180, 83, 9);
+        public static readonly Color WarningHover = Color.FromArgb(146, 64, 14);
+        public static readonly Color WarningSoft = Color.FromArgb(255, 251, 235);
+        public static readonly Color Danger = Color.FromArgb(220, 38, 38);
+        public static readonly Color DangerHover = Color.FromArgb(185, 28, 28);
+        public static readonly Color DangerSoft = Color.FromArgb(254, 242, 242);
         public static readonly Color Info = Brand;
         public static readonly Color InfoSoft = BrandSoft;
-        public static readonly Color Transition = Color.FromArgb(165, 82, 18);
-        public static readonly Color TransitionSoft = Color.FromArgb(252, 235, 221);
-        public static readonly Color Stopping = Color.FromArgb(159, 62, 62);
-        public static readonly Color StoppingSoft = Color.FromArgb(249, 235, 235);
-        public static readonly Color Breakpoint = Color.FromArgb(167, 60, 98);
-        public static readonly Color BreakpointSoft = Color.FromArgb(250, 234, 240);
-        public static readonly Color Disabled = Color.FromArgb(139, 154, 163);
-        public static readonly Color DisabledSoft = Color.FromArgb(238, 242, 244);
+        public static readonly Color Transition = Color.FromArgb(194, 65, 12);
+        public static readonly Color TransitionSoft = Color.FromArgb(255, 247, 237);
+        public static readonly Color Stopping = Color.FromArgb(190, 24, 93);
+        public static readonly Color StoppingSoft = Color.FromArgb(253, 242, 248);
+        public static readonly Color Breakpoint = Color.FromArgb(219, 39, 119);
+        public static readonly Color BreakpointSoft = Color.FromArgb(253, 242, 248);
+        public static readonly Color Disabled = Color.FromArgb(148, 163, 184);
+        public static readonly Color DisabledSoft = Color.FromArgb(241, 245, 249);
 
-        public static readonly Color JumpAutomatic = Color.FromArgb(0, 127, 134);
-        public static readonly Color JumpCancel = Color.FromArgb(118, 81, 168);
-        public static readonly Color JumpDefault = Color.FromArgb(82, 107, 121);
-        public static readonly Color JumpMatch = Color.FromArgb(145, 112, 14);
+        public static readonly Color JumpAutomatic = Color.FromArgb(13, 148, 136);
+        public static readonly Color JumpCancel = Brand;
+        public static readonly Color JumpDefault = Color.FromArgb(71, 85, 105);
+        public static readonly Color JumpMatch = Color.FromArgb(161, 98, 7);
 
-        public static readonly Color HmiBackground = Color.FromArgb(232, 238, 242);
-        public static readonly Color HmiHeader = Color.FromArgb(24, 42, 56);
-        public static readonly Color HmiHeaderHover = Color.FromArgb(32, 57, 74);
-        public static readonly Color HmiHeaderActive = Color.FromArgb(31, 111, 159);
-        public static readonly Color HmiSection = Color.FromArgb(36, 75, 90);
+        public static readonly Color HmiBackground = Color.FromArgb(241, 245, 249);
+        public static readonly Color HmiHeader = Navigation;
+        public static readonly Color HmiHeaderHover = NavigationHover;
+        public static readonly Color HmiHeaderActive = Color.FromArgb(30, 64, 175);
+        public static readonly Color HmiSection = Color.FromArgb(30, 41, 59);
 
-        public static readonly Color ChartGrid = Color.FromArgb(216, 226, 232);
-        public static readonly Color ChartLine = Color.FromArgb(43, 126, 201);
-        public static readonly Color ChartLabel = Color.FromArgb(96, 116, 128);
-        public static readonly Color Shadow = Color.FromArgb(24, 27, 50, 68);
-        public static readonly Color ShadowStrong = Color.FromArgb(40, 27, 50, 68);
+        public static readonly Color ChartGrid = Stroke;
+        public static readonly Color ChartLine = BrandAccent;
+        public static readonly Color ChartLabel = TextMuted;
+        public static readonly Color Shadow = Color.FromArgb(22, 15, 23, 42);
+        public static readonly Color ShadowStrong = Color.FromArgb(36, 15, 23, 42);
     }
 }

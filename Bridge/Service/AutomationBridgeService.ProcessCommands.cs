@@ -163,7 +163,14 @@ namespace Automation.Bridge
                     {
                         return BridgeError(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复。");
                     }
-                    runtime.ProcessEngine.Resume(procIndex);
+                    if (!runtime.ProcessEngine.Resume(procIndex))
+                    {
+                        string resumeError = runtime.ProcessEngine.TryValidateProcessStart(
+                            proc, procIndex, out string gateError)
+                            ? "流程恢复请求未被内核接受，详见流程日志。"
+                            : gateError;
+                        return BridgeError(409, "RESUME_GATE_REJECTED", resumeError);
+                    }
                     break;
                 default:
                     return BridgeError(400, "UNSUPPORTED_ACTION", $"不支持的流程控制操作：{action}。支持：start, stop, pause, resume");

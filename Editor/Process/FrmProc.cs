@@ -258,7 +258,7 @@ namespace Automation
             processOutline.ProcessFont = processRowFont;
             processOutline.StepFont = stepRowFont;
             processOutline.ForeColor = UiPalette.TextPrimary;
-            processOutline.BackColor = UiPalette.Background;
+            processOutline.BackColor = UiPalette.SurfaceStrong;
 
             procStateImages = new ImageList
             {

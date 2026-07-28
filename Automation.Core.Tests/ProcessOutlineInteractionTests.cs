@@ -427,11 +427,11 @@ namespace Automation.Core.Tests
                 20))
             {
                 Assert.IsTrue(
-                    CountColor(ready, UiPalette.BrandAccent) > 0);
+                    CountColor(ready, UiPalette.TextMuted) > 0);
                 Assert.IsTrue(
                     CountColor(running, UiPalette.Success) > 0);
                 Assert.AreNotEqual(
-                    UiPalette.BrandAccent.ToArgb(),
+                    UiPalette.TextMuted.ToArgb(),
                     UiPalette.Success.ToArgb());
             }
         }

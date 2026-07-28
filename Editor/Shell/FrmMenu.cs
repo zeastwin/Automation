@@ -188,11 +188,7 @@ namespace Automation
             cache.TryGetValue(button, out Image icon);
             if (button == activeMenuButton && button.ClientSize.Width > 0 && button.ClientSize.Height > 0)
             {
-                using (LinearGradientBrush activeBackground = new LinearGradientBrush(
-                    button.ClientRectangle,
-                    UiPalette.NavigationActiveHighlight,
-                    UiPalette.NavigationActive,
-                    LinearGradientMode.Vertical))
+                using (SolidBrush activeBackground = new SolidBrush(UiPalette.NavigationActive))
                 {
                     e.Graphics.FillRectangle(activeBackground, button.ClientRectangle);
                 }
@@ -239,7 +235,7 @@ namespace Automation
 
             if (button == activeMenuButton)
             {
-                using (SolidBrush brush = new SolidBrush(UiPalette.NavigationAccent))
+                using (SolidBrush brush = new SolidBrush(UiPalette.NavigationActiveAccent))
                 {
                     e.Graphics.FillRectangle(
                         brush,

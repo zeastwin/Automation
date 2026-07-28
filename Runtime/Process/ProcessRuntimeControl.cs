@@ -48,8 +48,7 @@ namespace Automation
             {
                 return false;
             }
-            engine.Resume(procIndex);
-            return true;
+            return engine.Resume(procIndex);
         }
 
         public bool Stop(int procIndex)
