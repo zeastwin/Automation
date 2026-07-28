@@ -3814,6 +3814,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 AppendConversation("工具", item.Text, UiPalette.WarningHover);
             }
+            else if (string.Equals(item.Kind, "status_message", StringComparison.Ordinal))
+            {
+                // Goose 状态消息（上下文压缩开始/完成等），作为系统提示展示。
+                AppendConversation("系统", item.Text, UiPalette.WarningHover);
+            }
             else if (string.Equals(item.Kind, "error", StringComparison.Ordinal)
                 || string.Equals(item.Kind, "stderr", StringComparison.Ordinal)
                 || string.Equals(item.Kind, "exit", StringComparison.Ordinal))

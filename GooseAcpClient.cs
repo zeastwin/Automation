@@ -158,7 +158,16 @@ namespace Automation
                         ["readTextFile"] = false,
                         ["writeTextFile"] = false
                     },
-                    ["terminal"] = false
+                    ["terminal"] = false,
+                    // 声明接收 Goose 自定义通知（_goose/unstable/session/update），
+                    // 用于获取上下文压缩等状态消息；未声明时 Goose 不转发该类事件。
+                    ["_meta"] = new JObject
+                    {
+                        ["goose"] = new JObject
+                        {
+                            ["customNotifications"] = true
+                        }
+                    }
                 }
             }, InitializeTimeoutMs, cancellationToken).ConfigureAwait(false);
 
@@ -1118,6 +1127,14 @@ namespace Automation
 
         private void HandleNotification(string method, JObject message)
         {
+            // Goose 自定义通知通道（状态消息、用量计数等），仅在 initialize 声明
+            // customNotifications 后下发；压缩开始/完成等状态经此通道到达。
+            if (string.Equals(method, "_goose/unstable/session/update", StringComparison.Ordinal))
+            {
+                HandleGooseSessionUpdate(message);
+                return;
+            }
+
             if (string.Equals(method, "session/update", StringComparison.Ordinal))
             {
                 JObject parameters = message["params"] as JObject;
@@ -1281,6 +1298,56 @@ namespace Automation
 
             LogFile($"ACP<- 通知 method={method ?? "(空)"}", message["params"], LogLevel.Normal);
             Report("notification", string.IsNullOrWhiteSpace(method) ? "收到 ACP 通知。" : $"收到 ACP 通知：{method}", message);
+        }
+
+        // Goose 自定义 session 更新：只把 status_message（压缩等状态）转发 UI，
+        // usage_update / message_usage 等计数类更新与标准通道重复，直接忽略。
+        private void HandleGooseSessionUpdate(JObject message)
+        {
+            JObject update = message?["params"]?["update"] as JObject;
+            string updateKind = update?["sessionUpdate"]?.Value<string>();
+            if (!string.Equals(updateKind, "status_message", StringComparison.Ordinal))
+            {
+                return;
+            }
+            JObject status = update["status"] as JObject;
+            string statusType = status?["type"]?.Value<string>();
+            string statusText = status?["message"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(statusText))
+            {
+                return;
+            }
+            string displayText = MapStatusMessageText(statusText);
+            LogFile($"ACP<- Goose 状态消息 type={statusType ?? "(空)"} text={statusText}", message["params"], LogLevel.Normal);
+            LogExecution("status_message", displayText, message);
+            Report("status_message", displayText, message);
+        }
+
+        // Goose 状态消息原文为英文固定文案，映射为中文提示；未识别的文案原样显示，
+        // Goose 升级新增文案时只影响可读性，不影响链路。
+        private static string MapStatusMessageText(string statusText)
+        {
+            if (string.Equals(statusText, "goose is compacting the conversation...", StringComparison.Ordinal))
+            {
+                return "正在压缩会话上下文…";
+            }
+            if (string.Equals(statusText, "Compaction complete", StringComparison.Ordinal))
+            {
+                return "会话上下文压缩完成。";
+            }
+            if (string.Equals(statusText, "Context limit reached. Compacting to continue conversation...", StringComparison.Ordinal))
+            {
+                return "已达到上下文长度限制，正在压缩会话以继续…";
+            }
+            if (statusText.StartsWith("Exceeded auto-compact threshold", StringComparison.Ordinal))
+            {
+                return "上下文用量超过自动压缩阈值，正在自动压缩会话…";
+            }
+            if (statusText.StartsWith("Unable to continue: Context limit still exceeded after compaction", StringComparison.Ordinal))
+            {
+                return "压缩后仍超出上下文限制，无法继续。请缩短输入、更换更大上下文窗口的模型，或新建会话。";
+            }
+            return statusText;
         }
 
         // 工具名（toolName）→ 中文显示名映射，让对话区显示中文而非英文工具标题。
