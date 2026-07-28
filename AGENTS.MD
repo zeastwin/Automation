@@ -125,7 +125,7 @@
 - `SocketInfo.json`、`SerialPortInfo.json`、`PlcConfig.json`。
 - `Account.json` — `ENC:` 前缀密文（AES-CBC + HMAC-SHA256 + PBKDF2）。
 - `AppConfig.json` — 缺失文件或字段时按当前契约生成默认值并持久化；已有值执行启动强校验。当前键 `CommMaxMessageQueueSize`（默认 1000）、`RuntimeMode`、`StartupView`、`EnablePerformanceAnalysis`、`EnableRuntimeDiagnostics`。
-- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens/ToolProfile/ToolMode/SkillsProjectOnly`。`ToolMode` 为 `Tools`（默认，会话注入 MCP HTTP 扩展）或 `Cli`（不注入扩展，经 shell 调用 MCP CLI）。`SkillsProjectOnly` 缺省 true，控制 Goose skills 扩展只暴露项目目录与内置 Skill。
+- `GooseConfig.json` — AI 助手配置，键：`GooseExecutablePath/WorkingDirectory/McpUri/SessionName/Provider/Model/MaxTurns/MaxOutputTokens/ToolCallCutoff/ToolProfile/ToolMode/SkillsProjectOnly`。`ToolMode` 为 `Tools`（默认，会话注入 MCP HTTP 扩展）或 `Cli`（不注入扩展，经 shell 调用 MCP CLI）。`SkillsProjectOnly` 缺省 true，控制 Goose skills 扩展只暴露项目目录与内置 Skill。`ToolCallCutoff` 为可空整数（内置 Provider 级，`ModelServices` 各项另有同名字段），配置后注入 `GOOSE_TOOL_CALL_CUTOFF` 控制完整保留详情的最近工具调用条数；null/缺失不注入，由 Goose 按模型上下文与自动压缩阈值自行计算。
 
 ## 账户与权限
 - 角色：`SystemAdmin`（全量）、`Admin`（全量 - Account.Manage）、`Operator`（Process.Access/Run/Search）。

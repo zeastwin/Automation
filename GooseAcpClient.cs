@@ -703,6 +703,18 @@ namespace Automation
                 config.MaxOutputTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
             startInfo.EnvironmentVariables["GOOSE_TEMPERATURE"] =
                 config.Temperature.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // 当前模型（自定义服务优先，否则内置 Provider）配置了工具调用保留条数时才注入；
+            // 未配置则显式移除，由 Goose 按模型上下文与自动压缩阈值自行计算默认值。
+            int? toolCallCutoff = modelService != null ? modelService.ToolCallCutoff : config.ToolCallCutoff;
+            if (toolCallCutoff.HasValue)
+            {
+                startInfo.EnvironmentVariables["GOOSE_TOOL_CALL_CUTOFF"] =
+                    toolCallCutoff.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                startInfo.EnvironmentVariables.Remove("GOOSE_TOOL_CALL_CUTOFF");
+            }
             if (modelService != null)
             {
                 // 自定义服务只覆盖当前 EW-AI 子进程，避免污染 Goose 全局配置和其他应用。
@@ -809,6 +821,8 @@ namespace Automation
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
             startupInfo.Append(" temperature=").Append(config.Temperature);
+            startupInfo.Append(" toolCallCutoff=")
+                .Append(toolCallCutoff.HasValue ? toolCallCutoff.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "default");
             LogFile(startupInfo.ToString(), LogLevel.Normal);
             if (!string.IsNullOrWhiteSpace(skillProvisionMessage))
             {

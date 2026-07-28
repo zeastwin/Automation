@@ -74,6 +74,8 @@ namespace Automation
         private readonly NumericUpDown nudTemperature = new NumericUpDown();
         private List<AiModelServiceConfig> modelServices = new List<AiModelServiceConfig>();
         private string modelServiceId = string.Empty;
+        // 内置 Provider 的工具调用保留条数；null = 不配置，由 Goose 使用自身默认值。
+        private int? toolCallCutoff;
         private string toolProfile = GooseConfigStorage.DefaultToolProfile;
         // 工具接入模式（Tools/Cli）不进设置界面，只随配置文件往返。
         private string toolMode = GooseConfigStorage.DefaultToolMode;
@@ -774,11 +776,12 @@ function refreshModelServiceState(){
     if(summary){
         var service=selectedModelService();
         summary.textContent=service
-            ? service.name+'｜'+service.baseUrl+'｜'+service.model+(service.contextLimit?'｜上下文 '+service.contextLimit:'')
+            ? service.name+'｜'+service.baseUrl+'｜'+service.model+(service.contextLimit?'｜上下文 '+service.contextLimit:'')+(service.toolCallCutoff?'｜工具保留 '+service.toolCallCutoff:'')
             : '使用下方内置 Provider、模型和 API Key。';
     }
 }
 function collectConfig(){
+    var cutoff=parseInt(byId('cfgToolCallCutoff').value||'0',10);
     return {
         gooseExecutablePath:byId('cfgGoose').value,
         workingDirectory:byId('cfgWorkdir').value,
@@ -791,6 +794,7 @@ function collectConfig(){
         apiKey:byId('cfgApiKey').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
         maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
+        toolCallCutoff:cutoff>0?cutoff:null,
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
         autoApproveMode:!!(appState.config||{}).autoApproveMode
     };
@@ -803,6 +807,7 @@ function fillConfig(){
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
     byId('cfgOutputTokens').value=c.maxOutputTokens||8192;
+    byId('cfgToolCallCutoff').value=typeof c.toolCallCutoff==='number'?c.toolCallCutoff:'';
     byId('cfgTemperature').value=typeof c.temperature==='number'?c.temperature:0.7;
     setModelServiceOptions(byId('cfgModelService'),appState.modelServices||[],c.modelServiceId||'');
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
@@ -858,7 +863,7 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','cfgTemperature','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','cfgToolCallCutoff','cfgTemperature','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     refreshModelServiceState();
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
@@ -971,12 +976,13 @@ function fillModelServiceEditor(id){
     byId('svcBaseUrl').value=item?item.baseUrl:'http://127.0.0.1:8080/v1';
     byId('svcModel').value=item?item.model:'';
     byId('svcContextLimit').value=item&&item.contextLimit?item.contextLimit:'';
+    byId('svcToolCallCutoff').value=item&&item.toolCallCutoff?item.toolCallCutoff:'';
     byId('svcSupportsVision').checked=!!(item&&item.supportsVision);
     byId('svcRequiresApiKey').checked=!!(item&&item.requiresApiKey);
     byId('svcApiKey').value='';
     byId('svcApiKey').placeholder=item&&item.hasApiKey?'本机已保存，留空则保持不变':'可选；仅使用 Windows 当前用户加密保存';
     var lock=!appState.canEditConfig||appState.sending;
-    ['svcPicker','newModelService','svcName','svcBaseUrl','svcModel','svcContextLimit','svcSupportsVision','svcRequiresApiKey','svcApiKey','saveModelService'].forEach(function(controlId){byId(controlId).disabled=lock;});
+    ['svcPicker','newModelService','svcName','svcBaseUrl','svcModel','svcContextLimit','svcToolCallCutoff','svcSupportsVision','svcRequiresApiKey','svcApiKey','saveModelService'].forEach(function(controlId){byId(controlId).disabled=lock;});
     byId('deleteModelService').disabled=lock||!item;
     byId('clearModelServiceApiKey').disabled=lock||!item||!item.hasApiKey;
 }
@@ -991,8 +997,10 @@ function openModelServices(){renderModelServicePicker();byId('modelServiceOverla
 function closeModelServices(){byId('modelServiceOverlay').classList.remove('open');}
 function collectModelService(){
     var context=parseInt(byId('svcContextLimit').value||'0',10);
+    var cutoff=parseInt(byId('svcToolCallCutoff').value||'0',10);
     return {id:byId('svcId').value,name:byId('svcName').value,baseUrl:byId('svcBaseUrl').value,
         model:byId('svcModel').value,contextLimit:context>0?context:null,
+        toolCallCutoff:cutoff>0?cutoff:null,
         supportsVision:byId('svcSupportsVision').checked,requiresApiKey:byId('svcRequiresApiKey').checked,
         apiKey:byId('svcApiKey').value};
 }
@@ -1157,6 +1165,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
         <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
         <div class=""field""><label>单次输出 Token</label><input id=""cfgOutputTokens"" type=""number"" min=""1024"" max=""65536"" step=""1024""></div>
+        <div class=""field""><label>工具调用保留条数<span class=""field-hint"">留空则由 Goose 按上下文自动计算</span></label><input id=""cfgToolCallCutoff"" type=""number"" min=""1"" placeholder=""自动""></div>
         <div class=""field""><label>温度</label><input id=""cfgTemperature"" type=""number"" min=""0"" max=""1"" step=""0.05""></div>
         <div class=""field field-wide""><label>模型来源</label><div class=""field-line""><select id=""cfgModelService""></select><button class=""text-button"" id=""manageModelServices"" type=""button"">管理自定义服务</button></div><div class=""service-summary"" id=""modelServiceSummary""></div></div>
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
@@ -1168,7 +1177,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   </section>
 </div>
 <div class=""modal-backdrop"" id=""modelServiceOverlay""><section class=""config-modal"" style=""width:min(760px,96vw)""><div class=""modal-head""><div><div class=""modal-title"">自定义模型服务</div><div class=""modal-desc"">配置 llama.cpp、vLLM、LM Studio 等 OpenAI 兼容服务；配置只注入当前 EW-AI 进程。</div></div><button class=""icon-button"" id=""closeModelServices"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
-  <div class=""modal-body scrollable""><div class=""settings-grid""><div class=""field field-wide""><label>已配置服务</label><div class=""field-line""><select id=""svcPicker""></select><button class=""text-button"" id=""newModelService"" type=""button"">新增</button></div></div><input id=""svcId"" type=""hidden""><div class=""field""><label>服务名称</label><input id=""svcName"" autocomplete=""off"" placeholder=""例如：车间 llama.cpp""></div><div class=""field""><label>模型 ID</label><input id=""svcModel"" autocomplete=""off"" placeholder=""服务 /v1/models 返回的 id""></div><div class=""field field-wide""><label>OpenAI Base URL</label><input id=""svcBaseUrl"" autocomplete=""off"" placeholder=""http://172.16.50.172:8080/v1""></div><div class=""field""><label>上下文长度<span class=""field-hint"">留空则由 Goose 判断</span></label><input id=""svcContextLimit"" type=""number"" min=""1"" step=""1024"" placeholder=""例如 131072""></div><div class=""field""><label>模型能力</label><label class=""check-line""><input id=""svcSupportsVision"" type=""checkbox"">支持图片输入</label></div><div class=""field""><label>鉴权</label><label class=""check-line""><input id=""svcRequiresApiKey"" type=""checkbox"">服务要求 API Key</label></div><div class=""field field-wide""><label>API Key（Windows 当前用户加密）</label><input id=""svcApiKey"" type=""password"" autocomplete=""new-password""></div></div></div>
+  <div class=""modal-body scrollable""><div class=""settings-grid""><div class=""field field-wide""><label>已配置服务</label><div class=""field-line""><select id=""svcPicker""></select><button class=""text-button"" id=""newModelService"" type=""button"">新增</button></div></div><input id=""svcId"" type=""hidden""><div class=""field""><label>服务名称</label><input id=""svcName"" autocomplete=""off"" placeholder=""例如：车间 llama.cpp""></div><div class=""field""><label>模型 ID</label><input id=""svcModel"" autocomplete=""off"" placeholder=""服务 /v1/models 返回的 id""></div><div class=""field field-wide""><label>OpenAI Base URL</label><input id=""svcBaseUrl"" autocomplete=""off"" placeholder=""http://172.16.50.172:8080/v1""></div><div class=""field""><label>上下文长度<span class=""field-hint"">留空则由 Goose 判断</span></label><input id=""svcContextLimit"" type=""number"" min=""1"" step=""1024"" placeholder=""例如 131072""></div><div class=""field""><label>工具调用保留条数<span class=""field-hint"">留空则由 Goose 自动计算</span></label><input id=""svcToolCallCutoff"" type=""number"" min=""1"" placeholder=""自动""></div><div class=""field""><label>模型能力</label><label class=""check-line""><input id=""svcSupportsVision"" type=""checkbox"">支持图片输入</label></div><div class=""field""><label>鉴权</label><label class=""check-line""><input id=""svcRequiresApiKey"" type=""checkbox"">服务要求 API Key</label></div><div class=""field field-wide""><label>API Key（Windows 当前用户加密）</label><input id=""svcApiKey"" type=""password"" autocomplete=""new-password""></div></div></div>
   <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""clearModelServiceApiKey"">清除密钥</button><button class=""text-button"" id=""deleteModelService"">删除服务</button></div><div class=""foot-right""><button class=""text-button"" id=""doneModelServices"">完成</button><button class=""primary-button"" id=""saveModelService"">保存并选中</button></div></div></section></div>
 <div class=""toast"" id=""toast""></div>
 </body>
@@ -1569,6 +1578,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
+            toolCallCutoff = config.ToolCallCutoff;
             toolProfile = config.ToolProfile;
             toolMode = string.IsNullOrWhiteSpace(config.ToolMode)
                 ? GooseConfigStorage.DefaultToolMode
@@ -1788,6 +1798,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         && AiProviderSecretStorage.HasSecret(normalizedProvider),
                     ["maxTurns"] = (int)nudMaxTurns.Value,
                     ["maxOutputTokens"] = (int)nudMaxOutputTokens.Value,
+                    ["toolCallCutoff"] = toolCallCutoff,
                     ["toolProfile"] = toolProfile,
                     ["fullPermissionEnabled"] = fullPermissionEnabled,
                     ["autoApproveMode"] = autoApproveMode
@@ -1801,6 +1812,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["baseUrl"] = item.BaseUrl,
                     ["model"] = item.Model,
                     ["contextLimit"] = item.ContextLimit,
+                    ["toolCallCutoff"] = item.ToolCallCutoff,
                     ["supportsVision"] = item.SupportsVision,
                     ["requiresApiKey"] = item.RequiresApiKey,
                     ["hasApiKey"] = AiProviderSecretStorage.HasSecret(
@@ -1886,6 +1898,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ?? GooseConfigStorage.DefaultMaxOutputTokens;
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, maxOutputTokens));
+            int? parsedCutoff = config["toolCallCutoff"]?.Value<int?>();
+            toolCallCutoff = parsedCutoff.HasValue && parsedCutoff.Value > 0 ? parsedCutoff : null;
             double temperature = config["temperature"]?.Value<double?>() ?? GooseConfigStorage.DefaultTemperature;
             nudTemperature.Value = Math.Max(nudTemperature.Minimum,
                 Math.Min(nudTemperature.Maximum, (decimal)temperature));
@@ -1924,6 +1938,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 || Math.Abs(oldConfig.Temperature - config.Temperature) > 0.0001d
                 || oldConfig.MaxTurns != config.MaxTurns
                 || oldConfig.MaxOutputTokens != config.MaxOutputTokens
+                // ToolCallCutoff 在 Goose 子进程启动时装配为环境变量，变化必须重建进程。
+                || oldConfig.ToolCallCutoff != config.ToolCallCutoff
                 || !string.Equals(
                     oldConfig.ToolMode ?? GooseConfigStorage.DefaultToolMode,
                     config.ToolMode,
@@ -2159,6 +2175,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 Temperature = (double)nudTemperature.Value,
                 MaxTurns = (int)nudMaxTurns.Value,
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
+                ToolCallCutoff = toolCallCutoff,
                 ToolProfile = toolProfile,
                 ToolMode = string.IsNullOrWhiteSpace(toolMode)
                     ? GooseConfigStorage.DefaultToolMode
@@ -2205,6 +2222,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 Temperature = config.Temperature,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
+                ToolCallCutoff = config.ToolCallCutoff,
                 ToolProfile = config.ToolProfile,
                 ToolMode = config.ToolMode,
                 AutoApproveMode = config.AutoApproveMode,
@@ -2428,6 +2446,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string id = value["id"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(id)) id = Guid.NewGuid().ToString("D");
             int? contextLimit = value["contextLimit"]?.Value<int?>();
+            int? cutoff = value["toolCallCutoff"]?.Value<int?>();
             var service = new AiModelServiceConfig
             {
                 Id = id.Trim(),
@@ -2435,6 +2454,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 BaseUrl = value["baseUrl"]?.Value<string>()?.Trim(),
                 Model = value["model"]?.Value<string>()?.Trim(),
                 ContextLimit = contextLimit.HasValue && contextLimit.Value > 0 ? contextLimit : null,
+                ToolCallCutoff = cutoff.HasValue && cutoff.Value > 0 ? cutoff : null,
                 SupportsVision = value["supportsVision"]?.Value<bool?>() ?? false,
                 RequiresApiKey = value["requiresApiKey"]?.Value<bool?>() ?? false
             };
@@ -5417,6 +5437,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     Temperature = config.Temperature,
                     MaxTurns = config.MaxTurns,
                     MaxOutputTokens = config.MaxOutputTokens,
+                    ToolCallCutoff = config.ToolCallCutoff,
                     ToolProfile = config.ToolProfile,
                     ToolMode = config.ToolMode,
                     AutoApproveMode = config.AutoApproveMode,

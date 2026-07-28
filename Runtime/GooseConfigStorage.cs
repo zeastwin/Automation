@@ -31,6 +31,13 @@ namespace Automation
 
         public int MaxOutputTokens { get; set; }
 
+        /// <summary>
+        /// 内置 Provider（云端模型）完整保留详情的最近工具调用条数，对应 Goose 的
+        /// GOOSE_TOOL_CALL_CUTOFF；null = 不注入环境变量，由 Goose 按模型上下文
+        /// 与自动压缩阈值自行计算。
+        /// </summary>
+        public int? ToolCallCutoff { get; set; }
+
         public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
@@ -66,6 +73,12 @@ namespace Automation
 
         public int? ContextLimit { get; set; }
 
+        /// <summary>
+        /// 该本地模型服务完整保留详情的最近工具调用条数，对应 Goose 的
+        /// GOOSE_TOOL_CALL_CUTOFF；null = 不注入环境变量，由 Goose 自行计算。
+        /// </summary>
+        public int? ToolCallCutoff { get; set; }
+
         public bool SupportsVision { get; set; }
 
         public bool RequiresApiKey { get; set; }
@@ -98,6 +111,7 @@ namespace Automation
         public const string TemperatureKey = "Temperature";
         public const string MaxTurnsKey = "MaxTurns";
         public const string MaxOutputTokensKey = "MaxOutputTokens";
+        public const string ToolCallCutoffKey = "ToolCallCutoff";
         public const string AutoApproveModeKey = "AutoApproveMode";
         private const string LegacyFullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
@@ -159,6 +173,7 @@ namespace Automation
                     Temperature = ReadOptionalDouble(obj, TemperatureKey, DefaultTemperature),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
                     MaxOutputTokens = ReadOptionalInt(obj, MaxOutputTokensKey, DefaultMaxOutputTokens),
+                    ToolCallCutoff = ReadOptionalNullableInt(obj, ToolCallCutoffKey),
                     AutoApproveMode = ReadOptionalBool(
                         obj,
                         AutoApproveModeKey,
@@ -176,6 +191,7 @@ namespace Automation
 
                 bool configMigrated = !obj.TryGetValue(
                     MaxOutputTokensKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(ToolCallCutoffKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(ModelServiceIdKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(ModelServicesKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(TemperatureKey, StringComparison.Ordinal, out _)
@@ -257,6 +273,7 @@ namespace Automation
                 [TemperatureKey] = config.Temperature,
                 [MaxTurnsKey] = config.MaxTurns,
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
+                [ToolCallCutoffKey] = config.ToolCallCutoff,
                 [AutoApproveModeKey] = config.AutoApproveMode,
                 [ToolProfileKey] = config.ToolProfile,
                 [ToolModeKey] = config.ToolMode,
@@ -443,6 +460,11 @@ namespace Automation
                 error = $"EW-AI MaxOutputTokens 必须在 1024..65536 之间:{config.MaxOutputTokens}";
                 return false;
             }
+            if (config.ToolCallCutoff.HasValue && config.ToolCallCutoff.Value <= 0)
+            {
+                error = $"EW-AI ToolCallCutoff 必须大于 0:{config.ToolCallCutoff}";
+                return false;
+            }
             if (!string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal)
                 && !string.Equals(config.ToolProfile, "Editor", StringComparison.Ordinal))
             {
@@ -535,6 +557,21 @@ namespace Automation
             return token.Value<int>();
         }
 
+        // 可选可空整数读取：字段缺失或显式为 null 时表示“不配置”，由 Goose 使用自身默认值。
+        private static int? ReadOptionalNullableInt(JObject obj, string key)
+        {
+            if (!obj.TryGetValue(key, StringComparison.Ordinal, out JToken token)
+                || token.Type == JTokenType.Null)
+            {
+                return null;
+            }
+            if (token.Type != JTokenType.Integer)
+            {
+                throw new InvalidOperationException($"EW-AI 配置字段类型无效:{key}");
+            }
+            return token.Value<int>();
+        }
+
         // 可选布尔字段读取：旧配置文件可能缺少该字段，缺失时返回 defaultValue，兼容向前版本。
         private static bool ReadOptionalBool(JObject obj, string key, bool defaultValue)
         {
@@ -581,6 +618,7 @@ namespace Automation
                 Temperature = config.Temperature,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
+                ToolCallCutoff = config.ToolCallCutoff,
                 AutoApproveMode = config.AutoApproveMode,
                 ToolProfile = config.ToolProfile,
                 ToolMode = config.ToolMode,
@@ -612,6 +650,7 @@ namespace Automation
                     BaseUrl = service.BaseUrl,
                     Model = service.Model,
                     ContextLimit = service.ContextLimit,
+                    ToolCallCutoff = service.ToolCallCutoff,
                     SupportsVision = service.SupportsVision,
                     RequiresApiKey = service.RequiresApiKey
                 });
@@ -643,6 +682,11 @@ namespace Automation
             if (service.ContextLimit.HasValue && service.ContextLimit.Value <= 0)
             {
                 error = $"自定义模型服务 {service.Name} 的上下文长度必须大于 0:{service.ContextLimit}";
+                return false;
+            }
+            if (service.ToolCallCutoff.HasValue && service.ToolCallCutoff.Value <= 0)
+            {
+                error = $"自定义模型服务 {service.Name} 的工具调用保留条数必须大于 0:{service.ToolCallCutoff}";
                 return false;
             }
             return true;
