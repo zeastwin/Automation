@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Reflection;
 
 namespace Automation.Core.Tests
 {
@@ -84,6 +85,29 @@ namespace Automation.Core.Tests
 
             Assert.AreEqual(AiPreviewObservationKind.Applied, coordinator.Observe(applied, false).Kind);
             Assert.AreEqual(AiPreviewObservationKind.None, coordinator.Observe(incomplete, false).Kind);
+        }
+
+        [TestMethod]
+        public void AcpTextExtraction_PreservesNestedMarkdownBlankLines()
+        {
+            var parameters = new JObject
+            {
+                ["sessionUpdate"] = "agent_message_chunk",
+                ["update"] = new JObject
+                {
+                    ["content"] = new JArray(new JObject
+                    {
+                        ["type"] = "text",
+                        ["text"] = "\n\n"
+                    })
+                }
+            };
+            MethodInfo extractText = typeof(GooseAcpClient).GetMethod(
+                "ExtractText",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.IsNotNull(extractText);
+            Assert.AreEqual("\n\n", extractText.Invoke(null, new object[] { parameters }));
         }
 
         private static JObject BuildToolResult(string type, JObject data)

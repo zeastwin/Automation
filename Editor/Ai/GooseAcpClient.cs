@@ -1042,7 +1042,8 @@ namespace Automation
                 if (string.Equals(updateKind, "agent_message_chunk", StringComparison.Ordinal))
                 {
                     string chunkText = ExtractText(parameters);
-                    if (!string.IsNullOrWhiteSpace(chunkText))
+                    // ACP 会把 Markdown 空行作为独立文本片段发送；只过滤真正的空字符串。
+                    if (!string.IsNullOrEmpty(chunkText))
                     {
                         MarkFirstModelActivity();
                         lock (executionLock)
@@ -1060,7 +1061,7 @@ namespace Automation
                 if (string.Equals(updateKind, "agent_thought_chunk", StringComparison.Ordinal))
                 {
                     string thoughtText = ExtractText(parameters);
-                    if (!string.IsNullOrWhiteSpace(thoughtText))
+                    if (!string.IsNullOrEmpty(thoughtText))
                     {
                         MarkFirstModelActivity();
                         lock (executionLock)
@@ -1799,7 +1800,7 @@ namespace Automation
             }
 
             string directText = FindFirstString(token, "text");
-            if (!string.IsNullOrWhiteSpace(directText))
+            if (directText != null)
             {
                 return directText;
             }
@@ -1830,7 +1831,7 @@ namespace Automation
                 foreach (JProperty property in obj.Properties())
                 {
                     string nested = FindFirstString(property.Value, names);
-                    if (!string.IsNullOrWhiteSpace(nested))
+                    if (nested != null)
                     {
                         return nested;
                     }
@@ -1841,7 +1842,7 @@ namespace Automation
                 foreach (JToken item in array)
                 {
                     string nested = FindFirstString(item, names);
-                    if (!string.IsNullOrWhiteSpace(nested))
+                    if (nested != null)
                     {
                         return nested;
                     }
