@@ -34,10 +34,10 @@ namespace Automation.Protocol
     {
         public string Title { get; set; }
 
-        [Description("当前已知且可独立保存的动作；同一阶段内全部成功或全部不生效，不要求一次完成整个流程。")]
+        [Description("当前已知且可独立保存的原子动作；每项只表达一个type，禁止在process.create中嵌套steps/operations。新建流程及其步骤应使用process.create后跟独立step.append；同一阶段内全部成功或全部不生效。")]
         public List<ChangeSetAction> Actions { get; set; }
 
-        [Description("与当前流程阶段同事务提交的逐变量声明；每一项只描述一个变量。独立变量维护仍使用单变量工具。")]
+        [Description("本阶段确实需要的新建/复用变量，与actions同事务提交；每一项只描述一个变量。不要在预演前用单变量工具旁路创建本阶段依赖。")]
         public List<VariableChange> Variables { get; set; }
     }
 
@@ -69,7 +69,7 @@ namespace Automation.Protocol
         [Description("insert/move 必填的位置锚点；append 不提供。")]
         public ChangePosition Position { get; set; }
 
-        [Description("process.create/update 的流程字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
+        [Description("process.create/update 的流程字段，仅含key/name/autoStart/disable；不得嵌套steps或operations。update中省略字段保持原值。")]
         public ProcessActionValue Process { get; set; }
 
         [Description("step.append/insert/update 的步骤字段；update 中出现的字段表示需要修改，省略字段保持原值。")]
@@ -215,7 +215,7 @@ namespace Automation.Protocol
         [Description("variable.compute 的结果 double 变量；可与源变量或操作数变量相同。")]
         public string OutputVariable { get; set; }
 
-        [Description("wait 的固定等待时间，范围 0..86400000 毫秒。")]
+        [Description("wait 的固定工艺、去抖或节拍时间，范围0..86400000毫秒；不能替代缺失动作、设备反馈或完成证据，未知配置使用config.placeholder。")]
         public int? Milliseconds { get; set; }
 
         [Description("flow.goto或弹框按钮的符号目标；具体运行要求由对应kind契约说明。")]
@@ -242,7 +242,7 @@ namespace Automation.Protocol
         [Description("分支不成立时的符号目标；继续下一条也要显式填写下一条指令的operationKey，不使用空对象表示顺序执行。暂缺可省略并先保存为incomplete。")]
         public OperationTarget WhenFalse { get; set; }
 
-        [Description("popup.message 或 config.placeholder 的固定文本；popup.message 不支持变量插值。")]
+        [Description("popup.message的固定提示文本，或config.placeholder的未决原因。popup确认只表示用户点击，不证明物理状态已恢复；未知动作/资源必须用config.placeholder。")]
         public string Message { get; set; }
 
         [Description("弹框按钮文本，省略时为“确定”。")]

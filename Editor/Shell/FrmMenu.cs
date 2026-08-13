@@ -101,18 +101,19 @@ namespace Automation
             menuIcons.Add(aiAssistant_Page, UiIconKind.Ai);
             menuIcons.Add(runtimeDiagnostics_Page, UiIconKind.Monitor);
 
-            panel1.BackColor = UiPalette.Navigation;
+            panel1.BackColor = UiPalette.MenuBackground;
             Io_Page.Text = "I/O 调试";
             aiAssistant_Page.Text = "AI 助手";
             foreach (Button button in GetMenuButtons())
             {
                 string label = button.Text;
-                button.BackColor = UiPalette.Navigation;
-                button.ForeColor = UiPalette.NavigationTextMuted;
+                button.BackColor = UiPalette.MenuBackground;
+                button.ForeColor = UiPalette.MenuText;
                 button.FlatStyle = FlatStyle.Flat;
                 button.FlatAppearance.BorderSize = 0;
-                button.FlatAppearance.MouseOverBackColor = UiPalette.Navigation;
-                button.FlatAppearance.MouseDownBackColor = UiPalette.Navigation;
+                button.FlatAppearance.BorderColor = UiPalette.MenuBorder;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.MenuBackground;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.MenuPressed;
                 button.UseVisualStyleBackColor = false;
                 button.TabStop = false;
                 SetMenuIcon(button, false);
@@ -125,9 +126,10 @@ namespace Automation
                 Button menuButton = button;
                 hoverAnimator.Attach(
                     menuButton,
-                    () => IsMenuButtonActive(menuButton) ? UiPalette.NavigationActive : UiPalette.Navigation,
-                    UiPalette.NavigationHover,
-                    true);
+                    () => IsMenuButtonActive(menuButton) ? UiPalette.MenuActive : UiPalette.MenuBackground,
+                    UiPalette.MenuHover,
+                    true,
+                    UiPalette.MenuPressed);
             }
         }
 
@@ -135,16 +137,16 @@ namespace Automation
         {
             if (activeMenuButton != null)
             {
-                activeMenuButton.BackColor = UiPalette.Navigation;
-                activeMenuButton.ForeColor = UiPalette.NavigationTextMuted;
+                activeMenuButton.BackColor = UiPalette.MenuBackground;
+                activeMenuButton.ForeColor = UiPalette.MenuText;
                 SetMenuIcon(activeMenuButton, false);
                 activeMenuButton.Invalidate();
             }
             activeMenuButton = button;
             if (activeMenuButton != null)
             {
-                activeMenuButton.BackColor = UiPalette.NavigationActive;
-                activeMenuButton.ForeColor = UiPalette.TextInverse;
+                activeMenuButton.BackColor = UiPalette.MenuActive;
+                activeMenuButton.ForeColor = UiPalette.MenuActiveText;
                 SetMenuIcon(activeMenuButton, true);
                 activeMenuButton.Invalidate();
                 if (activeMenuButton.IsHandleCreated)
@@ -188,7 +190,7 @@ namespace Automation
             cache.TryGetValue(button, out Image icon);
             if (button == activeMenuButton && button.ClientSize.Width > 0 && button.ClientSize.Height > 0)
             {
-                using (SolidBrush activeBackground = new SolidBrush(UiPalette.NavigationActive))
+                using (SolidBrush activeBackground = new SolidBrush(button.BackColor))
                 {
                     e.Graphics.FillRectangle(activeBackground, button.ClientRectangle);
                 }
@@ -219,8 +221,8 @@ namespace Automation
                 int statusLeft = Math.Min(
                     button.ClientSize.Width - statusSize - 4,
                     iconLeft + iconSize - statusSize);
-                using (SolidBrush statusBrush = new SolidBrush(UiPalette.NavigationAccent))
-                using (Pen statusBorder = new Pen(UiPalette.Navigation, 1.5F))
+                using (SolidBrush statusBrush = new SolidBrush(UiPalette.MenuActiveAccent))
+                using (Pen statusBorder = new Pen(UiPalette.MenuBackground, 1.5F))
                 {
                     e.Graphics.FillEllipse(statusBrush, statusLeft, contentTop + 1, statusSize, statusSize);
                     e.Graphics.DrawEllipse(statusBorder, statusLeft, contentTop + 1, statusSize, statusSize);
@@ -235,7 +237,7 @@ namespace Automation
 
             if (button == activeMenuButton)
             {
-                using (SolidBrush brush = new SolidBrush(UiPalette.NavigationActiveAccent))
+                using (SolidBrush brush = new SolidBrush(UiPalette.MenuActiveAccent))
                 {
                     e.Graphics.FillRectangle(
                         brush,
@@ -338,7 +340,7 @@ namespace Automation
 
         private void MenuPanel_Paint(object sender, PaintEventArgs e)
         {
-            using (Pen dividerPen = new Pen(UiPalette.NavigationBorder, 1F))
+            using (Pen dividerPen = new Pen(UiPalette.MenuBorder, 1F))
             {
                 foreach (Button groupStart in new[] { Io_Page, valueDebug_Page })
                 {
@@ -375,7 +377,7 @@ namespace Automation
                     p.Visible = false;
                     p.Width = 0;
                     aiAssistantActive = false;
-                    aiAssistant_Page.BackColor = UiPalette.Navigation;
+                    aiAssistant_Page.BackColor = UiPalette.MenuBackground;
                     SetMenuIcon(aiAssistant_Page, false);
                     aiAssistant_Page.Invalidate();
                     hoverAnimator.RefreshRestingColors();
@@ -400,7 +402,7 @@ namespace Automation
                         Workspace.AiAssistant.Show();
                     }
                     aiAssistantActive = true;
-                    aiAssistant_Page.BackColor = UiPalette.Navigation;
+                    aiAssistant_Page.BackColor = UiPalette.MenuBackground;
                     SetMenuIcon(aiAssistant_Page, true);
                     aiAssistant_Page.Invalidate();
                     hoverAnimator.RefreshRestingColors();

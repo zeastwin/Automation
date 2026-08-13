@@ -75,13 +75,13 @@ namespace Automation.Core.Tests
                         new object[] { operation, 0, true, false });
 
                     Assert.AreEqual(
-                        UiPalette.DisabledSoft.ToArgb(),
+                        UiPalette.InstructionDisabledBackground.ToArgb(),
                         background.ToArgb(),
-                        "禁用指令应使用低强调的浅灰背景。");
+                        "禁用指令应使用清晰可辨的中性灰背景。");
                     Assert.AreEqual(
-                        UiPalette.SurfacePressed.ToArgb(),
+                        UiPalette.InstructionDisabledSelected.ToArgb(),
                         selectedBackground.ToArgb(),
-                        "选中禁用指令时应保留浅灰焦点层级，不能恢复成深色反相背景。");
+                        "选中禁用指令时应保留更深一层的灰色焦点反馈。");
                 }
             }, TimeSpan.FromSeconds(10));
         }

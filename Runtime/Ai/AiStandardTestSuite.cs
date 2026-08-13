@@ -248,6 +248,31 @@ namespace Automation
                     Proc proc = FindProcess(runtime, ProductProcessName);
                     result.Check(proc != null, "目标流程已创建", $"未找到流程“{ProductProcessName}”。");
                     result.Check(CountOperations(proc) >= 4, "流程包含可审查的业务结构", "流程指令不足4条，未形成可审查结构。");
+                    List<OperationType> operations = proc?.steps?
+                        .SelectMany(step => step?.Ops ?? new List<OperationType>())
+                        .Where(operation => operation != null).ToList()
+                        ?? new List<OperationType>();
+                    bool hasExplicitPlaceholder = operations.Any(operation =>
+                        operation.Note?.StartsWith(
+                            ProcessReadinessService.PlaceholderNotePrefix,
+                            StringComparison.Ordinal) == true);
+                    result.Check(
+                        hasExplicitPlaceholder,
+                        "缺失资源使用显式配置占位",
+                        "缺失的扫码、放行或报警资源没有使用config.placeholder，可能被伪动作包装。");
+                    int procIndex = proc == null ? -1 : runtime.Stores.Processes.Items.IndexOf(proc);
+                    ProcessReadinessAnalysis readiness = procIndex < 0
+                        ? null
+                        : ProcessReadinessService.Analyze(
+                            procIndex,
+                            proc,
+                            runtime.Stores.Processes.Items,
+                            runtime.CreateProcessValidationContext(),
+                            runtime.Stores.Values);
+                    result.Check(
+                        readiness?.ReadinessStatus == "incomplete" && readiness.Runnable == false,
+                        "占位流程可保存但不可启动",
+                        "缺失资源的占位流程被错误提升为ready/runnable。");
                     CheckGotoStructure(runtime, result, proc);
                     break;
                 }

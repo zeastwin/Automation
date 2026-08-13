@@ -1,0 +1,90 @@
+{
+  "documentType": "Automation.UsableProcessKnowledgeCatalog",
+  "schemaVersion": 1,
+  "blocks": [
+    {
+      "patternId": "identify.read-and-bind-carrier",
+      "title": "读取标识并绑定物理载体",
+      "summary": "把扫码或RFID响应校验后一次性绑定到当前载体及其槽位，避免身份与物料位置分离。",
+      "topics": ["identify", "transaction"],
+      "capabilities": ["identity-binding", "response-validation"],
+      "deviceTypes": ["barcode-reader", "rfid-reader"],
+      "processTypes": ["loading", "inspection", "traceability"],
+      "riskTags": ["identity-mismatch", "stale-response"],
+      "file": "identify.read-and-bind-carrier.md",
+      "sourceRefs": [
+        "1hsg-unloading:case-4048451aebf01f8b15ef",
+        "1hsg-unloading:case-70c398b7feaa19130b41",
+        "small-bc-lianfeng:case-9b2cf4fdcc5fd5fdbb99",
+        "small-bc-lianfeng:case-23c28b4dc6c9d6e5ab62"
+      ]
+    },
+    {
+      "patternId": "transfer.station-handoff",
+      "title": "相邻工位载体交接",
+      "summary": "用显式交接状态、边界传感器和数据所有权转移完成一次且仅一次的工位交接。",
+      "topics": ["orchestration", "transfer"],
+      "capabilities": ["material-handoff", "state-coordination"],
+      "deviceTypes": ["conveyor", "digital-io"],
+      "processTypes": ["buffering", "handoff", "loading", "unloading"],
+      "riskTags": ["material-loss", "duplicate-transfer", "unknown-state"],
+      "file": "transfer.station-handoff.md",
+      "sourceRefs": [
+        "1hsg-unloading:case-a3bc8774ae757d8bf12c",
+        "1hsg-unloading:case-497d61f445cdd521dd7f",
+        "small-bc-lianfeng:case-8ec2adb82e9d6b7690fb",
+        "small-bc-lianfeng:case-e2e013c1c59f7e7f61f3",
+        "small-bc-lianfeng:case-35e5a65c6dfc8d38b6a0",
+        "small-bc-lianfeng:case-2c9bc073f088413e8b82",
+        "small-bc-lianfeng:case-e28199c20f71bc324c22"
+      ]
+    },
+    {
+      "patternId": "dispensing.service-material-path",
+      "title": "点胶材料路径维护",
+      "summary": "在生产外完成关胶、排胶、擦胶和可选称重验证，并以可判定结果恢复点胶就绪状态。",
+      "topics": ["actuator", "motion", "monitoring"],
+      "capabilities": ["material-path-service", "dispensing-readiness"],
+      "deviceTypes": ["dispenser", "servo-axis", "scale"],
+      "processTypes": ["dispensing"],
+      "riskTags": ["unexpected-dispense", "partial-service", "unsafe-retry"],
+      "file": "dispensing.service-material-path.md",
+      "sourceRefs": [
+        "small-bc-lianfeng:case-7871aa000f84323767d3",
+        "small-bc-lianfeng:case-b94c5326b0459fecad6a",
+        "small-bc-lianfeng:case-d3b5b10f323461f13e71",
+        "small-bc-lianfeng:case-f5ba17af98466daa75d8"
+      ]
+    },
+    {
+      "patternId": "dispensing.calibrate-needle-offset",
+      "title": "校准并提交针头偏移",
+      "summary": "在生产停止和安全条件成立时测量针头Z及视觉XY偏移，验证后原子替换有效校准值。",
+      "topics": ["actuator", "motion", "recovery"],
+      "capabilities": ["needle-calibration", "offset-validation"],
+      "deviceTypes": ["dispenser", "servo-axis", "vision-system"],
+      "processTypes": ["dispensing", "calibration"],
+      "riskTags": ["collision", "invalid-calibration", "partial-commit"],
+      "file": "dispensing.calibrate-needle-offset.md",
+      "sourceRefs": [
+        "small-bc-lianfeng:case-e2ec062e714e7cb839a8"
+      ]
+    },
+    {
+      "patternId": "transaction.submit-trace-record",
+      "title": "提交并确认追溯记录",
+      "summary": "以稳定业务键提交产品或槽位记录，区分业务拒绝与通讯失败，并只在明确确认后标记成功。",
+      "topics": ["identify", "transaction"],
+      "capabilities": ["trace-submit", "idempotent-transaction"],
+      "deviceTypes": ["mes", "tcp-device"],
+      "processTypes": ["inspection", "traceability"],
+      "riskTags": ["duplicate-submit", "partial-commit", "identity-mismatch"],
+      "file": "transaction.submit-trace-record.md",
+      "sourceRefs": [
+        "small-bc-lianfeng:case-77e087afefeb4fbdcfce",
+        "small-bc-lianfeng:case-e7b68d0843f167cd815f",
+        "small-bc-lianfeng:case-788dbca233a71fabe138"
+      ]
+    }
+  ]
+}

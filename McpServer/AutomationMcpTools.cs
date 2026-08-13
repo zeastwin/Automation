@@ -35,10 +35,10 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2阶段。现有对象使用稳定ID，新对象使用当前阶段局部key。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移；修正活动预演时用replacePreviewId提交完整替代阶段。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations，新步骤使用独立step.append。现有对象使用稳定ID，新对象使用当前阶段局部key。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移。")]
         public static async Task<string> PreviewChangeSet(
-            [Description("当前完整原子阶段；actions与variables整体预演")] AtomicChangeSetDefinition changeSet,
-            [Description("可选；被完整替代的活动previewId，新changeSet必须自包含")] string? replacePreviewId = null)
+            [Description("当前完整原子阶段；actions与variables整体预演。阶段依赖的新变量也在variables中提交")] AtomicChangeSetDefinition changeSet,
+            [Description("仅用于修正尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null)
         {
             if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
             if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
@@ -60,6 +60,22 @@ namespace Automation.McpServer
                         throw new ArgumentException(validationError, nameof(changeSet));
                     return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
                 }).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_process_blueprint"), Description(
+            "预演一个完整的新流程蓝图。按顺序填写流程、变量、步骤和语义指令；工具会确定性编译为单个ChangeSet V2原子阶段。未知动作或资源必须保留为config.placeholder并保持incomplete。返回结果仍使用同一previewId，经前台确认后调用apply_change_set提交。")]
+        public static async Task<string> PreviewProcessBlueprint(
+            [Description("单个完整新流程的声明式蓝图；不需要手工展开process.create/step.append/operation.append动作")]
+            ProcessBlueprintDefinition blueprint,
+            [Description("仅用于修正尚未apply的活动蓝图预演；新蓝图完整替代旧阶段")]
+            string? replacePreviewId = null)
+        {
+            AiChangeSet compiledInput = ProcessBlueprintCompiler.Compile(blueprint);
+            return await ExecuteAsync(
+                toolName: nameof(PreviewProcessBlueprint),
+                args: new { blueprint, replacePreviewId },
+                action: client => client.PreviewChangeSetAsync(compiledInput, replacePreviewId))
+                .ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
@@ -96,11 +112,11 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_process_design_guide"), Description(
-            "Automation复杂流程设计的唯一按需知识入口。按当前目标组合生命周期、调度、互锁、执行器、运动、取放、搬运、识别、外部事务、监控、恢复、自定义函数和审查功能块；core通用不变量会自动返回。"
-            + "内容包含从1HSG下料等历史项目甄别出的职责和阶段写法，但不是可直接复制的旧模板。"
+            "Automation复杂流程设计的唯一按需知识入口。通常只按目标选择一个主主题；知识块本身已包含对应失败、超时和恢复写法，只有另一主题承担独立职责时才追加。core通用不变量会自动返回。"
+            + "同时返回从旧项目证据中完成审核和归纳的可用规范；候选、审核过程和废弃内容不会进入运行时返回。"
             + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
-            [Description("功能块主题数组，只传当前任务涉及的主题：core=通用不变量（可省略，服务端自动加入）；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics)
+            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics)
         {
             string result = ProcessDesignGuideCatalog.Get(topics);
             ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics }, result);
@@ -601,7 +617,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "list_variables"), Description(
             "列出全部已配置变量（含稳定ID、作用域、归属流程、当前值、备注和引用影响）。"
-            + "支持类型、作用域、归属流程、名称模糊匹配和分页；默认100条、每页最多100条。")]
+            + "支持类型、作用域、归属流程、名称模糊匹配和分页；名称线索已知时使用nameLike，只有确需全量清单时才省略。默认100条、每页最多100条。")]
         public static async Task<string> ListVariables(
             [Description("类型过滤：double 或 string")] string? type = null,
             [Description("名称模糊匹配关键词")] string? nameLike = null,
@@ -936,7 +952,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "list_io"), Description(
             "分页列出 IO 目录（含名称/卡号/模块/索引/类型/电平和备注摘要），默认50条、最多100条。"
-            + "IO 类型为\"通用输入\"或\"通用输出\"；精确完整配置使用get_io。")]
+            + "名称线索已知时使用nameLike，只有确需全量清单时才省略。IO 类型为\"通用输入\"或\"通用输出\"；精确完整配置使用get_io。")]
         public static async Task<string> ListIo(
             [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
             [Description("名称模糊匹配关键词")] string? nameLike = null,

@@ -1250,7 +1250,7 @@ namespace Automation
                 paintSelection,
                 isRuntime);
             Color foreColor = operation?.Disable == true && !hasTransientColor
-                ? UiPalette.TextDisabled
+                ? UiPalette.InstructionDisabledText
                 : UiPalette.TextPrimary;
 
             using (SolidBrush background = new SolidBrush(backColor))
@@ -1293,7 +1293,9 @@ namespace Automation
             }
             if (operation?.Disable == true)
             {
-                return selected ? UiPalette.SurfacePressed : UiPalette.DisabledSoft;
+                return selected
+                    ? UiPalette.InstructionDisabledSelected
+                    : UiPalette.InstructionDisabledBackground;
             }
             if (isRuntime)
             {

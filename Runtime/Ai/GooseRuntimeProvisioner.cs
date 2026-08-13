@@ -11,8 +11,8 @@ namespace Automation
 {
     public static class GooseRuntimeProvisioner
     {
-        public const int SystemPromptVersion = 20;
-        public const int IntegrationContextVersion = 48;
+        public const int SystemPromptVersion = 21;
+        public const int IntegrationContextVersion = 49;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         public const string ProcessReviewSkillName = "automation-process-review";
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(
@@ -296,8 +296,8 @@ namespace Automation
                 "extension_tool_limits",
                 "# Response Guidelines",
                 "# EW-AI Customization",
-                "Treat returned facts, inferences, and unresolved evidence gaps as different categories",
-                "Stop gathering evidence when the verified record is sufficient"
+                "Clearly distinguish verified facts, inferences, and unresolved information",
+                "For industrial runtime safety"
             };
             string missingSystemAnchor = Array.Find(systemAnchors,
                 anchor => systemPrompt.IndexOf(anchor, StringComparison.Ordinal) < 0);
@@ -316,12 +316,11 @@ namespace Automation
             {
                 "automation-process-authoring",
                 "automation-process-review",
-                "audit_proc_batch",
-                "validate_proc",
                 "diagnose_issue",
                 "get_platform_development_context",
                 "get_process_design_guide",
-                "nextFindingOffset"
+                "只要求“设计、方案、结构或怎么写”",
+                "不先做全平台盘点"
             };
             string missingContextAnchor = Array.Find(contextAnchors,
                 anchor => integrationContext.IndexOf(anchor, StringComparison.Ordinal) < 0);
@@ -353,6 +352,7 @@ namespace Automation
                 "get_process_design_guide",
                 "get_semantic_operation_schema",
                 "get_native_operation_schemas",
+                "preview_process_blueprint",
                 "preview_change_set",
                 "apply_change_set",
                 "validate_proc",

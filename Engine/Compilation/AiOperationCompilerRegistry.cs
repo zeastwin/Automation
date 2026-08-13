@@ -664,8 +664,10 @@ namespace Automation
             public string Kind => "wait";
             public string DefaultName => "等待";
 
-            public JObject BuildContract() => Contract("等待固定毫秒数",
-                new[] { "kind", "milliseconds" }, new[] { "name" }, new JProperty("range", "0..86400000"));
+            public JObject BuildContract() => Contract("等待固定毫秒数；只用于工艺、去抖或节拍时间，不能替代缺失动作、反馈或完成证据",
+                new[] { "kind", "milliseconds" }, new[] { "name" },
+                new JProperty("range", "0..86400000"),
+                new JProperty("unknownConfiguration", "使用config.placeholder并保持incomplete"));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
@@ -895,6 +897,7 @@ namespace Automation
                 new JProperty("interpolation", "unsupported"),
                 new JProperty("autoCloseMs", "省略表示不自动关闭；提供时范围1..3600000，不能用0表示关闭"),
                 new JProperty("runtimeBehavior", "message 会原样显示；{变量名}不是模板语法"),
+                new JProperty("evidenceBoundary", "用户点击只证明弹框被确认，不证明设备、物料或传感器状态已恢复"),
                 new JProperty("targetShape", SymbolicTargetContract()),
                 new JProperty("targetBehavior", "只有用户点击确定才跳转 target；自动关闭时顺序执行下一条"));
 

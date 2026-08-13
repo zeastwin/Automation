@@ -12,7 +12,7 @@ namespace Automation.Core.Tests
     public sealed class ManagedAiContextContractTests
     {
         [TestMethod]
-        public void ManagedContext_ContainsExplorationCoverageAndSeparatedSkillRoutes()
+        public void ManagedContext_SeparatesDesignReviewAndAuthoringRoutes()
         {
             Assert.AreEqual(
                 GooseRuntimeProvisioner.ProcessAuthoringSkillVersion,
@@ -24,15 +24,17 @@ namespace Automation.Core.Tests
                     "Automation.Assets.Goose.Skills.automation-process-review.skill-version").Trim()));
 
             string system = ReadEmbedded("Automation.Assets.Goose.system.md");
-            StringAssert.Contains(system, "facts, inferences, and unresolved evidence gaps");
-            StringAssert.Contains(system, "Stop gathering evidence");
+            StringAssert.Contains(system, "verified facts, inferences, and unresolved information");
+            StringAssert.Contains(system, "For industrial runtime safety");
+            Assert.IsFalse(system.Contains("proactively compare related objects"));
 
             string automation = ReadEmbedded("Automation.Assets.Goose.automation.md");
             StringAssert.Contains(automation, "automation-process-review");
             StringAssert.Contains(automation, "automation-process-authoring");
             StringAssert.Contains(automation, "get_process_design_guide");
-            StringAssert.Contains(automation, "功能块");
-            StringAssert.Contains(automation, "nextFindingOffset");
+            StringAssert.Contains(automation, "只要求“设计、方案、结构或怎么写”");
+            StringAssert.Contains(automation, "不要加载写入 Skill");
+            StringAssert.Contains(automation, "不先做全平台盘点");
             StringAssert.Contains(automation, "禁用本身不自动等于 Bug");
 
             string review = ReadEmbedded(
@@ -45,8 +47,10 @@ namespace Automation.Core.Tests
                 "Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md");
             StringAssert.Contains(authoring, "name: automation-process-authoring");
             StringAssert.Contains(authoring, "只读流程评审使用 automation-process-review");
-            StringAssert.Contains(authoring, "采用的功能块");
-            StringAssert.Contains(authoring, "不复制旧名称");
+            StringAssert.Contains(authoring, "config.placeholder");
+            StringAssert.Contains(authoring, "preview_process_blueprint");
+            StringAssert.Contains(authoring, "不得用固定延时、普通弹框");
+            StringAssert.Contains(authoring, "同一 ChangeSet 的 `variables`");
         }
 
         [TestMethod]

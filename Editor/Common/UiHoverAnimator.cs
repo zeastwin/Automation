@@ -18,8 +18,10 @@ namespace Automation
             public Control Control;
             public Func<Color> RestingColor;
             public Color HoverColor;
+            public Color? PressedColor;
             public float Progress;
             public float Target;
+            public bool PointerDown;
             public bool PressOffset;
             public Padding OriginalPadding;
         }
@@ -32,13 +34,19 @@ namespace Automation
             timer.Tick += Timer_Tick;
         }
 
-        public void Attach(Control control, Func<Color> restingColor, Color hoverColor, bool pressOffset)
+        public void Attach(
+            Control control,
+            Func<Color> restingColor,
+            Color hoverColor,
+            bool pressOffset,
+            Color? pressedColor = null)
         {
             AnimationState state = new AnimationState
             {
                 Control = control,
                 RestingColor = restingColor,
                 HoverColor = hoverColor,
+                PressedColor = pressedColor,
                 PressOffset = pressOffset,
                 OriginalPadding = control.Padding
             };
@@ -46,12 +54,22 @@ namespace Automation
             control.MouseEnter += (sender, args) => SetTarget(state, 1F);
             control.MouseLeave += (sender, args) =>
             {
+                state.PointerDown = false;
                 RestorePadding(state);
                 SetTarget(state, 0F);
             };
             control.MouseDown += (sender, args) =>
             {
-                if (state.PressOffset && args.Button == MouseButtons.Left)
+                if (args.Button != MouseButtons.Left)
+                {
+                    return;
+                }
+                state.PointerDown = true;
+                if (state.PressedColor.HasValue)
+                {
+                    ApplyColor(state, state.PressedColor.Value);
+                }
+                if (state.PressOffset)
                 {
                     control.Padding = new Padding(
                         state.OriginalPadding.Left,
@@ -60,7 +78,14 @@ namespace Automation
                         Math.Max(0, state.OriginalPadding.Bottom - 1));
                 }
             };
-            control.MouseUp += (sender, args) => RestorePadding(state);
+            control.MouseUp += (sender, args) =>
+            {
+                state.PointerDown = false;
+                RestorePadding(state);
+                ApplyColor(
+                    state,
+                    Blend(state.RestingColor(), state.HoverColor, state.Progress));
+            };
         }
 
         public void RefreshRestingColors()
@@ -105,7 +130,7 @@ namespace Automation
                     state.Progress = state.Target;
                     changed = true;
                 }
-                if (changed)
+                if (changed && !state.PointerDown)
                 {
                     ApplyColor(state, Blend(state.RestingColor(), state.HoverColor, state.Progress));
                 }

@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Automation.Protocol;
 // 模块：运行时 / AI 集成。
 // 职责范围：管理 AI 会话、配置、ACP/MCP 进程、受管运行环境和分析记录。
 
@@ -10,6 +11,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Automation
@@ -22,6 +24,7 @@ namespace Automation
         private readonly object processLock = new object();
         private readonly Dictionary<string, ManagedMcpInstance> instances =
             new Dictionary<string, ManagedMcpInstance>(StringComparer.Ordinal);
+        private readonly SemaphoreSlim taskCapabilityStartLock = new SemaphoreSlim(1, 1);
         private string lastMessage = "MCP Server 尚未启动。";
         private bool staleProcessesCleaned;
         private bool disposed;
@@ -80,6 +83,54 @@ namespace Automation
                 enableTrayIcon: false,
                 allowToolProfileChanges: false).ConfigureAwait(false);
             return baseUri;
+        }
+
+        /// <summary>
+        /// 为一个任务级能力包启动固定工具集合的独立 MCP 实例。
+        /// 实例按档位复用，避免并发 AI 任务通过全局 Profile 切换互相污染。
+        /// </summary>
+        public async Task<string> EnsureTaskCapabilityStartedAsync(string toolProfile)
+        {
+            string normalized = AutomationToolProfiles.Normalize(toolProfile);
+            if (!AutomationToolProfiles.IsTaskProfile(normalized))
+            {
+                throw new InvalidOperationException($"不是任务级能力档位：{normalized}。");
+            }
+
+            await taskCapabilityStartLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                string instanceName = "task_" + normalized.ToLowerInvariant();
+                ManagedMcpInstance active = null;
+                lock (processLock)
+                {
+                    ThrowIfDisposedLocked();
+                    if (instances.TryGetValue(instanceName, out ManagedMcpInstance current)
+                        && IsRunning(current.Process))
+                    {
+                        active = current;
+                    }
+                }
+
+                if (active != null)
+                {
+                    string info = await ReadHttpAsync(active.BaseUri + "/info", 1000).ConfigureAwait(false);
+                    if (HasExpectedProfile(info, normalized)) return active.BaseUri;
+                }
+
+                string baseUri = AllocateLoopbackUri();
+                await EnsureInstanceStartedAsync(
+                    instanceName,
+                    baseUri,
+                    normalized,
+                    enableTrayIcon: false,
+                    allowToolProfileChanges: false).ConfigureAwait(false);
+                return baseUri;
+            }
+            finally
+            {
+                taskCapabilityStartLock.Release();
+            }
         }
 
         public void StopRuntimeDiagnostic()

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automation.local/schemas/process-knowledge-catalog.json",
+  "title": "Automation Usable Process Knowledge Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["documentType", "schemaVersion", "blocks"],
+  "properties": {
+    "documentType": { "const": "Automation.UsableProcessKnowledgeCatalog" },
+    "schemaVersion": { "const": 1 },
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    }
+  },
+  "$defs": {
+    "tag": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tag" },
+      "uniqueItems": true
+    },
+    "nonEmptyTags": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/tag" },
+      "uniqueItems": true
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patternId",
+        "title",
+        "summary",
+        "topics",
+        "capabilities",
+        "deviceTypes",
+        "processTypes",
+        "riskTags",
+        "file",
+        "sourceRefs"
+      ],
+      "properties": {
+        "patternId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$"
+        },
+        "title": { "type": "string", "minLength": 2 },
+        "summary": { "type": "string", "minLength": 10 },
+        "topics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "lifecycle",
+              "orchestration",
+              "interlock",
+              "actuator",
+              "motion",
+              "pick-place",
+              "transfer",
+              "identify",
+              "transaction",
+              "monitoring",
+              "recovery",
+              "custom-function",
+              "review"
+            ]
+          }
+        },
+        "capabilities": { "$ref": "#/$defs/nonEmptyTags" },
+        "deviceTypes": { "$ref": "#/$defs/tags" },
+        "processTypes": { "$ref": "#/$defs/tags" },
+        "riskTags": { "$ref": "#/$defs/tags" },
+        "file": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]+\\.md$"
+        },
+        "sourceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 3 },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

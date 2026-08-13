@@ -33,15 +33,17 @@
 
 - 流程结构写入只走 ChangeSet V2：`preview_change_set` → 用户确认 → `apply_change_set(previewId)`；不得恢复旧 intent/patch/create_batch 或旁路写入。
 - `McpServer/McpToolProfile.cs` 是工具集合权威来源；公共参数使用 `Automation.Protocol` 强类型 DTO 和生成 Schema。
+- `Diagnostic/Editor` 只作为用户权限外壳；普通 AI 任务先由 `AiTaskCapabilityRouter` 路由到固定的最小任务能力包，各并发任务不得通过全局 Profile 热切换共享工具面。
 - Schema 描述结构，`OperationBehaviorCatalog` 描述运行语义，Readiness 描述启动阻塞；不要用提示词掩盖代码契约问题。
 - `saveRequired` 与 `runRequired` 保持分层；提交后使用稳定 `procId/stepId/opId`，预演局部 `key` 不跨提交阶段。
+- 新建单个完整流程优先使用 Process Blueprint，并在 MCP 内确定性编译为一个 ChangeSet V2；既有流程修改继续使用原子 ChangeSet，不增加第二条 Bridge 写入链。
 - 修改原生/语义指令、Schema、资源类型、ChangeSet 或 AI 前台时，同步检查模型、编译、行为、校验、运行和测试；只读取该任务需要的 `05-AI与Bridge.md` 章节。
 
 ## Prompt、Skill 与可信输出
 
 - 运行时规则按职责放置：System Prompt 只保存跨任务稳定原则，`automation.md` 保存平台路由和证据边界，Skill 保存任务工作流，结构、行为、状态和合法迁移由代码契约提供；不要在多个运行时提示层复制同一规则。
 - 只有能覆盖一类真实问题、经过复现或保护明确不变量的规则才进入 Prompt；不为一次随手测试、单个措辞或孤立失败增加特定提示。先判断问题属于模型行为、上下文路由、工具契约、数据质量还是运行实现。
-- 只读流程审查与流程写入使用独立 Skill；只读请求不推导写入或运行控制授权，从审查转为修复时重新进入 ChangeSet V2。具体路由和调查方法只在 `Assets/Goose/automation.md` 与对应 Skill 维护。
+- 纯方案设计不进入写入 Skill或枚举当前资源；只读流程审查与流程写入使用独立 Skill，只读请求不推导写入或运行控制授权。占位写入使用 `config.placeholder` 保持 `incomplete`，不得用延时、弹框或猜测资源伪造成可运行。具体路由和任务方法只在 `Assets/Goose/automation.md` 与对应 Skill 维护。
 - AI 契约必须保留原始事实并区分事实、推断和证据缺口；汇总不得替代明细，分页不得丢项或混合不同修订。精确字段、数量边界和错误码只在 Schema、Bridge/MCP 与 `05-AI与Bridge.md` 维护。
 - 修改受管 Prompt、平台上下文或 Skill 时，同步更新资源版本、嵌入/输出复制、启动部署、内容校验、运行分析和契约测试；同版本内容漂移恢复内置内容，高于内置版本的本机文件按当前部署策略保留并报告。
 - 架构文档只描述当前程序；一次性交接、阶段计划和工作区快照完成接管后删除，不让历史状态与当前契约长期并存。

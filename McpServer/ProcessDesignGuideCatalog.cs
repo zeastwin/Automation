@@ -92,6 +92,18 @@ namespace Automation.McpServer
                 sections.Add(new { topic, markdown });
             }
 
+            ProcessKnowledgeSelection knowledge;
+            try
+            {
+                knowledge = ProcessKnowledgeCatalog.Get(normalized);
+            }
+            catch (InvalidDataException ex)
+            {
+                return Error(
+                    "PROCESS_KNOWLEDGE_INVALID",
+                    ex.Message);
+            }
+
             string sourceSha256 = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
             return JsonSerializer.Serialize(new
@@ -103,13 +115,27 @@ namespace Automation.McpServer
                 requestedTopics = normalized,
                 includedCore = true,
                 sections,
+                usableKnowledgeCatalogSha256 = knowledge.CatalogSha256,
+                knowledgeBlocks = knowledge.Blocks.Select(block => new
+                {
+                    patternId = block.PatternId,
+                    title = block.Title,
+                    summary = block.Summary,
+                    topics = block.Topics,
+                    capabilities = block.Capabilities,
+                    deviceTypes = block.DeviceTypes,
+                    processTypes = block.ProcessTypes,
+                    riskTags = block.RiskTags,
+                    markdown = block.Markdown,
+                    contentSha256 = block.ContentSha256
+                }),
                 authority = new
                 {
                     fields = "当前语义或原生Schema",
                     runtimeBehavior = "当前行为契约和Guide",
                     resources = "当前资源工具返回",
                     readiness = "当前readiness和运行闸门",
-                    referencePolicy = "历史项目只提供经甄别的职责与阶段写法，必须按当前事实适配"
+                    referencePolicy = "只返回已完成甄别的可用规范；旧项目证据和审核中间结果不进入运行时上下文"
                 }
             });
         }

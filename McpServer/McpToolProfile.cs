@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 // 模块：MCP / 工具 Profile。
-// 职责范围：这是 Editor、Diagnostic 与 RuntimeDiagnostic 对外工具集合的权威来源。
+// 职责范围：这是权限外壳与任务级最小能力包的对外工具集合权威来源。
 // 排查入口：工具缺失、越权或退役工具复现时运行 --verify-profile，并核对本文件集合而非 Markdown。
 
 namespace Automation.McpServer
@@ -54,7 +54,7 @@ namespace Automation.McpServer
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "preview_change_set", "apply_change_set", "discard_change_set_preview",
+            "preview_change_set", "preview_process_blueprint", "apply_change_set", "discard_change_set_preview",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
             "set_variable_by_name", "set_variable_by_index",
@@ -72,19 +72,76 @@ namespace Automation.McpServer
             "validate_platform_configuration"
         };
 
+        private static readonly IReadOnlyDictionary<string, HashSet<string>> TaskToolProfiles =
+            new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+            {
+                [AutomationToolProfiles.ProcessDesign] = ToolSet("get_process_design_guide"),
+                [AutomationToolProfiles.ProcessReview] = ToolSet(
+                    "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph",
+                    "get_step_detail", "get_op_detail", "get_op_details", "search_ops",
+                    "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
+                    "get_operation_context", "audit_proc_batch", "diagnose_issue", "diagnose_proc", "validate_proc",
+                    "get_snapshot", "get_info_log_tail",
+                    "get_operation_schema", "get_operation_guide", "get_semantic_operation_schema",
+                    "get_native_operation_schemas", "get_variable_by_name", "get_variable_by_index",
+                    "get_station", "get_point", "get_data_struct", "search_data_struct_items",
+                    "get_io", "search_io", "get_communication", "get_plc_device", "search_alarms", "get_alarm"),
+                [AutomationToolProfiles.ProcessCreate] = ToolSet(
+                    "get_process_design_guide", "search_proc_catalog", "get_proc_overview", "get_proc_detail",
+                    "get_flow_graph", "get_step_detail", "get_op_detail", "get_operation_references",
+                    "get_operation_schema", "get_operation_guide", "get_semantic_operation_schema",
+                    "get_native_operation_schemas", "get_variable_by_name", "get_station", "get_point",
+                    "get_data_struct", "search_data_struct_items", "get_io", "search_io", "get_communication",
+                    "get_plc_device", "search_alarms", "get_alarm", "preview_process_blueprint",
+                    "apply_change_set", "discard_change_set_preview", "validate_proc"),
+                [AutomationToolProfiles.ProcessEdit] = ToolSet(
+                    "get_process_design_guide", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph",
+                    "get_step_detail", "get_op_detail", "get_op_details", "search_ops",
+                    "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
+                    "get_operation_context", "get_operation_schema", "get_operation_guide",
+                    "get_semantic_operation_schema", "get_native_operation_schemas", "get_variable_by_name",
+                    "get_variable_by_index", "get_station", "get_point", "get_data_struct",
+                    "search_data_struct_items", "get_io", "search_io", "get_communication", "get_plc_device",
+                    "search_alarms", "get_alarm", "preview_change_set", "apply_change_set",
+                    "discard_change_set_preview", "validate_proc"),
+                [AutomationToolProfiles.ResourceEdit] = ToolSet(
+                    "list_variables", "get_variable_by_name", "get_variable_by_index", "find_variable_usages",
+                    "add_variable", "update_variable", "delete_variable", "list_data_structs", "get_data_struct",
+                    "search_data_struct_items", "upsert_data_struct", "delete_data_struct", "search_alarms",
+                    "get_alarm", "set_alarm", "delete_alarm"),
+                [AutomationToolProfiles.RuntimeControl] = ToolSet(
+                    "get_snapshot", "wait_for_proc_state", "get_proc_overview", "get_flow_graph",
+                    "get_step_detail", "get_operation_context", "get_operation_references", "trace_resource",
+                    "get_info_log_tail", "diagnose_proc", "validate_proc", "get_variable_by_name",
+                    "get_variable_by_index", "get_io", "search_io", "get_io_state", "get_communication",
+                    "get_plc_device", "search_alarms", "get_alarm", "run_proc_test", "start_proc", "stop_proc",
+                    "pause_proc", "resume_proc"),
+                [AutomationToolProfiles.SourceDevelopment] = ToolSet("get_platform_development_context"),
+                [AutomationToolProfiles.PlatformConfiguration] = ToolSet(
+                    "get_migration_configuration", "preview_motion_io_configuration", "preview_io_debug_configuration",
+                    "preview_plc_configuration", "preview_communication_configuration", "apply_migration_configuration",
+                    "discard_migration_configuration", "validate_platform_configuration", "get_station", "get_point",
+                    "get_io", "search_io", "get_communication", "get_plc_device")
+            };
+
         public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool fullPermissionEnabled = false)
         {
+            profile = AutomationToolProfiles.Normalize(profile);
             var enabled = new HashSet<string>(StringComparer.Ordinal);
-            if (string.Equals(profile, "RuntimeDiagnostic", StringComparison.OrdinalIgnoreCase))
+            if (TaskToolProfiles.TryGetValue(profile, out HashSet<string>? taskTools))
+            {
+                enabled.UnionWith(taskTools);
+            }
+            else if (string.Equals(profile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal))
             {
                 enabled.UnionWith(RuntimeDiagnosticTools);
             }
-            else if (string.Equals(profile, "Diagnostic", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(profile, AutomationToolProfiles.Diagnostic, StringComparison.Ordinal))
             {
                 enabled.UnionWith(KnowledgeAndReadTools);
                 enabled.UnionWith(DiagnosticAnalysisTools);
             }
-            else if (string.Equals(profile, "Editor", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(profile, AutomationToolProfiles.Editor, StringComparison.Ordinal))
             {
                 enabled.UnionWith(KnowledgeAndReadTools);
                 enabled.UnionWith(DiagnosticAnalysisTools);
@@ -112,6 +169,10 @@ namespace Automation.McpServer
                 if (string.Equals(toolName, "preview_change_set", StringComparison.Ordinal))
                 {
                     ApplyChangeActionDiscriminator(tool);
+                }
+                else if (string.Equals(toolName, "preview_process_blueprint", StringComparison.Ordinal))
+                {
+                    ApplyProcessBlueprintSchema(tool);
                 }
                 else if (string.Equals(toolName, "get_semantic_operation_schema", StringComparison.Ordinal))
                 {
@@ -215,6 +276,11 @@ namespace Automation.McpServer
             return tools.OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
         }
 
+        private static HashSet<string> ToolSet(params string[] names)
+        {
+            return new HashSet<string>(names ?? Array.Empty<string>(), StringComparer.Ordinal);
+        }
+
         private static void ApplySemanticKindSchema(McpServerTool tool)
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
@@ -305,6 +371,145 @@ namespace Automation.McpServer
             }
 
             ApplyPositionSchema(positionSchema);
+            JsonObject definitions = ApplySemanticOperationDiscriminator(root, operationSchema);
+            ApplyVariableChangeSchema(root);
+
+            // 动作分支最后生成，确保其中的 operation 载荷复制的是已经闭合的语义判别联合。
+            actionSchema["oneOf"] = new JsonArray
+            {
+                ActionShape(actionProperties, "process.create", new[] { "process" }),
+                ActionShape(actionProperties, "process.update", new[] { "targetProcess", "process" }),
+                ActionShape(actionProperties, "process.delete", new[] { "targetProcess" }),
+                ActionShape(actionProperties, "process.delete_all", Array.Empty<string>()),
+                ActionShape(actionProperties, "step.append", new[] { "targetProcess", "step" }),
+                ActionShape(actionProperties, "step.insert", new[] { "targetProcess", "position", "step" }),
+                ActionShape(actionProperties, "step.update", new[] { "targetProcess", "targetStep", "step" }),
+                ActionShape(actionProperties, "step.delete", new[] { "targetProcess", "targetStep" }),
+                ActionShape(actionProperties, "step.move", new[] { "targetProcess", "targetStep", "position" }),
+                ActionShape(actionProperties, "operation.append", new[] { "targetProcess", "targetStep", "operation" }),
+                ActionShape(actionProperties, "operation.insert", new[] { "targetProcess", "targetStep", "position", "operation" }),
+                ActionShape(actionProperties, "operation.update", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.replace", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.delete", new[] { "targetProcess", "targetOperation" }, "targetStep"),
+                ActionShape(actionProperties, "operation.move", new[] { "targetProcess", "targetOperation", "position" }, "targetStep")
+            };
+            ReplaceUnionPropertyWithReference(
+                actionSchema,
+                "operation",
+                "#/$defs/semanticOperation");
+            CompactRepeatedUnionProperties(actionSchema, definitions, "action", "type", "operation");
+            actionSchema["x-localKeyScope"] = "current_change_set";
+            actionSchema.Remove("properties");
+            actionSchema.Remove("required");
+            actionSchema.Remove("additionalProperties");
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyProcessBlueprintSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? operationSchema = FindSemanticOperationSchema(root);
+            if (root?["properties"] is not JsonObject rootProperties
+                || rootProperties["blueprint"] is not JsonObject blueprintSchema
+                || blueprintSchema["properties"] is not JsonObject blueprintProperties
+                || operationSchema == null)
+            {
+                throw new InvalidOperationException("preview_process_blueprint 生成Schema缺少蓝图或语义指令定义。");
+            }
+
+            root["additionalProperties"] = false;
+            blueprintSchema["additionalProperties"] = false;
+            blueprintSchema["required"] = new JsonArray("process", "steps");
+            if (blueprintProperties["steps"] is JsonObject stepsArray)
+                stepsArray["minItems"] = 1;
+
+            CloseBlueprintObject(root, new[] { "name", "autoStart", "disable" }, new[] { "name" });
+            JsonObject? stepSchema = CloseBlueprintObject(
+                root,
+                new[] { "key", "name", "disable", "operations" },
+                new[] { "name", "operations" });
+            if (stepSchema?["properties"] is JsonObject stepProperties)
+            {
+                if (stepProperties["key"] is JsonObject keySchema)
+                    keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                if (stepProperties["operations"] is JsonObject operationsArray)
+                    operationsArray["minItems"] = 1;
+            }
+
+            JsonObject? variableSchema = CloseBlueprintObject(
+                root,
+                new[] { "name", "scope", "index", "type", "value", "note", "policy" },
+                new[] { "name", "scope" });
+            if (variableSchema?["properties"] is JsonObject variableProperties)
+            {
+                if (variableProperties["name"] is JsonObject nameSchema)
+                {
+                    nameSchema["minLength"] = 1;
+                    nameSchema["pattern"] = "\\S";
+                }
+                if (variableProperties["scope"] is JsonObject scopeSchema)
+                    scopeSchema["enum"] = new JsonArray(
+                        VariableScopeContract.Public, VariableScopeContract.Process, VariableScopeContract.System);
+                if (variableProperties["type"] is JsonObject typeSchema)
+                    typeSchema["enum"] = new JsonArray(
+                        VariableChangeContract.DoubleType, VariableChangeContract.StringType);
+                if (variableProperties["policy"] is JsonObject policySchema)
+                    policySchema["enum"] = new JsonArray(
+                        VariableChangeContract.ReusePolicy, VariableChangeContract.CreatePolicy,
+                        VariableChangeContract.UpdatePolicy, VariableChangeContract.ReplacePolicy,
+                        VariableChangeContract.RequirePolicy);
+                if (variableProperties["index"] is JsonObject indexSchema)
+                {
+                    indexSchema["minimum"] = 0;
+                    indexSchema["maximum"] = VariableIndexContract.MaximumNormalValueIndex;
+                }
+            }
+
+            ApplySemanticOperationDiscriminator(root, operationSchema);
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static JsonObject? CloseBlueprintObject(
+            JsonNode? node,
+            IReadOnlyCollection<string> propertyNames,
+            IReadOnlyCollection<string> requiredNames)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && propertyNames.All(properties.ContainsKey)
+                    && properties.Count == propertyNames.Count)
+                {
+                    obj["additionalProperties"] = false;
+                    obj["required"] = new JsonArray(
+                        requiredNames.Select(name => JsonValue.Create(name)).ToArray());
+                    return obj;
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = CloseBlueprintObject(property.Value, propertyNames, requiredNames);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = CloseBlueprintObject(item, propertyNames, requiredNames);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private static JsonObject ApplySemanticOperationDiscriminator(
+            JsonObject root,
+            JsonObject operationSchema)
+        {
+            if (operationSchema["properties"] is not JsonObject operationProperties)
+            {
+                throw new InvalidOperationException("语义指令Schema缺少字段定义。");
+            }
             ApplyNumericRange(operationSchema, "milliseconds", 0, 86400000);
             ApplyNumericRange(operationSchema, "autoCloseMs", 1, 3600000);
             ApplyNumericRange(operationSchema, "afterMs", 0, 3600000);
@@ -312,7 +517,8 @@ namespace Automation.McpServer
             ApplyIoConditionsSchema(operationSchema);
             ApplyIoOutputsSchema(operationSchema);
             ApplyStringEnum(operationSchema, "conditionLogic", "all", "any");
-            ApplyVariableChangeSchema(root);
+            if (operationProperties["key"] is JsonObject keySchema)
+                keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
 
             operationSchema["oneOf"] = new JsonArray
             {
@@ -348,36 +554,7 @@ namespace Automation.McpServer
             JsonObject definitions = GetOrCreateDefinitions(root);
             CompactRepeatedUnionProperties(operationSchema, definitions, "semantic", "kind");
             definitions["semanticOperation"] = operationSchema.DeepClone();
-
-            // 动作分支最后生成，确保其中的 operation 载荷复制的是已经闭合的语义判别联合。
-            actionSchema["oneOf"] = new JsonArray
-            {
-                ActionShape(actionProperties, "process.create", new[] { "process" }),
-                ActionShape(actionProperties, "process.update", new[] { "targetProcess", "process" }),
-                ActionShape(actionProperties, "process.delete", new[] { "targetProcess" }),
-                ActionShape(actionProperties, "process.delete_all", Array.Empty<string>()),
-                ActionShape(actionProperties, "step.append", new[] { "targetProcess", "step" }),
-                ActionShape(actionProperties, "step.insert", new[] { "targetProcess", "position", "step" }),
-                ActionShape(actionProperties, "step.update", new[] { "targetProcess", "targetStep", "step" }),
-                ActionShape(actionProperties, "step.delete", new[] { "targetProcess", "targetStep" }),
-                ActionShape(actionProperties, "step.move", new[] { "targetProcess", "targetStep", "position" }),
-                ActionShape(actionProperties, "operation.append", new[] { "targetProcess", "targetStep", "operation" }),
-                ActionShape(actionProperties, "operation.insert", new[] { "targetProcess", "targetStep", "position", "operation" }),
-                ActionShape(actionProperties, "operation.update", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.replace", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.delete", new[] { "targetProcess", "targetOperation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.move", new[] { "targetProcess", "targetOperation", "position" }, "targetStep")
-            };
-            ReplaceUnionPropertyWithReference(
-                actionSchema,
-                "operation",
-                "#/$defs/semanticOperation");
-            CompactRepeatedUnionProperties(actionSchema, definitions, "action", "type", "operation");
-            actionSchema["x-localKeyScope"] = "current_change_set";
-            actionSchema.Remove("properties");
-            actionSchema.Remove("required");
-            actionSchema.Remove("additionalProperties");
-            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+            return definitions;
         }
 
         private static JsonObject GetOrCreateDefinitions(JsonObject root)
@@ -854,32 +1031,30 @@ namespace Automation.McpServer
     {
         private readonly object syncRoot = new object();
         private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
-        private readonly HashSet<string> editorToolNames;
-        private readonly HashSet<string> diagnosticToolNames;
-        private readonly HashSet<string> runtimeDiagnosticToolNames;
+        private readonly IReadOnlyDictionary<string, HashSet<string>> profileToolNames;
         private readonly HashSet<string> fullPermissionToolNames;
         private string profile = string.Empty;
         private bool fullPermissionEnabled;
 
         public DynamicMcpToolRegistry(string initialProfile)
         {
-            IReadOnlyList<McpServerTool> editorTools = McpToolProfile.CreateEditorTools();
-            IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
-            IReadOnlyList<McpServerTool> runtimeDiagnosticTools =
-                McpToolProfile.CreateTools("RuntimeDiagnostic");
-            IReadOnlyList<McpServerTool> fullPermissionEditorTools = McpToolProfile.CreateTools("Editor", true);
-            allTools = editorTools.Concat(diagnosticTools).Concat(runtimeDiagnosticTools)
+            var profileTools = AutomationToolProfiles.All.ToDictionary(
+                item => item,
+                item => McpToolProfile.CreateTools(item),
+                StringComparer.Ordinal);
+            IReadOnlyList<McpServerTool> editorTools = profileTools[AutomationToolProfiles.Editor];
+            IReadOnlyList<McpServerTool> fullPermissionEditorTools =
+                McpToolProfile.CreateTools(AutomationToolProfiles.Editor, true);
+            allTools = profileTools.Values.SelectMany(item => item)
                 .Concat(fullPermissionEditorTools)
                 .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            editorToolNames = editorTools
-                .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
-            diagnosticToolNames = diagnosticTools
-                .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
-            runtimeDiagnosticToolNames = runtimeDiagnosticTools
-                .Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal);
+            profileToolNames = profileTools.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
             fullPermissionToolNames = fullPermissionEditorTools.Select(tool => tool.ProtocolTool.Name)
-                .Where(name => !editorToolNames.Contains(name))
+                .Where(name => !profileToolNames[AutomationToolProfiles.Editor].Contains(name))
                 .ToHashSet(StringComparer.Ordinal);
             SetProfile(initialProfile);
         }
@@ -898,13 +1073,7 @@ namespace Automation.McpServer
         {
             lock (syncRoot)
             {
-                HashSet<string> enabledNames;
-                if (string.Equals(profile, "Editor", StringComparison.Ordinal))
-                    enabledNames = new HashSet<string>(editorToolNames, StringComparer.Ordinal);
-                else if (string.Equals(profile, "RuntimeDiagnostic", StringComparison.Ordinal))
-                    enabledNames = new HashSet<string>(runtimeDiagnosticToolNames, StringComparer.Ordinal);
-                else
-                    enabledNames = new HashSet<string>(diagnosticToolNames, StringComparer.Ordinal);
+                var enabledNames = new HashSet<string>(profileToolNames[profile], StringComparer.Ordinal);
                 if (fullPermissionEnabled)
                 {
                     enabledNames.UnionWith(fullPermissionToolNames);
@@ -921,12 +1090,9 @@ namespace Automation.McpServer
 
         public void SetConfiguration(string value, bool enableFullPermission)
         {
-            string normalized;
-            if (string.Equals(value, "Diagnostic", StringComparison.Ordinal)) normalized = "Diagnostic";
-            else if (string.Equals(value, "Editor", StringComparison.Ordinal)) normalized = "Editor";
-            else if (string.Equals(value, "RuntimeDiagnostic", StringComparison.Ordinal)) normalized = "RuntimeDiagnostic";
-            else throw new InvalidDataException($"MCP工具模式不支持:{value}");
-            if (enableFullPermission && !string.Equals(normalized, "Editor", StringComparison.Ordinal))
+            string normalized = AutomationToolProfiles.Normalize(value);
+            if (enableFullPermission
+                && !string.Equals(normalized, AutomationToolProfiles.Editor, StringComparison.Ordinal))
             {
                 throw new InvalidDataException("完全权限只能在Editor模式下开启。");
             }

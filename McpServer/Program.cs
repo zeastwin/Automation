@@ -195,7 +195,7 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
+                "list_operation_types", "get_native_operation_schemas", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set", "preview_process_blueprint",
                 "get_flow_graph",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
@@ -499,13 +499,38 @@ namespace Automation.McpServer
             };
             JsonObject? processDesignRoot = JsonNode.Parse(processDesignGuide) as JsonObject;
             JsonArray? processDesignSections = processDesignRoot?["sections"] as JsonArray;
+            JsonArray? processKnowledgeBlocks = processDesignRoot?["knowledgeBlocks"] as JsonArray;
             string processDesignMarkdown = processDesignSections == null
                 ? string.Empty
                 : string.Join("\n", processDesignSections
                     .Select(section => section?["markdown"]?.GetValue<string>() ?? string.Empty));
+            string processKnowledgeMarkdown = processKnowledgeBlocks == null
+                ? string.Empty
+                : string.Join("\n", processKnowledgeBlocks
+                    .Select(block => block?["markdown"]?.GetValue<string>() ?? string.Empty));
+            string[] requiredKnowledgeIds =
+            {
+                "identify.read-and-bind-carrier",
+                "transfer.station-handoff",
+                "dispensing.service-material-path",
+                "dispensing.calibrate-needle-offset",
+                "transaction.submit-trace-record"
+            };
+            string[] forbiddenKnowledgeStates =
+            {
+                "candidate", "needs-review", "deprecated"
+            };
             if (processDesignRoot?["ok"]?.GetValue<bool>() != true
                 || processDesignRoot?["includedCore"]?.GetValue<bool>() != true
                 || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
+                || processKnowledgeBlocks?.Count != requiredKnowledgeIds.Length
+                || requiredKnowledgeIds.Any(patternId => !processKnowledgeBlocks.Any(block =>
+                    string.Equals(
+                        block?["patternId"]?.GetValue<string>(),
+                        patternId,
+                        StringComparison.Ordinal)))
+                || forbiddenKnowledgeStates.Any(state =>
+                    processKnowledgeMarkdown.Contains(state, StringComparison.OrdinalIgnoreCase))
                 || processDesignRequiredTerms.Any(term =>
                     !processDesignMarkdown.Contains(term, StringComparison.Ordinal))
                 || processDesignPollution.Any(term => processDesignMarkdown.Contains(term, StringComparison.Ordinal)))
@@ -515,17 +540,23 @@ namespace Automation.McpServer
             JsonObject? identifyOnlyRoot = JsonNode.Parse(
                 ProcessDesignGuideCatalog.Get(new[] { "identify" })) as JsonObject;
             JsonArray? identifyOnlySections = identifyOnlyRoot?["sections"] as JsonArray;
+            JsonArray? identifyKnowledgeBlocks = identifyOnlyRoot?["knowledgeBlocks"] as JsonArray;
             if (identifyOnlySections?.Count != 2
                 || identifyOnlySections[0]?["topic"]?.GetValue<string>() != "core"
-                || identifyOnlySections[1]?["topic"]?.GetValue<string>() != "identify")
+                || identifyOnlySections[1]?["topic"]?.GetValue<string>() != "identify"
+                || identifyKnowledgeBlocks == null
+                || !identifyKnowledgeBlocks.Any(block => string.Equals(
+                    block?["patternId"]?.GetValue<string>(),
+                    "identify.read-and-bind-carrier",
+                    StringComparison.Ordinal)))
             {
-                throw new InvalidOperationException("流程设计知识未对功能块请求自动附带core。");
+                throw new InvalidOperationException("流程设计知识未对功能块请求自动附带core或可用规范。");
             }
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
             string[] diagnosticNames = diagnosticTools.Select(tool => tool.ProtocolTool.Name).ToArray();
             string[] forbiddenDiagnosticNames =
             {
-                "preview_change_set", "apply_change_set", "discard_change_set_preview",
+                "preview_change_set", "preview_process_blueprint", "apply_change_set", "discard_change_set_preview",
                 "run_proc_test", "start_proc", "stop_proc", "pause_proc", "resume_proc",
                 "set_variable_by_name", "set_variable_by_index",
                 "add_variable", "update_variable", "delete_variable",
@@ -693,8 +724,103 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("io.write同卡批量输出的本地校验错误。");
             }
+            VerifyTaskCapabilityProfiles();
             Console.WriteLine(
                 $"Editor Profile 校验通过，共 {names.Length} 个工具；preview_change_set Schema {previewSchemaBytes}字节；V2 写入链完整，旧写入链未暴露。");
+        }
+
+        private static void VerifyTaskCapabilityProfiles()
+        {
+            string[] design = ToolNames(AutomationToolProfiles.ProcessDesign);
+            if (!design.SequenceEqual(new[] { "get_process_design_guide" }, StringComparer.Ordinal))
+                throw new InvalidOperationException("ProcessDesign 必须只开放按需设计知识入口。");
+
+            string[] source = ToolNames(AutomationToolProfiles.SourceDevelopment);
+            if (!source.SequenceEqual(new[] { "get_platform_development_context" }, StringComparer.Ordinal))
+                throw new InvalidOperationException("SourceDevelopment 必须只附加平台开发上下文工具。");
+
+            string[] create = ToolNames(AutomationToolProfiles.ProcessCreate);
+            if (!create.Contains("preview_process_blueprint", StringComparer.Ordinal)
+                || !create.Contains("apply_change_set", StringComparer.Ordinal)
+                || create.Contains("preview_change_set", StringComparer.Ordinal)
+                || create.Contains("start_proc", StringComparer.Ordinal)
+                || create.Contains("get_platform_development_context", StringComparer.Ordinal))
+                throw new InvalidOperationException("ProcessCreate 工具边界错误。");
+
+            string[] edit = ToolNames(AutomationToolProfiles.ProcessEdit);
+            if (!edit.Contains("preview_change_set", StringComparer.Ordinal)
+                || edit.Contains("preview_process_blueprint", StringComparer.Ordinal)
+                || edit.Contains("start_proc", StringComparer.Ordinal))
+                throw new InvalidOperationException("ProcessEdit 工具边界错误。");
+
+            string[] control = ToolNames(AutomationToolProfiles.RuntimeControl);
+            if (!control.Contains("start_proc", StringComparer.Ordinal)
+                || !control.Contains("validate_proc", StringComparer.Ordinal)
+                || control.Contains("preview_change_set", StringComparer.Ordinal)
+                || control.Contains("apply_change_set", StringComparer.Ordinal))
+                throw new InvalidOperationException("RuntimeControl 工具边界错误。");
+
+            string[] resources = ToolNames(AutomationToolProfiles.ResourceEdit);
+            if (!resources.Contains("add_variable", StringComparer.Ordinal)
+                || !resources.Contains("upsert_data_struct", StringComparer.Ordinal)
+                || !resources.Contains("set_alarm", StringComparer.Ordinal)
+                || resources.Contains("preview_change_set", StringComparer.Ordinal)
+                || resources.Contains("start_proc", StringComparer.Ordinal))
+                throw new InvalidOperationException("ResourceEdit 工具边界错误。");
+
+            string[] platform = ToolNames(AutomationToolProfiles.PlatformConfiguration);
+            if (!platform.Contains("get_migration_configuration", StringComparer.Ordinal)
+                || !platform.Contains("apply_migration_configuration", StringComparer.Ordinal)
+                || platform.Contains("preview_change_set", StringComparer.Ordinal))
+                throw new InvalidOperationException("PlatformConfiguration 工具边界错误。");
+
+            McpServerTool blueprintTool = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessCreate)
+                .Single(tool => string.Equals(
+                    tool.ProtocolTool.Name, "preview_process_blueprint", StringComparison.Ordinal));
+            string blueprintSchema = blueprintTool.ProtocolTool.InputSchema.GetRawText();
+            int blueprintSchemaBytes = Encoding.UTF8.GetByteCount(blueprintSchema);
+            string[] missingBlueprintTerms = new[] { "\"steps\"", "\"operations\"", "\"oneOf\"", "config.placeholder" }
+                .Where(term => !blueprintSchema.Contains(term, StringComparison.Ordinal))
+                .ToArray();
+            if (missingBlueprintTerms.Length > 0 || blueprintSchemaBytes > 64 * 1024)
+                throw new InvalidOperationException(
+                    $"Process Blueprint Schema 不完整或超过64KB预算：bytes={blueprintSchemaBytes}，missing={string.Join(",", missingBlueprintTerms)}。");
+
+            AiChangeSet compiled = ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
+            {
+                Process = new ProcessBlueprintProcess { Name = "蓝图测试" },
+                Steps = new List<ProcessBlueprintStep>
+                {
+                    new ProcessBlueprintStep
+                    {
+                        Name = "待配置",
+                        Operations = new List<SemanticOperation>
+                        {
+                            new SemanticOperation { Kind = "config.placeholder", Message = "等待设备点位" }
+                        }
+                    }
+                }
+            });
+            string[] actionTypes = compiled.Actions.Select(action => action.Type).ToArray();
+            if (!actionTypes.SequenceEqual(
+                    new[] { "process.create", "step.append", "operation.append" },
+                    StringComparer.Ordinal)
+                || compiled.Actions[0].Process?.Key != "process"
+                || compiled.Actions[2].Operation?.Key != "op_1_1")
+                throw new InvalidOperationException("Process Blueprint 未确定性编译为单个 ChangeSet V2阶段。");
+
+            Console.WriteLine(
+                $"任务能力包校验通过：Design={design.Length}, Review={ToolNames(AutomationToolProfiles.ProcessReview).Length}, "
+                + $"Create={create.Length}, Edit={edit.Length}, Resource={resources.Length}, Runtime={control.Length}, Source={source.Length}, "
+                + $"Platform={platform.Length}；Blueprint Schema={blueprintSchemaBytes}字节。");
+        }
+
+        private static string[] ToolNames(string profile)
+        {
+            return McpToolProfile.CreateTools(profile)
+                .Select(tool => tool.ProtocolTool.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
         }
 
         private static void VerifyPreviewChangeSetDiscriminatedUnions(string schemaJson)

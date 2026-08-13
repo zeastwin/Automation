@@ -50,6 +50,17 @@ namespace Automation
         public static readonly Color NavigationIcon = Color.FromArgb(148, 163, 184);
         public static readonly Color NavigationAccent = Color.FromArgb(96, 165, 250);
 
+        // 顶部菜单栏沿用独立色组，避免菜单换色影响其他以 Navigation 表达深色标题的界面。
+        public static readonly Color MenuBackground = Color.FromArgb(31, 53, 53);
+        public static readonly Color MenuHover = Color.FromArgb(52, 84, 84);
+        public static readonly Color MenuPressed = Color.FromArgb(61, 96, 96);
+        public static readonly Color MenuActive = MenuBackground;
+        public static readonly Color MenuBorder = Color.White;
+        public static readonly Color MenuText = SystemColors.ActiveCaption;
+        public static readonly Color MenuActiveText = MenuText;
+        public static readonly Color MenuIcon = MenuText;
+        public static readonly Color MenuActiveAccent = MenuActiveText;
+
         public static readonly Color Success = Color.FromArgb(21, 128, 61);
         public static readonly Color SuccessHover = Color.FromArgb(22, 101, 52);
         public static readonly Color SuccessSoft = Color.FromArgb(240, 253, 244);
@@ -69,6 +80,11 @@ namespace Automation
         public static readonly Color BreakpointSoft = Color.FromArgb(253, 242, 248);
         public static readonly Color Disabled = Color.FromArgb(148, 163, 184);
         public static readonly Color DisabledSoft = Color.FromArgb(241, 245, 249);
+
+        // 指令列表需要比通用禁用控件更明确的灰阶，确保整行禁用状态一眼可辨。
+        public static readonly Color InstructionDisabledBackground = Color.FromArgb(216, 218, 221);
+        public static readonly Color InstructionDisabledSelected = Color.FromArgb(196, 201, 207);
+        public static readonly Color InstructionDisabledText = Color.FromArgb(88, 96, 105);
 
         public static readonly Color JumpAutomatic = Color.FromArgb(13, 148, 136);
         public static readonly Color JumpCancel = Brand;

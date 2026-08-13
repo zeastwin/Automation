@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Automation.Protocol;
 // 模块：MCP / 进程配置。
 // 职责范围：承载 HTTP 监听、Bridge 管道、超时和工具 Profile 配置。
 // 排查入口：服务未监听或工具集合不符时先核对启动参数、环境变量和最终绑定值。
@@ -55,22 +56,13 @@ namespace Automation.McpServer
                 BridgeTimeoutMs = 120000;
             }
 
-            if (string.Equals(ToolProfile, "Diagnostic", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                ToolProfile = "Diagnostic";
+                ToolProfile = AutomationToolProfiles.Normalize(ToolProfile);
             }
-            else if (string.Equals(ToolProfile, "Editor", StringComparison.OrdinalIgnoreCase))
+            catch (ArgumentException ex)
             {
-                ToolProfile = "Editor";
-            }
-            else if (string.Equals(ToolProfile, "RuntimeDiagnostic", StringComparison.OrdinalIgnoreCase))
-            {
-                ToolProfile = "RuntimeDiagnostic";
-            }
-            else
-            {
-                throw new InvalidDataException(
-                    $"AutomationMcp.ToolProfile不支持:{ToolProfile}，可选Diagnostic/Editor/RuntimeDiagnostic。");
+                throw new InvalidDataException(ex.Message, ex);
             }
 
             if (string.IsNullOrWhiteSpace(LogRoot))

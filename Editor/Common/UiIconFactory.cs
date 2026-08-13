@@ -127,7 +127,7 @@ namespace Automation
 
         private static void DrawNavigationIcon(Graphics graphics, UiIconKind kind, int size, bool active)
         {
-            Color primaryColor = active ? UiPalette.NavigationActiveAccent : UiPalette.NavigationIcon;
+            Color primaryColor = active ? UiPalette.MenuActiveAccent : UiPalette.MenuIcon;
             Color secondaryColor = primaryColor;
             float glyphSize = size * 0.90F;
             float glyphLeft = (size - glyphSize) / 2F;

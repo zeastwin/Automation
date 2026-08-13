@@ -14,6 +14,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Automation.Protocol;
 
 namespace Automation
 {
@@ -107,6 +108,7 @@ namespace Automation
         private DateTime currentPromptStartedUtc;
         private int currentPromptToolCallCount;
         private int currentPromptToolErrorCount;
+        private long currentPromptToolResultBytes;
         private int currentAnalysisSequence;
         private int currentParallelGroup;
         private int currentMaxConcurrentTools;
@@ -132,6 +134,8 @@ namespace Automation
         public Func<JObject, JObject> PermissionRequestHandler { get; set; }
 
         public string SessionId => sessionId;
+
+        public string ToolProfile => config.ToolProfile;
 
         public string LastAssistantResponse
         {
@@ -332,6 +336,7 @@ namespace Automation
                 currentPromptStartedUtc = DateTime.UtcNow;
                 currentPromptToolCallCount = 0;
                 currentPromptToolErrorCount = 0;
+                currentPromptToolResultBytes = 0L;
                 currentAnalysisSequence = 0;
                 currentParallelGroup = 0;
                 currentMaxConcurrentTools = 0;
@@ -501,6 +506,43 @@ namespace Automation
             return true;
         }
 
+        public bool CanSwitchTaskCapabilityInPlace(string targetProfile)
+        {
+            string normalized = AutomationToolProfiles.Normalize(targetProfile);
+            if (!string.IsNullOrWhiteSpace(sessionId) && (process == null || process.HasExited))
+                return false;
+            bool currentRuntimeDiagnostic = string.Equals(
+                config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+            bool targetRuntimeDiagnostic = string.Equals(
+                normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+            return currentRuntimeDiagnostic == targetRuntimeDiagnostic
+                && AutomationToolProfiles.UsesDeveloperTools(config.ToolProfile)
+                    == AutomationToolProfiles.UsesDeveloperTools(normalized);
+        }
+
+        public async Task ConfigureTaskCapabilityAsync(
+            string targetProfile,
+            string mcpUri,
+            string notice,
+            CancellationToken cancellationToken)
+        {
+            string normalized = AutomationToolProfiles.Normalize(targetProfile);
+            if (!CanSwitchTaskCapabilityInPlace(normalized))
+            {
+                throw new InvalidOperationException(
+                    $"能力包 {config.ToolProfile} → {normalized} 需要重建 Goose 会话。");
+            }
+            bool endpointChanged = !string.Equals(config.McpUri, mcpUri, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(config.ToolProfile, normalized, StringComparison.Ordinal);
+            if (endpointChanged)
+            {
+                await ReloadAutomationExtensionAsync(mcpUri, cancellationToken).ConfigureAwait(false);
+            }
+            config.ToolProfile = normalized;
+            config.McpUri = mcpUri;
+            config.TaskCapabilityNotice = notice;
+        }
+
         public void Cancel()
         {
             if (string.IsNullOrWhiteSpace(sessionId) || stdin == null)
@@ -541,7 +583,8 @@ namespace Automation
             }
 
             bool runtimeDiagnostic = string.Equals(
-                config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal);
+                config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+            bool developerTools = AutomationToolProfiles.UsesDeveloperTools(config.ToolProfile);
             string sessionWorkingDirectory = ResolveWorkingDirectory();
             string skillProvisionMessage = null;
             if (!runtimeDiagnostic
@@ -559,7 +602,9 @@ namespace Automation
                 // 编辑会话必须显式启用 Developer、Skills 与 TOM，分别提供源码工具、Skill 加载和 MOIM 注入。
                 Arguments = runtimeDiagnostic
                     ? "acp"
-                    : "acp --with-builtin developer,skills,tom",
+                    : developerTools
+                        ? "acp --with-builtin developer,skills,tom"
+                        : "acp --with-builtin skills,tom",
                 WorkingDirectory = sessionWorkingDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -592,7 +637,7 @@ namespace Automation
             }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
             // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
-            string developerShellPath = runtimeDiagnostic ? null : ResolveGooseDeveloperShellPath();
+            string developerShellPath = developerTools ? ResolveGooseDeveloperShellPath() : null;
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
                 startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
@@ -712,7 +757,9 @@ namespace Automation
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
             if (!runtimeDiagnostic)
             {
-                startupInfo.Append(" builtinExtensions=developer,skills,tom");
+                startupInfo.Append(developerTools
+                    ? " builtinExtensions=developer,skills,tom"
+                    : " builtinExtensions=skills,tom");
                 startupInfo.Append(" automationContextInjection=tom");
                 startupInfo.Append(" processAuthoringSkill=")
                     .Append(GooseRuntimeProvisioner.ProcessAuthoringSkillPath);
@@ -1217,6 +1264,7 @@ namespace Automation
             {"automation__get_reference_catalog", "获取引用目录"},
             {"automation__get_semantic_operation_schema", "获取语义指令契约"},
             {"automation__preview_change_set", "预演流程变更"},
+            {"automation__preview_process_blueprint", "预演新流程蓝图"},
             {"automation__apply_change_set", "提交流程变更"},
             {"automation__discard_change_set_preview", "丢弃流程变更预演"},
             {"automation__get_runtime_snapshot", "获取运行时快照"},
@@ -1416,6 +1464,13 @@ namespace Automation
 
             bool businessFailed = resultObject?["ok"]?.Type == JTokenType.Boolean
                 && resultObject["ok"].Value<bool>() == false;
+            if (!string.IsNullOrEmpty(rawResult))
+            {
+                lock (executionLock)
+                {
+                    currentPromptToolResultBytes += Encoding.UTF8.GetByteCount(rawResult);
+                }
+            }
             if (businessFailed)
             {
                 lock (executionLock)
@@ -1587,17 +1642,45 @@ namespace Automation
         private string BuildPrompt(string prompt)
         {
             string context;
-            if (string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal))
+            switch (config.ToolProfile)
             {
-                context = "当前 Automation 工具模式：RuntimeDiagnostic。当前会话只开放运行现场取证工具，不具备平台开发、流程运行或配置写入能力。";
+                case AutomationToolProfiles.RuntimeDiagnostic:
+                    context = "当前能力：运行现场取证。只根据现场工具返回的事实诊断，不执行运行控制或配置写入。";
+                    break;
+                case AutomationToolProfiles.ProcessDesign:
+                    context = "当前能力：流程方案设计。按需读取已审核设计知识，输出可供后续落地的结构和未决项；本轮没有项目扫描或写入工具。";
+                    break;
+                case AutomationToolProfiles.ProcessReview:
+                    context = "当前能力：流程只读审查。主动获取完成结论所需的精确流程、引用和资源事实；严格区分事实、推断和证据缺口。";
+                    break;
+                case AutomationToolProfiles.ProcessCreate:
+                    context = "当前能力：新建流程。优先使用单个 Process Blueprint 预演完整新流程，经前台确认后提交；未知资源或动作保留为可见占位并保持 incomplete。";
+                    break;
+                case AutomationToolProfiles.ProcessEdit:
+                    context = "当前能力：修改既有流程。先读取稳定ID和必要契约，再用 ChangeSet V2 预演，经前台确认后提交。";
+                    break;
+                case AutomationToolProfiles.ResourceEdit:
+                    context = "当前能力：编辑独立项目资源。只修改用户明确要求的变量、数据结构或报警配置，并使用精确名称、索引或现有资源事实。";
+                    break;
+                case AutomationToolProfiles.RuntimeControl:
+                    context = "当前能力：流程运行控制。先验证启动条件和当前状态，只执行用户明确要求的启动、停止、暂停、恢复或有界测试。";
+                    break;
+                case AutomationToolProfiles.SourceDevelopment:
+                    context = "当前能力：Automation 源码开发。使用开发工具修改和验证仓库代码；平台上下文仅在需要精确内部契约时按需读取。";
+                    break;
+                case AutomationToolProfiles.PlatformConfiguration:
+                    context = "当前能力：平台级配置迁移。只使用迁移预演、确认和应用链，并在提交后验证平台配置。";
+                    break;
+                case AutomationToolProfiles.Diagnostic:
+                    context = "当前 Automation 权限模式：Diagnostic。只开放读取和诊断工具，不具备运行控制或配置写入能力。";
+                    break;
+                default:
+                    context = "当前 Automation 权限模式：Editor。开放读取、诊断、配置写入和运行控制工具。";
+                    break;
             }
-            else if (string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal))
+            if (!string.IsNullOrWhiteSpace(config.TaskCapabilityNotice))
             {
-                context = "当前 Automation 工具模式：Diagnostic。当前会话只开放读取和诊断工具，不具备运行控制或配置写入能力。";
-            }
-            else
-            {
-                context = "当前 Automation 工具模式：Editor。当前会话开放读取、诊断、配置写入和运行控制工具。";
+                context += "\n" + config.TaskCapabilityNotice.Trim();
             }
             context += BuildSelectionContext();
             string restoredContext = restoredConversationContext;
@@ -2060,6 +2143,11 @@ namespace Automation
             long toolWallMs = CalculateIntervalUnionMs(analysisToolIntervals);
             long unattributedMs = Math.Max(0L, totalDurationMs - toolWallMs - currentPreviewWaitMs);
             int retryCount = analysisToolAttempts.Values.Sum(count => Math.Max(0, count - 1));
+            AiTrajectoryEvaluation trajectory = AiTrajectoryBudgetPolicy.Evaluate(
+                config.ToolProfile,
+                currentPromptToolCallCount,
+                currentPromptToolErrorCount,
+                currentPromptToolResultBytes);
             var result = new JObject
             {
                 ["status"] = promptException == null ? "completed" : "failed",
@@ -2070,6 +2158,7 @@ namespace Automation
                     : Math.Max(0L, (long)(currentFirstModelActivityUtc - currentPromptStartedUtc).TotalMilliseconds),
                 ["toolCallCount"] = currentPromptToolCallCount,
                 ["toolFailureCount"] = currentPromptToolErrorCount,
+                ["toolResultBytes"] = currentPromptToolResultBytes,
                 ["parameterFailureCount"] = currentParameterFailureCount,
                 ["retryCount"] = retryCount,
                 ["maxConcurrentTools"] = currentMaxConcurrentTools,
@@ -2078,7 +2167,14 @@ namespace Automation
                 ["confirmationWaitMs"] = currentPreviewWaitMs,
                 ["unattributedMs"] = unattributedMs,
                 ["visibleResponseChars"] = visibleResponseChars,
-                ["unfinishedToolCount"] = activeAnalysisToolCalls.Count
+                ["unfinishedToolCount"] = activeAnalysisToolCalls.Count,
+                ["trajectory"] = new JObject
+                {
+                    ["status"] = trajectory.Status,
+                    ["toolCallLimit"] = trajectory.ToolCallLimit,
+                    ["toolResultByteLimit"] = trajectory.ToolResultByteLimit,
+                    ["reasons"] = new JArray(trajectory.Reasons)
+                }
             };
             JToken usage = promptResult?["usage"];
             if (usage != null)

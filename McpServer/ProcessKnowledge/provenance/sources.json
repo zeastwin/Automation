@@ -1,0 +1,20 @@
+{
+  "documentType": "Automation.ProcessKnowledgeSources",
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "sourceId": "1hsg-unloading",
+      "displayName": "1HSG下料",
+      "packageLocator": "Transform4SNsdemo/runs/1HSG下料-knowledge",
+      "manifestSha256": "0e580486b7f245d4b4baa0e1079cc77f0f49314304307491ee2854cd1c20402f",
+      "reviewConclusion": "只吸收身份与载体绑定、工位职责分层和显式机械反馈；不吸收超大单步骤、测试流程、旧跳转、禁用配置和默认报警处理。"
+    },
+    {
+      "sourceId": "small-bc-lianfeng",
+      "displayName": "小BC-联丰点胶镜像0829(权限)",
+      "packageLocator": "Transform4SNsdemo/runs/小BC-联丰点胶镜像0829-knowledge",
+      "manifestSha256": "319fea859c1417d22981e9d49dad1b479d6825243ffa94f7902d9e4b2c5c0c30",
+      "reviewConclusion": "只吸收跨多个流程一致出现且能按当前契约重建的身份、交接、点胶维护、校准和追溯事务能力；不吸收固定次数、固定时长、槽位数量、空步骤、禁用分支、自动处理和报警忽略。"
+    }
+  ]
+}

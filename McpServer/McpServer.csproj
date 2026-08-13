@@ -30,6 +30,12 @@
     <EmbeddedResource Include="Guides\ProcessDesignGuide.md">
       <LogicalName>Automation.McpServer.Guides.ProcessDesignGuide.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="ProcessKnowledge\catalog.json">
+      <LogicalName>Automation.McpServer.ProcessKnowledge.catalog.json</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="ProcessKnowledge\blocks\*.md">
+      <LogicalName>Automation.McpServer.ProcessKnowledge.Blocks.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

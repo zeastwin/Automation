@@ -294,6 +294,18 @@ namespace Automation
             }
         }
 
+        public void ResetClientForCapability(AiTaskRuntime runtime)
+        {
+            if (runtime == null) throw new ArgumentNullException(nameof(runtime));
+            if (runtime.Running) throw new InvalidOperationException("AI 任务运行中不能切换能力包。");
+            lock (clientLock)
+            {
+                runtime.RestoredContext = BuildRestoredContext(runtime.Conversation);
+                runtime.Client?.Dispose();
+                runtime.Client = null;
+            }
+        }
+
         public void DisposeClients()
         {
             lock (clientLock)
@@ -406,5 +418,7 @@ namespace Automation
         public bool Running { get; set; }
         public string Status { get; set; } = "已完成";
         public string RestoredContext { get; set; }
+        public string CapabilityProfile { get; set; }
+        public string CapabilityMcpUri { get; set; }
     }
 }

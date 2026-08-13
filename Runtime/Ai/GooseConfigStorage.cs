@@ -37,6 +37,9 @@ namespace Automation
         public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
+
+        /// <summary>本轮任务路由产生的临时权限说明，不持久化到用户配置。</summary>
+        public string TaskCapabilityNotice { get; set; }
     }
 
     /// <summary>

@@ -937,8 +937,6 @@ namespace Automation
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
             bool profileChanged = oldConfig == null
                 || !string.Equals(oldConfig.ToolProfile, config.ToolProfile, StringComparison.Ordinal);
-            GooseAcpClient activeClient = gooseClient;
-            bool sessionToolsReloaded = false;
             if (uriChanged || profileChanged)
             {
                 try
@@ -965,12 +963,7 @@ namespace Automation
                             .ConfigureAwait(true);
                     }
 
-                    // 仅切换工具模式时保留当前 Goose 会话，通过 ACP 会话扩展接口强制重新读取 tools/list。
-                    if (profileChanged && !uriChanged && !requiresGooseProcessRestart && activeClient != null)
-                    {
-                        sessionToolsReloaded = await activeClient.ReloadAutomationExtensionAsync(config.McpUri, CancellationToken.None)
-                            .ConfigureAwait(true);
-                    }
+                    // 活动对话挂载任务级固定能力实例；权限外壳变化由下一轮路由生效。
                 }
                 catch (Exception ex)
                 {
@@ -980,11 +973,6 @@ namespace Automation
                         {
                             await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
                                 .ConfigureAwait(true);
-                            if (!uriChanged && activeClient != null)
-                            {
-                                await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
-                                    .ConfigureAwait(true);
-                            }
                         }
                         catch
                         {
@@ -1006,11 +994,6 @@ namespace Automation
                     {
                         await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
                             .ConfigureAwait(true);
-                        if (activeClient != null)
-                        {
-                            await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
-                                .ConfigureAwait(true);
-                        }
                     }
                     catch
                     {
@@ -1032,9 +1015,7 @@ namespace Automation
             {
                 EnqueueScript("closeConfig();");
             }
-            ShowWebToast(sessionToolsReloaded
-                ? "工具模式切换成功，当前对话已保留。"
-                : successMessage ?? "配置保存成功。");
+            ShowWebToast(successMessage ?? "配置保存成功。");
         }
 
         private async Task SetFullPermissionToolsAsync(bool enabled)
@@ -1053,7 +1034,6 @@ namespace Automation
             }
 
             bool previous = fullPermissionEnabled;
-            GooseAcpClient activeClient = gooseClient;
             try
             {
                 if (Workspace.Main?.McpServerManager == null)
@@ -1063,13 +1043,10 @@ namespace Automation
                 string mcpUri = txtMcpUri.Text.Trim();
                 await AutomationMcpServerManager.SetToolProfileAsync(mcpUri, toolProfile, enabled)
                     .ConfigureAwait(true);
-                bool reloaded = activeClient != null
-                    && await activeClient.ReloadAutomationExtensionAsync(mcpUri, CancellationToken.None)
-                        .ConfigureAwait(true);
                 fullPermissionEnabled = enabled;
                 ShowWebToast(enabled
-                    ? reloaded ? "完全权限已开启，当前对话已保留。" : "完全权限已开启。"
-                    : reloaded ? "完全权限已关闭，当前对话已保留。" : "完全权限已关闭。");
+                    ? "完全权限已开启，下一轮任务路由生效。"
+                    : "完全权限已关闭，下一轮任务路由生效。");
             }
             catch (Exception ex)
             {
@@ -1077,11 +1054,6 @@ namespace Automation
                 {
                     await AutomationMcpServerManager.SetToolProfileAsync(
                         txtMcpUri.Text.Trim(), toolProfile, previous).ConfigureAwait(true);
-                    if (activeClient != null)
-                    {
-                        await activeClient.ReloadAutomationExtensionAsync(
-                            txtMcpUri.Text.Trim(), CancellationToken.None).ConfigureAwait(true);
-                    }
                 }
                 catch
                 {
@@ -1201,6 +1173,17 @@ namespace Automation
             if (!GooseRuntimeEnvironment.TryValidate(config.GooseExecutablePath, out error))
             {
                 ShowWebToast(error);
+                PushWebAppState();
+                return false;
+            }
+
+            try
+            {
+                config = await PrepareTaskCapabilityAsync(runtime, enteredPrompt, config).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                ShowWebToast("任务能力准备失败：" + ex.Message);
                 PushWebAppState();
                 return false;
             }
@@ -1332,6 +1315,73 @@ namespace Automation
                 SaveConversationHistory();
                 ApplyPermissions();
             }
+        }
+
+        private async Task<GooseConfig> PrepareTaskCapabilityAsync(
+            AiTaskRuntime runtime,
+            string prompt,
+            GooseConfig permissionConfig)
+        {
+            if (Workspace.Main?.McpServerManager == null)
+            {
+                throw new InvalidOperationException("MCP Server管理器未初始化。");
+            }
+
+            AiTaskCapabilityDecision decision = AiTaskCapabilityRouter.Route(
+                prompt,
+                runtime.Conversation?.Messages,
+                runtime.CapabilityProfile,
+                permissionConfig.ToolProfile,
+                fullPermissionEnabled);
+            string capabilityUri = await Workspace.Main.McpServerManager
+                .EnsureTaskCapabilityStartedAsync(decision.EffectiveProfile)
+                .ConfigureAwait(true);
+
+            GooseConfig effectiveConfig = GooseConfigStorage.CloneConfig(permissionConfig);
+            effectiveConfig.ToolProfile = decision.EffectiveProfile;
+            effectiveConfig.McpUri = capabilityUri;
+            effectiveConfig.TaskCapabilityNotice = decision.Notice;
+
+            GooseAcpClient existing = runtime.Client;
+            if (existing != null)
+            {
+                if (existing.CanSwitchTaskCapabilityInPlace(decision.EffectiveProfile))
+                {
+                    try
+                    {
+                        await existing.ConfigureTaskCapabilityAsync(
+                            decision.EffectiveProfile,
+                            capabilityUri,
+                            decision.Notice,
+                            CancellationToken.None).ConfigureAwait(true);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Goose 版本不支持热换或原进程已失效时，在加入本轮用户消息前安全重建并恢复历史。
+                        if (ReferenceEquals(gooseClient, existing)) gooseClient = null;
+                        conversationCoordinator.ResetClientForCapability(runtime);
+                    }
+                }
+                else
+                {
+                    if (ReferenceEquals(gooseClient, existing)) gooseClient = null;
+                    conversationCoordinator.ResetClientForCapability(runtime);
+                }
+            }
+
+            runtime.CapabilityProfile = decision.EffectiveProfile;
+            runtime.CapabilityMcpUri = capabilityUri;
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "capability.routed",
+                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                ["requestedProfile"] = decision.RequestedProfile,
+                ["effectiveProfile"] = decision.EffectiveProfile,
+                ["permissionProfile"] = permissionConfig.ToolProfile,
+                ["reason"] = decision.Reason,
+                ["restricted"] = !string.IsNullOrWhiteSpace(decision.Notice)
+            });
+            return effectiveConfig;
         }
 
         private void SaveModelService(JObject value)

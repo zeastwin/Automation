@@ -607,6 +607,7 @@
     <Compile Include="Runtime\Ai\AiAnalysisLogger.cs" />
     <Compile Include="Runtime\Ai\AiConversationCoordinator.cs" />
     <Compile Include="Runtime\Ai\AiConversationStorage.cs" />
+    <Compile Include="Runtime\Ai\AiTaskCapabilityRouter.cs" />
     <Compile Include="Runtime\Ai\AiProviderSecretStorage.cs" />
     <Compile Include="Runtime\Ai\AiStandardTestSuite.cs" />
     <Compile Include="Runtime\Ai\AttachmentTextExtractor.cs" />
