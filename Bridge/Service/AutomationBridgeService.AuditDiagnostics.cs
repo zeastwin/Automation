@@ -106,17 +106,25 @@ namespace Automation.Bridge
             EnsureRuntimeReady();
             int procOffset = ReadOptionalInt(request, "procOffset") ?? 0;
             int procLimit = ReadOptionalInt(request, "procLimit") ?? 20;
-            int findingLimit = ReadOptionalInt(request, "findingLimit") ?? 50;
-            if (procOffset < 0 || procLimit < 1 || procLimit > 50 || findingLimit < 1 || findingLimit > 100)
+            int findingOffset = ReadOptionalInt(request, "findingOffset") ?? 0;
+            int findingLimit = ReadOptionalInt(request, "findingLimit") ?? DefaultAuditFindingPageSize;
+            string expectedIndexRevision = ReadOptionalString(request, "expectedIndexRevision");
+            if (procOffset < 0 || procLimit < 1 || procLimit > 50
+                || findingOffset < 0 || findingLimit < 1 || findingLimit > MaxAuditFindingPageSize)
             {
                 return BridgeError(400, "INVALID_ARGUMENT",
-                    "procOffset 必须大于等于0，procLimit 必须在1..50，findingLimit 必须在1..100。");
+                    $"procOffset和findingOffset必须大于等于0，procLimit必须在1..50，findingLimit必须在1..{MaxAuditFindingPageSize}。");
+            }
+            if (findingOffset > 0 && string.IsNullOrWhiteSpace(expectedIndexRevision))
+            {
+                return BridgeError(
+                    400,
+                    "AUDIT_REVISION_REQUIRED",
+                    "续读批量审计 finding 时必须携带首页返回的 indexRevision。");
             }
             int procCount = runtime.Stores.Processes.Items.Count;
             int procEnd = Math.Min(procCount, procOffset + procLimit);
-            string indexRevision = GetDiagnosticIndexRevision();
-            int totalFindingCount = 0;
-            var findings = new JArray();
+            var allFindings = new JArray();
             var knownOperationTypes = new HashSet<string>(
                 OperationDefinitionRegistry.CreateAll()
                     .Where(item => !string.IsNullOrWhiteSpace(item?.OperaType))
@@ -127,14 +135,14 @@ namespace Automation.Bridge
                 Proc proc = runtime.Stores.Processes.Items[pi];
                 if (proc?.steps == null || proc.steps.Count == 0)
                 {
-                    AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, -1, -1,
+                    AddAuditFinding(allFindings, pi, proc, -1, -1,
                         "error", "proc.empty", "流程没有步骤");
                     continue;
                 }
                 var ids = new HashSet<Guid>();
                 foreach (string error in ProcessDefinitionService.ValidateProcGotoTargets(pi, proc))
                 {
-                    AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, -1, -1,
+                    AddAuditFinding(allFindings, pi, proc, -1, -1,
                         "error", "goto.invalid", error);
                 }
                 for (int si = 0; si < proc.steps.Count; si++)
@@ -142,19 +150,19 @@ namespace Automation.Bridge
                     Step step = proc.steps[si];
                     if (step != null && step.Id != Guid.Empty && !ids.Add(step.Id))
                     {
-                        AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, -1,
+                        AddAuditFinding(allFindings, pi, proc, si, -1,
                             "error", "id.duplicate", "步骤或指令存在重复ID");
                     }
                     if (step == null || step.Ops == null || step.Ops.Count == 0)
                     {
-                        AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, -1,
+                        AddAuditFinding(allFindings, pi, proc, si, -1,
                             step == null ? "error" : "warning", step == null ? "step.null" : "step.empty",
                             step == null ? "步骤为空" : "步骤没有指令");
                         continue;
                     }
                     if (step.Disable)
                     {
-                        AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, -1,
+                        AddAuditFinding(allFindings, pi, proc, si, -1,
                             "warning", "step.disabled", "步骤已禁用");
                     }
                     for (int oi = 0; oi < step.Ops.Count; oi++)
@@ -162,46 +170,77 @@ namespace Automation.Bridge
                         OperationType op = step.Ops[oi];
                         if (op != null && op.Id != Guid.Empty && !ids.Add(op.Id))
                         {
-                            AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, oi,
+                            AddAuditFinding(allFindings, pi, proc, si, oi,
                                 "error", "id.duplicate", "步骤或指令存在重复ID");
                         }
                         if (op == null || string.IsNullOrWhiteSpace(op.OperaType))
                         {
-                            AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, oi,
+                            AddAuditFinding(allFindings, pi, proc, si, oi,
                                 "error", op == null ? "operation.null" : "operation.missingType",
                                 op == null ? "指令为空" : "指令类型为空");
                         }
                         else if (!knownOperationTypes.Contains(op.OperaType))
                         {
-                            AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, oi,
+                            AddAuditFinding(allFindings, pi, proc, si, oi,
                                 "error", "operation.unknownType", $"未知指令类型:{op.OperaType}");
                         }
                         else if (op.Disable)
                         {
-                            AddAuditFinding(findings, findingLimit, ref totalFindingCount, pi, proc, si, oi,
+                            AddAuditFinding(allFindings, pi, proc, si, oi,
                                 "warning", "operation.disabled", "指令已禁用");
                         }
                     }
                 }
             }
+            string indexRevision = BuildAuditRevision(procCount, procOffset, procEnd, allFindings);
+            if (!string.IsNullOrWhiteSpace(expectedIndexRevision)
+                && !string.Equals(expectedIndexRevision, indexRevision, StringComparison.Ordinal))
+            {
+                return BridgeError(
+                    409,
+                    "AUDIT_REVISION_CHANGED",
+                    "流程配置已变化，不能把当前批次与旧的批量审计分页混合；请从 findingOffset=0 重新读取。",
+                    $"expectedIndexRevision={expectedIndexRevision}; currentIndexRevision={indexRevision}");
+            }
+            if (findingOffset > allFindings.Count)
+            {
+                return BridgeError(
+                    400,
+                    "INVALID_ARGUMENT",
+                    $"findingOffset不能大于当前流程批次的问题总数{allFindings.Count}。");
+            }
+
+            JArray findings = new JArray(allFindings
+                .Skip(findingOffset)
+                .Take(findingLimit)
+                .Select(item => item.DeepClone()));
+            bool hasMoreFindings = (long)findingOffset + findings.Count < allFindings.Count;
+            bool hasMoreProcs = procEnd < procCount;
             return new JObject
             {
                 ["procRange"] = new JObject { ["from"] = procOffset, ["toExclusive"] = procEnd },
                 ["totalProcCount"] = procCount,
                 ["indexRevision"] = indexRevision,
-                ["findingCountInBatch"] = totalFindingCount,
-                ["truncatedFindings"] = totalFindingCount > findings.Count,
-                ["hasMoreProcs"] = procEnd < procCount,
-                ["nextProcOffset"] = procEnd < procCount ? procEnd : (JToken)JValue.CreateNull(),
+                ["findingCountInBatch"] = allFindings.Count,
+                ["findingOffset"] = findingOffset,
+                ["findingLimit"] = findingLimit,
+                ["returnedFindingCount"] = findings.Count,
+                ["hasMoreFindings"] = hasMoreFindings,
+                ["nextFindingOffset"] = hasMoreFindings
+                    ? (JToken)((long)findingOffset + findings.Count)
+                    : JValue.CreateNull(),
+                ["hasMoreProcs"] = hasMoreProcs,
+                ["nextProcOffset"] = !hasMoreFindings && hasMoreProcs
+                    ? (JToken)procEnd
+                    : JValue.CreateNull(),
+                ["findingSummary"] = BuildAuditFindingSummary(allFindings),
                 ["findings"] = findings
             };
         }
 
-        private static void AddAuditFinding(JArray findings, int limit, ref int total, int procIndex,
+        private static void AddAuditFinding(JArray findings, int procIndex,
             Proc proc, int stepIndex, int opIndex, string severity, string code, string message)
         {
-            total++;
-            if (findings.Count >= limit) return;
             findings.Add(new JObject
             {
                 ["severity"] = severity,
@@ -212,6 +251,48 @@ namespace Automation.Bridge
                 ["stepIndex"] = stepIndex,
                 ["opIndex"] = opIndex
             });
+        }
+
+        private static JObject BuildAuditFindingSummary(JArray findings)
+        {
+            var bySeverity = new JObject();
+            var byCode = new JObject();
+            foreach (JObject finding in findings.OfType<JObject>())
+            {
+                IncrementAuditSummary(bySeverity, finding["severity"]?.Value<string>() ?? string.Empty);
+                IncrementAuditSummary(byCode, finding["code"]?.Value<string>() ?? string.Empty);
+            }
+            return new JObject
+            {
+                ["bySeverity"] = bySeverity,
+                ["byCode"] = byCode
+            };
+        }
+
+        private static void IncrementAuditSummary(JObject summary, string key)
+        {
+            string normalizedKey = string.IsNullOrWhiteSpace(key) ? "unknown" : key;
+            summary[normalizedKey] = (summary[normalizedKey]?.Value<int>() ?? 0) + 1;
+        }
+
+        private static string BuildAuditRevision(
+            int totalProcCount,
+            int procOffset,
+            int procEnd,
+            JArray findings)
+        {
+            string content = totalProcCount.ToString(CultureInfo.InvariantCulture)
+                + "|" + procOffset.ToString(CultureInfo.InvariantCulture)
+                + "|" + procEnd.ToString(CultureInfo.InvariantCulture)
+                + "|" + findings.ToString(Formatting.None);
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(content));
+                return BitConverter.ToString(hash)
+                    .Replace("-", string.Empty)
+                    .Substring(0, 16)
+                    .ToLowerInvariant();
+            }
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

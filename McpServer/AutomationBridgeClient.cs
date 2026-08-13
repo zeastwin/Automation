@@ -451,12 +451,22 @@ namespace Automation.McpServer
             return PostAsync("/bridge/diagnostics/context", payload);
         }
 
-        public Task<string> AuditProcBatchAsync(int? procOffset, int? procLimit, int? findingLimit)
+        public Task<string> AuditProcBatchAsync(
+            int? procOffset,
+            int? procLimit,
+            int? findingOffset,
+            int? findingLimit,
+            string? expectedIndexRevision)
         {
             JsonObject payload = new JsonObject();
             if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
             if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (findingOffset.HasValue) payload["findingOffset"] = findingOffset.Value;
             if (findingLimit.HasValue) payload["findingLimit"] = findingLimit.Value;
+            if (!string.IsNullOrWhiteSpace(expectedIndexRevision))
+            {
+                payload["expectedIndexRevision"] = expectedIndexRevision;
+            }
             return PostAsync("/bridge/diagnostics/audit", payload);
         }
 

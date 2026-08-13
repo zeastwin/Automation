@@ -13,13 +13,19 @@ namespace Automation.McpServer
 
         public static readonly string[] SupportedTopics =
         {
-            "architecture",
-            "mechanical",
-            "control-flow",
+            "core",
+            "lifecycle",
+            "orchestration",
+            "interlock",
+            "actuator",
+            "motion",
+            "pick-place",
+            "transfer",
+            "identify",
             "transaction",
+            "monitoring",
             "recovery",
             "custom-function",
-            "templates",
             "review"
         };
 
@@ -71,8 +77,11 @@ namespace Automation.McpServer
                 source = reader.ReadToEnd();
             }
 
+            string[] selectedTopics = normalized.Contains("core", StringComparer.Ordinal)
+                ? normalized
+                : new[] { "core" }.Concat(normalized).ToArray();
             var sections = new List<object>();
-            foreach (string topic in normalized)
+            foreach (string topic in selectedTopics)
             {
                 if (!TryExtract(source, topic, out string markdown))
                 {
@@ -89,15 +98,18 @@ namespace Automation.McpServer
             {
                 ok = true,
                 type = "process.design_guide",
-                source = "Automation AI 流程设计指南",
+                source = "Automation AI 流程设计知识",
                 sourceSha256,
+                requestedTopics = normalized,
+                includedCore = true,
                 sections,
                 authority = new
                 {
                     fields = "当前语义或原生Schema",
                     runtimeBehavior = "当前行为契约和Guide",
                     resources = "当前资源工具返回",
-                    readiness = "当前readiness和运行闸门"
+                    readiness = "当前readiness和运行闸门",
+                    referencePolicy = "历史项目只提供经甄别的职责与阶段写法，必须按当前事实适配"
                 }
             });
         }

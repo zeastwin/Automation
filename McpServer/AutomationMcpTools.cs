@@ -96,11 +96,11 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_process_design_guide"), Description(
-            "按当前复杂流程设计目标读取精确主题。适用于创建、重构或评审包含机械反馈、完整控制流、子流程事务、通讯重试、异常恢复或自定义函数边界的流程。"
-            + "主题路由中mechanical对应IO、气缸、真空和运动反馈，review对应设计前、中、后审查。"
-            + "简单赋值、固定延时、单IO操作和已知对象的字段级编辑不需要本指南。返回Automation流程设计方法，不提供具体字段、资源名称或运行参数；这些事实仍从当前Schema、Guide和资源工具读取。")]
+            "Automation复杂流程设计的唯一按需知识入口。按当前目标组合生命周期、调度、互锁、执行器、运动、取放、搬运、识别、外部事务、监控、恢复、自定义函数和审查功能块；core通用不变量会自动返回。"
+            + "内容包含从1HSG下料等历史项目甄别出的职责和阶段写法，但不是可直接复制的旧模板。"
+            + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
-            [Description("流程设计主题数组，只传当前任务涉及的主题：architecture=目标与层级；mechanical=IO、气缸、真空和运动反馈；control-flow=分支、循环与终止；transaction=外部事务；recovery=超时与失败恢复；custom-function=函数边界；templates=常见流程骨架；review=设计前、中、后审查")] string[] topics)
+            [Description("功能块主题数组，只传当前任务涉及的主题：core=通用不变量（可省略，服务端自动加入）；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics)
         {
             string result = ProcessDesignGuideCatalog.Get(topics);
             ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics }, result);
@@ -397,16 +397,20 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "audit_proc_batch"), Description(
-            "分批体检大量流程，只返回问题位置，不返回流程全文。检查空流程、空步骤、禁用步骤/指令、空指令类型和无效跳转。使用nextProcOffset继续下一批。")]
+            "无损分批体检大量流程，只返回原始问题位置和完整批次汇总，不返回流程全文。检查空流程、空步骤、禁用步骤/指令、空指令类型和无效跳转。"
+            + "同一流程批次先用nextFindingOffset和indexRevision读完finding分页，再用nextProcOffset继续下一批；未读完不得声称完整覆盖。")]
         public static async Task<string> AuditProcBatch(
             [Description("流程扫描起点，默认0")] int? procOffset = null,
             [Description("本批扫描流程数1..50，默认20")] int? procLimit = null,
-            [Description("本批最多返回问题数1..100，默认50")] int? findingLimit = null)
+            [Description("当前流程批次内的问题分页起点，默认0；继续读取时使用nextFindingOffset")] int? findingOffset = null,
+            [Description("本页原始问题数1..300，默认100")] int? findingLimit = null,
+            [Description("续读时必须传首页返回的indexRevision；配置变化时拒绝混合不同快照，首页留空")] string? expectedIndexRevision = null)
         {
             return await ExecuteAsync(
                 toolName: nameof(AuditProcBatch),
-                args: new { procOffset, procLimit, findingLimit },
-                action: client => client.AuditProcBatchAsync(procOffset, procLimit, findingLimit)).ConfigureAwait(false);
+                args: new { procOffset, procLimit, findingOffset, findingLimit, expectedIndexRevision },
+                action: client => client.AuditProcBatchAsync(
+                    procOffset, procLimit, findingOffset, findingLimit, expectedIndexRevision)).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "diagnose_issue"), Description(

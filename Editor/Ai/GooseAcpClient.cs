@@ -545,7 +545,7 @@ namespace Automation
             string sessionWorkingDirectory = ResolveWorkingDirectory();
             string skillProvisionMessage = null;
             if (!runtimeDiagnostic
-                && !GooseRuntimeProvisioner.TryEnsureProcessAuthoringSkill(
+                && !GooseRuntimeProvisioner.TryEnsureProcessSkills(
                     sessionWorkingDirectory,
                     out skillProvisionMessage))
             {
@@ -716,6 +716,8 @@ namespace Automation
                 startupInfo.Append(" automationContextInjection=tom");
                 startupInfo.Append(" processAuthoringSkill=")
                     .Append(GooseRuntimeProvisioner.ProcessAuthoringSkillPath);
+                startupInfo.Append(" processReviewSkill=")
+                    .Append(GooseRuntimeProvisioner.ProcessReviewSkillPath);
             }
             if (!string.IsNullOrWhiteSpace(configuredProvider))
             {
@@ -1618,10 +1620,10 @@ namespace Automation
                 string integrationVersionPath = Path.Combine(
                     Path.GetDirectoryName(GooseRuntimeProvisioner.IntegrationContextPath),
                     ".automation-context-version");
-                JObject skillAnalysis;
+                JObject authoringSkillAnalysis;
                 if (string.IsNullOrWhiteSpace(GooseRuntimeProvisioner.ProcessAuthoringSkillPath))
                 {
-                    skillAnalysis = new JObject
+                    authoringSkillAnalysis = new JObject
                     {
                         ["deployed"] = GooseRuntimeProvisioner.IsProcessAuthoringSkillAvailable,
                         ["bundledVersion"] = GooseRuntimeProvisioner.ProcessAuthoringSkillVersion,
@@ -1630,14 +1632,34 @@ namespace Automation
                 }
                 else
                 {
-                    skillAnalysis = BuildManagedFileAnalysis(
+                    authoringSkillAnalysis = BuildManagedFileAnalysis(
                         GooseRuntimeProvisioner.ProcessAuthoringSkillPath,
                         GooseRuntimeProvisioner.GetProcessAuthoringSkillVersionPath(),
                         GooseRuntimeProvisioner.ProcessAuthoringSkillVersion);
-                    skillAnalysis["deployed"] = GooseRuntimeProvisioner.IsProcessAuthoringSkillAvailable;
+                    authoringSkillAnalysis["deployed"] = GooseRuntimeProvisioner.IsProcessAuthoringSkillAvailable;
                 }
-                skillAnalysis["extension"] = "skills";
-                skillAnalysis["loadEvidence"] = "tool.finished: load_skill, status=ok";
+                authoringSkillAnalysis["extension"] = "skills";
+                authoringSkillAnalysis["loadEvidence"] = "tool.finished: load_skill, status=ok";
+                JObject reviewSkillAnalysis;
+                if (string.IsNullOrWhiteSpace(GooseRuntimeProvisioner.ProcessReviewSkillPath))
+                {
+                    reviewSkillAnalysis = new JObject
+                    {
+                        ["deployed"] = GooseRuntimeProvisioner.IsProcessReviewSkillAvailable,
+                        ["bundledVersion"] = GooseRuntimeProvisioner.ProcessReviewSkillVersion,
+                        ["exists"] = false
+                    };
+                }
+                else
+                {
+                    reviewSkillAnalysis = BuildManagedFileAnalysis(
+                        GooseRuntimeProvisioner.ProcessReviewSkillPath,
+                        GooseRuntimeProvisioner.GetProcessReviewSkillVersionPath(),
+                        GooseRuntimeProvisioner.ProcessReviewSkillVersion);
+                    reviewSkillAnalysis["deployed"] = GooseRuntimeProvisioner.IsProcessReviewSkillAvailable;
+                }
+                reviewSkillAnalysis["extension"] = "skills";
+                reviewSkillAnalysis["loadEvidence"] = "tool.finished: load_skill, status=ok";
                 return new JObject
                 {
                     ["managedAvailable"] = GooseRuntimeProvisioner.IsManagedContextAvailable,
@@ -1649,7 +1671,8 @@ namespace Automation
                         GooseRuntimeProvisioner.IntegrationContextPath,
                         integrationVersionPath,
                         GooseRuntimeProvisioner.IntegrationContextVersion),
-                    ["processAuthoringSkill"] = skillAnalysis
+                    ["processAuthoringSkill"] = authoringSkillAnalysis,
+                    ["processReviewSkill"] = reviewSkillAnalysis
                 };
             }
             catch (Exception ex)

@@ -490,6 +490,12 @@
     <Compile Include="Hmi\CustomFunctions.cs" />
     <Compile Include="Hmi\EquipmentProcessMessageService.cs" />
     <Compile Include="Hmi\LegacyDatabaseService.cs" />
+    <Compile Include="Hmi\LegacyDatabaseControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyDatabaseControl.Designer.cs">
+      <DependentUpon>LegacyDatabaseControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="Hmi\LegacyEquipmentServices.cs" />
     <Compile Include="Hmi\LegacyVideoService.cs" />
     <Compile Include="Hmi\FrmHmiMain.cs">
@@ -501,8 +507,44 @@
     <Compile Include="Hmi\LegacyOperationPages.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="Hmi\LegacyShellPages.cs">
+    <Compile Include="Hmi\LegacyDataPage.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyDataPage.Designer.cs">
+      <DependentUpon>LegacyDataPage.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\LegacyDataViewControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyDataViewControl.Designer.cs">
+      <DependentUpon>LegacyDataViewControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\LegacyProductDataControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyProductDataControl.Designer.cs">
+      <DependentUpon>LegacyProductDataControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Hmi\LegacyExcelPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyLogPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyFileBrowserControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyBarChartControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyCsv.cs" />
+    <Compile Include="Hmi\LegacyValueRow.cs" />
+    <Compile Include="Hmi\LegacyProductionHistoryRow.cs" />
+    <Compile Include="Hmi\LegacyVideoPage.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyVideoPage.Designer.cs">
+      <DependentUpon>LegacyVideoPage.cs</DependentUpon>
     </Compile>
     <Compile Include="Hmi\HmiDebugPage.cs">
       <SubType>Form</SubType>
@@ -510,6 +552,27 @@
     <Compile Include="Hmi\HmiDebugPage.Designer.cs">
       <DependentUpon>HmiDebugPage.cs</DependentUpon>
     </Compile>
+    <Compile Include="Hmi\LegacyProtocolDebugControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyPlcDebugControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyFingerprintControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyToolsControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacySetControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyValueInputDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Hmi\LegacyEditableValueRow.cs" />
+    <Compile Include="Hmi\LegacyToolProductRow.cs" />
+    <Compile Include="Hmi\LegacyDatabaseValueRow.cs" />
     <Compile Include="Hmi\HmiHomePage.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -622,6 +685,12 @@
     <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-review\.automation-skill-version">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-review.skill-version</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-review\SKILL.md">
+      <LogicalName>Automation.Assets.Goose.Skills.automation-process-review.SKILL.md</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Assets\Goose\system.md">
       <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
     </EmbeddedResource>
@@ -721,6 +790,12 @@
     <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\Goose\Skills\automation-process-review\.automation-skill-version">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\Skills\automation-process-review\SKILL.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\Goose\system.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -768,13 +843,17 @@
     <MakeDir Directories="$(CustomFunctionsSourceSnapshotDirectory)" />
     <Copy SourceFiles="Hmi\CustomFunctions.cs" DestinationFiles="$(CustomFunctionsSourceSnapshot)" SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="ProvisionProcessAuthoringSkillInOutput" AfterTargets="Build">
+  <Target Name="ProvisionAutomationSkillsInOutput" AfterTargets="Build">
     <PropertyGroup>
       <ProcessAuthoringSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-authoring</ProcessAuthoringSkillOutputDirectory>
+      <ProcessReviewSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-review</ProcessReviewSkillOutputDirectory>
     </PropertyGroup>
     <MakeDir Directories="$(ProcessAuthoringSkillOutputDirectory)" />
+    <MakeDir Directories="$(ProcessReviewSkillOutputDirectory)" />
     <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\SKILL.md" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-process-review\SKILL.md" DestinationFolder="$(ProcessReviewSkillOutputDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Assets\Goose\Skills\automation-process-review\.automation-skill-version" DestinationFolder="$(ProcessReviewSkillOutputDirectory)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="RemoveUnsupportedNativeGitLibraries" AfterTargets="Build">
     <ItemGroup>

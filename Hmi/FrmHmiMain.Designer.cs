@@ -116,18 +116,195 @@ namespace Automation.Hmi
             this.commandBar.RowCount = 1;
             this.commandBar.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
             //
-            // page buttons
+            // btnHome
             //
-            this.ConfigureCommandButton(this.btnHome, "主页", global::Automation.UiIconKind.Home, global::Automation.UiPalette.TextPrimary, new System.EventHandler(this.btnHome_Click));
-            this.ConfigureCommandButton(this.btnDebug, "调试", global::Automation.UiIconKind.Settings, global::Automation.UiPalette.TextPrimary, new System.EventHandler(this.btnDebug_Click));
-            this.ConfigureCommandButton(this.btnVideo, "CCD", global::Automation.UiIconKind.Video, global::Automation.UiPalette.TextPrimary, new System.EventHandler(this.btnVideo_Click));
-            this.ConfigureCommandButton(this.btnAlarm, "报警", global::Automation.UiIconKind.Alarm, global::Automation.UiPalette.Danger, new System.EventHandler(this.btnAlarm_Click));
-            this.ConfigureCommandButton(this.btnData, "数据", global::Automation.UiIconKind.DataTable, global::Automation.UiPalette.TextPrimary, new System.EventHandler(this.btnData_Click));
-            this.ConfigureCommandButton(this.btnStart, "启动", global::Automation.UiIconKind.Run, global::Automation.UiPalette.Success, new System.EventHandler(this.btnStart_Click));
-            this.ConfigureCommandButton(this.btnStop, "停止", global::Automation.UiIconKind.Stop, global::Automation.UiPalette.Danger, new System.EventHandler(this.btnStop_Click));
-            this.ConfigureCommandButton(this.btnPause, "暂停", global::Automation.UiIconKind.Pause, global::Automation.UiPalette.Warning, new System.EventHandler(this.btnPause_Click));
-            this.ConfigureCommandButton(this.btnExcel, "Excel", global::Automation.UiIconKind.Spreadsheet, global::Automation.UiPalette.Success, new System.EventHandler(this.btnExcel_Click));
-            this.ConfigureCommandButton(this.btnLog, "Log", global::Automation.UiIconKind.Log, global::Automation.UiPalette.TextPrimary, new System.EventHandler(this.btnLog_Click));
+            this.btnHome.BackColor = System.Drawing.Color.Transparent;
+            this.btnHome.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnHome.FlatAppearance.BorderSize = 0;
+            this.btnHome.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnHome.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnHome.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnHome.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnHome.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnHome.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnHome.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnHome.Name = "btnHome";
+            this.btnHome.Text = "主页";
+            this.btnHome.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnHome.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnHome.UseVisualStyleBackColor = false;
+            this.btnHome.Click += new System.EventHandler(this.btnHome_Click);
+            //
+            // btnDebug
+            //
+            this.btnDebug.BackColor = System.Drawing.Color.Transparent;
+            this.btnDebug.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnDebug.FlatAppearance.BorderSize = 0;
+            this.btnDebug.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnDebug.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnDebug.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnDebug.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnDebug.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnDebug.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnDebug.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnDebug.Name = "btnDebug";
+            this.btnDebug.Text = "调试";
+            this.btnDebug.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnDebug.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnDebug.UseVisualStyleBackColor = false;
+            this.btnDebug.Click += new System.EventHandler(this.btnDebug_Click);
+            //
+            // btnVideo
+            //
+            this.btnVideo.BackColor = System.Drawing.Color.Transparent;
+            this.btnVideo.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnVideo.FlatAppearance.BorderSize = 0;
+            this.btnVideo.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnVideo.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnVideo.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnVideo.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnVideo.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnVideo.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnVideo.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnVideo.Name = "btnVideo";
+            this.btnVideo.Text = "CCD";
+            this.btnVideo.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnVideo.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnVideo.UseVisualStyleBackColor = false;
+            this.btnVideo.Click += new System.EventHandler(this.btnVideo_Click);
+            //
+            // btnAlarm
+            //
+            this.btnAlarm.BackColor = System.Drawing.Color.Transparent;
+            this.btnAlarm.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnAlarm.FlatAppearance.BorderSize = 0;
+            this.btnAlarm.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnAlarm.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnAlarm.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnAlarm.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnAlarm.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnAlarm.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnAlarm.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnAlarm.Name = "btnAlarm";
+            this.btnAlarm.Text = "报警";
+            this.btnAlarm.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnAlarm.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnAlarm.UseVisualStyleBackColor = false;
+            this.btnAlarm.Click += new System.EventHandler(this.btnAlarm_Click);
+            //
+            // btnData
+            //
+            this.btnData.BackColor = System.Drawing.Color.Transparent;
+            this.btnData.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnData.FlatAppearance.BorderSize = 0;
+            this.btnData.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnData.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnData.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnData.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnData.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnData.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnData.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnData.Name = "btnData";
+            this.btnData.Text = "数据";
+            this.btnData.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnData.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnData.UseVisualStyleBackColor = false;
+            this.btnData.Click += new System.EventHandler(this.btnData_Click);
+            //
+            // btnStart
+            //
+            this.btnStart.BackColor = System.Drawing.Color.Transparent;
+            this.btnStart.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnStart.FlatAppearance.BorderSize = 0;
+            this.btnStart.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnStart.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnStart.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnStart.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnStart.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnStart.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnStart.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnStart.Name = "btnStart";
+            this.btnStart.Text = "启动";
+            this.btnStart.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnStart.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnStart.UseVisualStyleBackColor = false;
+            this.btnStart.Click += new System.EventHandler(this.btnStart_Click);
+            //
+            // btnStop
+            //
+            this.btnStop.BackColor = System.Drawing.Color.Transparent;
+            this.btnStop.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnStop.FlatAppearance.BorderSize = 0;
+            this.btnStop.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnStop.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnStop.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnStop.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnStop.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnStop.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnStop.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnStop.Name = "btnStop";
+            this.btnStop.Text = "停止";
+            this.btnStop.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnStop.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnStop.UseVisualStyleBackColor = false;
+            this.btnStop.Click += new System.EventHandler(this.btnStop_Click);
+            //
+            // btnPause
+            //
+            this.btnPause.BackColor = System.Drawing.Color.Transparent;
+            this.btnPause.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnPause.FlatAppearance.BorderSize = 0;
+            this.btnPause.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnPause.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnPause.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnPause.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnPause.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnPause.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnPause.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnPause.Name = "btnPause";
+            this.btnPause.Text = "暂停";
+            this.btnPause.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnPause.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnPause.UseVisualStyleBackColor = false;
+            this.btnPause.Click += new System.EventHandler(this.btnPause_Click);
+            //
+            // btnExcel
+            //
+            this.btnExcel.BackColor = System.Drawing.Color.Transparent;
+            this.btnExcel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnExcel.FlatAppearance.BorderSize = 0;
+            this.btnExcel.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnExcel.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnExcel.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnExcel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnExcel.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnExcel.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnExcel.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnExcel.Name = "btnExcel";
+            this.btnExcel.Text = "Excel";
+            this.btnExcel.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnExcel.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnExcel.UseVisualStyleBackColor = false;
+            this.btnExcel.Click += new System.EventHandler(this.btnExcel_Click);
+            //
+            // btnLog
+            //
+            this.btnLog.BackColor = System.Drawing.Color.Transparent;
+            this.btnLog.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnLog.FlatAppearance.BorderSize = 0;
+            this.btnLog.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnLog.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnLog.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnLog.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnLog.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnLog.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
+            this.btnLog.Name = "btnLog";
+            this.btnLog.Text = "Log";
+            this.btnLog.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnLog.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnLog.UseVisualStyleBackColor = false;
+            this.btnLog.Click += new System.EventHandler(this.btnLog_Click);
             //
             // brandLayout
             //
@@ -211,14 +388,53 @@ namespace Automation.Hmi
             this.footerLayout.RowCount = 1;
             this.footerLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
             //
-            // footer labels
+            // lblDate
             //
-            this.ConfigureFooterLabel(this.lblDate, "2026-07-24");
-            this.ConfigureFooterLabel(this.lblTime, "20:00:00");
-            this.ConfigureFooterLabel(this.lblFooterUser, "User");
-            this.ConfigureFooterLabel(this.lblCompany, "联合东创科技有限公司");
-            this.ConfigureFooterLabel(this.lblPhone, "电话:0769—39026833");
-            this.ConfigureFooterLabel(this.lblVersion, "版本号: V3.0.0");
+            this.lblDate.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblDate.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblDate.Name = "lblDate";
+            this.lblDate.Text = "2026-07-24";
+            this.lblDate.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            //
+            // lblTime
+            //
+            this.lblTime.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblTime.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblTime.Name = "lblTime";
+            this.lblTime.Text = "20:00:00";
+            this.lblTime.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            //
+            // lblFooterUser
+            //
+            this.lblFooterUser.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblFooterUser.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblFooterUser.Name = "lblFooterUser";
+            this.lblFooterUser.Text = "User";
+            this.lblFooterUser.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            //
+            // lblCompany
+            //
+            this.lblCompany.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblCompany.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblCompany.Name = "lblCompany";
+            this.lblCompany.Text = "联合东创科技有限公司";
+            this.lblCompany.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            //
+            // lblPhone
+            //
+            this.lblPhone.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblPhone.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblPhone.Name = "lblPhone";
+            this.lblPhone.Text = "电话:0769—39026833";
+            this.lblPhone.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            //
+            // lblVersion
+            //
+            this.lblVersion.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblVersion.Font = new System.Drawing.Font("宋体", 10.5F);
+            this.lblVersion.Name = "lblVersion";
+            this.lblVersion.Text = "版本号: V3.0.0";
+            this.lblVersion.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             //
             // FrmHmiMain
             //
@@ -242,41 +458,6 @@ namespace Automation.Hmi
             this.statusLayout.ResumeLayout(false);
             this.footerLayout.ResumeLayout(false);
             this.ResumeLayout(false);
-        }
-
-        private void ConfigureCommandButton(
-            System.Windows.Forms.Button button,
-            string text,
-            global::Automation.UiIconKind iconKind,
-            System.Drawing.Color iconColor,
-            System.EventHandler handler)
-        {
-            button.BackColor = System.Drawing.Color.Transparent;
-            button.Dock = System.Windows.Forms.DockStyle.Fill;
-            button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseDownBackColor = global::Automation.UiPalette.SurfacePressed;
-            button.FlatAppearance.MouseOverBackColor = global::Automation.UiPalette.SurfaceHover;
-            button.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            button.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F, System.Drawing.FontStyle.Regular);
-            button.ForeColor = global::Automation.UiPalette.TextPrimary;
-            button.Image = global::Automation.UiIconFactory.Create(iconKind, iconColor, 36);
-            button.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
-            button.Margin = new System.Windows.Forms.Padding(3, 10, 3, 3);
-            button.Text = text;
-            button.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
-            button.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
-            button.UseVisualStyleBackColor = false;
-            button.Click += handler;
-        }
-
-        private void ConfigureFooterLabel(
-            System.Windows.Forms.Label label,
-            string text)
-        {
-            label.Dock = System.Windows.Forms.DockStyle.Fill;
-            label.Font = new System.Drawing.Font("宋体", 10.5F);
-            label.Text = text;
-            label.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
         }
 
         private System.Windows.Forms.SplitContainer rootSplit;

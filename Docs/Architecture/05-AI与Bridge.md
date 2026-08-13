@@ -110,11 +110,20 @@ stateDiagram-v2
 ## 上下文与 Prompt 分层
 
 - `Assets/Goose/system.md` 以 Goose 官方 `crates/goose/src/prompts/system.md` 为功能规则基底，只替换 EW-AI 品牌身份并追加真实性、工业安全等跨任务约束。修改前先对照官方当前模板；同步官方变化后重新应用自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
-- `Assets/Goose/automation.md` 只保存 Automation 跨任务路由方法，使用独立的 `IntegrationContextVersion` 和 `.automation-context-version`；修改时不联动 System Prompt 版本。
+- `Assets/Goose/automation.md` 保存 Automation 跨任务路由、主动调查边界、证据分层和覆盖声明规则，使用独立的 `IntegrationContextVersion` 和 `.automation-context-version`；修改时不联动 System Prompt 版本。
 - 两个托管 Markdown 同时作为 Manifest 资源和程序目录副本发布。运行时优先读 Manifest，失败后读目录副本；两者均失败只禁用 EW-AI 并报警，不阻断 HMI 或平台初始化。
+- 只读流程检查使用 `automation-process-review` Skill；创建、修改、重构和复制使用 `automation-process-authoring` Skill。两者独立版本、部署和校验，不把只读调查方法与 ChangeSet 写入方法混为一条常驻工作流。
+- 受管 Prompt、上下文和 Skill 在版本相同时仍核对内置资源内容；同版本内容漂移会重新同步，避免不同机器以同一版本运行不同规则。高于内置版本的本机文件仍按既有策略保留并校验。
 - 具体参数、枚举、模式矩阵、数量边界、资源候选和指令技巧来自 Schema、行为 Catalog、资源工具和按需 Guide，不复制到常驻 Prompt。
+- `get_process_design_guide` 是唯一的按需流程设计知识入口。服务端自动附带短 `core`，并按目标组合生命周期、调度、互锁、执行器、运动、取放、搬运、识别、外部事务、持续监控、恢复、自定义函数和审查功能块。功能块可以包含经人工指定、AI 甄别和抽象后的历史项目写法，但只影响职责分层、阶段组织和闭环检查；authoring Skill 要求记录采用、适配和证据缺口后再按当前契约生成 ChangeSet。
 - Automation 源码开发知识由 `get_platform_development_context` 按 `hmi`、`platform-api`、`custom-function` 精确加载；目标不明确时才读取 `catalog`。
 - Prompt 只陈述长期稳定的事实和通用方法。模型经常误用时先检查工具命名、参数 Schema、资源发现、编译器和错误结构，不用新增训话掩盖契约缺陷。
+
+## 批量审计覆盖契约
+
+`audit_proc_batch` 对每个 `procOffset/procLimit` 流程批次生成保持原始顺序的完整 finding 集合。单页最多返回 300 条，并同时返回 `findingOffset/findingLimit/returnedFindingCount/hasMoreFindings/nextFindingOffset`；续读必须携带上一页 `indexRevision`，配置变化时以 `AUDIT_REVISION_CHANGED` 拒绝混合不同快照。只有当前批次 finding 读完后才返回可用的 `nextProcOffset`。
+
+`findingSummary.bySeverity/byCode` 是完整批次的附加导航索引，不替代、隐藏或合并 `findings`。禁用步骤和禁用指令始终保留为精确配置事实；是否构成缺陷由 Readiness、引用、运行证据或已验证业务目标判断。
 
 ## AI 事实权威来源
 

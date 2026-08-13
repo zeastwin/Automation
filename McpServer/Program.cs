@@ -491,7 +491,11 @@ namespace Automation.McpServer
             string processDesignGuide = ProcessDesignGuideCatalog.Get(ProcessDesignGuideCatalog.SupportedTopics);
             string[] processDesignPollution =
             {
-                "1HSG", "extracted_data.json", "VariableChanges", "穴位1-BC码", "MES启用标记"
+                "extracted_data.json", "VariableChanges", "穴位1-BC码", "MES启用标记"
+            };
+            string[] processDesignRequiredTerms =
+            {
+                "命令不等于完成", "功能块不是持久化对象", "1HSG下料", "取放块", "扫码"
             };
             JsonObject? processDesignRoot = JsonNode.Parse(processDesignGuide) as JsonObject;
             JsonArray? processDesignSections = processDesignRoot?["sections"] as JsonArray;
@@ -500,10 +504,22 @@ namespace Automation.McpServer
                 : string.Join("\n", processDesignSections
                     .Select(section => section?["markdown"]?.GetValue<string>() ?? string.Empty));
             if (processDesignRoot?["ok"]?.GetValue<bool>() != true
+                || processDesignRoot?["includedCore"]?.GetValue<bool>() != true
                 || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
+                || processDesignRequiredTerms.Any(term =>
+                    !processDesignMarkdown.Contains(term, StringComparison.Ordinal))
                 || processDesignPollution.Any(term => processDesignMarkdown.Contains(term, StringComparison.Ordinal)))
             {
-                throw new InvalidOperationException("流程设计指南资源缺失核心闭环或仍含项目专用内容。");
+                throw new InvalidOperationException("流程设计知识缺失核心不变量、功能块、甄别来源或仍含项目参数。");
+            }
+            JsonObject? identifyOnlyRoot = JsonNode.Parse(
+                ProcessDesignGuideCatalog.Get(new[] { "identify" })) as JsonObject;
+            JsonArray? identifyOnlySections = identifyOnlyRoot?["sections"] as JsonArray;
+            if (identifyOnlySections?.Count != 2
+                || identifyOnlySections[0]?["topic"]?.GetValue<string>() != "core"
+                || identifyOnlySections[1]?["topic"]?.GetValue<string>() != "identify")
+            {
+                throw new InvalidOperationException("流程设计知识未对功能块请求自动附带core。");
             }
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
             string[] diagnosticNames = diagnosticTools.Select(tool => tool.ProtocolTool.Name).ToArray();
@@ -868,7 +884,8 @@ namespace Automation.McpServer
             VerifyNumericRange(tools, "search_io", "limit", 1, 100);
             VerifyNumericRange(tools, "audit_proc_batch", "procOffset", 0, int.MaxValue);
             VerifyNumericRange(tools, "audit_proc_batch", "procLimit", 1, 50);
-            VerifyNumericRange(tools, "audit_proc_batch", "findingLimit", 1, 100);
+            VerifyNumericRange(tools, "audit_proc_batch", "findingOffset", 0, int.MaxValue);
+            VerifyNumericRange(tools, "audit_proc_batch", "findingLimit", 1, 300);
         }
 
         private static void VerifyNumericRange(

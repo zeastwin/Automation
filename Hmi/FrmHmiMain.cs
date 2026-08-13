@@ -35,6 +35,7 @@ namespace Automation.Hmi
         public FrmHmiMain()
         {
             InitializeComponent();
+            InitializeCommandButtonImages();
             homePage = new HmiHomePage();
             debugPage = new HmiDebugPage();
             videoPage = new LegacyVideoPage();
@@ -76,6 +77,20 @@ namespace Automation.Hmi
             FormClosing += FrmHmiMain_FormClosing;
             Disposed += FrmHmiMain_Disposed;
             ShowPage(homePage, btnHome);
+        }
+
+        private void InitializeCommandButtonImages()
+        {
+            btnHome.Image = UiIconFactory.Create(UiIconKind.Home, UiPalette.TextPrimary, 36);
+            btnDebug.Image = UiIconFactory.Create(UiIconKind.Settings, UiPalette.TextPrimary, 36);
+            btnVideo.Image = UiIconFactory.Create(UiIconKind.Video, UiPalette.TextPrimary, 36);
+            btnAlarm.Image = UiIconFactory.Create(UiIconKind.Alarm, UiPalette.Danger, 36);
+            btnData.Image = UiIconFactory.Create(UiIconKind.DataTable, UiPalette.TextPrimary, 36);
+            btnStart.Image = UiIconFactory.Create(UiIconKind.Run, UiPalette.Success, 36);
+            btnStop.Image = UiIconFactory.Create(UiIconKind.Stop, UiPalette.Danger, 36);
+            btnPause.Image = UiIconFactory.Create(UiIconKind.Pause, UiPalette.Warning, 36);
+            btnExcel.Image = UiIconFactory.Create(UiIconKind.Spreadsheet, UiPalette.Success, 36);
+            btnLog.Image = UiIconFactory.Create(UiIconKind.Log, UiPalette.TextPrimary, 36);
         }
 
         public FrmHmiMain(IAutomationPlatform platform)

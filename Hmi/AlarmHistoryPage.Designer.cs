@@ -52,7 +52,7 @@ namespace Automation.Hmi
             this.queryButton.Dock = System.Windows.Forms.DockStyle.Fill;
             this.queryButton.Name = "queryButton";
             this.queryButton.Text = "Query";
-            this.queryButton.Click += new System.EventHandler((sender, args) => this.Query());
+            this.queryButton.Click += new System.EventHandler(this.QueryButton_Click);
             //
             // statisticsMode
             //
@@ -69,17 +69,7 @@ namespace Automation.Hmi
             this.deviceFilter.Items.AddRange(new object[] { "全部设备" });
             this.deviceFilter.Name = "deviceFilter";
             this.deviceFilter.SelectedIndex = 0;
-            this.deviceFilter.SelectedIndexChanged += new System.EventHandler((sender, args) =>
-            {
-                if (!this.updatingDeviceFilter && this.loadedRecords.Count > 0)
-                {
-                    System.Collections.Generic.IReadOnlyList<LegacyAlarmHistoryRecord> filtered =
-                        this.FilterByDevice(this.loadedRecords);
-                    this.detailGrid.DataSource = new System.ComponentModel.BindingList<LegacyAlarmHistoryRecord>(
-                        new System.Collections.Generic.List<LegacyAlarmHistoryRecord>(filtered));
-                    this.RenderSummary(filtered);
-                }
-            });
+            this.deviceFilter.SelectedIndexChanged += new System.EventHandler(this.DeviceFilter_SelectedIndexChanged);
             //
             // downtimeList
             //

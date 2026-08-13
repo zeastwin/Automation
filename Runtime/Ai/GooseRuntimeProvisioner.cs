@@ -11,16 +11,26 @@ namespace Automation
 {
     public static class GooseRuntimeProvisioner
     {
-        public const int SystemPromptVersion = 19;
-        public const int IntegrationContextVersion = 45;
-        public static int ProcessAuthoringSkillVersion { get; } = ReadBundledProcessAuthoringSkillVersion();
+        public const int SystemPromptVersion = 20;
+        public const int IntegrationContextVersion = 48;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
+        public const string ProcessReviewSkillName = "automation-process-review";
+        public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(
+            ProcessAuthoringSkillVersionResourceName,
+            "Automation 流程编写 Skill");
+        public static int ProcessReviewSkillVersion { get; } = ReadBundledSkillVersion(
+            ProcessReviewSkillVersionResourceName,
+            "Automation 流程评审 Skill");
         private const string PromptResourceName = "Automation.Assets.Goose.system.md";
         private const string IntegrationContextResourceName = "Automation.Assets.Goose.automation.md";
         private const string ProcessAuthoringSkillResourceName =
             "Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md";
         private const string ProcessAuthoringSkillVersionResourceName =
             "Automation.Assets.Goose.Skills.automation-process-authoring.skill-version";
+        private const string ProcessReviewSkillResourceName =
+            "Automation.Assets.Goose.Skills.automation-process-review.SKILL.md";
+        private const string ProcessReviewSkillVersionResourceName =
+            "Automation.Assets.Goose.Skills.automation-process-review.skill-version";
         private const string VersionFileName = ".automation-system-prompt-version";
         private const string IntegrationContextVersionFileName = ".automation-context-version";
         private const string ProcessAuthoringSkillVersionFileName = ".automation-skill-version";
@@ -30,6 +40,10 @@ namespace Automation
         public static bool IsProcessAuthoringSkillAvailable { get; private set; }
 
         public static string ProcessAuthoringSkillPath { get; private set; }
+
+        public static bool IsProcessReviewSkillAvailable { get; private set; }
+
+        public static string ProcessReviewSkillPath { get; private set; }
 
         public static string PromptPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -63,7 +77,9 @@ namespace Automation
                     }
                     messages.Add($"本机 System Prompt 版本 {installedVersion} 高于程序内置版本 {SystemPromptVersion}，已保留本机版本。");
                 }
-                else if (!File.Exists(PromptPath) || installedVersion != SystemPromptVersion)
+                else if (!File.Exists(PromptPath)
+                    || installedVersion != SystemPromptVersion
+                    || !ManagedFileMatchesResource(PromptResourceName, PromptPath))
                 {
                     if (File.Exists(PromptPath))
                     {
@@ -88,7 +104,9 @@ namespace Automation
                     }
                     messages.Add($"本机 Automation 专用上下文版本 {installedContextVersion} 高于程序内置版本 {IntegrationContextVersion}，已保留本机版本。");
                 }
-                else if (!File.Exists(IntegrationContextPath) || installedContextVersion != IntegrationContextVersion)
+                else if (!File.Exists(IntegrationContextPath)
+                    || installedContextVersion != IntegrationContextVersion
+                    || !ManagedFileMatchesResource(IntegrationContextResourceName, IntegrationContextPath))
                 {
                     WriteEmbeddedResource(IntegrationContextResourceName, IntegrationContextPath);
                     File.WriteAllText(contextVersionPath, IntegrationContextVersion.ToString(CultureInfo.InvariantCulture), new UTF8Encoding(false));
@@ -107,13 +125,15 @@ namespace Automation
             }
         }
 
-        public static bool TryEnsureProcessAuthoringSkill(
+        public static bool TryEnsureProcessSkills(
             string projectWorkingDirectory,
             out string message)
         {
             message = null;
             IsProcessAuthoringSkillAvailable = false;
             ProcessAuthoringSkillPath = null;
+            IsProcessReviewSkillAvailable = false;
+            ProcessReviewSkillPath = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(projectWorkingDirectory))
@@ -127,46 +147,35 @@ namespace Automation
                     throw new DirectoryNotFoundException("Goose 项目工作目录不存在：" + projectDirectory);
                 }
 
-                string skillPath = Path.Combine(
+                var messages = new System.Collections.Generic.List<string>();
+                ProcessAuthoringSkillPath = EnsureManagedSkill(
                     projectDirectory,
-                    ".agents",
-                    "skills",
                     ProcessAuthoringSkillName,
-                    "SKILL.md");
-                string skillDirectory = Path.GetDirectoryName(skillPath);
-                Directory.CreateDirectory(skillDirectory);
-                string versionPath = Path.Combine(skillDirectory, ProcessAuthoringSkillVersionFileName);
-                int installedVersion = ReadInstalledVersion(
-                    versionPath,
-                    "Automation 流程编写 Skill");
-
-                if (installedVersion > ProcessAuthoringSkillVersion)
-                {
-                    if (!File.Exists(skillPath))
-                    {
-                        throw new InvalidDataException(
-                            "Automation 流程编写 Skill 版本标记存在，但 SKILL.md 不存在：" + skillPath);
-                    }
-                    message = $"本机 Automation 流程编写 Skill 版本 {installedVersion} 高于程序内置版本 {ProcessAuthoringSkillVersion}，已保留本机版本。";
-                }
-                else if (!File.Exists(skillPath) || installedVersion != ProcessAuthoringSkillVersion)
-                {
-                    WriteEmbeddedResource(ProcessAuthoringSkillResourceName, skillPath);
-                    File.WriteAllText(
-                        versionPath,
-                        ProcessAuthoringSkillVersion.ToString(CultureInfo.InvariantCulture),
-                        new UTF8Encoding(false));
-                    message = $"Automation 流程编写 Skill 已更新到版本 {ProcessAuthoringSkillVersion}。";
-                }
-
-                ValidateProcessAuthoringSkill(skillPath);
-                ProcessAuthoringSkillPath = skillPath;
+                    "Automation 流程编写 Skill",
+                    ProcessAuthoringSkillResourceName,
+                    ProcessAuthoringSkillVersion,
+                    ValidateProcessAuthoringSkill,
+                    messages);
+                ProcessReviewSkillPath = EnsureManagedSkill(
+                    projectDirectory,
+                    ProcessReviewSkillName,
+                    "Automation 流程评审 Skill",
+                    ProcessReviewSkillResourceName,
+                    ProcessReviewSkillVersion,
+                    ValidateProcessReviewSkill,
+                    messages);
                 IsProcessAuthoringSkillAvailable = true;
+                IsProcessReviewSkillAvailable = true;
+                message = messages.Count == 0 ? null : string.Join(Environment.NewLine, messages);
                 return true;
             }
             catch (Exception ex)
             {
-                message = "Automation 流程编写 Skill 部署或校验失败：" + ex.Message;
+                IsProcessAuthoringSkillAvailable = false;
+                ProcessAuthoringSkillPath = null;
+                IsProcessReviewSkillAvailable = false;
+                ProcessReviewSkillPath = null;
+                message = "Automation 流程 Skill 部署或校验失败：" + ex.Message;
                 return false;
             }
         }
@@ -182,6 +191,62 @@ namespace Automation
                 ProcessAuthoringSkillVersionFileName);
         }
 
+        public static string GetProcessReviewSkillVersionPath()
+        {
+            if (string.IsNullOrWhiteSpace(ProcessReviewSkillPath))
+            {
+                return null;
+            }
+            return Path.Combine(
+                Path.GetDirectoryName(ProcessReviewSkillPath),
+                ProcessAuthoringSkillVersionFileName);
+        }
+
+        private static string EnsureManagedSkill(
+            string projectDirectory,
+            string skillName,
+            string artifactName,
+            string resourceName,
+            int bundledVersion,
+            Action<string> validator,
+            System.Collections.Generic.ICollection<string> messages)
+        {
+            string skillPath = Path.Combine(
+                projectDirectory,
+                ".agents",
+                "skills",
+                skillName,
+                "SKILL.md");
+            string skillDirectory = Path.GetDirectoryName(skillPath);
+            Directory.CreateDirectory(skillDirectory);
+            string versionPath = Path.Combine(skillDirectory, ProcessAuthoringSkillVersionFileName);
+            int installedVersion = ReadInstalledVersion(versionPath, artifactName);
+
+            if (installedVersion > bundledVersion)
+            {
+                if (!File.Exists(skillPath))
+                {
+                    throw new InvalidDataException(
+                        artifactName + " 版本标记存在，但 SKILL.md 不存在：" + skillPath);
+                }
+                messages.Add($"本机 {artifactName} 版本 {installedVersion} 高于程序内置版本 {bundledVersion}，已保留本机版本。");
+            }
+            else if (!File.Exists(skillPath)
+                || installedVersion != bundledVersion
+                || !ManagedFileMatchesResource(resourceName, skillPath))
+            {
+                WriteEmbeddedResource(resourceName, skillPath);
+                File.WriteAllText(
+                    versionPath,
+                    bundledVersion.ToString(CultureInfo.InvariantCulture),
+                    new UTF8Encoding(false));
+                messages.Add($"{artifactName} 已同步到版本 {bundledVersion}。");
+            }
+
+            validator(skillPath);
+            return skillPath;
+        }
+
         private static int ReadInstalledVersion(string versionPath, string artifactName)
         {
             if (!File.Exists(versionPath)) return 0;
@@ -193,26 +258,9 @@ namespace Automation
             return version;
         }
 
-        private static int ReadBundledProcessAuthoringSkillVersion()
+        private static int ReadBundledSkillVersion(string resourceName, string artifactName)
         {
-            Stream source = Assembly.GetExecutingAssembly()
-                .GetManifestResourceStream(ProcessAuthoringSkillVersionResourceName);
-            if (source == null)
-            {
-                string fallbackPath = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Assets",
-                    "Goose",
-                    "Skills",
-                    ProcessAuthoringSkillName,
-                    ProcessAuthoringSkillVersionFileName);
-                if (!File.Exists(fallbackPath))
-                {
-                    throw new InvalidOperationException(
-                        "程序内置流程编写 Skill 版本资源不存在：" + fallbackPath);
-                }
-                source = new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            }
+            Stream source = OpenManagedResource(resourceName);
             using (source)
             using (var reader = new StreamReader(source, Encoding.UTF8, true, 128, false))
             {
@@ -224,7 +272,7 @@ namespace Automation
                     out int version)
                     || version <= 0)
                 {
-                    throw new InvalidDataException("程序内置流程编写 Skill 版本格式无效。");
+                    throw new InvalidDataException("程序内置" + artifactName + "版本格式无效。");
                 }
                 return version;
             }
@@ -247,7 +295,9 @@ namespace Automation
                 "# Extensions",
                 "extension_tool_limits",
                 "# Response Guidelines",
-                "# EW-AI Customization"
+                "# EW-AI Customization",
+                "Treat returned facts, inferences, and unresolved evidence gaps as different categories",
+                "Stop gathering evidence when the verified record is sufficient"
             };
             string missingSystemAnchor = Array.Find(systemAnchors,
                 anchor => systemPrompt.IndexOf(anchor, StringComparison.Ordinal) < 0);
@@ -264,15 +314,14 @@ namespace Automation
             string integrationContext = File.ReadAllText(IntegrationContextPath, Encoding.UTF8);
             string[] contextAnchors =
             {
-                "load_skill",
                 "automation-process-authoring",
-                "get_semantic_operation_schema",
-                "get_native_operation_schemas",
+                "automation-process-review",
+                "audit_proc_batch",
+                "validate_proc",
+                "diagnose_issue",
+                "get_platform_development_context",
                 "get_process_design_guide",
-                "preview_change_set",
-                "apply_change_set",
-                "preview_only",
-                "run_proc_test"
+                "nextFindingOffset"
             };
             string missingContextAnchor = Array.Find(contextAnchors,
                 anchor => integrationContext.IndexOf(anchor, StringComparison.Ordinal) < 0);
@@ -336,54 +385,117 @@ namespace Automation
             }
         }
 
+        private static void ValidateProcessReviewSkill(string skillPath)
+        {
+            string skill = File.ReadAllText(skillPath, Encoding.UTF8);
+            string[] anchors =
+            {
+                "name: automation-process-review",
+                "description:",
+                "# Automation 流程评审",
+                "audit_proc_batch",
+                "validate_proc",
+                "diagnose_issue",
+                "get_operation_context",
+                "indexRevision",
+                "nextFindingOffset",
+                "automation-process-authoring"
+            };
+            string missingAnchor = Array.Find(
+                anchors,
+                anchor => skill.IndexOf(anchor, StringComparison.Ordinal) < 0);
+            if (missingAnchor != null)
+            {
+                throw new InvalidDataException(
+                    "Automation 流程评审 Skill 缺少当前工作流入口：" + missingAnchor);
+            }
+            if (skill.IndexOf("[TODO", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                throw new InvalidDataException("Automation 流程评审 Skill 仍包含未完成模板标记。");
+            }
+        }
+
+        private static bool ManagedFileMatchesResource(string resourceName, string filePath)
+        {
+            if (!File.Exists(filePath)) return false;
+            using (Stream expected = OpenManagedResource(resourceName))
+            using (var actual = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (expected.CanSeek && expected.Length != actual.Length) return false;
+                var expectedBuffer = new byte[8192];
+                var actualBuffer = new byte[8192];
+                while (true)
+                {
+                    int expectedCount = expected.Read(expectedBuffer, 0, expectedBuffer.Length);
+                    int actualCount = actual.Read(actualBuffer, 0, actualBuffer.Length);
+                    if (expectedCount != actualCount) return false;
+                    if (expectedCount == 0) return true;
+                    for (int i = 0; i < expectedCount; i++)
+                    {
+                        if (expectedBuffer[i] != actualBuffer[i]) return false;
+                    }
+                }
+            }
+        }
+
+        private static Stream OpenManagedResource(string resourceName)
+        {
+            Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+            if (source != null) return source;
+
+            string fallbackPath = ResolveManagedResourceFallbackPath(resourceName);
+            if (!File.Exists(fallbackPath))
+            {
+                throw new InvalidOperationException(
+                    "程序内置 Goose 资源及随程序文件均不存在：" + resourceName + "；" + fallbackPath);
+            }
+            return new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
+
+        private static string ResolveManagedResourceFallbackPath(string resourceName)
+        {
+            if (string.Equals(resourceName, PromptResourceName, StringComparison.Ordinal))
+            {
+                return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Goose", "system.md");
+            }
+            if (string.Equals(resourceName, IntegrationContextResourceName, StringComparison.Ordinal))
+            {
+                return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Goose", "automation.md");
+            }
+            if (string.Equals(resourceName, ProcessAuthoringSkillResourceName, StringComparison.Ordinal)
+                || string.Equals(resourceName, ProcessAuthoringSkillVersionResourceName, StringComparison.Ordinal))
+            {
+                return Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Assets",
+                    "Goose",
+                    "Skills",
+                    ProcessAuthoringSkillName,
+                    string.Equals(resourceName, ProcessAuthoringSkillResourceName, StringComparison.Ordinal)
+                        ? "SKILL.md"
+                        : ProcessAuthoringSkillVersionFileName);
+            }
+            if (string.Equals(resourceName, ProcessReviewSkillResourceName, StringComparison.Ordinal)
+                || string.Equals(resourceName, ProcessReviewSkillVersionResourceName, StringComparison.Ordinal))
+            {
+                return Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Assets",
+                    "Goose",
+                    "Skills",
+                    ProcessReviewSkillName,
+                    string.Equals(resourceName, ProcessReviewSkillResourceName, StringComparison.Ordinal)
+                        ? "SKILL.md"
+                        : ProcessAuthoringSkillVersionFileName);
+            }
+            throw new InvalidOperationException("未知的 Goose 受管资源：" + resourceName);
+        }
+
         private static void WriteEmbeddedResource(string resourceName, string destination)
         {
             string directory = Path.GetDirectoryName(destination);
             Directory.CreateDirectory(directory);
-            Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
-            if (source == null)
-            {
-                string fallbackPath;
-                if (string.Equals(resourceName, PromptResourceName, StringComparison.Ordinal))
-                {
-                    fallbackPath = Path.Combine(
-                        AppDomain.CurrentDomain.BaseDirectory,
-                        "Assets",
-                        "Goose",
-                        "system.md");
-                }
-                else if (string.Equals(resourceName, IntegrationContextResourceName, StringComparison.Ordinal))
-                {
-                    fallbackPath = Path.Combine(
-                        AppDomain.CurrentDomain.BaseDirectory,
-                        "Assets",
-                        "Goose",
-                        "automation.md");
-                }
-                else if (string.Equals(resourceName, ProcessAuthoringSkillResourceName, StringComparison.Ordinal))
-                {
-                    fallbackPath = Path.Combine(
-                        AppDomain.CurrentDomain.BaseDirectory,
-                        "Assets",
-                        "Goose",
-                        "Skills",
-                        ProcessAuthoringSkillName,
-                        "SKILL.md");
-                }
-                else
-                {
-                    throw new InvalidOperationException("未知的 Goose 受管资源：" + resourceName);
-                }
-                if (File.Exists(fallbackPath))
-                {
-                    source = new FileStream(fallbackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        "程序内置 Goose 资源及随程序文件均不存在：" + resourceName + "；" + fallbackPath);
-                }
-            }
+            Stream source = OpenManagedResource(resourceName);
             using (source)
             {
                 string temporary = destination + ".tmp";

@@ -40,6 +40,25 @@ namespace Automation.Hmi
             LoadAlarmDefinitions();
         }
 
+        private void QueryButton_Click(object sender, EventArgs e)
+        {
+            Query();
+        }
+
+        private void DeviceFilter_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (updatingDeviceFilter || loadedRecords.Count == 0)
+            {
+                return;
+            }
+
+            IReadOnlyList<LegacyAlarmHistoryRecord> filtered =
+                FilterByDevice(loadedRecords);
+            detailGrid.DataSource = new BindingList<LegacyAlarmHistoryRecord>(
+                new List<LegacyAlarmHistoryRecord>(filtered));
+            RenderSummary(filtered);
+        }
+
         private void BuildLegacyLayout()
         {
             var outer = new TableLayoutPanel

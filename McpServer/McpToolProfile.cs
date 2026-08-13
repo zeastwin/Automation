@@ -198,7 +198,8 @@ namespace Automation.McpServer
                 {
                     ApplyToolNumericRange(tool, "procOffset", 0, int.MaxValue);
                     ApplyToolNumericRange(tool, "procLimit", 1, 50);
-                    ApplyToolNumericRange(tool, "findingLimit", 1, 100);
+                    ApplyToolNumericRange(tool, "findingOffset", 0, int.MaxValue);
+                    ApplyToolNumericRange(tool, "findingLimit", 1, 300);
                 }
                 else if (string.Equals(toolName, "search_alarms", StringComparison.Ordinal))
                 {

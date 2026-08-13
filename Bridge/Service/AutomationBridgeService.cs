@@ -26,6 +26,8 @@ namespace Automation.Bridge
         private const int DefaultSnapshotPageSize = 50;
         private const int MaxDiagnosticFindingPageSize = 100;
         private const int DefaultDiagnosticFindingPageSize = 50;
+        private const int MaxAuditFindingPageSize = 300;
+        private const int DefaultAuditFindingPageSize = 100;
         private const int MaxDiagnosticEvidencePageSize = 100;
         private const int DefaultDiagnosticEvidencePageSize = 40;
         private const int MaxInfoLogCount = 100;
