@@ -417,6 +417,42 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void ProcessOutline_WhenDeletedIndexIsReused_ShowsNewStableIdentityName()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(
+                    new PlatformRuntime(directory.FullPath)))
+                {
+                    Proc deleted = CreateProcessWithSteps(
+                        "已删除流程",
+                        "旧步骤");
+                    Proc replacement = CreateProcessWithSteps(
+                        "计数演示",
+                        "计数循环");
+                    main.Runtime.ProcessEngine.Context.Procs =
+                        new List<Proc> { deleted };
+                    Assert.AreEqual(
+                        deleted.head.Id,
+                        main.Runtime.ProcessEngine.GetSnapshot(0).ProcId);
+
+                    main.Runtime.ProcessEngine.Context.Procs = new List<Proc>();
+                    main.Runtime.Stores.Processes.ReplaceAll(
+                        new[] { replacement });
+                    main.frmProc.RefreshProcListFromStore();
+
+                    Assert.IsTrue(main.frmProc.processOutline.TryGetProcess(
+                        replacement.head.Id,
+                        out ProcessOutlineItem item));
+                    Assert.AreEqual("0：计数演示", item.Text);
+                    Assert.IsFalse(item.Text.Contains("已删除流程"));
+                }
+            }, TimeSpan.FromSeconds(20));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void ReadyAndRunningIcons_UseClearlyDifferentStatusColors()
         {
             using (Bitmap ready = ProcessOutlineIconFactory.Create(

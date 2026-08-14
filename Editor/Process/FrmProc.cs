@@ -630,6 +630,7 @@ namespace Automation
                 if (reloadConfiguration)
                 {
                     processDefinitionRepository.ReplaceAll(procsListTemp);
+                    RefreshInactiveRuntimeProcesses(procsListTemp);
                 }
                 processOutline.ReplaceItems(
                     BuildOutlineItems(procsListTemp),
@@ -650,30 +651,6 @@ namespace Automation
             finally
             {
                 restoringOutlineState = false;
-            }
-            if (reloadConfiguration && Workspace.Runtime.ProcessEngine?.Context != null)
-            {
-                bool allStopped = true;
-                int runtimeCount = Workspace.Runtime.ProcessEngine.Context.Procs?.Count ?? 0;
-                for (int i = 0; i < runtimeCount; i++)
-                {
-                    EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine.GetSnapshot(i);
-                    if (snapshot != null && !snapshot.State.IsInactive())
-                    {
-                        allStopped = false;
-                        break;
-                    }
-                }
-                if (allStopped)
-                {
-                    List<Proc> runtimeProcs = new List<Proc>(procsList.Count);
-                    for (int i = 0; i < procsList.Count; i++)
-                    {
-                        runtimeProcs.Add(ObjectGraphCloner.Clone(procsList[i]));
-                    }
-                    Workspace.Runtime.ProcessEngine.Context.Procs = runtimeProcs;
-                    Workspace.Runtime.ProcessEngine.ClearPendingProcUpdates();
-                }
             }
             if (synchronizeRestoredSelection)
             {
@@ -734,6 +711,29 @@ namespace Automation
             Workspace.Main?.RefreshProcessFlowGraph();
         }
 
+        private void RefreshInactiveRuntimeProcesses(IReadOnlyList<Proc> processes)
+        {
+            ProcessEngine engine = Workspace.Runtime.ProcessEngine;
+            if (engine?.Context == null)
+            {
+                return;
+            }
+            int runtimeCount = engine.Context.Procs?.Count ?? 0;
+            for (int index = 0; index < runtimeCount; index++)
+            {
+                EngineSnapshot snapshot = engine.GetSnapshot(index);
+                if (snapshot != null && !snapshot.State.IsInactive())
+                {
+                    return;
+                }
+            }
+
+            engine.Context.Procs = (processes ?? Array.Empty<Proc>())
+                .Select(ObjectGraphCloner.Clone)
+                .ToList();
+            engine.ClearPendingProcUpdates();
+        }
+
         private IReadOnlyList<ProcessOutlineItem> BuildOutlineItems(
             IReadOnlyList<Proc> processes)
         {
@@ -747,7 +747,7 @@ namespace Automation
                 {
                     continue;
                 }
-                EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
+                EngineSnapshot snapshot = GetMatchingProcessSnapshot(procIndex, procId);
                 items.Add(new ProcessOutlineItem
                 {
                     ProcId = procId,
@@ -1784,12 +1784,23 @@ namespace Automation
 
         private string ResolveProcName(int procIndex, Proc proc, EngineSnapshot snapshot)
         {
-            string name = snapshot?.ProcName;
+            string name = proc?.head?.Name;
             if (string.IsNullOrWhiteSpace(name))
             {
-                name = string.IsNullOrWhiteSpace(proc?.head?.Name) ? $"流程{procIndex}" : proc.head.Name;
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                name = snapshot != null && snapshot.ProcId == procId
+                    ? snapshot.ProcName
+                    : null;
             }
-            return name;
+            return string.IsNullOrWhiteSpace(name) ? $"流程{procIndex}" : name;
+        }
+
+        private EngineSnapshot GetMatchingProcessSnapshot(int procIndex, Guid procId)
+        {
+            EngineSnapshot snapshot = Workspace.Runtime.ProcessEngine?.GetSnapshot(procIndex);
+            return procId != Guid.Empty && snapshot?.ProcId == procId
+                ? snapshot
+                : null;
         }
 
         private string BuildStepRowText(int procIndex, int stepIndex, Step step)

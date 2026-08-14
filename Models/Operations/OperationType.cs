@@ -997,6 +997,43 @@ namespace Automation
         }
     }
     [Serializable]
+    public class ConfigurationPlaceholder : OperationType
+    {
+        public ConfigurationPlaceholder()
+        {
+            OperaType = "配置占位";
+            Name = "待完善配置";
+            AlarmType = "报警停止";
+        }
+
+        [DisplayName("未决原因"), Category("参数"), Description("当前功能块尚不能落为真实可执行指令的原因。"), ReadOnly(false)]
+        public string Reason { get; set; }
+
+        [DisplayName("计划成功出口"), Category("计划控制流"), Description("仅用于设计期表达占位功能块成功后的计划流向；流程启动前必须替换本占位。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("计划成功出口")]
+        public string PlannedSuccessGoto { get; set; }
+
+        [DisplayName("计划失败出口"), Category("计划控制流"), Description("仅用于设计期表达占位功能块失败后的计划流向；流程启动前必须替换本占位。"), ReadOnly(false), TypeConverter(typeof(GotoItem))]
+        [MarkedGoto("计划失败出口")]
+        public string PlannedFailureGoto { get; set; }
+
+        public override bool IsPropertyVisible(string propertyName, bool defaultVisibility)
+        {
+            switch (propertyName)
+            {
+                case nameof(AlarmType):
+                case nameof(AlarmInfoId):
+                case nameof(Goto1):
+                case nameof(Goto2):
+                case nameof(Goto3):
+                case nameof(IsBreakpoint):
+                    return false;
+                default:
+                    return base.IsPropertyVisible(propertyName, defaultVisibility);
+            }
+        }
+    }
+    [Serializable]
     public class PopupDialog : OperationType
     {
         public PopupDialog()

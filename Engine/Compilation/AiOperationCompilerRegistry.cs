@@ -165,11 +165,6 @@ namespace Automation
         public string ResolveTarget(OperationTarget target, string path)
         {
             if (target == null) return string.Empty;
-            if (!string.IsNullOrWhiteSpace(target.EntryMode))
-            {
-                throw new InvalidOperationException(
-                    $"{path}.entryMode 只由 Process Blueprint 编译阶段使用，普通 ChangeSet 不接受。" );
-            }
             bool hasOperationId = !string.IsNullOrWhiteSpace(target.OperationId);
             bool hasOperationKey = !string.IsNullOrWhiteSpace(target.OperationKey);
             int selectorCount = (hasOperationId ? 1 : 0) + (hasOperationKey ? 1 : 0);
@@ -180,12 +175,6 @@ namespace Automation
             }
             if (hasOperationId)
             {
-                if (!string.IsNullOrWhiteSpace(target.StepId)
-                    || !string.IsNullOrWhiteSpace(target.StepKey))
-                {
-                    throw new InvalidOperationException(
-                        $"{path} 使用 operationId 时不得提供 stepId 或 stepKey。");
-                }
                 if (!Guid.TryParse(target.OperationId, out Guid operationId) || operationId == Guid.Empty)
                 {
                     throw new InvalidOperationException($"{path}.operationId 不是有效 Guid。");
@@ -236,14 +225,43 @@ namespace Automation
             {
                 throw new InvalidOperationException($"{path} 无法确定 operationKey 所在步骤。");
             }
-            if (!_operationKeyLocations.TryGetValue(mapKey, out OperationReferenceLocation keyLocation))
+            if (_operationKeyLocations.TryGetValue(mapKey, out OperationReferenceLocation keyLocation))
+            {
+                return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
+            }
+            bool ambiguous = false;
+            if (stepSelectorCount == 0
+                && TryResolveUniqueOperationKey(operationKey, out keyLocation, out ambiguous))
+            {
+                return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
+            }
+            if (stepSelectorCount == 0 && ambiguous)
             {
                 throw new InvalidOperationException(
-                    $"{path}.operationKey 未在当前 ChangeSet 的最终结构中找到："
-                    + $"步骤[{stepDisplay}] 指令[{operationKey}]。"
-                    + "局部 key 仅限当前 ChangeSet；已提交目标请改用 operationId。");
+                    $"{path}.operationKey 在当前 ChangeSet 的多个步骤中同名：{operationKey}；"
+                    + "请附加 stepId 或 stepKey 消除歧义。");
             }
-            return $"{_procIndex}-{keyLocation.StepIndex}-{keyLocation.OperationIndex}";
+            throw new InvalidOperationException(
+                $"{path}.operationKey 未在当前 ChangeSet 的最终结构中找到："
+                + $"步骤[{stepDisplay}] 指令[{operationKey}]。"
+                + "局部 key 仅限当前 ChangeSet；已提交目标请改用 operationId。");
+        }
+
+        private bool TryResolveUniqueOperationKey(
+            string operationKey,
+            out OperationReferenceLocation location,
+            out bool ambiguous)
+        {
+            string suffix = "\0" + operationKey;
+            List<OperationReferenceLocation> matches = _operationKeyLocations
+                .Where(item => item.Key.EndsWith(suffix, StringComparison.Ordinal))
+                .Select(item => item.Value)
+                .GroupBy(item => new { item.StepIndex, item.OperationIndex })
+                .Select(group => group.First())
+                .ToList();
+            ambiguous = matches.Count > 1;
+            location = matches.Count == 1 ? matches[0] : null;
+            return location != null;
         }
 
         public static string BuildOperationKeyForStepKey(string stepKey, string operationKey)
@@ -1095,22 +1113,25 @@ namespace Automation
             public string DefaultName => "待完善配置";
 
             public JObject BuildContract() => Contract(
-                "在目标、资源或业务参数暂时无法确定时保留一个显式占位；占位存在时平台允许保存但禁止启动，确认真实动作后必须使用 operation.replace 完整替换",
-                new[] { "kind", "message" }, new[] { "name" },
+                "在目标、资源或业务参数暂时无法确定时保留一个显式且不可执行的功能块；可选计划成功/失败出口用于先搭建完整结构，确认真实动作后再用 operation.replace 完整替换",
+                new[] { "kind", "message" }, new[] { "name", "whenTrue", "whenFalse" },
                 new JProperty("readiness", "incomplete-until-replaced"),
-                new JProperty("runBehavior", "blocked-before-start"));
+                new JProperty("runBehavior", "blocked-before-start-and-fail-safe-if-bypassed"),
+                new JProperty("plannedControlFlow", "whenTrue/whenFalse仅用于设计期结构和可达性；未提供的出口按顺序草稿结构展示"));
 
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
                 string reason = AiOperationCompileContext.RequireText(
                     definition.Message, "config.placeholder.message");
-                return new PopupDialog
+                return new ConfigurationPlaceholder
                 {
-                    PopupType = "弹是",
-                    InfoType = "自定义提示信息",
-                    PopupMessage = "此处配置尚未完成：" + reason,
-                    Btn1Text = "知道了",
-                    AlarmLightEnable = "禁用",
+                    Reason = reason,
+                    PlannedSuccessGoto = definition.WhenTrue == null
+                        ? null
+                        : context.ResolveTarget(definition.WhenTrue, "config.placeholder.whenTrue"),
+                    PlannedFailureGoto = definition.WhenFalse == null
+                        ? null
+                        : context.ResolveTarget(definition.WhenFalse, "config.placeholder.whenFalse"),
                     Note = ProcessReadinessService.PlaceholderNotePrefix + reason
                 };
             }

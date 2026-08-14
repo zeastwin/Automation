@@ -54,8 +54,7 @@ namespace Automation.Core.Tests
                 Action = "run_stage",
                 Capability = AutomationToolProfiles.RuntimeControl,
                 Objective = "启动流程",
-                AuthorizationQuote = "之前已经同意",
-                Message = string.Empty
+                AuthorizationQuote = "之前已经同意"
             };
 
             AiTaskDecisionValidation result = AiTaskCapabilityPolicy.Validate(
@@ -100,8 +99,7 @@ namespace Automation.Core.Tests
                 Action = "run_stage",
                 Capability = AutomationToolProfiles.ProcessReview,
                 Objective = "检查流程",
-                AuthorizationQuote = string.Empty,
-                Message = string.Empty
+                AuthorizationQuote = string.Empty
             };
 
             Assert.AreEqual(
@@ -403,20 +401,19 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void ProcessReviewDecision_RequiresStructuredHandoff()
+        public void RequestCapability_RejectsCompletionAction()
         {
-            AiTaskDecisionValidation missing = AiTaskCapabilityPolicy.Validate(
+            AiTaskDecisionValidation result = AiTaskCapabilityPolicy.Validate(
                 new TaskCapabilityDecisionDefinition
                 {
                     Version = 1,
-                    Action = "finish",
-                    Message = "检查完成"
+                    Action = "finish"
                 },
                 "检查流程", AutomationToolProfiles.Editor, false,
-                new AiDynamicTaskState(), AutomationToolProfiles.ProcessReview);
+                new AiDynamicTaskState());
 
-            Assert.AreEqual(AiTaskDecisionKind.Invalid, missing.Kind);
-            StringAssert.Contains(missing.Message, "reviewHandoff");
+            Assert.AreEqual(AiTaskDecisionKind.Invalid, result.Kind);
+            StringAssert.Contains(result.Message, "直接正常回复");
         }
 
         [TestMethod]
@@ -503,39 +500,27 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void ProcessDesign_MustReadKnowledgeBeforeFinishOrNextStage()
+        public void ProcessDesign_KnowledgeIsOnDemandAndDoesNotBlockCapabilitySwitch()
         {
-            var blocked = new AiDynamicTaskState();
+            var state = new AiDynamicTaskState();
             AiTaskCapabilityPolicy.RecordStage(
-                blocked,
+                state,
                 new AiTaskCapabilityStage { Profile = AutomationToolProfiles.ProcessDesign, Objective = "设计扫码流程" },
                 new AiTurnEvidence(false, false, false, false, false, false, false, 0));
-            var allowed = new AiDynamicTaskState();
-            AiTaskCapabilityPolicy.RecordStage(
-                allowed,
-                new AiTaskCapabilityStage { Profile = AutomationToolProfiles.ProcessDesign, Objective = "设计扫码流程" },
-                new AiTurnEvidence(true, false, false, false, false, false, false, 0, true, false));
-
             Assert.AreEqual(
-                AiTaskDecisionKind.Invalid,
-                Validate("finish", "", state: blocked, message: "设计完成").Kind);
-            Assert.AreEqual(
-                AiTaskDecisionKind.Invalid,
-                Validate("run_stage", AutomationToolProfiles.ProcessCreate, state: blocked).Kind);
-            Assert.AreEqual(
-                AiTaskDecisionKind.Finish,
-                Validate("finish", "", state: allowed, message: "设计完成").Kind);
+                AiTaskDecisionKind.RunStage,
+                Validate("run_stage", AutomationToolProfiles.ProcessCreate, state: state).Kind);
         }
 
         [TestMethod]
-        public void FinishAndAskUser_DoNotGrantCapabilities()
+        public void FinishAndAskUser_AreNotControlToolActions()
         {
-            AiTaskDecisionValidation finish = Validate("finish", "", message: "任务完成");
-            AiTaskDecisionValidation ask = Validate("ask_user", "", message: "请提供流程名称");
+            AiTaskDecisionValidation finish = Validate("finish", "");
+            AiTaskDecisionValidation ask = Validate("ask_user", "");
 
-            Assert.AreEqual(AiTaskDecisionKind.Finish, finish.Kind);
+            Assert.AreEqual(AiTaskDecisionKind.Invalid, finish.Kind);
             Assert.IsNull(finish.Stage);
-            Assert.AreEqual(AiTaskDecisionKind.AskUser, ask.Kind);
+            Assert.AreEqual(AiTaskDecisionKind.Invalid, ask.Kind);
             Assert.IsNull(ask.Stage);
         }
 
@@ -584,36 +569,59 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void ContextRollover_UsesBusinessBoundaryPressureSignals()
+        public void ContextRollover_DoesNotInjectCurrentUserRequestTwice()
         {
-            Assert.IsFalse(AiConversationCoordinator.ShouldRequestTrustedContextRollover(
-                50000, 1, 128000, 8192));
-            Assert.IsTrue(AiConversationCoordinator.ShouldRequestTrustedContextRollover(
-                63000, 1, 128000, 8192));
-            Assert.IsTrue(AiConversationCoordinator.ShouldRequestTrustedContextRollover(
-                50000, 40 * 1024, 128000, 8192));
-            Assert.IsFalse(AiConversationCoordinator.ShouldRequestTrustedContextRollover(
-                1, 512 * 1024, 128000, 8192));
+            var conversation = new AiConversation();
+            conversation.Messages.Add(new AiConversationMessage { Role = "user", Text = "上一轮问题" });
+            conversation.Messages.Add(new AiConversationMessage { Role = "assistant", Text = "上一轮结论" });
+            conversation.Messages.Add(new AiConversationMessage { Role = "user", Text = "当前新请求" });
+
+            string restored = AiConversationCoordinator.BuildRestoredContext(
+                conversation, excludeLatestUserMessage: true);
+
+            StringAssert.Contains(restored, "上一轮问题");
+            StringAssert.Contains(restored, "上一轮结论");
+            Assert.IsTrue(restored.IndexOf("当前新请求", System.StringComparison.Ordinal) < 0);
         }
 
         [TestMethod]
-        public void RepeatedMaxTokensWithoutToolProgress_StopsInsteadOfThirdReasoningTurn()
+        public void StageContinuation_DoesNotTreatMissingToolCallAsMissingThinkingProgress()
         {
-            Assert.IsFalse(AiConversationCoordinator.ShouldStopStageContinuation(
-                "max_tokens", 1, 0));
-            Assert.IsFalse(AiConversationCoordinator.ShouldStopStageContinuation(
-                "max_tokens", 2, 1));
-            Assert.IsTrue(AiConversationCoordinator.ShouldStopStageContinuation(
-                "max_tokens", 2, 0));
-            Assert.IsFalse(AiConversationCoordinator.ShouldStopStageContinuation(
-                "end_turn", 3, 0));
-
             string prompt = AiConversationCoordinator.BuildStageContinuationPrompt(
                 AutomationToolProfiles.ProcessCreate,
                 "max_tokens");
-            StringAssert.Contains(prompt, "停止展开分析");
-            StringAssert.Contains(prompt, "先用autoStart=false和config.placeholder预演安全骨架");
-            StringAssert.Contains(prompt, "申请ProcessEdit分段补齐");
+            StringAssert.Contains(prompt, "从中断处继续");
+            StringAssert.Contains(prompt, "可以继续必要分析或调用工具");
+            StringAssert.Contains(prompt, "直接给用户最终答复或提问");
+            Assert.IsTrue(prompt.IndexOf("ask_user", System.StringComparison.Ordinal) < 0);
+            Assert.IsTrue(prompt.IndexOf("finish", System.StringComparison.Ordinal) < 0);
+            Assert.IsTrue(prompt.IndexOf("config.placeholder", System.StringComparison.Ordinal) < 0);
+        }
+
+        [TestMethod]
+        public void Routing_DoesNotRejectWorkByStageCountOrRepeatedNaturalLanguageObjective()
+        {
+            var state = new AiDynamicTaskState { CompletedStageCount = 100 };
+            AiTaskCapabilityPolicy.RecordStage(
+                state,
+                new AiTaskCapabilityStage
+                {
+                    Profile = AutomationToolProfiles.ProcessReview,
+                    Objective = "检查当前流程事实"
+                },
+                new AiTurnEvidence(true, true, false, false, false, false, false, 0));
+            AiTaskCapabilityPolicy.RecordStage(
+                state,
+                new AiTaskCapabilityStage
+                {
+                    Profile = AutomationToolProfiles.ProcessReview,
+                    Objective = "检查当前流程事实"
+                },
+                new AiTurnEvidence(true, true, false, false, false, false, false, 0));
+
+            Assert.AreEqual(
+                AiTaskDecisionKind.RunStage,
+                Validate("run_stage", AutomationToolProfiles.ProcessReview, state: state).Kind);
         }
 
         [TestMethod]
@@ -644,22 +652,24 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void Trajectory_FlagsContextAndModelLatency_AndMarksRecoveredToolError()
+        public void TrajectoryObservation_FlagsContextAndModelLatency_WithoutEnforcement()
         {
-            AiTrajectoryEvaluation slowReview = AiTrajectoryBudgetPolicy.Evaluate(
+            AiTrajectoryObservation slowReview = AiTrajectoryObservationPolicy.Evaluate(
                 AutomationToolProfiles.ProcessReview,
                 10,
                 0,
                 46822,
+                40 * 1024,
                 61156,
                 128000,
                 79675,
                 new[] { "get_proc_overview", "get_flow_graph", "validate_proc" });
-            AiTrajectoryEvaluation recovered = AiTrajectoryBudgetPolicy.Evaluate(
+            AiTrajectoryObservation recovered = AiTrajectoryObservationPolicy.Evaluate(
                 AutomationToolProfiles.ProcessCreate,
                 8,
                 1,
                 41023,
+                12 * 1024,
                 12000,
                 128000,
                 1000,
@@ -668,12 +678,13 @@ namespace Automation.Core.Tests
             Assert.AreEqual("review", slowReview.Status);
             Assert.IsTrue(slowReview.Reasons.Any(reason => reason.StartsWith("input_context_pressure", System.StringComparison.Ordinal)));
             Assert.IsTrue(slowReview.Reasons.Any(reason => reason.StartsWith("unattributed_ms", System.StringComparison.Ordinal)));
+            Assert.IsTrue(slowReview.Reasons.Any(reason => reason.StartsWith("model_segment_bytes", System.StringComparison.Ordinal)));
             Assert.AreEqual("recovered", recovered.Status);
             CollectionAssert.Contains(recovered.Reasons.ToArray(), "tool_failures_recovered=1");
         }
 
         [TestMethod]
-        public void FinishWithExecutionFields_IsRejectedInsteadOfSilentlyIgnoringThem()
+        public void CompletionAction_IsRejectedByCapabilityControl()
         {
             AiTaskDecisionValidation result = AiTaskCapabilityPolicy.Validate(
                 new TaskCapabilityDecisionDefinition
@@ -682,9 +693,7 @@ namespace Automation.Core.Tests
                     Action = "finish",
                     Capability = AutomationToolProfiles.ProcessReview,
                     Objective = "顺便检查流程",
-                    Message = "任务完成",
-                    AuthorizationQuote = string.Empty,
-                    RequiresUserConfirmationAfter = false
+                    AuthorizationQuote = string.Empty
                 },
                 "请回答问题",
                 AutomationToolProfiles.Editor,
@@ -692,7 +701,7 @@ namespace Automation.Core.Tests
                 new AiDynamicTaskState());
 
             Assert.AreEqual(AiTaskDecisionKind.Invalid, result.Kind);
-            StringAssert.Contains(result.Message, "不能同时携带");
+            StringAssert.Contains(result.Message, "只接受 action=run_stage");
         }
 
         [TestMethod]
@@ -711,8 +720,7 @@ namespace Automation.Core.Tests
             string capability,
             string permission = AutomationToolProfiles.Editor,
             bool fullPermission = false,
-            AiDynamicTaskState state = null,
-            string message = "")
+            AiDynamicTaskState state = null)
         {
             return AiTaskCapabilityPolicy.Validate(
                 new TaskCapabilityDecisionDefinition
@@ -723,14 +731,12 @@ namespace Automation.Core.Tests
                     Objective = string.Equals(action, "run_stage", System.StringComparison.Ordinal)
                         ? "检查当前流程事实"
                         : string.Empty,
-                    Message = message,
                     AuthorizationQuote = AiTaskCapabilityPolicy.RequiresExplicitAuthorizationQuote(capability)
                         ? "执行"
                         : string.Empty,
                     Basis = string.Equals(capability, AutomationToolProfiles.ProcessEdit, System.StringComparison.Ordinal)
                         ? TaskDecisionBases.DirectUserChange
-                        : string.Empty,
-                    RequiresUserConfirmationAfter = false
+                        : string.Empty
                 },
                 "请执行这个任务",
                 permission,

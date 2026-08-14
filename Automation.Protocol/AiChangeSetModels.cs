@@ -311,19 +311,16 @@ namespace Automation.Protocol
 
     public sealed class OperationTarget
     {
-        [Description("目标现有指令的稳定 Guid；与 operationKey 方式互斥。")]
+        [Description("目标现有指令的稳定 Guid；与operationKey互斥且自身足以定位。若同时携带stepId/stepKey，编译器以operationId为准。")]
         public string OperationId { get; set; }
 
-        [Description("跨步骤定位时可提供目标步骤稳定 Guid；当前步骤内定位无需提供。")]
+        [Description("operationKey跨步骤且不唯一时，用目标步骤稳定Guid消除歧义；当前步骤或全ChangeSet唯一时省略。")]
         public string StepId { get; set; }
 
-        [Description("当前ChangeSet内跨步骤定位时提供目标步骤局部key；只提供stepKey时由Blueprint进入目标步骤第一条有效指令。当前步骤内定位无需提供。")]
+        [Description("operationKey跨新步骤且不唯一时，用当前ChangeSet内步骤key消除歧义；当前步骤或全ChangeSet唯一时省略。")]
         public string StepKey { get; set; }
 
-        [Description("按指令key形成符号目标；仅可指向当前ChangeSet内新建指令。当前步骤内跳转必须填写；Blueprint跨步骤默认可只填stepKey。目标必须在本次预演的最终结构中存在；已提交目标必须使用operationId。")]
+        [Description("当前ChangeSet内新指令的局部key。优先解析当前步骤，否则在最终结构中唯一时自动跨步骤解析；有同名歧义时再提供stepId或stepKey。已提交目标使用operationId。")]
         public string OperationKey { get; set; }
-
-        [Description("Blueprint跨步骤入口模式：first或operation。省略等同first并进入目标步骤第一条有效指令；只有明确需要跳入步骤中段时使用operation，且同时填写operationKey。普通ChangeSet不使用。")]
-        public string EntryMode { get; set; }
     }
 }

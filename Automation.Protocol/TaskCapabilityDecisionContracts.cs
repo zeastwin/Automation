@@ -57,10 +57,10 @@ namespace Automation.Protocol
         [Description("问题涉及的稳定 procId、stepId、opId 或资源精确名称。")]
         public List<string> TargetIds { get; set; }
 
-        [Description("直接支持结论的当前配置、引用、Readiness 或运行证据。")]
+        [Description("直接支持结论的当前配置、引用、Readiness 或运行证据。当前机械结构与用户明确业务要求不一致时，同时说明要求与结构差异；占位message只能证明未决说明，不能证明其中描述的控制策略已经实现。")]
         public string Evidence { get; set; }
 
-        [Description("至少一项宿主机械事实引用，格式为subjectId::key。稳定key包括proc.isValid/proc.runnable/proc.runBlockerCount、operation.reachable/operation.invalid/operation.graphDiagnostic.<code>/operation.incomingGotoCount、variable.usageCount等。只能引用本阶段成功工具结果中由宿主附加的verifiedFacts。")]
+        [Description("至少一项宿主机械事实引用，格式为subjectId::key。稳定key包括proc.isValid/proc.runnable/proc.runBlockerCount、operation.reachable/operation.invalid/operation.placeholder/operation.plannedOutgoingCount/operation.plannedTarget.<field>/operation.graphDiagnostic.<code>/operation.incomingGotoCount、variable.usageCount等。只能引用本阶段成功工具结果中由宿主附加的verifiedFacts。")]
         public List<string> EvidenceFactRefs { get; set; }
 
         [Description("只修复该 finding 所需的最小改动边界。")]
@@ -110,29 +110,24 @@ namespace Automation.Protocol
     }
 
     /// <summary>
-    /// 无副作用协调模型每轮提交的单步决定。它只表达下一步意图，不授予权限。
+    /// 无副作用协调模型提交的单步能力切换请求。完成当前工作或需要用户补充时直接正常回复，
+    /// 不再把最终答复包装进控制工具。
     /// </summary>
     public sealed class TaskCapabilityDecisionDefinition
     {
         public int Version { get; set; } = 1;
 
-        [Description("单步决定：run_stage、finish或ask_user。当前交付已经完成、用户允许占位或仅存在后续可选完善项时使用finish；只有缺少信息导致当前交付无法安全继续时使用ask_user。")]
+        [Description("固定为run_stage；该工具只用于切换到一个下一能力。完成或需要用户补充时不要调用，直接正常回复。")]
         public string Action { get; set; }
 
         [Description("action=run_stage时必填的单个能力包。用户目标是创建流程时直接选择ProcessCreate，它可读取设计知识、发现资源并创建完整简单流程或安全骨架；复杂骨架提交后用ProcessEdit按稳定ID分阶段补齐。ProcessDesign只用于纯方案输出或写入前必须先让用户做设计取舍的阶段。")]
         public string Capability { get; set; }
 
-        [Description("action=run_stage时必填的当前阶段目标，不提交后续完整计划。")]
+        [Description("action=run_stage时必填；只描述当前能力处理的对象和业务结果，不评价简单/复杂，不规定一次完成整个用户目标，也不提交后续完整计划。")]
         public string Objective { get; set; }
 
-        [Description("action=finish或ask_user时必填；这是唯一持久化给用户的本轮模型输出。允许的占位、incomplete或可选后续工作不妨碍finish，应在finish中列明；只有当前任务无法继续才ask_user。ProcessReview的精确校验数量由宿主从工具证据另行渲染，message解释影响即可，不重复手算。")]
-        public string Message { get; set; }
-
-        [Description("只有运行控制、平台配置或源码修改能力需要；必须逐字来自当前用户消息，历史消息不能授权。")]
+        [Description("仅RuntimeControl、PlatformConfiguration、SourceDevelopment需要；必须逐字来自当前用户消息，历史消息不能授权。ProcessCreate、ProcessEdit和ResourceEdit由预演确认授权，不填写本字段。")]
         public string AuthorizationQuote { get; set; }
-
-        [Description("当前阶段完成后是否必须暂停并等待用户再次发言。")]
-        public bool RequiresUserConfirmationAfter { get; set; }
 
         [Description("申请 ProcessEdit 时必填：direct_user_change 表示当前用户明确指定修改，也用于继续补齐本次已提交的流程骨架；proven_review_finding 表示只落实已证明的评审 finding。")]
         public string Basis { get; set; }
@@ -140,7 +135,5 @@ namespace Automation.Protocol
         [Description("basis=proven_review_finding 时必填，必须逐项引用最近可信 reviewHandoff 中的 finding id。")]
         public List<string> FindingIds { get; set; }
 
-        [Description("ProcessReview 阶段结束时必填的结构化可信交接；普通协调决定不得伪造或改写。")]
-        public ReviewHandoffDefinition ReviewHandoff { get; set; }
     }
 }

@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 15;
+        public const int ContractVersion = 16;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -324,6 +324,25 @@ namespace Automation
                         true);
                     contract["constraints"] = new JArray("延时值必须是非负整数", "DelayMs 与 DelayVariableName 只能选择一种", "两种来源都为空时延时0毫秒");
                     contract["failureModes"] = new JArray("固定延时为负数或两种来源同时配置时报警", "延时变量不存在或其值不是非负整数时报警");
+                    break;
+
+                case "配置占位":
+                    var placeholder = (ConfigurationPlaceholder)operation;
+                    bool hasPlannedSuccess = !string.IsNullOrWhiteSpace(placeholder.PlannedSuccessGoto);
+                    bool hasPlannedFailure = !string.IsNullOrWhiteSpace(placeholder.PlannedFailureGoto);
+                    contract = CreateContract(
+                        "设计期不可执行的配置占位，保留未决事实与计划控制流；必须替换为真实指令后流程才能启动。",
+                        new[] { "保存时保留明确未决原因", "流程图投影计划出口", "启动就绪检查始终阻止包含本指令的流程运行" },
+                        !hasPlannedSuccess || !hasPlannedFailure);
+                    AddRequiredField(contract, nameof(ConfigurationPlaceholder.Reason), "真实动作、资源或参数尚未确定的原因");
+                    AddGotoRule(contract, nameof(ConfigurationPlaceholder.PlannedSuccessGoto), false, "可选的设计期成功出口");
+                    AddGotoRule(contract, nameof(ConfigurationPlaceholder.PlannedFailureGoto), false, "可选的设计期失败出口");
+                    contract["controlFlow"]["plannedOnly"] = true;
+                    contract["controlFlow"]["description"] = hasPlannedSuccess && hasPlannedFailure
+                        ? "流程图仅展示计划成功与失败出口；本指令不可运行"
+                        : "未显式声明的计划出口按后续顺序结构展示；本指令不可运行";
+                    contract["constraints"] = new JArray("不弹框、不延时、不产生成功假象", "计划出口只服务于草稿结构与可达性分析", "提交后必须使用operation.replace完整替换");
+                    contract["failureModes"] = new JArray("若启动闸门被旁路，引擎立即报警停止，不执行计划出口");
                     break;
 
                 case "修改变量":
@@ -742,7 +761,8 @@ namespace Automation
                 contract["coverage"] = "specialized";
             }
             contract["source"] = nameof(OperationBehaviorCatalog);
-            AddAlarmPolicy(contract);
+            if (!(operation is ConfigurationPlaceholder))
+                AddAlarmPolicy(contract);
             AddCommunicationRetryPolicy(contract, operation);
             return contract;
         }

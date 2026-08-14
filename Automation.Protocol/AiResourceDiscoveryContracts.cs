@@ -36,7 +36,7 @@ namespace Automation.Protocol
     /// </summary>
     public sealed class AuthoringInputRequirement
     {
-        [Description("本阶段内稳定且唯一的用途键，例如scanResult或partPresent；用于把解析结果对应回蓝图字段。")]
+        [Description("本阶段内稳定且唯一的用途键，例如scanResult或partPresent；用于把解析结果对应回当前 ChangeSet 中的业务用途。")]
         public string Key { get; set; }
 
         [Description("资源类别。严格枚举：" + ProjectResourceDiscoveryKinds.SupportedKinds + "。")]

@@ -124,7 +124,8 @@ namespace Automation
             if (string.Equals(resultType, "change_set.apply", StringComparison.Ordinal))
             {
                 next["changeSetApply"] = Select(data,
-                    "status", "configurationSaved", "affectedProcesses", "createdObjects", "readiness");
+                    "status", "configurationSaved", "affectedProcesses", "createdObjects",
+                    "readinessStatus", "runnable", "runBlockers");
             }
             else if (string.Equals(resultType, "project.authoring_inputs", StringComparison.Ordinal))
             {
@@ -183,7 +184,7 @@ namespace Automation
             {
                 selected.Add(Select(item,
                     "key", "intent", "semanticCandidates", "nativeCandidates",
-                    "resolutionStatus", "recommendedFallback", "nextContractTool"));
+                    "resolutionStatus", "recommendedFallback", "fallbackCapabilities", "nextContractTool"));
             }
             return selected;
         }
@@ -265,7 +266,10 @@ namespace Automation
             runtime.Status = "进行中";
             runtime.Cancellation?.Dispose();
             runtime.Cancellation = new CancellationTokenSource();
-            runtime.RecoveryContext = BuildRestoredContext(runtime.Conversation);
+            // 当前用户请求会作为本轮 prompt 单独发送；可信恢复胶囊只带此前终态消息，
+            // 避免新原生会话把同一条用户消息注入两次。
+            runtime.RecoveryContext = BuildRestoredContext(
+                runtime.Conversation, excludeLatestUserMessage: true);
             return true;
         }
 
@@ -285,18 +289,19 @@ namespace Automation
                     prompt,
                     attachments,
                     runtime.Cancellation.Token).ConfigureAwait(false);
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                 runtime.Status = "已完成";
                 return BuildTaskResult(AiTaskExecutionStatus.Completed, runtime, client, null);
             }
             catch (OperationCanceledException)
             {
-                RequestTrustedContextRolloverIfNeeded(runtime, client);
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                 runtime.Status = "已停止";
                 return BuildTaskResult(AiTaskExecutionStatus.Cancelled, runtime, client, null);
             }
             catch (Exception ex)
             {
-                RequestTrustedContextRolloverIfNeeded(runtime, client);
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                 runtime.Status = "失败";
                 return BuildTaskResult(AiTaskExecutionStatus.Failed, runtime, client, ex.Message);
             }
@@ -338,17 +343,16 @@ namespace Automation
             {
                 Index = 0,
                 Profile = AutomationToolProfiles.TaskCoordinator,
-                Objective = "根据用户目标申请第一个能力包、结束或询问用户。"
+                Objective = "根据用户目标判断是否需要切换到一个工作能力包。"
             };
             bool attachmentsSent = false;
             bool stageStarted = false;
             bool stageFinalized = false;
             int stageContinuationCount = 0;
-            int invalidDecisionCount = 0;
             AiTurnEvidence stageEvidence = AiTurnEvidence.Empty;
             AiStageArtifact stageArtifact = AiStageArtifact.Empty;
             string stageOutput = string.Empty;
-            string decisionSubmittingProfile = null;
+            ReviewHandoffDefinition stageReviewHandoff = null;
             try
             {
                 while (true)
@@ -397,60 +401,71 @@ namespace Automation
                         stageArtifact = AiStageArtifact.Merge(stageArtifact, client.LastTurnArtifact);
                         string latestOutput = client.LastAssistantResponse;
                         if (!string.IsNullOrWhiteSpace(latestOutput)) stageOutput = latestOutput;
+                        if (client.LastSubmittedReviewHandoff != null)
+                            stageReviewHandoff = client.LastSubmittedReviewHandoff;
                         lastWorkerClient = client;
                     }
 
                     TaskCapabilityDecisionDefinition decision = client.LastSubmittedTaskDecision;
                     bool hasDecision = client.LastTaskDecisionSubmissionCount > 0;
-                    if (!hasDecision && !coordinatorStage && !stageFinalized)
+                    string modelStopReason = promptResult?["stopReason"]?.ToString() ?? "unknown";
+                    string turnOutput = client.LastAssistantResponse;
+                    bool naturalCompletion = !hasDecision
+                        && !string.Equals(modelStopReason, "max_tokens", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(turnOutput);
+                    if (!hasDecision && !naturalCompletion && !stageFinalized)
                     {
                         stageContinuationCount++;
-                        string modelStopReason = promptResult?["stopReason"]?.ToString() ?? "unknown";
                         int lastTurnToolCallCount = client.LastTurnToolCallCount;
-                        if (ShouldStopStageContinuation(
+                        AiAnalysisLogger.Write(new Newtonsoft.Json.Linq.JObject
+                        {
+                            ["event"] = "capability.stage.continuing",
+                            ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                            ["stageIndex"] = currentStage.Index,
+                            ["profile"] = currentStage.Profile,
+                            ["continuation"] = stageContinuationCount,
+                            ["stopReason"] = modelStopReason,
+                            ["lastTurnToolCallCount"] = lastTurnToolCallCount,
+                            ["reason"] = "stage_not_decided"
+                        });
+                        nextPrompt = BuildStageContinuationPrompt(
+                            currentStage.Profile,
                             modelStopReason,
-                            stageContinuationCount,
-                            lastTurnToolCallCount))
-                        {
-                            AiAnalysisLogger.Write(new Newtonsoft.Json.Linq.JObject
-                            {
-                                ["event"] = "capability.stage.stalled",
-                                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
-                                ["stageIndex"] = currentStage.Index,
-                                ["profile"] = currentStage.Profile,
-                                ["continuation"] = stageContinuationCount,
-                                ["stopReason"] = modelStopReason,
-                                ["lastTurnToolCallCount"] = lastTurnToolCallCount,
-                                ["reason"] = "repeated_max_tokens_without_tool_progress"
-                            });
-                            throw new InvalidOperationException(
-                                $"{currentStage.Profile} 再次达到输出上限且本轮没有工具进展，已停止自动续写，避免继续空转。" );
-                        }
-                        if (stageContinuationCount <= 3)
-                        {
-                            AiAnalysisLogger.Write(new Newtonsoft.Json.Linq.JObject
-                            {
-                                ["event"] = "capability.stage.continuing",
-                                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
-                                ["stageIndex"] = currentStage.Index,
-                                ["profile"] = currentStage.Profile,
-                                ["continuation"] = stageContinuationCount,
-                                ["stopReason"] = modelStopReason,
-                                ["lastTurnToolCallCount"] = lastTurnToolCallCount
-                            });
-                            nextPrompt = BuildStageContinuationPrompt(
-                                currentStage.Profile,
-                                modelStopReason);
-                            continue;
-                        }
-                        throw new InvalidOperationException(
-                            $"{currentStage.Profile} 连续 3 次续写仍未提交 request_capability，阶段未记为完成。" );
+                            lastTurnToolCallCount > 0);
+                        continue;
                     }
 
-                    if (hasDecision && !coordinatorStage && !stageFinalized)
+                    if (naturalCompletion && coordinatorStage)
                     {
+                        finalMessage = turnOutput.Trim();
+                        break;
+                    }
+
+                    if ((hasDecision || naturalCompletion) && !coordinatorStage && !stageFinalized)
+                    {
+                        if (string.Equals(
+                            currentStage.Profile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal))
+                        {
+                            stageReviewHandoff = client.PrepareReviewHandoffForCompletion(
+                                stageReviewHandoff,
+                                stageOutput);
+                            string reviewError = AiTaskCapabilityPolicy.ValidateReviewHandoff(
+                                stageReviewHandoff,
+                                AutomationToolProfiles.ProcessReview);
+                            if (reviewError != null)
+                            {
+                                nextPrompt = "结构化评审交接未通过机械校验：\n"
+                                    + reviewError
+                                    + "\n请修正后再次调用 submit_review_handoff；已有读取事实仍在当前会话中。"
+                                    + "若无法形成有证据的确定结论，可以提交 unresolved。";
+                                stageReviewHandoff = null;
+                                continue;
+                            }
+                            state.LastReviewHandoff = stageReviewHandoff;
+                            runtime.LastReviewHandoff = stageReviewHandoff;
+                            runtime.Conversation.ReviewHandoff = stageReviewHandoff;
+                        }
                         stageFinalized = true;
-                        decisionSubmittingProfile = currentStage.Profile;
                         completedProfiles.Add(currentStage.Profile);
                         completedOutputs.Add(new KeyValuePair<string, string>(
                             currentStage.Profile,
@@ -482,28 +497,32 @@ namespace Automation
                             ["unsafeMutationFailure"] = stageEvidence.UnsafeMutationFailure,
                             ["toolFailureCount"] = stageEvidence.ToolFailureCount
                         });
-                        if (currentStage.RequiresUserContinuationBeforeNext)
-                        {
-                            RequestTrustedContextRolloverIfNeeded(runtime, client);
-                            stopReason = $"{currentStage.Profile} 已完成；用户要求先查看或确认该阶段结果，后续能力需等待新的用户消息。";
-                            break;
-                        }
                         if (stageEvidence.PreviewRejected)
                         {
-                            RequestTrustedContextRolloverIfNeeded(runtime, client);
+                            RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                             stopReason = $"{currentStage.Profile} 的预演被用户拒绝，当前任务已停止。";
                             break;
                         }
                         if (stageEvidence.SourceFilesChanged)
                         {
-                            RequestTrustedContextRolloverIfNeeded(runtime, client);
+                            RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                             stopReason = "源码已经修改；必须重新构建并让 Automation 加载新版本后再继续其他能力。";
                             break;
                         }
                         if (stageEvidence.SourceMutationUncertain)
                         {
-                            RequestTrustedContextRolloverIfNeeded(runtime, client);
+                            RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                             stopReason = "源码阶段执行过可间接写入的 Shell；当前实例无法证明仍对应磁盘源码，必须重新构建并加载后再继续。";
+                            break;
+                        }
+                        if (naturalCompletion)
+                        {
+                            finalMessage = string.Equals(
+                                    currentStage.Profile,
+                                    AutomationToolProfiles.ProcessReview,
+                                    StringComparison.Ordinal)
+                                ? BuildTrustedReviewOutput(stageOutput, stageReviewHandoff)
+                                : stageOutput;
                             break;
                         }
                     }
@@ -514,8 +533,7 @@ namespace Automation
                             originalRequest,
                             permissionProfile,
                             fullPermissionEnabled,
-                            state,
-                            decisionSubmittingProfile)
+                            state)
                         : AiTaskDecisionValidation.Invalid(
                             "本轮没有调用 request_capability。");
                     AiAnalysisLogger.Write(new Newtonsoft.Json.Linq.JObject
@@ -532,13 +550,10 @@ namespace Automation
                     });
                     if (validation.Kind == AiTaskDecisionKind.Invalid)
                     {
-                        invalidDecisionCount++;
-                        if (invalidDecisionCount >= 2)
-                            throw new InvalidOperationException(
-                                "动态能力申请连续两次不合法，未继续执行：" + validation.Message);
                         nextPrompt = "你的上一条 request_capability 未通过代码校验：\n"
                             + validation.Message
-                            + "\n当前工作阶段已经结束。不要输出说明，也不要重复业务工具；只重新调用一次 request_capability。";
+                            + "\n请根据该结构化错误修正决定；已有工具事实仍在当前会话中，不要重做已成功工作。"
+                            + "只在决定准备好时调用 request_capability。";
                         currentStage = new AiTaskCapabilityStage
                         {
                             Index = state.CompletedStageCount,
@@ -547,40 +562,17 @@ namespace Automation
                         };
                         continue;
                     }
-                    invalidDecisionCount = 0;
-                    if (validation.ReviewHandoff != null)
-                    {
-                        state.LastReviewHandoff = validation.ReviewHandoff;
-                        runtime.LastReviewHandoff = validation.ReviewHandoff;
-                        runtime.Conversation.ReviewHandoff = validation.ReviewHandoff;
-                    }
-                    if (validation.Kind == AiTaskDecisionKind.Finish)
-                    {
-                        RequestTrustedContextRolloverIfNeeded(runtime, client);
-                        finalMessage = BuildTrustedReviewOutput(
-                            validation.Message,
-                            validation.ReviewHandoff);
-                        break;
-                    }
-                    if (validation.Kind == AiTaskDecisionKind.AskUser)
-                    {
-                        RequestTrustedContextRolloverIfNeeded(runtime, client);
-                        finalMessage = validation.Message;
-                        stopReason = "需要用户补充信息后才能继续：" + validation.Message;
-                        break;
-                    }
                     currentStage = validation.Stage;
-                    nextPrompt = BuildDynamicStagePrompt(
-                        originalRequest,
-                        currentStage);
+                    nextPrompt = BuildDynamicStagePrompt(currentStage);
                     stageStarted = false;
                     stageFinalized = false;
                     stageContinuationCount = 0;
                     stageEvidence = AiTurnEvidence.Empty;
                     stageArtifact = AiStageArtifact.Empty;
                     stageOutput = string.Empty;
-                    decisionSubmittingProfile = null;
+                    stageReviewHandoff = null;
                 }
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client ?? lastWorkerClient);
                 runtime.Status = string.IsNullOrWhiteSpace(stopReason) ? "已完成" : "部分完成";
                 string assistantText = BuildFinalAssistantOutput(completedOutputs, finalMessage);
                 return BuildTaskResult(
@@ -590,12 +582,11 @@ namespace Automation
                     null,
                     completedProfiles,
                     stopReason,
-                    assistantText,
-                    finalMessage);
+                    assistantText);
             }
             catch (OperationCanceledException)
             {
-                RequestTrustedContextRolloverIfNeeded(runtime, client ?? lastWorkerClient);
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client ?? lastWorkerClient);
                 runtime.Status = "已停止";
                 return BuildTaskResult(
                     AiTaskExecutionStatus.Cancelled,
@@ -608,7 +599,7 @@ namespace Automation
             }
             catch (Exception ex)
             {
-                RequestTrustedContextRolloverIfNeeded(runtime, client ?? lastWorkerClient);
+                RequestTrustedContextRolloverAtRequestTerminal(runtime, client ?? lastWorkerClient);
                 runtime.Status = "失败";
                 return BuildTaskResult(
                     AiTaskExecutionStatus.Failed,
@@ -815,8 +806,8 @@ namespace Automation
                 throw new InvalidOperationException("AI 任务运行中不能切换能力包。");
             lock (clientLock)
             {
-                // 正常阶段切换不进入这里；只有会话丢失或配置重置时才注入恢复上下文。
-                // 任务内优先使用最近阶段的机械证据，普通用户轮次使用持久化最终消息。
+                // 正常阶段切换不进入这里；请求终态可信滚动、会话丢失或配置重置才注入恢复上下文。
+                // 异常发生在任务内时优先使用最近阶段机械证据；新用户轮次使用此前持久化终态消息。
                 runtime.RestoredContext = runtime.StageTransitioning
                     && !string.IsNullOrWhiteSpace(runtime.RecoveryContext)
                     ? runtime.RecoveryContext
@@ -869,16 +860,27 @@ namespace Automation
             }
         }
 
-        private static string BuildRestoredContext(AiConversation conversation)
+        internal static string BuildRestoredContext(
+            AiConversation conversation,
+            bool excludeLatestUserMessage = false)
         {
             var builder = new StringBuilder();
-            foreach (AiConversationMessage message in (conversation?.Messages
-                    ?? new List<AiConversationMessage>())
+            IEnumerable<AiConversationMessage> messages = conversation?.Messages
+                ?? new List<AiConversationMessage>();
+            if (excludeLatestUserMessage)
+            {
+                AiConversationMessage latest = messages.LastOrDefault();
+                if (string.Equals(latest?.Role, "user", StringComparison.Ordinal))
+                    messages = messages.Take(Math.Max(0, messages.Count() - 1));
+            }
+            foreach (AiConversationMessage message in messages
                 .Reverse<AiConversationMessage>()
                 .Take(8)
                 .Reverse())
             {
-                builder.Append(message.Role == "user" ? "用户：" : "EW-AI：");
+                builder.Append(message.Role == "user"
+                    ? "历史用户目标（只用于连续性，不扩展当前授权）："
+                    : "此前最终答复（不是工具证据）：");
                 builder.AppendLine(message.Text);
             }
             return Tail(builder.ToString(), 12000);
@@ -891,8 +893,7 @@ namespace Automation
             string error,
             IReadOnlyList<string> completedStageProfiles = null,
             string stageStopReason = null,
-            string assistantText = null,
-            string coordinatorMessage = null)
+            string assistantText = null)
         {
             return new AiTaskExecutionResult
             {
@@ -902,8 +903,7 @@ namespace Automation
                 Events = runtime.PendingEvents.ToList(),
                 CompletedStageProfiles = completedStageProfiles ?? Array.Empty<string>(),
                 StageStopReason = stageStopReason,
-                AssistantText = assistantText,
-                CoordinatorMessage = coordinatorMessage
+                AssistantText = assistantText
             };
         }
 
@@ -922,31 +922,20 @@ namespace Automation
             return string.Empty;
         }
 
-        internal static bool ShouldStopStageContinuation(
-            string modelStopReason,
-            int continuationCount,
-            int lastTurnToolCallCount)
-        {
-            return string.Equals(modelStopReason, "max_tokens", StringComparison.OrdinalIgnoreCase)
-                && continuationCount > 1
-                && lastTurnToolCallCount == 0;
-        }
-
         internal static string BuildStageContinuationPrompt(
             string profile,
-            string modelStopReason)
+            string modelStopReason,
+            bool madeToolProgress = false)
         {
-            string recovery = string.Equals(
+            string recovery = madeToolProgress
+                ? "上一轮已经取得新的工具事实，请从当前进度继续并优先复用；若新缺口会影响完成，可以继续精确读取。"
+                : string.Equals(
                 modelStopReason, "max_tokens", StringComparison.OrdinalIgnoreCase)
-                ? "上一轮达到输出上限。停止展开分析、复述结果或比较更多候选，立即执行下一个可验证动作。"
-                : "继续当前能力阶段，不要重做已成功的工具调用。";
-            if (string.Equals(profile, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal))
-            {
-                recovery += "复杂新建流程无需一次生成全部实现：先用autoStart=false和config.placeholder预演安全骨架，提交并验证后申请ProcessEdit分段补齐；允许incomplete时不要因资源歧义空转。";
-            }
+                ? "上一轮达到输出边界，请从中断处继续当前能力阶段。"
+                : "继续当前能力阶段；不要重做已成功的工作。";
             return recovery
-                + "基于当前原生会话已有工具结果完成剩余工作；若不能安全继续则直接ask_user或finish。"
-                + "结束时必须只调用一次request_capability，不要再输出阶段总结。";
+                + "可以继续必要分析或调用工具。当前能力足以回答时直接给用户最终答复或提问；"
+                + "只有确实需要切换能力时才调用一次 request_capability。";
         }
 
         internal static string BuildTrustedReviewOutput(
@@ -1036,31 +1025,27 @@ namespace Automation
         {
             string handoff = lastReviewHandoff == null
                 ? "无。"
-                : $"status={lastReviewHandoff.Status}; summary={lastReviewHandoff.Summary}; findingIds="
+                : $"status={lastReviewHandoff.Status}; findingIds="
                     + string.Join(",", (lastReviewHandoff.Findings ?? new List<ReviewFindingDefinition>())
                         .Select(item => item.Id));
-            return "只通过 request_capability 提交一个下一步决定，不输出计划或重复总结。\n"
+            return "先判断是否需要平台工具。若无需工具，或需要用户补充信息，直接正常回复；"
+                + "只有需要切换到工作能力包时才调用一次 request_capability，不输出整单计划。\n"
                 + "完整用户目标：\n" + originalRequest.Trim()
                 + "\n\n用户权限外壳：" + permissionProfile
                 + "；完全权限：" + (fullPermissionEnabled ? "已开启" : "未开启")
                 + "。"
                 + "\n最近一次结构化评审交接：" + handoff
-                + "\n权限、授权引用、ProcessEdit basis 和合法迁移以 request_capability Schema 及代码校验为准；权限不足时使用 ask_user 或 finish。";
+                + "\n权限、授权引用、ProcessEdit basis 和合法迁移以 request_capability Schema 及代码校验为准。";
         }
 
         private static string BuildDynamicStagePrompt(
-            string originalRequest,
             AiTaskCapabilityStage stage)
         {
-            string completionInstruction = stage.RequiresUserContinuationBeforeNext
-                ? "\n完成后调用 request_capability 的 finish，把给用户查看的阶段结果只放在 message；执行器随后暂停，不申请下一能力。"
-                : "\n完成工具工作后只调用一次 request_capability：需要继续就申请一个能力，全部完成就把最终用户答复放在 finish.message，需要信息就放在 ask_user.message。调用前后不要另写重复总结。";
-            return "完整用户目标：\n" + originalRequest.Trim()
-                + "\n\n当前获批能力：" + stage.Profile
-                + "\n当前阶段目标：" + stage.Objective
-                + "\n当前 Goose 原生会话已经保留此前对话、工具结果和附件，不重复注入上一阶段摘要。"
-                + "\n只完成当前阶段，不猜测或提前执行后续能力。"
-                + completionInstruction;
+            return "当前获批能力：" + stage.Profile
+                + "\n协调器提供的范围提示：" + stage.Objective
+                + "\n当前 Goose 原生会话已保留用户目标、此前对话和工具结果。按需读取和分步工作，复用已有事实。"
+                + "\n当前能力足以完成时直接给出最终用户答复；需要用户信息时直接提问；"
+                + "只有确实需要切换能力时才调用一次 request_capability。";
         }
 
         private static string BuildStageRecoveryContext(
@@ -1091,21 +1076,17 @@ namespace Automation
                 + Tail((stageOutput ?? string.Empty).Trim(), 6000);
         }
 
-        private static void RequestTrustedContextRolloverIfNeeded(
+        private static void RequestTrustedContextRolloverAtRequestTerminal(
             AiTaskRuntime runtime,
             GooseAcpClient client)
         {
             if (runtime == null || client == null
                 || runtime.TrustedContextRolloverRequested)
                 return;
-            if (!ShouldRequestTrustedContextRollover(
-                client.LastPromptInputTokens,
-                client.LastTurnToolResultBytes,
-                client.ContextWindowTokens,
-                client.ReservedOutputTokens)) return;
-            long contextPressureThreshold = CalculateContextPressureThreshold(
-                client.ContextWindowTokens,
-                client.ReservedOutputTokens);
+            long estimatedSessionContextTokens = client.EstimatedSessionContextTokens;
+            // 业务对话继续使用同一 conversationId；每条用户请求到达终态后才释放原生会话。
+            // 下一请求通过最终消息、结构化交接和机械阶段事实恢复必要连续性，避免工具Schema、
+            // 推理片段和大结果在后续请求中无界累积。能力阶段内部仍保持同一 sessionId。
             runtime.TrustedContextRolloverRequested = true;
             AiAnalysisLogger.Write(new Newtonsoft.Json.Linq.JObject
             {
@@ -1115,45 +1096,18 @@ namespace Automation
                 ["cumulativeInputTokens"] = client.CumulativeInputTokens,
                 ["lastPromptInputTokens"] = client.LastPromptInputTokens,
                 ["lastTurnToolResultBytes"] = client.LastTurnToolResultBytes,
+                ["estimatedSessionContextTokens"] = estimatedSessionContextTokens,
                 ["estimatedToolResultTokens"] = EstimateTokensFromUtf8Bytes(client.LastTurnToolResultBytes),
                 ["contextWindowTokens"] = client.ContextWindowTokens,
                 ["reservedOutputTokens"] = client.ReservedOutputTokens,
-                ["thresholds"] = new Newtonsoft.Json.Linq.JObject
-                {
-                    ["contextPressureTokens"] = contextPressureThreshold,
-                    ["contextPressureRatio"] = 0.55d
-                },
+                ["reason"] = "request_terminal",
                 ["state"] = "deferred_until_next_user_request"
             });
         }
 
-        internal static bool ShouldRequestTrustedContextRollover(
-            long lastPromptInputTokens,
-            long lastTurnToolResultBytes,
-            int contextWindowTokens,
-            int reservedOutputTokens)
-        {
-            long threshold = CalculateContextPressureThreshold(
-                contextWindowTokens,
-                reservedOutputTokens);
-            if (lastPromptInputTokens >= threshold) return true;
-            long estimatedToolTokens = EstimateTokensFromUtf8Bytes(lastTurnToolResultBytes);
-            return lastPromptInputTokens >= contextWindowTokens * 35L / 100L
-                && lastPromptInputTokens + estimatedToolTokens >= threshold;
-        }
-
-        private static long CalculateContextPressureThreshold(
-            int contextWindowTokens,
-            int reservedOutputTokens)
-        {
-            long context = Math.Max(32768, contextWindowTokens);
-            long reserve = Math.Max(8192, reservedOutputTokens);
-            return Math.Max(24576, context * 55L / 100L - reserve);
-        }
-
         private static long EstimateTokensFromUtf8Bytes(long bytes)
         {
-            if (bytes <= 0) return 0;
+            if (bytes <= 0L) return 0L;
             return (bytes + 2L) / 3L;
         }
 
@@ -1198,7 +1152,6 @@ namespace Automation
         public IReadOnlyList<string> CompletedStageProfiles { get; internal set; }
         public string StageStopReason { get; internal set; }
         public string AssistantText { get; internal set; }
-        public string CoordinatorMessage { get; internal set; }
     }
 
     internal sealed class AiTaskRuntime

@@ -46,6 +46,57 @@ namespace Automation.Protocol
             RuntimeControl, SourceReview, SourceDevelopment, PlatformConfiguration
         };
 
+        private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TaskToolCatalog =
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                [TaskCoordinator] = Tools("request_capability"),
+                [ProcessDesign] = Tools("get_process_design_guide", "request_capability"),
+                [ProcessReview] = Tools(
+                    "resolve_proc_target", "inspect_process", "get_op_details", "search_ops",
+                    "get_operation_references", "trace_resource", "find_variable_usages",
+                    "get_operation_context", "audit_proc_batch", "get_operation_guide",
+                    "get_semantic_operation_schema", "get_native_operation_schemas",
+                    "get_variable_by_name", "get_io", "get_communication",
+                    "submit_review_handoff", "request_capability"),
+                [ProcessCreate] = Tools(
+                    "get_process_design_guide", "resolve_authoring_inputs",
+                    "resolve_operation_capability", "get_semantic_operation_schema",
+                    "get_native_operation_schemas", "preview_change_set", "apply_change_set",
+                    "discard_change_set_preview", "validate_proc", "request_capability"),
+                [ProcessEdit] = Tools(
+                    "resolve_proc_target", "resolve_authoring_inputs", "resolve_operation_capability",
+                    "inspect_process", "get_op_details", "get_operation_references",
+                    "get_operation_context", "get_native_operation_field_contract",
+                    "get_operation_guide", "get_semantic_operation_schema",
+                    "get_native_operation_schemas", "preview_change_set", "apply_change_set",
+                    "discard_change_set_preview", "validate_proc", "request_capability"),
+                [ResourceEdit] = Tools(
+                    "list_variables", "get_variable_by_name", "get_variable_by_index",
+                    "find_variable_usages", "add_variable", "update_variable", "delete_variable",
+                    "list_data_structs", "get_data_struct", "search_data_struct_items",
+                    "upsert_data_struct", "delete_data_struct", "search_alarms", "get_alarm",
+                    "set_alarm", "delete_alarm", "request_capability"),
+                [RuntimeControl] = Tools(
+                    "get_snapshot", "wait_for_proc_state", "get_proc_overview", "get_flow_graph",
+                    "get_step_detail", "get_operation_context", "get_operation_references",
+                    "trace_resource", "get_info_log_tail", "diagnose_proc", "validate_proc",
+                    "get_variable_by_name", "get_variable_by_index", "get_io", "search_io",
+                    "get_io_state", "get_communication", "get_plc_device", "search_alarms",
+                    "get_alarm", "run_proc_test", "start_proc", "stop_proc", "pause_proc",
+                    "resume_proc", "request_capability"),
+                [SourceReview] = Tools(
+                    "get_platform_development_context", "search_platform_source", "request_capability"),
+                [SourceDevelopment] = Tools(
+                    "get_platform_development_context", "search_platform_source", "request_capability"),
+                [PlatformConfiguration] = Tools(
+                    "get_migration_configuration", "preview_motion_io_configuration",
+                    "preview_io_debug_configuration", "preview_plc_configuration",
+                    "preview_communication_configuration", "apply_migration_configuration",
+                    "discard_migration_configuration", "validate_platform_configuration",
+                    "get_station", "get_point", "get_io", "search_io", "get_communication",
+                    "get_plc_device", "request_capability")
+            };
+
         public static string Normalize(string value)
         {
             string match = All.FirstOrDefault(item =>
@@ -71,6 +122,18 @@ namespace Automation.Protocol
                 string.Equals(item, value, StringComparison.OrdinalIgnoreCase));
         }
 
+        /// <summary>
+        /// 动态任务 Profile 的精确 Automation 工具集合。MCP 过滤与 Goose 实际工具面核验共用，
+        /// 避免只比较数量或在客户端复制另一份白名单。
+        /// </summary>
+        public static IReadOnlyList<string> GetTaskToolNames(string value)
+        {
+            string profile = Normalize(value);
+            if (!TaskToolCatalog.TryGetValue(profile, out IReadOnlyList<string> tools))
+                throw new ArgumentException($"{profile} 不是动态任务 Profile。", nameof(value));
+            return tools;
+        }
+
         public static bool UsesDeveloperTools(string value)
         {
             return string.Equals(value, SourceReview, StringComparison.OrdinalIgnoreCase)
@@ -78,5 +141,8 @@ namespace Automation.Protocol
                 || string.Equals(value, Editor, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(value, Diagnostic, StringComparison.OrdinalIgnoreCase);
         }
+
+        private static IReadOnlyList<string> Tools(params string[] names) =>
+            Array.AsReadOnly(names ?? Array.Empty<string>());
     }
 }

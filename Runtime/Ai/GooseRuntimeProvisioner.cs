@@ -12,7 +12,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 21;
-        public const int IntegrationContextVersion = 52;
+        public const int IntegrationContextVersion = 56;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         public const string ProcessReviewSkillName = "automation-process-review";
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(
@@ -352,13 +352,11 @@ namespace Automation
                 "get_process_design_guide",
                 "resolve_authoring_inputs",
                 "resolve_operation_capability",
-                "get_semantic_operation_schema",
-                "get_native_operation_schemas",
-                "preview_process_blueprint",
                 "preview_change_set",
                 "apply_change_set",
                 "validate_proc",
-                "run_proc_test"
+                "config.placeholder",
+                "operation.replace"
             };
             string missingAnchor = Array.Find(
                 anchors,
@@ -375,7 +373,8 @@ namespace Automation
 
             string[] retiredRoutes =
             {
-                "preview_intent", "apply_intent", "preview_patch", "create_proc_batch"
+                "preview_intent", "apply_intent", "preview_patch", "create_proc_batch",
+                "preview_process_blueprint", "blueprintEvidence", "retries[]"
             };
             string retiredRoute = Array.Find(
                 retiredRoutes,
@@ -395,12 +394,12 @@ namespace Automation
                 "name: automation-process-review",
                 "description:",
                 "# Automation 流程评审",
+                "inspect_process",
                 "audit_proc_batch",
-                "validate_proc",
-                "diagnose_issue",
                 "get_operation_context",
                 "indexRevision",
-                "nextFindingOffset",
+                "submit_review_handoff",
+                "占位 `message`",
                 "automation-process-authoring"
             };
             string missingAnchor = Array.Find(

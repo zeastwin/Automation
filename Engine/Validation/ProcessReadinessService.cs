@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Automation.Protocol;
 using Newtonsoft.Json.Linq;
 using static Automation.OperationTypePartial;
 
@@ -115,12 +116,9 @@ namespace Automation
                     if (IsPlaceholder(operation))
                     {
                         incomplete = true;
-                        string reason = operation.Note.Substring(PlaceholderNotePrefix.Length).Trim();
+                        string reason = GetPlaceholderReason(operation);
                         warnings.Add($"步骤 {stepIndex} 指令 {operationIndex} [{operation.Name}] 是待完善占位：{reason}");
-                        if (!step.Disable && !operation.Disable)
-                        {
-                            blockers.Add($"步骤 {stepIndex} 指令 {operationIndex} 仍是配置占位。");
-                        }
+                        blockers.Add($"步骤 {stepIndex} 指令 {operationIndex} 仍是配置占位。");
                     }
                     if (!step.Disable && !operation.Disable)
                     {
@@ -184,6 +182,24 @@ namespace Automation
             IReadOnlyList<string> gotoErrors = ProcessDefinitionService.ValidateProcGotoTargets(procIndex, proc);
             if (gotoErrors.Count > 0) invalid = true;
             blockers.AddRange(gotoErrors);
+            if (gotoErrors.Count == 0
+                && allProcesses != null
+                && procIndex >= 0
+                && procIndex < allProcesses.Count)
+            {
+                IReadOnlyList<Proc> graphProcesses = allProcesses as IReadOnlyList<Proc>
+                    ?? allProcesses.ToList();
+                ProcessFlowGraphSnapshot graph = ProcessFlowGraphService.BuildProcess(
+                    graphProcesses, procIndex);
+                foreach (FlowGraphDiagnostic diagnostic in graph.Diagnostics.Where(item =>
+                    string.Equals(item.Code, "UNREACHABLE_OPERATION", StringComparison.Ordinal)))
+                {
+                    incomplete = true;
+                    string message = "控制流存在入口不可达指令：" + diagnostic.Message;
+                    warnings.Add(message);
+                    blockers.Add(message);
+                }
+            }
             return Build(warnings, blockers, invalid ? "invalid" : incomplete ? "incomplete" : "ready");
         }
 
@@ -521,9 +537,18 @@ namespace Automation
 
         public static bool IsPlaceholder(OperationType operation)
         {
-            return operation != null
-                && !string.IsNullOrWhiteSpace(operation.Note)
-                && operation.Note.StartsWith(PlaceholderNotePrefix, StringComparison.Ordinal);
+            return operation is ConfigurationPlaceholder
+                || operation != null
+                    && !string.IsNullOrWhiteSpace(operation.Note)
+                    && operation.Note.StartsWith(PlaceholderNotePrefix, StringComparison.Ordinal);
+        }
+
+        public static string GetPlaceholderReason(OperationType operation)
+        {
+            if (operation is ConfigurationPlaceholder placeholder)
+                return string.IsNullOrWhiteSpace(placeholder.Reason) ? "未说明原因" : placeholder.Reason.Trim();
+            if (!IsPlaceholder(operation)) return string.Empty;
+            return operation.Note.Substring(PlaceholderNotePrefix.Length).Trim();
         }
 
         private static bool AddIncompleteOperationBlockers(

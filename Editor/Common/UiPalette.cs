@@ -50,16 +50,16 @@ namespace Automation
         public static readonly Color NavigationIcon = Color.FromArgb(148, 163, 184);
         public static readonly Color NavigationAccent = Color.FromArgb(96, 165, 250);
 
-        // 顶部菜单栏沿用独立色组，避免菜单换色影响其他以 Navigation 表达深色标题的界面。
-        public static readonly Color MenuBackground = Color.FromArgb(31, 53, 53);
-        public static readonly Color MenuHover = Color.FromArgb(52, 84, 84);
-        public static readonly Color MenuPressed = Color.FromArgb(61, 96, 96);
+        // 顶部菜单栏使用独立的低饱和蓝灰色组，避免影响其他深色标题界面。
+        public static readonly Color MenuBackground = Color.FromArgb(38, 53, 69);
+        public static readonly Color MenuHover = Color.FromArgb(48, 70, 91);
+        public static readonly Color MenuPressed = Color.FromArgb(57, 83, 108);
         public static readonly Color MenuActive = MenuBackground;
-        public static readonly Color MenuBorder = Color.White;
-        public static readonly Color MenuText = SystemColors.ActiveCaption;
-        public static readonly Color MenuActiveText = MenuText;
-        public static readonly Color MenuIcon = MenuText;
-        public static readonly Color MenuActiveAccent = MenuActiveText;
+        public static readonly Color MenuBorder = Color.FromArgb(82, 103, 123);
+        public static readonly Color MenuText = Color.FromArgb(184, 202, 219);
+        public static readonly Color MenuActiveText = Color.FromArgb(214, 226, 236);
+        public static readonly Color MenuIcon = Color.FromArgb(171, 193, 213);
+        public static readonly Color MenuActiveAccent = Color.FromArgb(127, 169, 205);
 
         public static readonly Color Success = Color.FromArgb(21, 128, 61);
         public static readonly Color SuccessHover = Color.FromArgb(22, 101, 52);

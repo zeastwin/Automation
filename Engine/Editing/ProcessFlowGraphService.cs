@@ -17,7 +17,7 @@ namespace Automation
     /// </summary>
     public static class ProcessFlowGraphService
     {
-        public const int GraphVersion = 1;
+        public const int GraphVersion = 2;
 
         public static ProcessFlowGraphSnapshot BuildProject(
             IReadOnlyList<Proc> processes,
@@ -173,7 +173,7 @@ namespace Automation
                     graph.Nodes.Add(new FlowGraphNode
                     {
                         Id = nodeId,
-                        Kind = "operation",
+                        Kind = ProcessReadinessService.IsPlaceholder(operation) ? "placeholder" : "operation",
                         Label = string.IsNullOrWhiteSpace(operation?.Name) ? operation?.OperaType ?? "空指令" : operation.Name,
                         Summary = BuildOperationSummary(operation),
                         GroupId = groupId,
@@ -185,7 +185,8 @@ namespace Automation
                         OpId = opId,
                         OperaType = operation?.OperaType ?? string.Empty,
                         Disabled = disabled,
-                        Invalid = operation == null
+                        Invalid = operation == null,
+                        Placeholder = ProcessReadinessService.IsPlaceholder(operation)
                     });
                     if (disabled) graph.DisabledNodeCount++;
                 }
@@ -469,10 +470,12 @@ namespace Automation
                 ? FindExecutableAtOrAfter(executable, targetStep, targetOp)
                 : configuredTarget;
             string targetId = effectiveTarget?.NodeId ?? endId;
-            FlowGraphEdge edge = AddEdge(graph, alarmPath ? "alarm" : "branch",
+            bool planned = current.Operation is ConfigurationPlaceholder && !alarmPath;
+            FlowGraphEdge edge = AddEdge(graph, alarmPath ? "alarm" : planned ? "planned" : "branch",
                 current.NodeId, targetId, BuildGotoLabel(current.Operation, reference));
             edge.SourceField = reference.Path;
             edge.AlarmPath = alarmPath;
+            edge.Planned = planned;
             edge.ConfiguredTargetId = configuredTarget.NodeId;
             if (alarmPath) graph.AlarmEdgeCount++;
             if (configuredTarget.Disabled)
@@ -499,6 +502,11 @@ namespace Automation
         private static string BuildGotoLabel(OperationType operation, OperationGotoReference reference)
         {
             if (reference.IsAlarmField) return reference.DisplayName;
+            if (operation is ConfigurationPlaceholder)
+            {
+                if (reference.FieldName == nameof(ConfigurationPlaceholder.PlannedSuccessGoto)) return "计划成功";
+                if (reference.FieldName == nameof(ConfigurationPlaceholder.PlannedFailureGoto)) return "计划失败";
+            }
             if (operation is ParamGoto || operation is IoLogicGoto)
             {
                 if (reference.FieldName == "TrueGoto") return "成立";
@@ -694,6 +702,8 @@ namespace Automation
         private static string BuildOperationSummary(OperationType operation)
         {
             if (operation == null) return "指令为空";
+            if (operation is ConfigurationPlaceholder)
+                return "待完善：" + ProcessReadinessService.GetPlaceholderReason(operation);
             JObject contract = OperationBehaviorCatalog.BuildContract(operation);
             string purpose = contract?["purpose"]?.Value<string>();
             return string.IsNullOrWhiteSpace(purpose) ? operation.OperaType ?? operation.GetType().Name : purpose;

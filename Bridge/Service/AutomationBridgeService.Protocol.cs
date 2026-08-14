@@ -23,9 +23,14 @@ namespace Automation.Bridge
                 try
                 {
                     JToken recovery = JToken.Parse(details);
-                    if (recovery is JObject)
+                    if (recovery is JObject recoveryObject)
                     {
-                        error["recovery"] = recovery;
+                        if (recoveryObject.TryGetValue("issues", out JToken issues))
+                        {
+                            error["issues"] = issues.DeepClone();
+                            recoveryObject.Remove("issues");
+                        }
+                        error["recovery"] = recoveryObject;
                     }
                     else
                     {

@@ -134,11 +134,17 @@ namespace Automation
                     currentName = current?.head?.Name;
                     currentId = current?.head?.Id ?? Guid.Empty;
                 }
-                if (currentId != Guid.Empty && snapshot.ProcId != currentId)
+                if (snapshot.ProcId != currentId)
                 {
+                    // 流程索引允许在删除后被新流程复用，索引上的运行修订和待处理快照
+                    // 不能跨稳定流程身份延续。即使当前索引已经不存在，也要立即淘汰旧快照。
+                    pendingProcUpdates.TryRemove(procIndex, out _);
+                    pendingSnapshots.TryRemove(procIndex, out _);
+                    publishedProcRevisions.TryRemove(procIndex, out _);
+                    appliedProcRevisions.TryRemove(procIndex, out _);
                     long resetTicks = Stopwatch.GetTimestamp();
                     snapshot = new EngineSnapshot(procIndex, currentId, currentName, ProcRunState.Ready, -1, -1, false, null, DateTime.Now, resetTicks,
-                        GetPublishedRevision(procIndex), GetAppliedRevision(procIndex));
+                        0, 0);
                     if (procIndex < snapshots.Length)
                     {
                         Volatile.Write(ref snapshots[procIndex], snapshot);

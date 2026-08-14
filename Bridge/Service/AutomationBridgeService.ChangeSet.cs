@@ -334,13 +334,32 @@ namespace Automation.Bridge
                         "当前 ChangeSet 引用了另一未提交预演中的局部 key。",
                         scopeRecovery.ToString(Formatting.None));
                 }
+                JArray issues = ex is AiChangeSetValidationException validation
+                    ? new JArray(validation.Issues.Select(issue => new JObject
+                    {
+                        ["path"] = issue.Path ?? "$.changeSet",
+                        ["rule"] = issue.Rule ?? "change_set_compile",
+                        ["message"] = issue.Message ?? ex.Message,
+                        ["suggestedRepair"] = issue.SuggestedRepair
+                            ?? "保持业务目标不变，按当前路径修正后重试同一功能块。"
+                    }))
+                    : new JArray(new JObject
+                    {
+                        ["path"] = "$.changeSet",
+                        ["rule"] = "change_set_compile",
+                        ["message"] = ex.Message,
+                        ["suggestedRepair"] = "保持业务目标不变，按编译错误修正全部相关字段后重试同一功能块。"
+                    });
                 throw new BridgeRequestException(400, "CHANGE_SET_COMPILE_FAILED",
                     "语义变更集编译失败。", new JObject
                     {
                         ["validationError"] = ex.Message,
+                        ["issues"] = issues,
                         ["reason"] = "fix_validation_error",
                         ["retryableWhen"] = "change_set_passes_validation",
-                        ["sideEffects"] = "none"
+                        ["sideEffects"] = "none",
+                        ["safeToRetry"] = true,
+                        ["retryScope"] = "same_function_block"
                     }.ToString(Formatting.None));
             }
 

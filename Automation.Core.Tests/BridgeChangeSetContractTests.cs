@@ -350,6 +350,12 @@ namespace Automation.Core.Tests
                     StringAssert.Contains(
                         error["recovery"]?["validationError"]?.Value<string>() ?? string.Empty,
                         "已提交目标请改用 operationId");
+                    Assert.AreEqual(true,
+                        error["recovery"]?["safeToRetry"]?.Value<bool>());
+                    Assert.IsTrue((error["issues"] as JArray)?.Count >= 1,
+                        "编译失败必须返回结构化修复项。");
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(
+                        error["issues"]?[0]?["suggestedRepair"]?.Value<string>()));
                     Assert.AreEqual(1, form.Runtime.Stores.Processes.Items.Count);
                     Assert.AreEqual(1, form.Runtime.Stores.Processes.Items[0].steps[0].Ops.Count,
                         "失败的预演不得修改正式流程。");
@@ -380,6 +386,8 @@ namespace Automation.Core.Tests
                                 ["kind"] = "flow.goto",
                                 ["target"] = new JObject
                                 {
+                                    ["stepId"] = process.steps[0].Id.ToString("D"),
+                                    ["stepKey"] = "redundant_step_key_is_ignored",
                                     ["operationId"] =
                                         process.steps[0].Ops[0].Id.ToString("D")
                                 }

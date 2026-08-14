@@ -39,6 +39,7 @@ namespace Automation
             () => new ParamGoto(),
             () => new Delay(),
             () => new EndProcess(),
+            () => new ConfigurationPlaceholder(),
             () => new PopupDialog(),
             () => new GetValue(),
             () => new ModifyValue(),

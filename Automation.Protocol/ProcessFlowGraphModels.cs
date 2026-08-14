@@ -14,7 +14,7 @@ namespace Automation.Protocol
 
     public sealed class ProcessFlowGraphSnapshot
     {
-        public int GraphVersion { get; set; } = 1;
+        public int GraphVersion { get; set; } = 2;
         public string Scope { get; set; }
         public int? ProcIndex { get; set; }
         public string ProcId { get; set; }
@@ -63,6 +63,7 @@ namespace Automation.Protocol
         public bool Reachable { get; set; }
         public bool Invalid { get; set; }
         public bool Dynamic { get; set; }
+        public bool Placeholder { get; set; }
     }
 
     public sealed class FlowGraphEdge
@@ -79,6 +80,7 @@ namespace Automation.Protocol
         public bool Invalid { get; set; }
         public bool Dynamic { get; set; }
         public bool Loop { get; set; }
+        public bool Planned { get; set; }
     }
 
     public sealed class FlowGraphDiagnostic

@@ -29,11 +29,21 @@ namespace Automation.McpServer
             "review"
         };
 
-        public static string Get(string[] topics)
+        public static string Get(string[] topics, string? detail = null)
         {
             string[] normalized = (topics ?? Array.Empty<string>())
                 .Select(value => (value ?? string.Empty).Trim().ToLowerInvariant())
                 .ToArray();
+            string normalizedDetail = string.IsNullOrWhiteSpace(detail)
+                ? "compact"
+                : detail.Trim().ToLowerInvariant();
+            if (!string.Equals(normalizedDetail, "compact", StringComparison.Ordinal)
+                && !string.Equals(normalizedDetail, "full", StringComparison.Ordinal))
+            {
+                return Error(
+                    "PROCESS_DESIGN_DETAIL_INVALID",
+                    "detail 只能是 compact 或 full。");
+            }
             if (normalized.Length == 0 || normalized.Any(string.IsNullOrEmpty))
             {
                 return Error(
@@ -83,13 +93,23 @@ namespace Automation.McpServer
             var sections = new List<object>();
             foreach (string topic in selectedTopics)
             {
-                if (!TryExtract(source, topic, out string markdown))
+                string sourceTopic = string.Equals(normalizedDetail, "compact", StringComparison.Ordinal)
+                    && string.Equals(topic, "core", StringComparison.Ordinal)
+                        ? "core-compact"
+                        : topic;
+                if (!TryExtract(source, sourceTopic, out string markdown))
                 {
                     return Error(
                         "PROCESS_DESIGN_SECTION_INVALID",
                         "流程设计指南缺少完整主题区块：" + topic + "。");
                 }
-                sections.Add(new { topic, markdown });
+                sections.Add(new
+                {
+                    topic,
+                    format = string.Equals(sourceTopic, "core-compact", StringComparison.Ordinal)
+                        ? "compact" : "full",
+                    markdown
+                });
             }
 
             ProcessKnowledgeSelection knowledge;
@@ -106,17 +126,9 @@ namespace Automation.McpServer
 
             string sourceSha256 = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
-            return JsonSerializer.Serialize(new
-            {
-                ok = true,
-                type = "process.design_guide",
-                source = "Automation AI 流程设计知识",
-                sourceSha256,
-                requestedTopics = normalized,
-                includedCore = true,
-                sections,
-                usableKnowledgeCatalogSha256 = knowledge.CatalogSha256,
-                knowledgeBlocks = knowledge.Blocks.Select(block => new
+            IEnumerable<object> knowledgeBlocks = string.Equals(
+                normalizedDetail, "full", StringComparison.Ordinal)
+                ? knowledge.Blocks.Select(block => (object)new
                 {
                     patternId = block.PatternId,
                     title = block.Title,
@@ -128,7 +140,31 @@ namespace Automation.McpServer
                     riskTags = block.RiskTags,
                     markdown = block.Markdown,
                     contentSha256 = block.ContentSha256
-                }),
+                })
+                : knowledge.Blocks.Select(block => (object)new
+                {
+                    patternId = block.PatternId,
+                    title = block.Title,
+                    summary = block.Summary,
+                    observableGoal = ExtractKnowledgeSection(block.Markdown, "可观察目标"),
+                    recommendedStages = ExtractKnowledgeSection(block.Markdown, "参考阶段"),
+                    completionEvidence = ExtractKnowledgeSection(block.Markdown, "完成证据"),
+                    failureAndRecovery = ExtractKnowledgeSection(block.Markdown, "失败、超时与恢复"),
+                    riskTags = block.RiskTags,
+                    contentSha256 = block.ContentSha256
+                });
+            return JsonSerializer.Serialize(new
+            {
+                ok = true,
+                type = "process.design_guide",
+                detail = normalizedDetail,
+                source = "Automation AI 流程设计知识",
+                sourceSha256,
+                requestedTopics = normalized,
+                includedCore = true,
+                sections,
+                usableKnowledgeCatalogSha256 = knowledge.CatalogSha256,
+                knowledgeBlocks,
                 authority = new
                 {
                     fields = "当前语义或原生Schema",
@@ -138,6 +174,19 @@ namespace Automation.McpServer
                     referencePolicy = "只返回已完成甄别的可用规范；旧项目证据和审核中间结果不进入运行时上下文"
                 }
             });
+        }
+
+        private static string ExtractKnowledgeSection(string markdown, string heading)
+        {
+            if (string.IsNullOrWhiteSpace(markdown) || string.IsNullOrWhiteSpace(heading))
+                return string.Empty;
+            string marker = "## " + heading;
+            int start = markdown.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return string.Empty;
+            start += marker.Length;
+            int end = markdown.IndexOf("\n## ", start, StringComparison.Ordinal);
+            if (end < 0) end = markdown.Length;
+            return markdown.Substring(start, end - start).Trim();
         }
 
         private static bool TryExtract(string source, string topic, out string markdown)
@@ -169,6 +218,7 @@ namespace Automation.McpServer
                 type = "mcp.error",
                 errorCode,
                 message,
+                allowedDetails = new[] { "compact", "full" },
                 allowedTopics = SupportedTopics
             });
         }

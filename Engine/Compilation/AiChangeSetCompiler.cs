@@ -53,6 +53,30 @@ namespace Automation
         public JArray StageIssues { get; internal set; }
     }
 
+    public sealed class AiChangeSetCompileIssue
+    {
+        public string Path { get; set; }
+
+        public string Rule { get; set; }
+
+        public string Message { get; set; }
+
+        public string SuggestedRepair { get; set; }
+    }
+
+    public sealed class AiChangeSetValidationException : InvalidOperationException
+    {
+        public AiChangeSetValidationException(
+            string message,
+            IReadOnlyList<AiChangeSetCompileIssue> issues)
+            : base(message)
+        {
+            Issues = issues ?? Array.Empty<AiChangeSetCompileIssue>();
+        }
+
+        public IReadOnlyList<AiChangeSetCompileIssue> Issues { get; }
+    }
+
     /// <summary>
     /// 把 AI 的业务语义变更编译为平台现有 Proc/Step/OperationType 模型。
     /// 编译过程不读界面检查器，也不依赖窗体当前选中项。
@@ -147,7 +171,6 @@ namespace Automation
             }
             JArray processAnalyses = BuildChangedProcessAnalyses(
                 processes, changes, validationContext);
-            ValidateCreatedProcessFlowSemantics(processes, createdObjects);
             JArray configurationWarnings = FlattenReadinessMessages(processAnalyses, "warnings");
             JArray runBlockers = FlattenReadinessMessages(processAnalyses, "runBlockers");
             JArray previewChanges = atomicActionCount == 0
@@ -335,52 +358,6 @@ namespace Automation
                 DeletedProcessIds = deletedIds.ToList(),
                 Processes = processDefinitions
             };
-        }
-
-        private static void ValidateCreatedProcessFlowSemantics(
-            IReadOnlyList<Proc> processes,
-            JObject createdObjects)
-        {
-            var createdProcessIds = new HashSet<string>(
-                (createdObjects?["processes"] as JArray)?.OfType<JObject>()
-                    .Select(item => item["procId"]?.Value<string>())
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    ?? Enumerable.Empty<string>(),
-                StringComparer.OrdinalIgnoreCase);
-            if (createdProcessIds.Count == 0) return;
-
-            for (int procIndex = 0; procIndex < (processes?.Count ?? 0); procIndex++)
-            {
-                Proc process = processes[procIndex];
-                string procId = process?.head?.Id.ToString("D");
-                if (!createdProcessIds.Contains(procId)) continue;
-                ProcessFlowGraphSnapshot graph = ProcessFlowGraphService.BuildProcess(processes, procIndex);
-                FlowGraphDiagnostic unreachable = graph.Diagnostics.FirstOrDefault(diagnostic =>
-                    string.Equals(diagnostic.Code, "UNREACHABLE_OPERATION", StringComparison.Ordinal));
-                if (unreachable == null) continue;
-                FlowGraphNode node = graph.Nodes.FirstOrDefault(item =>
-                    string.Equals(item.Id, unreachable.NodeId, StringComparison.Ordinal));
-                string operationLabel = node?.Label ?? unreachable.NodeId;
-                if (node?.StepIndex is int stepIndex
-                    && node.OpIndex is int opIndex
-                    && stepIndex >= 0 && stepIndex < (process?.steps?.Count ?? 0)
-                    && opIndex >= 0 && opIndex < (process.steps[stepIndex]?.Ops?.Count ?? 0))
-                {
-                    OperationType operation = process.steps[stepIndex].Ops[opIndex];
-                    if (ProcessReadinessService.IsPlaceholder(operation))
-                    {
-                        string reason = operation.Note.Substring(
-                            ProcessReadinessService.PlaceholderNotePrefix.Length).Trim();
-                        if (!string.IsNullOrWhiteSpace(reason))
-                            operationLabel += "：" + reason;
-                    }
-                }
-                throw new InvalidOperationException(
-                    $"新建流程[{process?.head?.Name ?? procIndex.ToString()}]包含从入口不可达的有效指令："
-                    + $"步骤{node?.StepIndex?.ToString() ?? "?"}指令{node?.OpIndex?.ToString() ?? "?"}"
-                    + $"[{operationLabel}]。请修正跳转入口后重新预演；"
-                    + "外部资源占位可以保留，但不能被控制流绕过。" );
-            }
         }
 
         /// <summary>
@@ -1762,10 +1739,12 @@ namespace Automation
             if (semantic == null) throw new InvalidOperationException($"流程[{processName}]包含 null 指令。");
             string kind = RequiredText(semantic.Kind, $"流程[{processName}]指令 kind");
             if (existingOperation != null && !replaceExisting
-                && ProcessReadinessService.IsPlaceholder(existingOperation))
+                && ProcessReadinessService.IsPlaceholder(existingOperation)
+                && !string.Equals(kind, "config.placeholder", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
-                    "占位指令只表达待确认设计，不能作为 operation.update 的事实基础；确认真实指令后请使用 operation.replace 完整替换。" );
+                    "占位指令不能通过 operation.update 变成真实动作；确认真实指令后请使用 operation.replace 完整替换。"
+                    + "保留为 config.placeholder 时可更新名称、说明和计划出口。" );
             }
             if ((semantic.ClearFields?.Count ?? 0) > 0
                 && (existingOperation == null || !string.Equals(kind, "native.operation", StringComparison.Ordinal)))

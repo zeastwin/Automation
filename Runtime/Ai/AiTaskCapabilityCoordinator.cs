@@ -10,51 +10,20 @@ namespace Automation
     /// </summary>
     internal static class AiTaskCapabilityPolicy
     {
-        public const int MaximumStageCount = 12;
-
         public static AiTaskDecisionValidation Validate(
             TaskCapabilityDecisionDefinition decision,
             string currentUserRequest,
             string permissionProfile,
             bool fullPermissionEnabled,
-            AiDynamicTaskState state,
-            string submittingProfile = null)
+            AiDynamicTaskState state)
         {
             if (decision == null) return AiTaskDecisionValidation.Invalid("协调模型没有提交结构化决定。");
             if (decision.Version != 1) return AiTaskDecisionValidation.Invalid("任务决定 version 必须为 1。");
             string action = (decision.Action ?? string.Empty).Trim();
-            ReviewHandoffDefinition reviewHandoff = decision.ReviewHandoff;
-            string reviewError = ValidateReviewHandoff(reviewHandoff, submittingProfile);
-            if (reviewError != null) return AiTaskDecisionValidation.Invalid(reviewError);
-            if (string.Equals(action, "finish", StringComparison.Ordinal))
-            {
-                if (string.IsNullOrWhiteSpace(decision.Message))
-                    return AiTaskDecisionValidation.Invalid("finish 决定必须提供最终答复。");
-                if (HasExecutionFields(decision))
-                    return AiTaskDecisionValidation.Invalid("finish 决定不能同时携带能力包、阶段目标、授权引用或阶段后确认标志。");
-                if (RequiresDesignKnowledgeBeforeClosure(state))
-                {
-                    return AiTaskDecisionValidation.Invalid(
-                        "流程设计或新建阶段尚未取得设计知识读取证据，不能宣称完成。");
-                }
-                return AiTaskDecisionValidation.Finish(decision.Message.Trim(), reviewHandoff);
-            }
-            if (string.Equals(action, "ask_user", StringComparison.Ordinal))
-            {
-                if (string.IsNullOrWhiteSpace(decision.Message))
-                    return AiTaskDecisionValidation.Invalid("ask_user 决定必须提供需要用户回答的问题。");
-                if (HasExecutionFields(decision))
-                    return AiTaskDecisionValidation.Invalid("ask_user 决定不能同时携带能力包、阶段目标、授权引用或阶段后确认标志。");
-                if (RequiresDesignKnowledgeBeforeClosure(state))
-                    return AiTaskDecisionValidation.Invalid(
-                        "流程设计或新建阶段已经开始预演，但尚未取得设计知识读取证据，不能结束阶段。" );
-                return AiTaskDecisionValidation.AskUser(decision.Message.Trim(), reviewHandoff);
-            }
             if (!string.Equals(action, "run_stage", StringComparison.Ordinal))
-                return AiTaskDecisionValidation.Invalid($"未知任务决定 action：{action}。");
+                return AiTaskDecisionValidation.Invalid(
+                    "request_capability 只接受 action=run_stage；完成或需要用户补充时直接正常回复。" );
             if (state == null) return AiTaskDecisionValidation.Invalid("动态任务状态不存在。");
-            if (state.CompletedStageCount >= MaximumStageCount)
-                return AiTaskDecisionValidation.Invalid($"动态任务阶段数超过上限 {MaximumStageCount}，必须结束或询问用户。");
             if (string.IsNullOrWhiteSpace(decision.Objective))
                 return AiTaskDecisionValidation.Invalid("run_stage 决定必须提供当前阶段目标。");
             if (decision.Objective.Trim().Length > 500)
@@ -71,7 +40,7 @@ namespace Automation
             }
             if (!AutomationToolProfiles.IsExecutionProfile(capability))
                 return AiTaskDecisionValidation.Invalid($"{capability} 不是可执行能力包。");
-            string editBasisError = ValidateProcessEditBasis(decision, capability, state, reviewHandoff);
+            string editBasisError = ValidateProcessEditBasis(decision, capability, state);
             if (editBasisError != null) return AiTaskDecisionValidation.Invalid(editBasisError);
             if (RequiresExplicitAuthorizationQuote(capability))
             {
@@ -112,18 +81,12 @@ namespace Automation
             string transitionError = ValidateEvidenceTransition(state, capability);
             if (transitionError != null) return AiTaskDecisionValidation.Invalid(transitionError);
 
-            string signature = capability + "\n" + decision.Objective.Trim();
-            if (state.DecisionSignatures.Count(item => string.Equals(item, signature, StringComparison.Ordinal)) >= 2)
-                return AiTaskDecisionValidation.Invalid("协调模型重复申请相同能力和目标，必须结束、换用有证据价值的阶段或询问用户。");
-
             return AiTaskDecisionValidation.Run(new AiTaskCapabilityStage
             {
                 Index = state.CompletedStageCount,
                 Profile = capability,
-                Objective = decision.Objective.Trim(),
-                RequiresSavedConfigurationBeforeNext = IsConfigurationMutation(capability),
-                RequiresUserContinuationBeforeNext = decision.RequiresUserConfirmationAfter
-            }, reviewHandoff);
+                Objective = decision.Objective.Trim()
+            });
         }
 
         public static void RecordStage(
@@ -134,7 +97,6 @@ namespace Automation
             if (state == null || stage == null) return;
             evidence = evidence ?? AiTurnEvidence.Empty;
             state.CompletedStageCount++;
-            state.DecisionSignatures.Add(stage.Profile + "\n" + stage.Objective);
             state.PreviousStage = stage;
             state.PreviousEvidence = evidence;
             state.PreviewRejected |= evidence.PreviewRejected;
@@ -172,16 +134,6 @@ namespace Automation
             return string.Equals(profile, AutomationToolProfiles.RuntimeControl, StringComparison.Ordinal)
                 || string.Equals(profile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal)
                 || string.Equals(profile, AutomationToolProfiles.PlatformConfiguration, StringComparison.Ordinal);
-        }
-
-        private static bool HasExecutionFields(TaskCapabilityDecisionDefinition decision)
-        {
-            return !string.IsNullOrWhiteSpace(decision.Capability)
-                || !string.IsNullOrWhiteSpace(decision.Objective)
-                || !string.IsNullOrWhiteSpace(decision.AuthorizationQuote)
-                || decision.RequiresUserConfirmationAfter
-                || !string.IsNullOrWhiteSpace(decision.Basis)
-                || (decision.FindingIds?.Count ?? 0) > 0;
         }
 
         internal static string ValidateReviewHandoff(
@@ -272,8 +224,7 @@ namespace Automation
         private static string ValidateProcessEditBasis(
             TaskCapabilityDecisionDefinition decision,
             string capability,
-            AiDynamicTaskState state,
-            ReviewHandoffDefinition currentHandoff)
+            AiDynamicTaskState state)
         {
             if (!string.Equals(capability, AutomationToolProfiles.ProcessEdit, StringComparison.Ordinal))
             {
@@ -288,7 +239,7 @@ namespace Automation
                     : "direct_user_change 不得携带 findingIds。";
             if (basis != TaskDecisionBases.ProvenReviewFinding)
                 return "申请 ProcessEdit 必须声明 basis=direct_user_change 或 proven_review_finding。";
-            ReviewHandoffDefinition handoff = currentHandoff ?? state?.LastReviewHandoff;
+            ReviewHandoffDefinition handoff = state?.LastReviewHandoff;
             if (!string.Equals(handoff?.Status, ReviewHandoffStatuses.ProvenDefect, StringComparison.Ordinal))
                 return "没有 proven_defect 的可信评审交接，不能按评审结论进入 ProcessEdit。";
             string[] requested = (decision.FindingIds ?? new List<string>())
@@ -327,23 +278,11 @@ namespace Automation
         private static string ValidateEvidenceTransition(AiDynamicTaskState state, string nextCapability)
         {
             if (state.PreviousStage != null
-                && string.Equals(state.PreviousStage.Profile, AutomationToolProfiles.ProcessDesign, StringComparison.Ordinal)
-                && !string.Equals(nextCapability, AutomationToolProfiles.ProcessDesign, StringComparison.Ordinal)
-                && !(state.PreviousEvidence?.DesignKnowledgeReadSucceeded ?? false))
-            {
-                return "流程设计阶段没有读取设计知识，不能进入后续能力。";
-            }
-            if (state.PreviousStage != null
                 && string.Equals(state.PreviousStage.Profile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
                 && IsSideEffectCapability(nextCapability)
                 && !(state.PreviousEvidence?.CurrentStateReadSucceeded ?? false))
             {
                 return "只读审查没有取得当前状态读取证据，不能进入副作用能力。";
-            }
-            if (RequiresDesignKnowledgeBeforeClosure(state)
-                && !string.Equals(nextCapability, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal))
-            {
-                return "新建流程已经开始预演但没有读取设计知识，不能进入后续能力。";
             }
             if (!string.Equals(nextCapability, AutomationToolProfiles.RuntimeControl, StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(state.LastMutationProfile))
@@ -360,27 +299,11 @@ namespace Automation
             return evidence.ConfigurationSaved ? null : "最近资源修改没有配置已保存证据，禁止运行。";
         }
 
-        private static bool RequiresDesignKnowledgeBeforeClosure(AiDynamicTaskState state)
-        {
-            if (state?.PreviousStage == null) return false;
-            AiTurnEvidence evidence = state.PreviousEvidence ?? AiTurnEvidence.Empty;
-            if (evidence.DesignKnowledgeReadSucceeded) return false;
-            if (string.Equals(
-                state.PreviousStage.Profile,
-                AutomationToolProfiles.ProcessDesign,
-                StringComparison.Ordinal)) return true;
-            return string.Equals(
-                    state.PreviousStage.Profile,
-                    AutomationToolProfiles.ProcessCreate,
-                    StringComparison.Ordinal)
-                && (evidence.PreviewCreated || evidence.MutationAttempted || evidence.ChangeSetCommitted);
-        }
     }
 
     internal sealed class AiDynamicTaskState
     {
         public int CompletedStageCount { get; set; }
-        public List<string> DecisionSignatures { get; } = new List<string>();
         public AiTaskCapabilityStage PreviousStage { get; set; }
         public AiTurnEvidence PreviousEvidence { get; set; }
         public string LastMutationProfile { get; set; }
@@ -396,9 +319,7 @@ namespace Automation
     internal enum AiTaskDecisionKind
     {
         Invalid,
-        RunStage,
-        Finish,
-        AskUser
+        RunStage
     }
 
     internal sealed class AiTaskDecisionValidation
@@ -406,16 +327,11 @@ namespace Automation
         public AiTaskDecisionKind Kind { get; private set; }
         public AiTaskCapabilityStage Stage { get; private set; }
         public string Message { get; private set; }
-        public ReviewHandoffDefinition ReviewHandoff { get; private set; }
 
         public static AiTaskDecisionValidation Invalid(string message) =>
             new AiTaskDecisionValidation { Kind = AiTaskDecisionKind.Invalid, Message = message };
-        public static AiTaskDecisionValidation Run(AiTaskCapabilityStage stage, ReviewHandoffDefinition handoff = null) =>
-            new AiTaskDecisionValidation { Kind = AiTaskDecisionKind.RunStage, Stage = stage, ReviewHandoff = handoff };
-        public static AiTaskDecisionValidation Finish(string message, ReviewHandoffDefinition handoff = null) =>
-            new AiTaskDecisionValidation { Kind = AiTaskDecisionKind.Finish, Message = message, ReviewHandoff = handoff };
-        public static AiTaskDecisionValidation AskUser(string message, ReviewHandoffDefinition handoff = null) =>
-            new AiTaskDecisionValidation { Kind = AiTaskDecisionKind.AskUser, Message = message, ReviewHandoff = handoff };
+        public static AiTaskDecisionValidation Run(AiTaskCapabilityStage stage) =>
+            new AiTaskDecisionValidation { Kind = AiTaskDecisionKind.RunStage, Stage = stage };
     }
 
     internal sealed class AiTaskCapabilityStage
@@ -423,20 +339,19 @@ namespace Automation
         public int Index { get; set; }
         public string Profile { get; set; }
         public string Objective { get; set; }
-        public bool RequiresSavedConfigurationBeforeNext { get; set; }
-        public bool RequiresUserContinuationBeforeNext { get; set; }
     }
 
     /// <summary>
-    /// 轨迹预算只生成评估信号，不中断模型。真正的越权由能力包、确认状态机和代码闸门机械阻断。
+    /// 轨迹观测只生成诊断信号，不中断模型。真正的越权由能力包、确认状态机和代码闸门机械阻断。
     /// </summary>
-    internal static class AiTrajectoryBudgetPolicy
+    internal static class AiTrajectoryObservationPolicy
     {
-        public static AiTrajectoryEvaluation Evaluate(
+        public static AiTrajectoryObservation Evaluate(
             string profile,
             int toolCalls,
             int toolFailures,
             long toolResultBytes,
+            long modelSegmentBytes,
             long inputTokens,
             int contextWindowTokens,
             long unattributedMs,
@@ -444,22 +359,26 @@ namespace Automation
         {
             int callLimit;
             long byteLimit;
+            long modelSegmentByteLimit;
             long unattributedLimit;
             switch (profile)
             {
                 case AutomationToolProfiles.TaskCoordinator:
                     callLimit = 1;
                     byteLimit = 16 * 1024;
+                    modelSegmentByteLimit = 12 * 1024;
                     unattributedLimit = 15000;
                     break;
                 case AutomationToolProfiles.ProcessDesign:
                     callLimit = 3;
                     byteLimit = 64 * 1024;
+                    modelSegmentByteLimit = 32 * 1024;
                     unattributedLimit = 30000;
                     break;
                 case AutomationToolProfiles.ProcessReview:
                     callLimit = 12;
                     byteLimit = 128 * 1024;
+                    modelSegmentByteLimit = 32 * 1024;
                     unattributedLimit = 30000;
                     break;
                 case AutomationToolProfiles.ProcessCreate:
@@ -468,22 +387,26 @@ namespace Automation
                 case AutomationToolProfiles.PlatformConfiguration:
                     callLimit = 14;
                     byteLimit = 256 * 1024;
+                    modelSegmentByteLimit = 48 * 1024;
                     unattributedLimit = 45000;
                     break;
                 case AutomationToolProfiles.RuntimeControl:
                     callLimit = 15;
                     byteLimit = 256 * 1024;
+                    modelSegmentByteLimit = 48 * 1024;
                     unattributedLimit = 30000;
                     break;
                 case AutomationToolProfiles.SourceReview:
                 case AutomationToolProfiles.SourceDevelopment:
                     callLimit = 30;
                     byteLimit = 1024 * 1024;
+                    modelSegmentByteLimit = 128 * 1024;
                     unattributedLimit = 60000;
                     break;
                 default:
                     callLimit = 30;
                     byteLimit = 1024 * 1024;
+                    modelSegmentByteLimit = 128 * 1024;
                     unattributedLimit = 60000;
                     break;
             }
@@ -491,6 +414,8 @@ namespace Automation
             var recoveryReasons = new List<string>();
             if (toolCalls > callLimit) reasons.Add($"tool_calls>{callLimit}");
             if (toolResultBytes > byteLimit) reasons.Add($"tool_result_bytes>{byteLimit}");
+            if (modelSegmentBytes > modelSegmentByteLimit)
+                reasons.Add($"model_segment_bytes>{modelSegmentByteLimit}");
             if (toolFailures > 2) reasons.Add("tool_failures>2");
             else if (toolFailures > 0) recoveryReasons.Add($"tool_failures_recovered={toolFailures}");
             long contextPressureLimit = Math.Max(
@@ -509,11 +434,12 @@ namespace Automation
                 if (names.Contains("get_proc_detail") && names.Contains("get_proc_overview"))
                     reasons.Add("duplicate_proc_evidence_reads");
             }
-            return new AiTrajectoryEvaluation
+            return new AiTrajectoryObservation
             {
                 Status = reasons.Count > 0 ? "review" : recoveryReasons.Count > 0 ? "recovered" : "pass",
                 ToolCallLimit = callLimit,
                 ToolResultByteLimit = byteLimit,
+                ModelSegmentByteLimit = modelSegmentByteLimit,
                 ContextPressureTokenLimit = contextPressureLimit,
                 UnattributedMsLimit = unattributedLimit,
                 Reasons = reasons.Concat(recoveryReasons).ToArray()
@@ -521,11 +447,12 @@ namespace Automation
         }
     }
 
-    internal sealed class AiTrajectoryEvaluation
+    internal sealed class AiTrajectoryObservation
     {
         public string Status { get; set; }
         public int ToolCallLimit { get; set; }
         public long ToolResultByteLimit { get; set; }
+        public long ModelSegmentByteLimit { get; set; }
         public long ContextPressureTokenLimit { get; set; }
         public long UnattributedMsLimit { get; set; }
         public IReadOnlyList<string> Reasons { get; set; }

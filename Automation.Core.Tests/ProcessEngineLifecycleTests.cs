@@ -13,6 +13,51 @@ namespace Automation.Core.Tests
     public sealed class ProcessEngineLifecycleTests
     {
         [TestMethod]
+        public void GetSnapshot_WhenDeletedIndexIsReused_DoesNotCarryPreviousProcessIdentity()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc deleted = TestProcessFactory.CreateEndingProcess("已删除流程", 0);
+                Proc replacement = TestProcessFactory.CreateEndingProcess("计数演示", 0);
+                var runtime = new PlatformRuntime(directory.FullPath);
+                var context = new EngineContext
+                {
+                    Procs = new List<Proc> { deleted },
+                    Maintenance = runtime.Maintenance,
+                    Safety = runtime.Safety,
+                    Readiness = runtime.Readiness,
+                    Paths = runtime.Paths
+                };
+                using (var engine = new ProcessEngine(context))
+                {
+                    Assert.IsTrue(
+                        engine.PublishProc(0, ObjectGraphCloner.Clone(deleted), out string publishError),
+                        publishError);
+                    EngineSnapshot beforeDelete = engine.GetSnapshot(0);
+                    Assert.AreEqual(deleted.head.Id, beforeDelete.ProcId);
+                    Assert.IsTrue(beforeDelete.PublishedRevision > 0);
+
+                    context.Procs = new List<Proc>();
+                    EngineSnapshot afterDelete = engine.GetSnapshot(0);
+                    Assert.AreEqual(Guid.Empty, afterDelete.ProcId);
+                    Assert.IsTrue(string.IsNullOrWhiteSpace(afterDelete.ProcName));
+                    Assert.AreEqual(0L, afterDelete.PublishedRevision);
+                    Assert.AreEqual(0L, afterDelete.AppliedRevision);
+
+                    context.Procs = new List<Proc> { replacement };
+                    EngineSnapshot afterReuse = engine.GetSnapshot(0);
+                    Assert.AreEqual(replacement.head.Id, afterReuse.ProcId);
+                    Assert.AreEqual("计数演示", afterReuse.ProcName);
+                    Assert.AreEqual(ProcRunState.Ready, afterReuse.State);
+                    Assert.AreEqual(0L, afterReuse.PublishedRevision);
+                    Assert.AreEqual(0L, afterReuse.AppliedRevision);
+                }
+                runtime.ShutdownCoordinator.Shutdown(
+                    TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(2));
+            }
+        }
+
+        [TestMethod]
         public void StartProc_WhenInstanceIsRunning_RejectsDuplicateAndKeepsCurrentInstance()
         {
             using (var directory = new TemporaryDirectory())

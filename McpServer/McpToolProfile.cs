@@ -4,8 +4,8 @@ using ModelContextProtocol.Server;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 // 模块：MCP / 工具 Profile。
-// 职责范围：这是权限外壳与任务级最小能力包的对外工具集合权威来源。
-// 排查入口：工具缺失、越权或退役工具复现时运行 --verify-profile，并核对本文件集合而非 Markdown。
+// 职责范围：权限外壳、任务工具过滤与输入Schema收窄；任务工具名统一来自AutomationToolProfiles。
+// 排查入口：工具缺失、越权或退役工具复现时运行 --verify-profile，并核对共享名称契约与本文件Schema。
 
 namespace Automation.McpServer
 {
@@ -57,7 +57,7 @@ namespace Automation.McpServer
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "preview_change_set", "preview_process_blueprint", "apply_change_set", "discard_change_set_preview",
+            "preview_change_set", "apply_change_set", "discard_change_set_preview",
             "run_proc_test",
             "start_proc", "stop_proc", "pause_proc", "resume_proc",
             "set_variable_by_name", "set_variable_by_index",
@@ -75,64 +75,13 @@ namespace Automation.McpServer
             "validate_platform_configuration"
         };
 
-        private static readonly IReadOnlyDictionary<string, HashSet<string>> TaskToolProfiles =
-            new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
-            {
-                [AutomationToolProfiles.TaskCoordinator] = ToolSet("request_capability"),
-                [AutomationToolProfiles.ProcessDesign] = ToolSet("get_process_design_guide"),
-                [AutomationToolProfiles.ProcessReview] = ToolSet(
-                    "resolve_proc_target", "discover_project_resources", "get_proc_overview", "get_flow_graph",
-                    "get_step_detail", "get_op_details", "search_ops",
-                    "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
-                    "get_operation_context", "audit_proc_batch", "validate_proc",
-                    "get_operation_schema", "get_operation_guide", "get_semantic_operation_schema",
-                    "get_native_operation_schemas", "get_variable_by_name", "get_variable_by_index",
-                    "get_station", "get_point", "get_data_struct", "search_data_struct_items",
-                    "get_io", "get_communication", "get_plc_device", "get_alarm"),
-                [AutomationToolProfiles.ProcessCreate] = ToolSet(
-                    "get_process_design_guide", "resolve_proc_target", "resolve_authoring_inputs",
-                    "resolve_operation_capability", "get_semantic_operation_schema",
-                    "get_native_operation_schemas", "preview_process_blueprint",
-                    "apply_change_set", "discard_change_set_preview", "validate_proc"),
-                [AutomationToolProfiles.ProcessEdit] = ToolSet(
-                    "resolve_proc_target", "resolve_authoring_inputs", "resolve_operation_capability",
-                    "get_proc_detail", "get_flow_graph", "get_step_detail", "get_op_details",
-                    "get_operation_references", "get_operation_context", "get_native_operation_field_contract",
-                    "get_operation_guide", "get_semantic_operation_schema", "get_native_operation_schemas",
-                    "preview_change_set", "apply_change_set",
-                    "discard_change_set_preview", "validate_proc"),
-                [AutomationToolProfiles.ResourceEdit] = ToolSet(
-                    "list_variables", "get_variable_by_name", "get_variable_by_index", "find_variable_usages",
-                    "add_variable", "update_variable", "delete_variable", "list_data_structs", "get_data_struct",
-                    "search_data_struct_items", "upsert_data_struct", "delete_data_struct", "search_alarms",
-                    "get_alarm", "set_alarm", "delete_alarm"),
-                [AutomationToolProfiles.RuntimeControl] = ToolSet(
-                    "get_snapshot", "wait_for_proc_state", "get_proc_overview", "get_flow_graph",
-                    "get_step_detail", "get_operation_context", "get_operation_references", "trace_resource",
-                    "get_info_log_tail", "diagnose_proc", "validate_proc", "get_variable_by_name",
-                    "get_variable_by_index", "get_io", "search_io", "get_io_state", "get_communication",
-                    "get_plc_device", "search_alarms", "get_alarm", "run_proc_test", "start_proc", "stop_proc",
-                    "pause_proc", "resume_proc"),
-                [AutomationToolProfiles.SourceReview] = ToolSet(
-                    "get_platform_development_context", "search_platform_source"),
-                [AutomationToolProfiles.SourceDevelopment] = ToolSet(
-                    "get_platform_development_context", "search_platform_source"),
-                [AutomationToolProfiles.PlatformConfiguration] = ToolSet(
-                    "get_migration_configuration", "preview_motion_io_configuration", "preview_io_debug_configuration",
-                    "preview_plc_configuration", "preview_communication_configuration", "apply_migration_configuration",
-                    "discard_migration_configuration", "validate_platform_configuration", "get_station", "get_point",
-                    "get_io", "search_io", "get_communication", "get_plc_device")
-            };
-
         public static IReadOnlyList<McpServerTool> CreateTools(string profile, bool fullPermissionEnabled = false)
         {
             profile = AutomationToolProfiles.Normalize(profile);
             var enabled = new HashSet<string>(StringComparer.Ordinal);
-            if (TaskToolProfiles.TryGetValue(profile, out HashSet<string>? taskTools))
+            if (AutomationToolProfiles.IsTaskProfile(profile))
             {
-                enabled.UnionWith(taskTools);
-                if (AutomationToolProfiles.IsExecutionProfile(profile))
-                    enabled.Add("request_capability");
+                enabled.UnionWith(AutomationToolProfiles.GetTaskToolNames(profile));
             }
             else if (string.Equals(profile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal))
             {
@@ -170,11 +119,7 @@ namespace Automation.McpServer
                 McpServerTool tool = McpServerTool.Create(method, (object)null!);
                 if (string.Equals(toolName, "preview_change_set", StringComparison.Ordinal))
                 {
-                    ApplyChangeActionDiscriminator(tool);
-                }
-                else if (string.Equals(toolName, "preview_process_blueprint", StringComparison.Ordinal))
-                {
-                    ApplyProcessBlueprintSchema(tool);
+                    ApplyChangeActionDiscriminator(tool, profile);
                 }
                 else if (string.Equals(toolName, "get_semantic_operation_schema", StringComparison.Ordinal))
                 {
@@ -191,10 +136,15 @@ namespace Automation.McpServer
                 else if (string.Equals(toolName, "get_process_design_guide", StringComparison.Ordinal))
                 {
                     ApplyStringArraySchema(tool, "topics", ProcessDesignGuideCatalog.SupportedTopics);
+                    ApplyToolStringEnum(tool, "detail", "compact", "full");
                 }
                 else if (string.Equals(toolName, "request_capability", StringComparison.Ordinal))
                 {
-                    ApplyTaskCapabilityDecisionSchema(tool, profile);
+                    ApplyTaskCapabilityDecisionSchema(tool);
+                }
+                else if (string.Equals(toolName, "submit_review_handoff", StringComparison.Ordinal))
+                {
+                    ApplyReviewHandoffSubmissionSchema(tool);
                 }
                 else if (string.Equals(toolName, "search_platform_source", StringComparison.Ordinal))
                 {
@@ -313,25 +263,22 @@ namespace Automation.McpServer
             return tools.OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
         }
 
-        private static void ApplyTaskCapabilityDecisionSchema(McpServerTool tool, string profile)
+        private static void ApplyTaskCapabilityDecisionSchema(McpServerTool tool)
         {
             JsonObject root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject
                 ?? throw new InvalidOperationException("request_capability 参数Schema不是对象。");
             JsonObject decision = FindObjectSchemaWithProperties(
-                    root, "version", "action", "capability", "objective", "message", "authorizationQuote",
-                    "requiresUserConfirmationAfter", "basis", "findingIds", "reviewHandoff")
+                    root, "version", "action", "capability", "objective", "authorizationQuote",
+                    "basis", "findingIds")
                 ?? throw new InvalidOperationException("request_capability 缺少decision结构。");
             root["additionalProperties"] = false;
             JsonObject properties = decision["properties"] as JsonObject
                 ?? throw new InvalidOperationException("request_capability 决定Schema缺少字段定义。");
-            bool reviewProfile = string.Equals(
-                profile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal);
-            string[] runStageFields = reviewProfile
-                ? new[] { "version", "action", "capability", "objective", "authorizationQuote", "requiresUserConfirmationAfter", "basis", "findingIds", "reviewHandoff" }
-                : new[] { "version", "action", "capability", "objective", "authorizationQuote", "requiresUserConfirmationAfter", "basis" };
-            string[] completionFields = reviewProfile
-                ? new[] { "version", "action", "message", "reviewHandoff" }
-                : new[] { "version", "action", "message" };
+            string[] runStageFields =
+            {
+                "version", "action", "capability", "objective", "authorizationQuote",
+                "basis", "findingIds"
+            };
             JsonObject runStage = CreateTaskDecisionBranch(
                 properties,
                 "run_stage",
@@ -361,35 +308,24 @@ namespace Automation.McpServer
                     findingIds["uniqueItems"] = true;
                 }
             }
-            JsonObject finish = CreateTaskDecisionBranch(
-                properties,
-                "finish",
-                completionFields,
-                new[] { "version", "action", "message" });
-            JsonObject askUser = CreateTaskDecisionBranch(
-                properties,
-                "ask_user",
-                completionFields,
-                new[] { "version", "action", "message" });
-            foreach (JsonObject branch in new[] { finish, askUser })
-            {
-                if (branch["properties"]?["message"] is JsonObject message)
-                {
-                    message["minLength"] = 1;
-                    message["maxLength"] = 1000;
-                }
-            }
-            if (reviewProfile)
-            {
-                foreach (JsonObject branch in new[] { runStage, finish, askUser })
-                    ApplyReviewHandoffConstraints(branch);
-            }
-            RemoveGeneratedInputProperty(root, "verifiedFacts");
             string? description = decision["description"]?.GetValue<string>();
             decision.Clear();
             decision["type"] = "object";
             if (!string.IsNullOrWhiteSpace(description)) decision["description"] = description;
-            decision["oneOf"] = new JsonArray(runStage, finish, askUser);
+            decision["oneOf"] = new JsonArray(runStage);
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyReviewHandoffSubmissionSchema(McpServerTool tool)
+        {
+            JsonObject root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject
+                ?? throw new InvalidOperationException("submit_review_handoff 参数Schema不是对象。");
+            root["additionalProperties"] = false;
+            RemoveGeneratedInputProperty(root, "verifiedFacts");
+            JsonObject handoffObject = FindObjectSchemaWithProperties(
+                    root, "status", "summary", "findings")
+                ?? throw new InvalidOperationException("submit_review_handoff 缺少handoff结构。");
+            ApplyReviewHandoffConstraints(handoffObject);
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
@@ -425,13 +361,9 @@ namespace Automation.McpServer
             }
         }
 
-        private static void ApplyReviewHandoffConstraints(JsonObject branch)
+        private static void ApplyReviewHandoffConstraints(JsonObject handoffObject)
         {
-            JsonObject? handoff = branch["properties"]?["reviewHandoff"] as JsonObject;
-            if (handoff == null) return;
-            JsonObject? handoffObject = FindObjectSchemaWithProperties(
-                handoff, "status", "summary", "findings");
-            if (handoffObject?["properties"] is not JsonObject handoffProperties) return;
+            if (handoffObject["properties"] is not JsonObject handoffProperties) return;
             // verifiedFacts 由宿主从本阶段成功工具结果机械附加，不允许模型提交或改写。
             handoffProperties.Remove("verifiedFacts");
             if (handoffObject["required"] is JsonArray required)
@@ -792,7 +724,7 @@ namespace Automation.McpServer
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
-        private static void ApplyChangeActionDiscriminator(McpServerTool tool)
+        private static void ApplyChangeActionDiscriminator(McpServerTool tool, string profile)
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             JsonObject? actionSchema = FindChangeActionSchema(root);
@@ -815,222 +747,67 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令字段。");
             }
 
-            // entryMode 只解决 Blueprint 的跨步骤默认入口；普通 ChangeSet 必须提交精确目标。
-            RemoveGeneratedInputProperty(operationSchema, "entryMode");
-
             ApplyPositionSchema(positionSchema);
-            JsonObject definitions = ApplySemanticOperationDiscriminator(root, operationSchema);
+            ApplySemanticOperationDiscriminator(root, operationSchema);
+            string semanticOperationReference = GetOrCreateSchemaReference(
+                root, operationSchema, "semanticOperation");
             ApplyVariableChangeSchema(root);
 
-            // 动作分支最后生成，确保其中的 operation 载荷复制的是已经闭合的语义判别联合。
-            actionSchema["oneOf"] = new JsonArray
+            bool createProfile = string.Equals(
+                profile, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal);
+            string[] actionTypes = createProfile
+                ? new[] { "process.create", "step.append", "operation.append" }
+                : ChangeSetActionTypes.SupportedTypes.Split('、');
+            if (actionProperties["type"] is not JsonObject typeSchema)
+                throw new InvalidOperationException("preview_change_set 动作Schema缺少type。");
+            typeSchema["enum"] = new JsonArray(
+                actionTypes.Select(value => JsonValue.Create(value)).ToArray());
+            typeSchema["description"] = "原子动作类型；按x-fieldsByType提供对应载荷。";
+            actionProperties["operation"] = new JsonObject
             {
-                ActionShape(actionProperties, "process.create", new[] { "process" }),
-                ActionShape(actionProperties, "process.update", new[] { "targetProcess", "process" }),
-                ActionShape(actionProperties, "process.delete", new[] { "targetProcess" }),
-                ActionShape(actionProperties, "process.delete_all", Array.Empty<string>()),
-                ActionShape(actionProperties, "step.append", new[] { "targetProcess", "step" }),
-                ActionShape(actionProperties, "step.insert", new[] { "targetProcess", "position", "step" }),
-                ActionShape(actionProperties, "step.update", new[] { "targetProcess", "targetStep", "step" }),
-                ActionShape(actionProperties, "step.delete", new[] { "targetProcess", "targetStep" }),
-                ActionShape(actionProperties, "step.move", new[] { "targetProcess", "targetStep", "position" }),
-                ActionShape(actionProperties, "operation.append", new[] { "targetProcess", "targetStep", "operation" }),
-                ActionShape(actionProperties, "operation.insert", new[] { "targetProcess", "targetStep", "position", "operation" }),
-                ActionShape(actionProperties, "operation.update", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.replace", new[] { "targetProcess", "targetOperation", "operation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.delete", new[] { "targetProcess", "targetOperation" }, "targetStep"),
-                ActionShape(actionProperties, "operation.move", new[] { "targetProcess", "targetOperation", "position" }, "targetStep")
+                ["$ref"] = semanticOperationReference
             };
-            ReplaceUnionPropertyWithReference(
-                actionSchema,
-                "operation",
-                "#/$defs/semanticOperation");
-            CompactRepeatedUnionProperties(actionSchema, definitions, "action", "type", "operation");
+            actionSchema["required"] = new JsonArray("type");
+            actionSchema["additionalProperties"] = false;
             actionSchema["x-localKeyScope"] = "current_change_set";
-            actionSchema.Remove("properties");
-            actionSchema.Remove("required");
-            actionSchema.Remove("additionalProperties");
-            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
-        }
-
-        private static void ApplyProcessBlueprintSchema(McpServerTool tool)
-        {
-            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
-            JsonObject? operationSchema = FindSemanticOperationSchema(root);
-            JsonObject? targetSchema = FindObjectSchemaWithProperties(
-                operationSchema, "operationId", "stepId", "stepKey", "operationKey");
-            if (root?["properties"] is not JsonObject rootProperties
-                || rootProperties["blueprint"] is not JsonObject blueprintSchema
-                || blueprintSchema["properties"] is not JsonObject blueprintProperties
-                || operationSchema == null
-                || targetSchema == null)
-            {
-                throw new InvalidOperationException("preview_process_blueprint 生成Schema缺少蓝图或语义指令定义。");
-            }
-
-            root["additionalProperties"] = false;
-            blueprintSchema["additionalProperties"] = false;
-            blueprintSchema["required"] = new JsonArray("process", "steps");
-            if (blueprintProperties["steps"] is JsonObject stepsArray)
-                stepsArray["minItems"] = 1;
-
-            JsonObject? retrySchema = CloseBlueprintObject(
-                root,
-                new[] { "entryOperationKey", "counterVariable", "maxAttempts", "retryDecisionOperationKey", "resetVariables", "clearVariables" },
-                new[] { "entryOperationKey", "maxAttempts", "retryDecisionOperationKey" });
-            if (retrySchema?["properties"] is JsonObject retryProperties)
-            {
-                // counterVariable 仅供编译器内部填充，不进入模型输入契约。
-                retryProperties.Remove("counterVariable");
-                foreach (string propertyName in new[] { "entryOperationKey", "retryDecisionOperationKey" })
+            actionSchema["x-fieldsByType"] = createProfile
+                ? new JsonObject
                 {
-                    if (retryProperties[propertyName] is JsonObject keySchema)
-                        keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                    ["process.create"] = "required:process",
+                    ["step.append"] = "required:targetProcess,step",
+                    ["operation.append"] = "required:targetProcess,targetStep,operation"
                 }
-                if (retryProperties["maxAttempts"] is JsonObject maxAttemptsSchema)
+                : new JsonObject
                 {
-                    maxAttemptsSchema["minimum"] = 1;
-                    maxAttemptsSchema["maximum"] = 100;
-                }
-                foreach (string propertyName in new[] { "resetVariables", "clearVariables" })
-                {
-                    if (retryProperties[propertyName] is JsonObject arraySchema)
-                    {
-                        arraySchema["minItems"] = 1;
-                        arraySchema["uniqueItems"] = true;
-                    }
-                }
-            }
-
-            CloseBlueprintObject(root, new[] { "name", "autoStart", "disable" }, new[] { "name" });
-            JsonObject? blueprintOperationsArray = null;
-            JsonObject? stepSchema = CloseBlueprintObject(
-                root,
-                new[] { "key", "name", "disable", "operations" },
-                new[] { "name", "operations" });
-            if (stepSchema?["properties"] is JsonObject stepProperties)
-            {
-                if (stepProperties["key"] is JsonObject keySchema)
-                    keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
-                if (stepProperties["operations"] is JsonObject operationsArray)
-                {
-                    operationsArray["minItems"] = 1;
-                    blueprintOperationsArray = operationsArray;
-                }
-            }
-
-            JsonObject? variableSchema = CloseBlueprintObject(
-                root,
-                new[] { "name", "scope", "index", "type", "value", "note", "policy" },
-                new[] { "name", "scope" });
-            if (variableSchema?["properties"] is JsonObject variableProperties)
-            {
-                if (variableProperties["name"] is JsonObject nameSchema)
-                {
-                    nameSchema["minLength"] = 1;
-                    nameSchema["pattern"] = "\\S";
-                }
-                if (variableProperties["scope"] is JsonObject scopeSchema)
-                    scopeSchema["enum"] = new JsonArray(
-                        VariableScopeContract.Public, VariableScopeContract.Process, VariableScopeContract.System);
-                if (variableProperties["type"] is JsonObject typeSchema)
-                    typeSchema["enum"] = new JsonArray(
-                        VariableChangeContract.DoubleType, VariableChangeContract.StringType);
-                if (variableProperties["policy"] is JsonObject policySchema)
-                    policySchema["enum"] = new JsonArray(
-                        VariableChangeContract.ReusePolicy, VariableChangeContract.CreatePolicy,
-                        VariableChangeContract.UpdatePolicy, VariableChangeContract.ReplacePolicy,
-                        VariableChangeContract.RequirePolicy);
-                if (variableProperties["index"] is JsonObject indexSchema)
-                {
-                    indexSchema["minimum"] = 0;
-                    indexSchema["maximum"] = VariableIndexContract.MaximumNormalValueIndex;
-                }
-            }
-
-            ApplyBlueprintTargetSchema(targetSchema);
-            ApplySemanticOperationDiscriminator(root, operationSchema);
-            if (blueprintOperationsArray != null)
-            {
-                blueprintOperationsArray["items"] = new JsonObject
-                {
-                    ["$ref"] = "#/$defs/semanticOperation"
+                    ["process.create"] = "required:process",
+                    ["process.update"] = "required:targetProcess,process",
+                    ["process.delete"] = "required:targetProcess",
+                    ["process.delete_all"] = "required:none",
+                    ["step.append"] = "required:targetProcess,step",
+                    ["step.insert"] = "required:targetProcess,position,step",
+                    ["step.update"] = "required:targetProcess,targetStep,step",
+                    ["step.delete"] = "required:targetProcess,targetStep",
+                    ["step.move"] = "required:targetProcess,targetStep,position",
+                    ["operation.append"] = "required:targetProcess,targetStep,operation",
+                    ["operation.insert"] = "required:targetProcess,targetStep,position,operation",
+                    ["operation.update"] = "required:targetProcess,targetOperation,operation;targetStep:required with targetOperation.key, optional with opId",
+                    ["operation.replace"] = "required:targetProcess,targetOperation.opId,operation;optional:targetStep",
+                    ["operation.delete"] = "required:targetProcess,targetOperation;targetStep:required with targetOperation.key, optional with opId",
+                    ["operation.move"] = "required:targetProcess,targetOperation,position;targetStep:required with targetOperation.key, optional with opId"
                 };
+            if (createProfile)
+            {
+                foreach (string field in new[] { "targetOperation", "position" })
+                    actionProperties.Remove(field);
+                RequireNestedFields(actionSchema, "process", "key", "name");
+                RestrictSelectorToLocalKey(actionSchema, "targetProcess", "procId", "name");
+                RequireNestedFields(actionSchema, "step", "key", "name");
+                RestrictSelectorToLocalKey(actionSchema, "targetStep", "stepId");
             }
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
-        private static void ApplyBlueprintTargetSchema(JsonObject targetSchema)
-        {
-            JsonObject properties = targetSchema["properties"] as JsonObject
-                ?? throw new InvalidOperationException("蓝图跳转目标Schema缺少字段定义。");
-            properties.Remove("operationId");
-            properties.Remove("stepId");
-            targetSchema["additionalProperties"] = false;
-            targetSchema.Remove("required");
-            targetSchema["anyOf"] = new JsonArray
-            {
-                new JsonObject { ["required"] = new JsonArray("operationKey") },
-                new JsonObject { ["required"] = new JsonArray("stepKey") }
-            };
-            targetSchema["description"] =
-                "蓝图只能引用本次blueprint内的局部key。当前步骤内填写operationKey；跨步骤优先只填stepKey并自动进入该步骤首指令。确需跳入目标步骤中段时同时填写operationKey与entryMode=operation。";
-            if (properties["operationKey"] is JsonObject operationKey)
-            {
-                operationKey["minLength"] = 1;
-                operationKey["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
-                operationKey["description"] =
-                    "目标指令的局部key，取自steps[].operations[].key；不是步骤key，也不能引用已提交指令。";
-            }
-            if (properties["stepKey"] is JsonObject stepKey)
-            {
-                stepKey["minLength"] = 1;
-                stepKey["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
-                stepKey["description"] =
-                    "跨步骤时填写目标步骤局部key；省略operationKey时自动进入该步骤首指令。当前步骤内定位时省略。";
-            }
-            if (properties["entryMode"] is JsonObject entryMode)
-            {
-                entryMode["enum"] = new JsonArray("first", "operation");
-                entryMode["description"] =
-                    "跨步骤入口模式；通常省略。只有明确跳入目标步骤中段时填写operation并同时提供operationKey。";
-            }
-        }
-
-        private static JsonObject? CloseBlueprintObject(
-            JsonNode? node,
-            IReadOnlyCollection<string> propertyNames,
-            IReadOnlyCollection<string> requiredNames)
-        {
-            if (node is JsonObject obj)
-            {
-                if (obj["properties"] is JsonObject properties
-                    && propertyNames.All(properties.ContainsKey)
-                    && properties.Count == propertyNames.Count)
-                {
-                    obj["additionalProperties"] = false;
-                    obj["required"] = new JsonArray(
-                        requiredNames.Select(name => JsonValue.Create(name)).ToArray());
-                    return obj;
-                }
-                foreach (KeyValuePair<string, JsonNode?> property in obj)
-                {
-                    JsonObject? found = CloseBlueprintObject(property.Value, propertyNames, requiredNames);
-                    if (found != null) return found;
-                }
-            }
-            else if (node is JsonArray array)
-            {
-                foreach (JsonNode? item in array)
-                {
-                    JsonObject? found = CloseBlueprintObject(item, propertyNames, requiredNames);
-                    if (found != null) return found;
-                }
-            }
-            return null;
-        }
-
-        private static JsonObject ApplySemanticOperationDiscriminator(
+        private static void ApplySemanticOperationDiscriminator(
             JsonObject root,
             JsonObject operationSchema)
         {
@@ -1048,155 +825,64 @@ namespace Automation.McpServer
             if (operationProperties["key"] is JsonObject keySchema)
                 keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
 
-            operationSchema["oneOf"] = new JsonArray
-            {
-                SemanticShape(operationProperties, "variable.set", new[] { "variable", "value" }),
-                SemanticShape(operationProperties, "variable.clear", new[] { "variable" }),
-                SemanticShape(operationProperties, "variable.copy", new[] { "sourceVariable", "targetVariable" }),
-                SemanticShape(operationProperties, "variable.add", new[] { "variable", "amount" }),
-                SemanticShape(operationProperties, "variable.compute", new[] { "sourceVariable", "operator", "outputVariable" },
-                    "operandValue", "operandVariable"),
-                SemanticShape(operationProperties, "wait", new[] { "milliseconds" }),
-                SemanticShape(operationProperties, "flow.goto", Array.Empty<string>(), "target"),
-                SemanticShape(operationProperties, "flow.end", Array.Empty<string>()),
-                SemanticShape(operationProperties, "branch.number_compare", new[] { "variable", "comparison", "compareValue" },
-                    "whenTrue", "whenFalse"),
-                SemanticShape(operationProperties, "branch.number_range", new[] { "variable", "min", "max" },
-                    "includeBounds", "whenTrue", "whenFalse"),
-                SemanticShape(operationProperties, "branch.io", new[] { "conditions" },
-                    "conditionLogic", "whenTrue", "whenFalse"),
-                SemanticShape(operationProperties, "alarm.raise", new[] { "message" },
-                    "buttonText", "target"),
-                SemanticShape(operationProperties, "popup.message", new[] { "message" },
-                    "buttonText", "autoCloseMs", "target"),
-                SemanticShape(operationProperties, "popup.variable", new[] { "variable" },
-                    "buttonText", "autoCloseMs", "target"),
-                SemanticShape(operationProperties, "config.placeholder", new[] { "message" }),
-                SemanticShape(operationProperties, "io.write", new[] { "outputs" }),
-                SemanticShape(operationProperties, "io.wait", new[] { "conditions", "timeoutMs" }, "onFailure"),
-                SemanticShape(operationProperties, "process.control", Array.Empty<string>(), "process", "action", "afterMs"),
-                SemanticShape(operationProperties, "process.wait", Array.Empty<string>(), "process", "expectedState", "timeoutMs", "afterMs"),
-                SemanticShape(operationProperties, "native.operation", new[] { "operaType", "fields" }, "clearFields")
-            };
+            if (operationProperties["kind"] is not JsonObject kindSchema)
+                throw new InvalidOperationException("语义指令Schema缺少kind字段。");
+            kindSchema["enum"] = new JsonArray(
+                SemanticOperationKinds.SupportedKinds.Split('、')
+                    .Select(value => JsonValue.Create(value)).ToArray());
+            kindSchema["description"] = "语义指令类型；按x-fieldsByKind提供对应字段。";
+            operationSchema["required"] = new JsonArray("kind");
+            operationSchema["additionalProperties"] = false;
             operationSchema["x-symbolicTargetScope"] = "operation_id_or_change_set_key";
-            operationSchema.Remove("properties");
-            operationSchema.Remove("required");
-            operationSchema.Remove("additionalProperties");
+            operationSchema["x-commonOptionalFields"] = "opId,key,name";
+            operationSchema["x-fieldsByKind"] = new JsonObject
+            {
+                ["variable.set"] = "required:variable,value",
+                ["variable.clear"] = "required:variable",
+                ["variable.copy"] = "required:sourceVariable,targetVariable",
+                ["variable.add"] = "required:variable,amount",
+                ["variable.compute"] = "required:sourceVariable,operator,outputVariable;optional:operandValue,operandVariable",
+                ["wait"] = "required:milliseconds",
+                ["flow.goto"] = "optional:target",
+                ["flow.end"] = "required:none",
+                ["branch.number_compare"] = "required:variable,comparison,compareValue;optional:whenTrue,whenFalse",
+                ["branch.number_range"] = "required:variable,min,max;optional:includeBounds,whenTrue,whenFalse",
+                ["branch.io"] = "required:conditions;optional:conditionLogic,whenTrue,whenFalse",
+                ["alarm.raise"] = "required:message;optional:buttonText,target",
+                ["popup.message"] = "required:message;optional:buttonText,autoCloseMs,target",
+                ["popup.variable"] = "required:variable;optional:buttonText,autoCloseMs,target",
+                ["config.placeholder"] = "required:message;optional:whenTrue,whenFalse",
+                ["io.write"] = "required:outputs",
+                ["io.wait"] = "required:conditions,timeoutMs;optional:onFailure",
+                ["process.control"] = "optional:process,action,afterMs",
+                ["process.wait"] = "optional:process,expectedState,timeoutMs,afterMs",
+                ["native.operation"] = "required:operaType,fields;optional:clearFields"
+            };
 
-            JsonObject definitions = GetOrCreateDefinitions(root);
-            CompactRepeatedUnionProperties(operationSchema, definitions, "semantic", "kind");
-            definitions["semanticOperation"] = operationSchema.DeepClone();
-            return definitions;
         }
 
-        private static JsonObject GetOrCreateDefinitions(JsonObject root)
+        private static string GetOrCreateSchemaReference(
+            JsonObject root,
+            JsonObject schema,
+            string fallbackName)
         {
-            if (root["$defs"] is JsonObject definitions)
+            JsonObject definitions;
+            if (root["$defs"] is JsonObject existingDefinitions)
             {
-                return definitions;
-            }
-
-            definitions = new JsonObject();
-            root["$defs"] = definitions;
-            return definitions;
-        }
-
-        private static void ReplaceUnionPropertyWithReference(
-            JsonObject unionSchema,
-            string propertyName,
-            string reference)
-        {
-            if (unionSchema["oneOf"] is not JsonArray branches)
-            {
-                throw new InvalidOperationException("判别联合缺少oneOf：" + propertyName);
-            }
-
-            foreach (JsonNode? node in branches)
-            {
-                if (node is JsonObject branch
-                    && branch["properties"] is JsonObject properties
-                    && properties.ContainsKey(propertyName))
+                definitions = existingDefinitions;
+                foreach (KeyValuePair<string, JsonNode?> definition in definitions)
                 {
-                    properties[propertyName] = new JsonObject { ["$ref"] = reference };
+                    if (ReferenceEquals(definition.Value, schema))
+                        return "#/$defs/" + definition.Key;
                 }
             }
-        }
-
-        private static void CompactRepeatedUnionProperties(
-            JsonObject unionSchema,
-            JsonObject definitions,
-            string definitionPrefix,
-            params string[] excludedProperties)
-        {
-            if (unionSchema["oneOf"] is not JsonArray branches)
+            else
             {
-                throw new InvalidOperationException("判别联合缺少oneOf：" + definitionPrefix);
+                definitions = new JsonObject();
+                root["$defs"] = definitions;
             }
-
-            var excluded = new HashSet<string>(excludedProperties ?? Array.Empty<string>(), StringComparer.Ordinal);
-            var occurrences = new Dictionary<string, List<Tuple<JsonObject, string, JsonNode>>>(StringComparer.Ordinal);
-            foreach (JsonNode? node in branches)
-            {
-                if (node is not JsonObject branch || branch["properties"] is not JsonObject properties)
-                {
-                    continue;
-                }
-                foreach (KeyValuePair<string, JsonNode?> property in properties)
-                {
-                    if (excluded.Contains(property.Key) || property.Value == null)
-                    {
-                        continue;
-                    }
-                    string schemaIdentity = property.Key + "\n" + property.Value.ToJsonString();
-                    if (!occurrences.TryGetValue(
-                        schemaIdentity,
-                        out List<Tuple<JsonObject, string, JsonNode>>? values))
-                    {
-                        values = new List<Tuple<JsonObject, string, JsonNode>>();
-                        occurrences[schemaIdentity] = values;
-                    }
-                    values.Add(Tuple.Create(properties, property.Key, property.Value));
-                }
-            }
-
-            var definitionNameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (List<Tuple<JsonObject, string, JsonNode>> values in occurrences.Values
-                .Where(items => items.Count > 1))
-            {
-                string fieldName = values[0].Item2;
-                string baseName = definitionPrefix + ToDefinitionName(fieldName);
-                definitionNameCounts.TryGetValue(baseName, out int nameIndex);
-                definitionNameCounts[baseName] = nameIndex + 1;
-                string definitionName = nameIndex == 0 ? baseName : baseName + (nameIndex + 1);
-                definitions[definitionName] = values[0].Item3.DeepClone();
-                string reference = "#/$defs/" + definitionName;
-                foreach (Tuple<JsonObject, string, JsonNode> occurrence in values)
-                {
-                    occurrence.Item1[occurrence.Item2] = new JsonObject { ["$ref"] = reference };
-                }
-            }
-        }
-
-        private static string ToDefinitionName(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return "Value";
-            }
-
-            var builder = new System.Text.StringBuilder(value.Length);
-            bool uppercaseNext = true;
-            foreach (char character in value)
-            {
-                if (!char.IsLetterOrDigit(character))
-                {
-                    uppercaseNext = true;
-                    continue;
-                }
-                builder.Append(uppercaseNext ? char.ToUpperInvariant(character) : character);
-                uppercaseNext = false;
-            }
-            return builder.Length == 0 ? "Value" : builder.ToString();
+            definitions[fallbackName] = schema.DeepClone();
+            return "#/$defs/" + fallbackName;
         }
 
         private static void ApplyVariableChangeSchema(JsonObject root)
@@ -1498,59 +1184,43 @@ namespace Automation.McpServer
             };
         }
 
-        private static JsonObject ActionShape(
-            JsonObject sourceProperties, string type, string[] requiredPayload, params string[] optionalPayload)
+        private static void RequireNestedFields(
+            JsonObject branch,
+            string propertyName,
+            params string[] requiredFields)
         {
-            return ClosedDiscriminatorShape(
-                sourceProperties, "type", type, requiredPayload, optionalPayload);
+            JsonObject nested = FindNestedObjectSchema(branch, propertyName, requiredFields);
+            nested["required"] = new JsonArray(
+                requiredFields.Select(field => JsonValue.Create(field)).ToArray());
+            nested["additionalProperties"] = false;
         }
 
-        private static JsonObject SemanticShape(
-            JsonObject sourceProperties, string kind, string[] requiredPayload, params string[] optionalPayload)
+        private static void RestrictSelectorToLocalKey(
+            JsonObject branch,
+            string propertyName,
+            params string[] retiredSelectorFields)
         {
-            string[] commonOptionalFields = { "opId", "key", "name" };
-            return ClosedDiscriminatorShape(sourceProperties, "kind", kind, requiredPayload,
-                commonOptionalFields.Concat(optionalPayload).ToArray());
+            JsonObject nested = FindNestedObjectSchema(branch, propertyName, "key");
+            if (nested["properties"] is not JsonObject properties)
+                throw new InvalidOperationException($"ProcessCreate Schema 缺少 {propertyName}.properties。");
+            foreach (string field in retiredSelectorFields) properties.Remove(field);
+            nested["required"] = new JsonArray { "key" };
+            nested["additionalProperties"] = false;
         }
 
-        private static JsonObject ClosedDiscriminatorShape(
-            JsonObject sourceProperties,
-            string discriminatorField,
-            string discriminatorValue,
-            IEnumerable<string> requiredPayload,
-            IEnumerable<string> optionalPayload)
+        private static JsonObject FindNestedObjectSchema(
+            JsonObject branch,
+            string propertyName,
+            params string[] expectedFields)
         {
-            var branchProperties = new JsonObject();
-            foreach (string field in new[] { discriminatorField }
-                .Concat(requiredPayload)
-                .Concat(optionalPayload)
-                .Distinct(StringComparer.Ordinal))
+            if (branch["properties"] is not JsonObject properties
+                || properties[propertyName] is not JsonNode propertySchema)
             {
-                if (!sourceProperties.TryGetPropertyValue(field, out JsonNode? sourceSchema)
-                    || sourceSchema == null)
-                {
-                    throw new InvalidOperationException(
-                        $"preview_change_set 参数Schema缺少字段：{field}");
-                }
-                branchProperties[field] = sourceSchema.DeepClone();
+                throw new InvalidOperationException($"ProcessCreate Schema 缺少字段：{propertyName}");
             }
-            if (branchProperties[discriminatorField] is not JsonObject discriminatorSchema)
-            {
-                throw new InvalidOperationException(
-                    $"preview_change_set 参数Schema的判别字段无效：{discriminatorField}");
-            }
-            discriminatorSchema["const"] = discriminatorValue;
-
-            var required = new JsonArray { discriminatorField };
-            foreach (string field in requiredPayload.Distinct(StringComparer.Ordinal)) required.Add(field);
-            return new JsonObject
-            {
-                ["title"] = discriminatorValue,
-                ["type"] = "object",
-                ["properties"] = branchProperties,
-                ["required"] = required,
-                ["additionalProperties"] = false
-            };
+            return FindObjectSchemaWithProperties(propertySchema, expectedFields)
+                ?? throw new InvalidOperationException(
+                    $"ProcessCreate Schema 无法定位 {propertyName} 对象定义。");
         }
 
         public static IReadOnlyList<McpServerTool> CreateEditorTools()
@@ -1562,32 +1232,24 @@ namespace Automation.McpServer
     internal sealed class DynamicMcpToolRegistry
     {
         private readonly object syncRoot = new object();
-        private readonly IReadOnlyDictionary<string, McpServerTool> allTools;
-        private readonly IReadOnlyDictionary<string, HashSet<string>> profileToolNames;
-        private readonly HashSet<string> fullPermissionToolNames;
+        private readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, McpServerTool>> toolsByProfile;
+        private readonly IReadOnlyDictionary<string, McpServerTool> fullPermissionOnlyTools;
         private string profile = string.Empty;
         private bool fullPermissionEnabled;
 
         public DynamicMcpToolRegistry(string initialProfile)
         {
-            var profileTools = AutomationToolProfiles.All.ToDictionary(
+            toolsByProfile = AutomationToolProfiles.All.ToDictionary(
                 item => item,
-                item => McpToolProfile.CreateTools(item),
+                item => (IReadOnlyDictionary<string, McpServerTool>)McpToolProfile.CreateTools(item)
+                    .ToDictionary(tool => tool.ProtocolTool.Name, StringComparer.Ordinal),
                 StringComparer.Ordinal);
-            IReadOnlyList<McpServerTool> editorTools = profileTools[AutomationToolProfiles.Editor];
             IReadOnlyList<McpServerTool> fullPermissionEditorTools =
                 McpToolProfile.CreateTools(AutomationToolProfiles.Editor, true);
-            allTools = profileTools.Values.SelectMany(item => item)
-                .Concat(fullPermissionEditorTools)
-                .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            profileToolNames = profileTools.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value.Select(tool => tool.ProtocolTool.Name).ToHashSet(StringComparer.Ordinal),
-                StringComparer.Ordinal);
-            fullPermissionToolNames = fullPermissionEditorTools.Select(tool => tool.ProtocolTool.Name)
-                .Where(name => !profileToolNames[AutomationToolProfiles.Editor].Contains(name))
-                .ToHashSet(StringComparer.Ordinal);
+            fullPermissionOnlyTools = fullPermissionEditorTools
+                .Where(tool => !toolsByProfile[AutomationToolProfiles.Editor]
+                    .ContainsKey(tool.ProtocolTool.Name))
+                .ToDictionary(tool => tool.ProtocolTool.Name, StringComparer.Ordinal);
             SetProfile(initialProfile);
         }
 
@@ -1605,14 +1267,19 @@ namespace Automation.McpServer
         {
             lock (syncRoot)
             {
-                var enabledNames = new HashSet<string>(profileToolNames[profile], StringComparer.Ordinal);
-                if (fullPermissionEnabled)
-                {
-                    enabledNames.UnionWith(fullPermissionToolNames);
-                }
-                return allTools.Values.Where(tool => enabledNames.Contains(tool.ProtocolTool.Name))
-                    .OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
+                return GetToolsUnsafe();
             }
+        }
+
+        private IReadOnlyList<McpServerTool> GetToolsUnsafe()
+        {
+            IEnumerable<McpServerTool> enabledTools = toolsByProfile[profile].Values;
+            if (fullPermissionEnabled)
+            {
+                enabledTools = enabledTools.Concat(fullPermissionOnlyTools.Values);
+            }
+            return enabledTools
+                .OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
         }
 
         public void SetProfile(string value)
@@ -1633,13 +1300,24 @@ namespace Automation.McpServer
                 profile = normalized;
                 fullPermissionEnabled = enableFullPermission;
             }
+            AutomationMcpRuntime.SetToolProfile(normalized);
         }
 
         public McpServerTool GetEnabledTool(string name)
         {
-            McpServerTool? tool = GetTools().FirstOrDefault(item =>
-                string.Equals(item.ProtocolTool.Name, name, StringComparison.Ordinal));
-            return tool ?? throw new InvalidOperationException($"当前{Profile}模式未开放工具:{name}");
+            return GetEnabledTool(name, out _);
+        }
+
+        public McpServerTool GetEnabledTool(string name, out string invocationProfile)
+        {
+            lock (syncRoot)
+            {
+                invocationProfile = profile;
+                McpServerTool? tool = GetToolsUnsafe().FirstOrDefault(item =>
+                    string.Equals(item.ProtocolTool.Name, name, StringComparison.Ordinal));
+                return tool ?? throw new InvalidOperationException(
+                    $"当前{invocationProfile}模式未开放工具:{name}");
+            }
         }
     }
 }

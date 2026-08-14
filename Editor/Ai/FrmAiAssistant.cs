@@ -1346,15 +1346,6 @@ namespace Automation
                 string persistedAssistantText = string.IsNullOrWhiteSpace(executionResult.AssistantText)
                     ? assistantText
                     : executionResult.AssistantText;
-                if (isActive
-                    && string.IsNullOrWhiteSpace(executionResult.StageStopReason)
-                    && !string.IsNullOrWhiteSpace(executionResult.CoordinatorMessage))
-                {
-                    AppendConversation(
-                        "EW-AI",
-                        executionResult.CoordinatorMessage,
-                        UiPalette.TextPrimary);
-                }
                 if (!string.IsNullOrWhiteSpace(executionResult.StageStopReason))
                 {
                     string stageNotice = "后续阶段未执行：" + executionResult.StageStopReason;
@@ -1720,6 +1711,16 @@ namespace Automation
             int passedScenarios = 0;
             int failedScenarios = 0;
             bool executionFailed = false;
+            string standardTestRunId = Guid.NewGuid().ToString("N");
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "standard_test.run_started",
+                ["runId"] = standardTestRunId,
+                ["separateConversations"] = separateConversations,
+                ["scenarioIds"] = new JArray(selectedScenarios.Select(item => item.Id)),
+                ["scenarioCount"] = selectedScenarios.Count,
+                ["totalTurns"] = totalTurns
+            });
             try
             {
                 for (int scenarioIndex = 0; scenarioIndex < selectedScenarios.Count; scenarioIndex++)
@@ -1742,6 +1743,7 @@ namespace Automation
                         AiAnalysisLogger.Write(new JObject
                         {
                             ["event"] = "standard_test.execution_failed",
+                            ["runId"] = standardTestRunId,
                             ["scenarioId"] = scenario.Id,
                             ["message"] = "AI 任务运行时不存在。"
                         });
@@ -1751,6 +1753,7 @@ namespace Automation
                     AiAnalysisLogger.Write(new JObject
                     {
                         ["event"] = "standard_test.started",
+                        ["runId"] = standardTestRunId,
                         ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                         ["scenarioId"] = scenario.Id,
                         ["promptCount"] = scenario.Prompts.Count,
@@ -1765,6 +1768,7 @@ namespace Automation
                         AiAnalysisLogger.Write(new JObject
                         {
                             ["event"] = "standard_test.preparation_failed",
+                            ["runId"] = standardTestRunId,
                             ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                             ["scenarioId"] = scenario.Id,
                             ["message"] = prepareError ?? string.Empty
@@ -1803,6 +1807,7 @@ namespace Automation
                                 AiAnalysisLogger.Write(new JObject
                                 {
                                     ["event"] = "standard_test.execution_failed",
+                                    ["runId"] = standardTestRunId,
                                     ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                                     ["scenarioId"] = scenario.Id,
                                     ["completedTurns"] = completedTurns,
@@ -1823,6 +1828,7 @@ namespace Automation
                         AiAnalysisLogger.Write(new JObject
                         {
                             ["event"] = "standard_test.evaluated",
+                            ["runId"] = standardTestRunId,
                             ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                             ["scenarioId"] = scenario.Id,
                             ["passed"] = evaluation.Passed,
@@ -1851,6 +1857,17 @@ namespace Automation
             finally
             {
                 bool stopped = standardTestStopRequested;
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "standard_test.run_completed",
+                    ["runId"] = standardTestRunId,
+                    ["stoppedByUser"] = stopped,
+                    ["executionFailed"] = executionFailed,
+                    ["completedTurns"] = completedTurns,
+                    ["totalTurns"] = totalTurns,
+                    ["passedScenarios"] = passedScenarios,
+                    ["failedScenarios"] = failedScenarios
+                });
                 standardTestRunning = false;
                 standardTestStopRequested = false;
                 ApplyPermissions();

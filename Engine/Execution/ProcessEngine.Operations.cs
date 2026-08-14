@@ -134,6 +134,10 @@ namespace Automation
                     evt.CompletionRequested = true;
                     return true;
 
+                case ConfigurationPlaceholder placeholder:
+                    MarkAlarm(evt, "流程包含未完成的配置占位：" + (placeholder.Reason ?? placeholder.Note ?? "未说明原因"));
+                    return false;
+
                 case PopupDialog popupDialog:
                     return RunPopupDialog(evt, popupDialog);
 

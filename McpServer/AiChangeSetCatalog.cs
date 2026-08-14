@@ -130,9 +130,12 @@ namespace Automation.McpServer
                     if (string.IsNullOrWhiteSpace(operation.Variable)) return "popup.variable.variable 不能为空。";
                     return operation.Target == null ? null! : ValidateTarget(operation.Target, "popup.variable.target");
                 case "config.placeholder":
-                    return string.IsNullOrWhiteSpace(operation.Message)
-                        ? "config.placeholder.message 不能为空。"
-                        : null!;
+                    if (string.IsNullOrWhiteSpace(operation.Message))
+                        return "config.placeholder.message 不能为空。";
+                    return operation.WhenTrue == null
+                        ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "config.placeholder.whenFalse")
+                        : ValidateTarget(operation.WhenTrue, "config.placeholder.whenTrue")
+                            ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "config.placeholder.whenFalse"));
                 case "io.write":
                     return ValidateIoOutputs(operation.Outputs, "io.write.outputs");
                 case "io.wait":
@@ -165,9 +168,7 @@ namespace Automation.McpServer
                 return $"{path} 必须且只能使用 operationId 或 operationKey。";
             int stepSelectorCount = (!string.IsNullOrWhiteSpace(target.StepId) ? 1 : 0)
                 + (!string.IsNullOrWhiteSpace(target.StepKey) ? 1 : 0);
-            if (!string.IsNullOrWhiteSpace(target.OperationId) && stepSelectorCount != 0)
-                return $"{path} 使用 operationId 时不得提供 stepId 或 stepKey。";
-            if (!string.IsNullOrWhiteSpace(target.OperationKey) && stepSelectorCount > 1)
+            if (string.IsNullOrWhiteSpace(target.OperationId) && stepSelectorCount > 1)
                 return $"{path} 使用 operationKey 时 stepId 和 stepKey 不能同时提供。";
             return null!;
         }

@@ -13,9 +13,9 @@ namespace Automation.McpServer
     public static class AutomationMcpTools
     {
         [McpServerTool(Name = "request_capability"), Description(
-            "提交当前时刻的一个动态调度决定。该工具只回显并记录决定，不读取平台、不修改配置、不运行流程。action=run_stage时只申请下一步一个能力包；工作阶段返回事实后再重新决定。action=finish结束任务；action=ask_user等待用户补充。不能自行扩展用户的副作用授权。")]
+            "申请切换到一个下一能力包。该工具不读取平台、不修改配置、不运行流程；完成当前工作或需要用户补充时不要调用，直接正常回复。不能自行扩展用户的副作用授权。")]
         public static string RequestCapability(
-            [Description("单步决定。run_stage填写capability/objective；仅运行控制、平台配置和源码修改还必须在authorizationQuote逐字引用当前用户消息中的授权片段。finish或ask_user只填写message。第一条成功决定会被执行器锁定，调用后立即结束本轮")]
+            [Description("能力切换请求。action固定为run_stage并填写capability/objective；仅运行控制、平台配置和源码修改还必须在authorizationQuote逐字引用当前用户消息中的授权片段。第一条成功请求会被执行器锁定，调用后立即结束本轮")]
             TaskCapabilityDecisionDefinition decision)
         {
             if (decision == null) throw new ArgumentNullException(nameof(decision));
@@ -26,6 +26,23 @@ namespace Automation.McpServer
                 data = decision
             });
             ToolCallLogger.Log(nameof(RequestCapability), new { decision }, result);
+            return result;
+        }
+
+        [McpServerTool(Name = "submit_review_handoff"), Description(
+            "仅在ProcessReview中提交可供后续修复引用的结构化评审交接。宿主会把finding与本阶段成功读取的机械事实绑定；该工具不结束当前模型轮，提交后继续用正常回复结束，或另行申请下一能力。普通评审文字不必调用，未提交时宿主按unresolved保存。")]
+        public static string SubmitReviewHandoff(
+            [Description("结构化评审结论。只有proven_defect携带findings；每个finding必须引用本阶段工具结果中的机械事实键")]
+            ReviewHandoffDefinition handoff)
+        {
+            if (handoff == null) throw new ArgumentNullException(nameof(handoff));
+            string result = JsonSerializer.Serialize(new
+            {
+                ok = true,
+                type = "review_handoff.submit",
+                data = handoff
+            });
+            ToolCallLogger.Log(nameof(SubmitReviewHandoff), new { handoff }, result);
             return result;
         }
 
@@ -138,7 +155,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations，新步骤使用独立step.append。现有对象使用稳定ID，新对象使用当前阶段局部key。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations，新步骤使用独立step.append。ProcessCreate中只能创建一个新流程并追加其步骤/指令，必须用当前阶段局部key精确串联；简单流程可一次预演，复杂流程可先提交autoStart=false的安全功能块后再续建。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移。")]
         public static async Task<string> PreviewChangeSet(
             [Description("当前完整原子阶段；actions与variables整体预演。阶段依赖的新变量也在variables中提交")] AtomicChangeSetDefinition changeSet,
             [Description("仅用于修正尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null)
@@ -151,6 +168,13 @@ namespace Automation.McpServer
                     if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
                     if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
                         throw new ArgumentException("changeSet 至少包含一个动作或变量声明。", nameof(changeSet));
+                    if (string.Equals(
+                        AutomationMcpRuntime.CurrentToolProfile,
+                        AutomationToolProfiles.ProcessCreate,
+                        StringComparison.Ordinal))
+                    {
+                        ValidateProcessCreateChangeSet(changeSet);
+                    }
                     var compiledInput = new AiChangeSet
                     {
                         Version = 2,
@@ -165,23 +189,91 @@ namespace Automation.McpServer
                 }).ConfigureAwait(false);
         }
 
-        [McpServerTool(Name = "preview_process_blueprint"), Description(
-            "预演新流程的当前创建阶段。简单流程可一次填写完整实现；复杂流程先填写步骤与config.placeholder功能块，形成autoStart=false且incomplete的安全骨架，提交后切到ProcessEdit按稳定ID分阶段补齐。工具只把本次蓝图确定性编译为一个ChangeSet V2原子阶段；返回previewId经前台确认后调用apply_change_set提交。")]
-        public static async Task<string> PreviewProcessBlueprint(
-            [Description("单个新流程当前创建阶段的声明式蓝图；可为完整简单流程或复杂流程安全骨架，不需要手工展开process.create/step.append/operation.append动作")]
-            ProcessBlueprintDefinition blueprint,
-            [Description("仅用于修正尚未apply的活动蓝图预演；新蓝图完整替代旧阶段")]
-            string? replacePreviewId = null)
+        internal static void ValidateProcessCreateChangeSet(AtomicChangeSetDefinition changeSet)
         {
-            return await ExecuteAsync(
-                toolName: nameof(PreviewProcessBlueprint),
-                args: new { blueprint, replacePreviewId },
-                action: client =>
+            IReadOnlyList<ChangeSetAction> actions = changeSet.Actions ?? new List<ChangeSetAction>();
+            ChangeSetAction? createAction = actions.FirstOrDefault(action =>
+                string.Equals(action?.Type, "process.create", StringComparison.Ordinal));
+            if (createAction == null
+                || actions.Count(action => string.Equals(
+                    action?.Type, "process.create", StringComparison.Ordinal)) != 1)
+            {
+                throw new ArgumentException(
+                    "ProcessCreate 的每个阶段必须且只能包含一个 process.create。",
+                    nameof(changeSet));
+            }
+
+            string processKey = createAction.Process?.Key?.Trim() ?? string.Empty;
+            if (processKey.Length == 0)
+            {
+                throw new ArgumentException(
+                    "ProcessCreate 请为 process.create.process.key 提供局部 key，后续步骤、指令和流程变量都用它引用新流程。",
+                    nameof(changeSet));
+            }
+
+            var stepKeys = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < actions.Count; index++)
+            {
+                ChangeSetAction action = actions[index]
+                    ?? throw new ArgumentException($"actions[{index}] 不能为 null。", nameof(changeSet));
+                string path = $"actions[{index}]";
+                switch (action.Type)
                 {
-                    AiChangeSet compiledInput = ProcessBlueprintCompiler.Compile(blueprint);
-                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
-                })
-                .ConfigureAwait(false);
+                    case "process.create":
+                        break;
+                    case "step.append":
+                        RequireOnlyLocalKey(action.TargetProcess, processKey, $"{path}.targetProcess");
+                        string stepKey = action.Step?.Key?.Trim() ?? string.Empty;
+                        if (stepKey.Length == 0)
+                            throw new ArgumentException($"{path}.step.key 必填，用于当前阶段的后续指令定位。", nameof(changeSet));
+                        if (!stepKeys.Add(stepKey))
+                            throw new ArgumentException($"{path}.step.key 重复：{stepKey}。", nameof(changeSet));
+                        break;
+                    case "operation.append":
+                        RequireOnlyLocalKey(action.TargetProcess, processKey, $"{path}.targetProcess");
+                        string targetStepKey = action.TargetStep?.Key?.Trim() ?? string.Empty;
+                        if (targetStepKey.Length == 0
+                            || !string.IsNullOrWhiteSpace(action.TargetStep?.StepId))
+                        {
+                            throw new ArgumentException(
+                                $"{path}.targetStep 只能使用当前阶段新步骤的 key。",
+                                nameof(changeSet));
+                        }
+                        if (!stepKeys.Contains(targetStepKey))
+                            throw new ArgumentException(
+                                $"{path}.targetStep.key={targetStepKey} 必须引用前面已 step.append 的局部 key。",
+                                nameof(changeSet));
+                        break;
+                    default:
+                        throw new ArgumentException(
+                            $"ProcessCreate 不接受 {path}.type={action.Type}；只使用 process.create、step.append 和 operation.append。已提交流程的后续修改转入 ProcessEdit。",
+                            nameof(changeSet));
+                }
+            }
+
+            IReadOnlyList<VariableChange> variables = changeSet.Variables ?? new List<VariableChange>();
+            for (int index = 0; index < variables.Count; index++)
+            {
+                VariableChange variable = variables[index]
+                    ?? throw new ArgumentException($"variables[{index}] 不能为 null。", nameof(changeSet));
+                if (string.Equals(variable.Scope, "process", StringComparison.OrdinalIgnoreCase))
+                {
+                    RequireOnlyLocalKey(variable.OwnerProcess, processKey, $"variables[{index}].ownerProcess");
+                }
+            }
+        }
+
+        private static void RequireOnlyLocalKey(ProcessSelector? selector, string expectedKey, string path)
+        {
+            string actualKey = selector?.Key?.Trim() ?? string.Empty;
+            if (!string.Equals(actualKey, expectedKey, StringComparison.Ordinal)
+                || !string.IsNullOrWhiteSpace(selector?.ProcId)
+                || !string.IsNullOrWhiteSpace(selector?.Name))
+            {
+                throw new ArgumentException(
+                    $"{path} 只能提供 key={expectedKey}，不得指向现有流程。",
+                    "changeSet");
+            }
         }
 
         [McpServerTool(Name = "apply_change_set"), Description(
@@ -189,10 +281,11 @@ namespace Automation.McpServer
         public static async Task<string> ApplyChangeSet(
             [Description("preview_change_set 返回且已由前台确认的32位 previewId")] string previewId)
         {
-            return await ExecuteAsync(
+            string result = await ExecuteAsync(
                 toolName: nameof(ApplyChangeSet),
                 args: new { previewId },
                 action: client => client.ApplyChangeSetAsync(previewId)).ConfigureAwait(false);
+            return CompactChangeSetApplyResult(result);
         }
 
         [McpServerTool(Name = "discard_change_set_preview"), Description(
@@ -218,14 +311,15 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_process_design_guide"), Description(
-            "Automation复杂流程设计的唯一按需知识入口。通常只按目标选择一个主主题；知识块本身已包含对应失败、超时和恢复写法，只有另一主题承担独立职责时才追加。core通用不变量会自动返回。"
+            "Automation复杂流程设计的唯一按需知识入口。通常只按目标选择一个主主题；默认compact直接返回当前功能块的短规则、可执行阶段、完成证据和失败恢复，只有需要完整设计背景时才使用full。core通用不变量会自动返回。"
             + "同时返回从旧项目证据中完成审核和归纳的可用规范；候选、审核过程和废弃内容不会进入运行时返回。"
             + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
-            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics)
+            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics,
+            [Description("返回粒度：compact（默认，直接用于当前功能块）或full（完整背景与知识正文）")] string? detail = null)
         {
-            string result = ProcessDesignGuideCatalog.Get(topics);
-            ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics }, result);
+            string result = ProcessDesignGuideCatalog.Get(topics, detail);
+            ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics, detail }, result);
             return result;
         }
 
@@ -321,6 +415,76 @@ namespace Automation.McpServer
                 toolName: nameof(GetProcOverview),
                 args: new { procIndex },
                 action: client => client.GetProcOverviewAsync(procIndex)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "inspect_process"), Description(
+            "一次读取单个流程评审最常用的结构摘要、就绪校验、确定性流程图和外部引用；不需要先分别试探四个工具。"
+            + "默认返回紧凑结构证据；只有结论依赖具体字段值时才设置includeOperationDetails=true，且流程不超过25条指令时附带全部字段详情。"
+            + "已聚合返回的事实不要重复读取；只有发现具体证据缺口时再使用细粒度工具。")]
+        public static async Task<string> InspectProcess(
+            [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
+            [Description("流程不超过25条指令时是否附带全部指令字段；默认false，只有字段级结论确实需要时开启")] bool includeOperationDetails = false)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(InspectProcess),
+                args: new { procIndex, includeOperationDetails },
+                action: async client =>
+                {
+                    Task<string> overviewTask = client.GetProcOverviewAsync(procIndex);
+                    Task<string> validationTask = client.ValidateProcAsync(procIndex);
+                    Task<string> flowGraphTask = client.GetFlowGraphAsync(FlowGraphScope.Process, procIndex);
+                    Task<string> referencesTask = client.GetProcReferencesAsync(procIndex, 0, 20, 50);
+                    await Task.WhenAll(overviewTask, validationTask, flowGraphTask, referencesTask)
+                        .ConfigureAwait(false);
+
+                    JsonObject overview = ParseBridgeResponse(await overviewTask.ConfigureAwait(false));
+                    JsonObject validation = ParseBridgeResponse(await validationTask.ConfigureAwait(false));
+                    JsonObject flowGraph = ParseBridgeResponse(await flowGraphTask.ConfigureAwait(false));
+                    JsonObject references = ParseBridgeResponse(await referencesTask.ConfigureAwait(false));
+                    EnsureBridgeSuccess(overview);
+                    EnsureBridgeSuccess(validation);
+                    EnsureBridgeSuccess(flowGraph);
+                    EnsureBridgeSuccess(references);
+
+                    JsonObject overviewData = overview["data"] as JsonObject ?? new JsonObject();
+                    string[] opIds = (overviewData["steps"] as JsonArray ?? new JsonArray())
+                        .OfType<JsonObject>()
+                        .SelectMany(step => (step["ops"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+                        .Select(operation => operation["opId"]?.GetValue<string>() ?? string.Empty)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    JsonNode? operationDetails = null;
+                    bool detailsOmitted = !includeOperationDetails || opIds.Length > 25;
+                    if (includeOperationDetails && opIds.Length is > 0 and <= 25)
+                    {
+                        JsonObject details = ParseBridgeResponse(
+                            await client.GetOpDetailsAsync(procIndex, opIds).ConfigureAwait(false));
+                        EnsureBridgeSuccess(details);
+                        operationDetails = details["data"]?.DeepClone();
+                    }
+
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "proc.inspection",
+                        ["data"] = new JsonObject
+                        {
+                            ["procIndex"] = procIndex,
+                            ["overview"] = overviewData.DeepClone(),
+                            ["validation"] = validation["data"]?.DeepClone(),
+                            ["flowGraph"] = flowGraph["data"]?.DeepClone(),
+                            ["references"] = references["data"]?.DeepClone(),
+                            ["operationDetails"] = operationDetails,
+                            ["detailsOmitted"] = detailsOmitted,
+                            ["detailReason"] = detailsOmitted
+                                ? includeOperationDetails
+                                    ? "流程超过25条指令；按overview中的opId选择缺口后调用get_op_details。"
+                                    : "调用方选择不读取字段详情。"
+                                : null
+                        }
+                    });
+                }).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_proc_detail"), Description(
@@ -1243,7 +1407,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "resolve_authoring_inputs"), Description(
             "按当前功能块的用途批量解析流程写入输入。每个requirement只表示一个资源绑定，names是该资源的精确名称或别名；"
-            + "返回唯一精确命中、变量类型/作用域兼容性、bindingAllowed以及可直接用于后续蓝图的事实。"
+            + "返回唯一精确命中、变量类型/作用域兼容性、bindingAllowed以及可直接用于后续 ChangeSet 的事实。"
             + "聚合结果已包含详情时不要再逐项读取；不兼容、模糊或缺失项应声明新变量、保留config.placeholder或询问用户。")]
         public static async Task<string> ResolveAuthoringInputs(
             [Description("1..20个独立绑定意图；每项key唯一，kind支持process/io/variable/station/point/data_struct/alarm/communication/plc")]
@@ -1360,6 +1524,11 @@ namespace Automation.McpServer
                             ["resolutionStatus"] = exact ? "exact" : resolved ? "candidate" : "missing",
                             ["contractReadAllowed"] = exact,
                             ["recommendedFallback"] = resolved ? null : "config.placeholder",
+                            ["fallbackCapabilities"] = resolved ? null : new JsonObject
+                            {
+                                ["plannedBranches"] = true,
+                                ["rule"] = "占位只替代未决动作或结果条件；已知分支、回跳、计数和出口继续使用ChangeSet语义指令表达。"
+                            },
                             ["nextContractTool"] = semanticCandidates.Length == 1
                                 ? "get_semantic_operation_schema"
                                 : nativeCandidates.Count == 1
@@ -1374,11 +1543,9 @@ namespace Automation.McpServer
                         ["data"] = new JsonObject
                         {
                             ["results"] = results,
-                            ["supportedSemanticKinds"] = new JsonArray(
-                                SemanticOperationKinds.SupportedKinds.Split('、')
-                                    .Select(value => JsonValue.Create(value)).ToArray()),
-                            ["registeredNativeTypes"] = registered.DeepClone(),
-                            ["rule"] = "只有返回的精确kind或operaType可以进入契约读取；没有候选时使用config.placeholder，不猜测类型名。"
+                            ["semanticKindCount"] = SemanticOperationKinds.SupportedKinds.Split('、').Length,
+                            ["registeredNativeTypeCount"] = registered.Count,
+                            ["rule"] = "只有返回的精确kind或operaType可以进入契约读取；没有候选时使用config.placeholder，不猜测类型名。占位不吞并已知重试、分支、清理或成功/耗尽出口。"
                         }
                     });
                 }).ConfigureAwait(false);
@@ -1630,27 +1797,47 @@ namespace Automation.McpServer
             return normalized;
         }
 
-        private static string[] ResolveSemanticCandidates(string intent)
+        internal static string[] ResolveSemanticCandidates(string intent)
         {
             var candidates = new HashSet<string>(StringComparer.Ordinal);
-            AddCandidateWhenContains(candidates, intent, "清空", "variable.clear");
-            AddCandidateWhenContains(candidates, intent, "赋值|设置变量|写变量", "variable.set");
-            AddCandidateWhenContains(candidates, intent, "复制变量|拷贝变量", "variable.copy");
-            AddCandidateWhenContains(candidates, intent, "累加|计数", "variable.add");
-            AddCandidateWhenContains(candidates, intent, "计算|运算", "variable.compute");
-            AddCandidateWhenContains(candidates, intent, "延时|等待时间|节拍", "wait");
-            AddCandidateWhenContains(candidates, intent, "跳转|转到", "flow.goto");
-            AddCandidateWhenContains(candidates, intent, "结束流程|正常结束", "flow.end");
-            AddCandidateWhenContains(candidates, intent, "数值比较|次数判断|大于|小于|等于", "branch.number_compare");
-            AddCandidateWhenContains(candidates, intent, "数值范围|区间", "branch.number_range");
-            AddCandidateWhenContains(candidates, intent, "IO判断|输入判断|信号判断", "branch.io");
-            AddCandidateWhenContains(candidates, intent, "报警|故障提示", "alarm.raise");
-            AddCandidateWhenContains(candidates, intent, "弹框|普通提示", "popup.message");
-            AddCandidateWhenContains(candidates, intent, "写IO|输出信号|置位输出|复位输出", "io.write");
-            AddCandidateWhenContains(candidates, intent, "等待IO|等待输入|等待到位", "io.wait");
-            AddCandidateWhenContains(candidates, intent, "启动子流程|停止子流程|控制流程", "process.control");
-            AddCandidateWhenContains(candidates, intent, "等待子流程|等待流程", "process.wait");
-            return candidates.ToArray();
+            string normalized = NormalizeCapabilityIntent(intent);
+            AddCandidateWhenContains(candidates, normalized, "清空", "variable.clear");
+            AddCandidateWhenContains(candidates, normalized, "赋值|设置变量|写变量", "variable.set");
+            AddCandidateWhenContains(candidates, normalized, "复制变量|拷贝变量", "variable.copy");
+            if ((normalized.IndexOf("复制", StringComparison.OrdinalIgnoreCase) >= 0
+                    || normalized.IndexOf("拷贝", StringComparison.OrdinalIgnoreCase) >= 0)
+                && normalized.IndexOf("变量", StringComparison.OrdinalIgnoreCase) >= 0)
+                candidates.Add("variable.copy");
+            if (normalized.IndexOf("结构体", StringComparison.OrdinalIgnoreCase) >= 0
+                || normalized.IndexOf("数据结构", StringComparison.OrdinalIgnoreCase) >= 0)
+                candidates.Remove("variable.copy");
+            AddCandidateWhenContains(candidates, normalized, "累加|计数", "variable.add");
+            AddCandidateWhenContains(candidates, normalized, "计算|运算", "variable.compute");
+            AddCandidateWhenContains(candidates, normalized, "延时|等待时间|节拍", "wait");
+            AddCandidateWhenContains(candidates, normalized, "跳转|转到", "flow.goto");
+            AddCandidateWhenContains(candidates, normalized, "结束流程|正常结束", "flow.end");
+            AddCandidateWhenContains(candidates, normalized, "数值比较|次数判断|大于|小于|等于", "branch.number_compare");
+            AddCandidateWhenContains(candidates, normalized, "数值范围|区间", "branch.number_range");
+            AddCandidateWhenContains(candidates, normalized, "IO判断|输入判断|信号判断", "branch.io");
+            AddCandidateWhenContains(candidates, normalized, "报警|故障提示", "alarm.raise");
+            AddCandidateWhenContains(candidates, normalized, "弹框|普通提示", "popup.message");
+            AddCandidateWhenContains(candidates, normalized, "写IO|输出信号|置位输出|复位输出", "io.write");
+            AddCandidateWhenContains(candidates, normalized, "等待IO|等待输入|等待到位", "io.wait");
+            if (normalized.IndexOf("等待", StringComparison.OrdinalIgnoreCase) >= 0
+                && (normalized.IndexOf("信号", StringComparison.OrdinalIgnoreCase) >= 0
+                    || normalized.IndexOf("输入", StringComparison.OrdinalIgnoreCase) >= 0))
+                candidates.Add("io.wait");
+            AddCandidateWhenContains(candidates, normalized, "启动子流程|停止子流程|控制流程", "process.control");
+            AddCandidateWhenContains(candidates, normalized, "等待子流程|等待流程", "process.wait");
+            return candidates.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        }
+
+        private static string NormalizeCapabilityIntent(string intent)
+        {
+            string value = (intent ?? string.Empty).Trim();
+            foreach (string filler in new[] { " ", "\t", "\r", "\n", "工件", "物料", "载具", "设备" })
+                value = value.Replace(filler, string.Empty, StringComparison.OrdinalIgnoreCase);
+            return value;
         }
 
         private static void AddCandidateWhenContains(
@@ -1663,7 +1850,7 @@ namespace Automation.McpServer
                 candidates.Add(kind);
         }
 
-        private static JsonArray RankNativeOperationCandidates(JsonArray registered, string intent)
+        internal static JsonArray RankNativeOperationCandidates(JsonArray registered, string intent)
         {
             string normalized = intent.Replace("操作", string.Empty).Replace("动作", string.Empty).Trim();
             IEnumerable<JsonObject> candidates = registered.OfType<JsonObject>()
@@ -1672,10 +1859,12 @@ namespace Automation.McpServer
                     string type = item["operaType"]?.GetValue<string>() ?? string.Empty;
                     string name = item["name"]?.GetValue<string>() ?? string.Empty;
                     return normalized.Length > 0
-                        && (type.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
-                            || name.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
-                            || intent.IndexOf(type, StringComparison.OrdinalIgnoreCase) >= 0
-                            || intent.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+                        && ((!string.IsNullOrWhiteSpace(type)
+                                && (type.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
+                                    || intent.IndexOf(type, StringComparison.OrdinalIgnoreCase) >= 0))
+                            || (!string.IsNullOrWhiteSpace(name)
+                                && (name.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
+                                    || intent.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)));
                 })
                 .Take(8);
             return ToJsonArray(candidates);
@@ -1875,6 +2064,91 @@ namespace Automation.McpServer
         {
             return JsonNode.Parse(raw ?? string.Empty) as JsonObject
                 ?? throw new InvalidOperationException("Bridge 返回的不是JSON对象。");
+        }
+
+        internal static string CompactChangeSetApplyResult(string? raw)
+        {
+            try
+            {
+                JsonObject? response = JsonNode.Parse(raw ?? string.Empty) as JsonObject;
+                if (response?["ok"]?.GetValue<bool>() != true
+                    || !string.Equals(
+                        response["type"]?.GetValue<string>(),
+                        "change_set.apply",
+                        StringComparison.Ordinal)
+                    || response["data"] is not JsonObject data)
+                {
+                    return raw ?? string.Empty;
+                }
+
+                var compactData = new JsonObject();
+                CopyFields(data, compactData,
+                    "previewId", "configurationSaved", "status", "summary",
+                    "readinessStatus", "runnable");
+                compactData["variableResolutions"] = CompactObjectArray(
+                    data["variableResolutions"],
+                    "variableId", "name", "valueType", "outcome", "changed", "index",
+                    "scope", "ownerProcId", "ownerProcName");
+                compactData["affectedProcesses"] = CompactObjectArray(
+                    data["affectedProcesses"],
+                    "procIndex", "procId", "name", "changeType", "readinessStatus", "runnable");
+                var created = new JsonObject();
+                if (data["createdObjects"] is JsonObject createdObjects)
+                {
+                    created["processes"] = CompactObjectArray(
+                        createdObjects["processes"], "key", "procId", "procIndex", "name");
+                    created["steps"] = CompactObjectArray(
+                        createdObjects["steps"],
+                        "procId", "processKey", "key", "stepId", "name");
+                    created["operations"] = CompactObjectArray(
+                        createdObjects["operations"],
+                        "procId", "processKey", "stepId", "stepKey", "key", "opId", "name", "operaType");
+                    created["variables"] = CompactObjectArray(
+                        createdObjects["variables"],
+                        "variableId", "name", "valueType", "outcome", "index", "scope", "ownerProcId");
+                }
+                compactData["createdObjects"] = created;
+                compactData["warnings"] = CompactObjectArray(
+                    data["warnings"], "procIndex", "procId", "message");
+                compactData["runBlockers"] = CompactObjectArray(
+                    data["runBlockers"], "procIndex", "procId", "message");
+                return new JsonObject
+                {
+                    ["ok"] = true,
+                    ["type"] = "change_set.apply",
+                    ["data"] = compactData
+                }.ToJsonString();
+            }
+            catch (JsonException)
+            {
+                return raw ?? string.Empty;
+            }
+            catch (InvalidOperationException)
+            {
+                return raw ?? string.Empty;
+            }
+        }
+
+        private static JsonArray CompactObjectArray(JsonNode? source, params string[] fields)
+        {
+            var result = new JsonArray();
+            if (source is not JsonArray sourceArray) return result;
+            foreach (JsonObject item in sourceArray.OfType<JsonObject>())
+            {
+                var compact = new JsonObject();
+                CopyFields(item, compact, fields);
+                result.Add(compact);
+            }
+            return result;
+        }
+
+        private static void CopyFields(JsonObject source, JsonObject target, params string[] fields)
+        {
+            foreach (string field in fields)
+            {
+                if (source.TryGetPropertyValue(field, out JsonNode? value) && value != null)
+                    target[field] = value.DeepClone();
+            }
         }
 
         private static void EnsureBridgeSuccess(JsonObject response)

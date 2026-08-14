@@ -61,8 +61,13 @@ namespace Automation.McpServer
                         var stopwatch = Stopwatch.StartNew();
                         try
                         {
-                            return await toolRegistry.GetEnabledTool(toolName)
-                                .InvokeAsync(request, cancellationToken).ConfigureAwait(false);
+                            McpServerTool tool = toolRegistry.GetEnabledTool(
+                                toolName, out string invocationProfile);
+                            using (AutomationMcpRuntime.BeginToolInvocation(invocationProfile))
+                            {
+                                return await tool.InvokeAsync(request, cancellationToken)
+                                    .ConfigureAwait(false);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -205,7 +210,7 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "resolve_operation_capability", "resolve_authoring_inputs", "get_native_operation_schemas", "get_native_operation_field_contract", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set", "preview_process_blueprint",
+                "list_operation_types", "resolve_operation_capability", "resolve_authoring_inputs", "get_native_operation_schemas", "get_native_operation_field_contract", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
                 "get_flow_graph",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
@@ -232,7 +237,8 @@ namespace Automation.McpServer
                 "search_data_structs",
                 "get_variable", "set_variable", "search_variables",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
-                "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes"
+                "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes",
+                "preview_process_blueprint"
             };
             string? missing = required.FirstOrDefault(name => !names.Contains(name, StringComparer.Ordinal));
             if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
@@ -428,7 +434,7 @@ namespace Automation.McpServer
             string[] requiredSchemaTerms =
             {
                 "actions", "variables", "reuse/create/update/replace/require",
-                "targetProcess", "targetOperation", "position", "oneOf",
+                "targetProcess", "targetOperation", "position", "x-fieldsByType", "x-fieldsByKind",
                 "variable.compute", "branch.number_compare", "minimum", "maximum", "kind",
                 "replacePreviewId", "operation.replace", "afterKey", "current_change_set",
                 "branch.io", "conditions", "conditionLogic", "onFailure"
@@ -461,12 +467,8 @@ namespace Automation.McpServer
             }
             int previewSchemaBytes = Encoding.UTF8.GetByteCount(
                 previewTool.ProtocolTool.InputSchema.GetRawText());
-            if (previewSchemaBytes > 64 * 1024)
-            {
-                throw new InvalidOperationException(
-                    $"preview_change_set 参数Schema为{previewSchemaBytes}字节，超过64KB上下文预算。");
-            }
-            VerifyPreviewChangeSetDiscriminatedUnions(previewTool.ProtocolTool.InputSchema.GetRawText());
+            VerifyPreviewChangeSetCompactContract(previewTool.ProtocolTool.InputSchema.GetRawText());
+            VerifyCompactChangeSetApplyResult();
             VerifyDiagnosticPagingSchemas();
             McpServerTool nativeSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
@@ -493,12 +495,15 @@ namespace Automation.McpServer
             if (!processDesignSchema.Contains("\"minItems\":1", StringComparison.Ordinal)
                 || !processDesignSchema.Contains("\"uniqueItems\":true", StringComparison.Ordinal)
                 || processDesignSchema.Contains("\"maxItems\"", StringComparison.Ordinal)
+                || !processDesignSchema.Contains("compact", StringComparison.Ordinal)
+                || !processDesignSchema.Contains("full", StringComparison.Ordinal)
                 || ProcessDesignGuideCatalog.SupportedTopics.Any(topic =>
                     !processDesignSchema.Contains(topic, StringComparison.Ordinal)))
             {
                 throw new InvalidOperationException("流程设计指南参数未完整公开精确主题，或含无依据的数量上限。");
             }
-            string processDesignGuide = ProcessDesignGuideCatalog.Get(ProcessDesignGuideCatalog.SupportedTopics);
+            string processDesignGuide = ProcessDesignGuideCatalog.Get(
+                ProcessDesignGuideCatalog.SupportedTopics, "full");
             string[] processDesignPollution =
             {
                 "extracted_data.json", "VariableChanges", "穴位1-BC码", "MES启用标记"
@@ -548,20 +553,29 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("流程设计知识缺失核心不变量、功能块、甄别来源或仍含项目参数。");
             }
-            JsonObject? identifyOnlyRoot = JsonNode.Parse(
-                ProcessDesignGuideCatalog.Get(new[] { "identify" })) as JsonObject;
+            string identifyCompactGuide = ProcessDesignGuideCatalog.Get(new[] { "identify" });
+            string identifyFullGuide = ProcessDesignGuideCatalog.Get(new[] { "identify" }, "full");
+            JsonObject? identifyOnlyRoot = JsonNode.Parse(identifyCompactGuide) as JsonObject;
             JsonArray? identifyOnlySections = identifyOnlyRoot?["sections"] as JsonArray;
             JsonArray? identifyKnowledgeBlocks = identifyOnlyRoot?["knowledgeBlocks"] as JsonArray;
             if (identifyOnlySections?.Count != 2
+                || identifyOnlyRoot?["detail"]?.GetValue<string>() != "compact"
                 || identifyOnlySections[0]?["topic"]?.GetValue<string>() != "core"
                 || identifyOnlySections[1]?["topic"]?.GetValue<string>() != "identify"
+                || !(identifyOnlySections[0]?["markdown"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("最短可靠路径", StringComparison.Ordinal)
                 || identifyKnowledgeBlocks == null
                 || !identifyKnowledgeBlocks.Any(block => string.Equals(
                     block?["patternId"]?.GetValue<string>(),
                     "identify.read-and-bind-carrier",
-                    StringComparison.Ordinal)))
+                    StringComparison.Ordinal))
+                || identifyKnowledgeBlocks.Any(block => block?["markdown"] != null)
+                || !identifyKnowledgeBlocks.Any(block =>
+                    !string.IsNullOrWhiteSpace(block?["recommendedStages"]?.GetValue<string>()))
+                || Encoding.UTF8.GetByteCount(identifyCompactGuide)
+                    >= Encoding.UTF8.GetByteCount(identifyFullGuide))
             {
-                throw new InvalidOperationException("流程设计知识未对功能块请求自动附带core或可用规范。");
+                throw new InvalidOperationException("流程设计知识未默认返回紧凑core、可执行阶段或可用规范。");
             }
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
             string[] diagnosticNames = diagnosticTools.Select(tool => tool.ProtocolTool.Name).ToArray();
@@ -742,19 +756,17 @@ namespace Automation.McpServer
 
         private static void VerifyTaskCapabilityProfiles()
         {
+            VerifyOperationCapabilityResolver();
             string[] coordinator = ToolNames(AutomationToolProfiles.TaskCoordinator);
             if (!coordinator.SequenceEqual(new[] { "request_capability" }, StringComparer.Ordinal))
                 throw new InvalidOperationException("TaskCoordinator 必须只开放结构化单步决定提交工具。");
             string coordinatorSchema = McpToolProfile.CreateTools(AutomationToolProfiles.TaskCoordinator)
                 .Single().ProtocolTool.InputSchema.GetRawText();
+            int coordinatorSchemaBytes = Encoding.UTF8.GetByteCount(coordinatorSchema);
             JsonNode? coordinatorSchemaNode = JsonNode.Parse(coordinatorSchema);
             JsonObject? runStageBranch = FindDecisionBranch(coordinatorSchemaNode, "run_stage");
             JsonObject? finishBranch = FindDecisionBranch(coordinatorSchemaNode, "finish");
             JsonObject? askUserBranch = FindDecisionBranch(coordinatorSchemaNode, "ask_user");
-            bool exposesVerifiedFacts = new[] { runStageBranch, finishBranch, askUserBranch }
-                .Where(branch => branch != null)
-                .Any(branch => FindSchemaByProperties(
-                    branch!, "status", "summary", "findings")?["properties"]?["verifiedFacts"] != null);
             string[] missingCoordinatorTerms = AutomationToolProfiles.ExecutionProfiles
                 .Where(profile => !coordinatorSchema.Contains(profile, StringComparison.Ordinal))
                 .ToArray();
@@ -763,16 +775,16 @@ namespace Automation.McpServer
                 || !coordinatorSchema.Contains("\"oneOf\"", StringComparison.Ordinal)
                 || !coordinatorSchema.Contains("\"additionalProperties\":false", StringComparison.Ordinal)
                 || runStageBranch == null
-                || finishBranch == null
-                || askUserBranch == null
+                || finishBranch != null
+                || askUserBranch != null
                 || runStageBranch?["properties"]?["message"] != null
-                || finishBranch?["properties"]?["capability"] != null
-                || askUserBranch?["properties"]?["objective"] != null
+                || !coordinatorSchema.Contains("findingIds", StringComparison.Ordinal)
+                || runStageBranch?["properties"]?["reviewHandoff"] != null
                 || coordinatorSchema.Contains("evidenceFactRefs", StringComparison.Ordinal)
-                || coordinatorSchema.Contains(ReviewFindingCategories.StructuralDefect, StringComparison.Ordinal)
-                || exposesVerifiedFacts)
+                || coordinatorSchema.Contains("requiresUserConfirmationAfter", StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    "TaskCoordinator Schema 未闭合或缺少执行能力枚举：" + string.Join(",", missingCoordinatorTerms));
+                    "TaskCoordinator 稳定控制Schema未闭合、缺少能力枚举或仍包含完成/评审包装："
+                    + string.Join(",", missingCoordinatorTerms));
 
             string[] design = ToolNames(AutomationToolProfiles.ProcessDesign);
             if (!design.SequenceEqual(
@@ -800,9 +812,9 @@ namespace Automation.McpServer
             }
 
             string[] create = ToolNames(AutomationToolProfiles.ProcessCreate);
-            if (!create.Contains("preview_process_blueprint", StringComparer.Ordinal)
+            if (!create.Contains("preview_change_set", StringComparer.Ordinal)
                 || !create.Contains("apply_change_set", StringComparer.Ordinal)
-                || !create.Contains("resolve_proc_target", StringComparer.Ordinal)
+                || create.Contains("resolve_proc_target", StringComparer.Ordinal)
                 || !create.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
                 || !create.Contains("resolve_operation_capability", StringComparer.Ordinal)
                 || create.Contains("discover_project_resources", StringComparer.Ordinal)
@@ -810,7 +822,6 @@ namespace Automation.McpServer
                 || create.Contains("search_proc_catalog", StringComparer.Ordinal)
                 || create.Contains("search_io", StringComparer.Ordinal)
                 || create.Contains("search_alarms", StringComparer.Ordinal)
-                || create.Contains("preview_change_set", StringComparer.Ordinal)
                 || create.Contains("start_proc", StringComparer.Ordinal)
                 || create.Contains("get_platform_development_context", StringComparer.Ordinal))
                 throw new InvalidOperationException("ProcessCreate 工具边界错误。");
@@ -820,20 +831,29 @@ namespace Automation.McpServer
                 || !edit.Contains("resolve_proc_target", StringComparer.Ordinal)
                 || !edit.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
                 || !edit.Contains("resolve_operation_capability", StringComparer.Ordinal)
+                || !edit.Contains("inspect_process", StringComparer.Ordinal)
+                || !edit.Contains("get_op_details", StringComparer.Ordinal)
                 || edit.Contains("discover_project_resources", StringComparer.Ordinal)
+                || edit.Contains("get_proc_detail", StringComparer.Ordinal)
+                || edit.Contains("get_flow_graph", StringComparer.Ordinal)
+                || edit.Contains("get_step_detail", StringComparer.Ordinal)
                 || !edit.Contains("get_native_operation_field_contract", StringComparer.Ordinal)
                 || edit.Contains("get_operation_schema", StringComparer.Ordinal)
                 || edit.Contains("search_proc_catalog", StringComparer.Ordinal)
-                || edit.Contains("preview_process_blueprint", StringComparer.Ordinal)
                 || edit.Contains("start_proc", StringComparer.Ordinal)
                 || edit.Length > 18)
                 throw new InvalidOperationException("ProcessEdit 工具边界错误。");
 
             string[] review = ToolNames(AutomationToolProfiles.ProcessReview);
             if (!review.Contains("resolve_proc_target", StringComparer.Ordinal)
-                || !review.Contains("discover_project_resources", StringComparer.Ordinal)
-                || !review.Contains("validate_proc", StringComparer.Ordinal)
+                || review.Contains("discover_project_resources", StringComparer.Ordinal)
+                || !review.Contains("inspect_process", StringComparer.Ordinal)
                 || !review.Contains("get_op_details", StringComparer.Ordinal)
+                || !review.Contains("submit_review_handoff", StringComparer.Ordinal)
+                || review.Contains("validate_proc", StringComparer.Ordinal)
+                || review.Contains("get_proc_overview", StringComparer.Ordinal)
+                || review.Contains("get_flow_graph", StringComparer.Ordinal)
+                || review.Contains("get_proc_references", StringComparer.Ordinal)
                 || review.Contains("search_proc_catalog", StringComparer.Ordinal)
                 || review.Contains("search_io", StringComparer.Ordinal)
                 || review.Contains("search_alarms", StringComparer.Ordinal)
@@ -841,27 +861,27 @@ namespace Automation.McpServer
                 || review.Contains("diagnose_issue", StringComparer.Ordinal)
                 || review.Contains("get_snapshot", StringComparer.Ordinal)
                 || review.Contains("get_proc_detail", StringComparer.Ordinal)
-                || review.Contains("get_op_detail", StringComparer.Ordinal))
-                throw new InvalidOperationException("ProcessReview 必须使用聚合定位与资源发现工具。");
+                || review.Contains("get_op_detail", StringComparer.Ordinal)
+                || review.Length > 18)
+                throw new InvalidOperationException("ProcessReview 必须优先使用单次聚合检查，并移除重复的基础读取入口。");
             string reviewDecisionSchema = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessReview)
                 .Single(tool => string.Equals(
                     tool.ProtocolTool.Name, "request_capability", StringComparison.Ordinal))
                 .ProtocolTool.InputSchema.GetRawText();
-            JsonNode? reviewDecisionNode = JsonNode.Parse(reviewDecisionSchema);
-            bool reviewExposesVerifiedFacts = new[]
-                {
-                    FindDecisionBranch(reviewDecisionNode, "run_stage"),
-                    FindDecisionBranch(reviewDecisionNode, "finish"),
-                    FindDecisionBranch(reviewDecisionNode, "ask_user")
-                }
-                .Where(branch => branch != null)
-                .Any(branch => FindSchemaByProperties(
-                    branch!, "status", "summary", "findings")?["properties"]?["verifiedFacts"] != null);
-            if (!reviewDecisionSchema.Contains("evidenceFactRefs", StringComparison.Ordinal)
-                || !reviewDecisionSchema.Contains(ReviewFindingCategories.StructuralDefect, StringComparison.Ordinal)
-                || reviewExposesVerifiedFacts)
+            string reviewHandoffSchema = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessReview)
+                .Single(tool => string.Equals(
+                    tool.ProtocolTool.Name, "submit_review_handoff", StringComparison.Ordinal))
+                .ProtocolTool.InputSchema.GetRawText();
+            JsonObject? reviewHandoffObject = FindSchemaByProperties(
+                JsonNode.Parse(reviewHandoffSchema), "status", "summary", "findings");
+            if (!string.Equals(reviewDecisionSchema, coordinatorSchema, StringComparison.Ordinal)
+                || !reviewHandoffSchema.Contains("evidenceFactRefs", StringComparison.Ordinal)
+                || !reviewHandoffSchema.Contains(ReviewFindingCategories.StructuralDefect, StringComparison.Ordinal)
+                || reviewHandoffObject == null
+                || reviewHandoffObject["properties"]?["verifiedFacts"] != null)
             {
-                throw new InvalidOperationException("ProcessReview 决定Schema缺少机械证据交接或暴露了宿主字段。");
+                throw new InvalidOperationException(
+                    "ProcessReview 控制Schema或独立评审交接Schema不符合契约。");
             }
 
             string[] control = ToolNames(AutomationToolProfiles.RuntimeControl);
@@ -885,280 +905,124 @@ namespace Automation.McpServer
                 || platform.Contains("preview_change_set", StringComparer.Ordinal))
                 throw new InvalidOperationException("PlatformConfiguration 工具边界错误。");
 
-            McpServerTool blueprintTool = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessCreate)
+            McpServerTool createPreviewTool = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessCreate)
                 .Single(tool => string.Equals(
-                    tool.ProtocolTool.Name, "preview_process_blueprint", StringComparison.Ordinal));
-            string blueprintSchema = blueprintTool.ProtocolTool.InputSchema.GetRawText();
-            int blueprintSchemaBytes = Encoding.UTF8.GetByteCount(blueprintSchema);
-            JsonNode blueprintSchemaNode = JsonNode.Parse(blueprintSchema)
-                ?? throw new InvalidOperationException("Process Blueprint Schema 不是有效JSON。");
-            string[] missingBlueprintTerms = new[]
-                {
-                    "steps", "operations", "oneOf", "config.placeholder",
-                    "alarm.raise", "retries", "maxAttempts", "entryOperationKey",
-                    "目标指令的局部key", "目标步骤局部key", "entryMode",
-                    "内部计数器及其复位", "复杂流程", "安全骨架"
-                }
-                .Where(term => !SchemaContainsTerm(blueprintSchemaNode, term))
-                .ToArray();
-            if (missingBlueprintTerms.Length > 0 || blueprintSchemaBytes > 48 * 1024)
+                    tool.ProtocolTool.Name, "preview_change_set", StringComparison.Ordinal));
+            string createPreviewSchema = createPreviewTool.ProtocolTool.InputSchema.GetRawText();
+            int createPreviewSchemaBytes = Encoding.UTF8.GetByteCount(createPreviewSchema);
+            VerifyPreviewChangeSetCompactContract(
+                createPreviewSchema,
+                new[] { "process.create", "step.append", "operation.append" });
+            var dynamicRegistry = new DynamicMcpToolRegistry(AutomationToolProfiles.ProcessCreate);
+            string activeCreateSchema = dynamicRegistry.GetEnabledTool("preview_change_set")
+                .ProtocolTool.InputSchema.GetRawText();
+            if (!string.Equals(activeCreateSchema, createPreviewSchema, StringComparison.Ordinal))
+            {
                 throw new InvalidOperationException(
-                    $"Process Blueprint Schema 不完整或超过48KB预算：bytes={blueprintSchemaBytes}，missing={string.Join(",", missingBlueprintTerms)}。");
-
-            AiChangeSet compiled = ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
+                    "动态工具注册表未返回 ProcessCreate 的专用 preview_change_set Schema。");
+            }
+            using (AutomationMcpRuntime.BeginToolInvocation(AutomationToolProfiles.ProcessCreate))
             {
-                Process = new ProcessBlueprintProcess { Name = "蓝图测试" },
-                Steps = new List<ProcessBlueprintStep>
+                dynamicRegistry.SetProfile(AutomationToolProfiles.ProcessEdit);
+                if (!string.Equals(
+                    AutomationMcpRuntime.CurrentToolProfile,
+                    AutomationToolProfiles.ProcessCreate,
+                    StringComparison.Ordinal))
                 {
-                    new ProcessBlueprintStep
-                    {
-                        Name = "待配置",
-                        Operations = new List<SemanticOperation>
-                        {
-                            new SemanticOperation { Kind = "config.placeholder", Message = "等待设备点位" }
-                        }
-                    }
+                    throw new InvalidOperationException(
+                        "工具调用期间的 Profile 快照被并发切换污染。");
                 }
-            });
-            string[] actionTypes = compiled.Actions.Select(action => action.Type).ToArray();
-            if (!actionTypes.SequenceEqual(
-                    new[] { "process.create", "step.append", "operation.append" },
-                    StringComparer.Ordinal)
-                || compiled.Actions[0].Process?.Key != "process"
-                || compiled.Actions[2].Operation?.Key != "op_1_1")
-                throw new InvalidOperationException("Process Blueprint 未确定性编译为单个 ChangeSet V2阶段。");
-
-            AiChangeSet crossStep = ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
-            {
-                Process = new ProcessBlueprintProcess { Name = "跨步骤首指令" },
-                Steps = new List<ProcessBlueprintStep>
-                {
-                    new ProcessBlueprintStep
-                    {
-                        Key = "source",
-                        Name = "来源",
-                        Operations = new List<SemanticOperation>
-                        {
-                            new SemanticOperation
-                            {
-                                Key = "jump",
-                                Kind = "flow.goto",
-                                Target = new OperationTarget { StepKey = "target" }
-                            }
-                        }
-                    },
-                    new ProcessBlueprintStep
-                    {
-                        Key = "target",
-                        Name = "目标",
-                        Operations = new List<SemanticOperation>
-                        {
-                            new SemanticOperation { Key = "first", Kind = "config.placeholder", Message = "报警资源待确认" },
-                            new SemanticOperation { Key = "end", Kind = "flow.end" }
-                        }
-                    }
-                }
-            });
-            OperationTarget normalizedTarget = crossStep.Actions
-                .Select(action => action.Operation?.Target)
-                .First(target => target != null)!;
-            if (!string.Equals(normalizedTarget.OperationKey, "first", StringComparison.Ordinal)
-                || normalizedTarget.EntryMode != null)
-                throw new InvalidOperationException("Blueprint跨步骤跳转没有归一化到目标步骤首指令。");
-
-            bool rejectedMiddleEntry = false;
-            try
-            {
-                ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
-                {
-                    Process = new ProcessBlueprintProcess { Name = "中段入口拒绝" },
-                    Steps = new List<ProcessBlueprintStep>
-                    {
-                        new ProcessBlueprintStep
-                        {
-                            Key = "source",
-                            Name = "来源",
-                            Operations = new List<SemanticOperation>
-                            {
-                                new SemanticOperation
-                                {
-                                    Key = "jump",
-                                    Kind = "flow.goto",
-                                    Target = new OperationTarget { StepKey = "target", OperationKey = "end" }
-                                }
-                            }
-                        },
-                        new ProcessBlueprintStep
-                        {
-                            Key = "target",
-                            Name = "目标",
-                            Operations = new List<SemanticOperation>
-                            {
-                                new SemanticOperation { Key = "first", Kind = "config.placeholder", Message = "报警资源待确认" },
-                                new SemanticOperation { Key = "end", Kind = "flow.end" }
-                            }
-                        }
-                    }
-                });
             }
-            catch (ArgumentException ex) when (ex.Message.Contains("entryMode=operation", StringComparison.Ordinal))
+            if (createPreviewSchema.Contains("preview_process_blueprint", StringComparison.Ordinal)
+                || createPreviewSchema.Contains("retries", StringComparison.Ordinal)
+                || createPreviewSchema.Contains("entryMode", StringComparison.Ordinal))
             {
-                rejectedMiddleEntry = true;
+                throw new InvalidOperationException("ProcessCreate ChangeSet Schema 仍暴露已退役的 Blueprint 或重试宏字段。");
             }
-            if (!rejectedMiddleEntry)
-                throw new InvalidOperationException("Blueprint未拒绝没有显式entryMode的跨步骤中段入口。");
-
-            ToolContractValidationException? aggregatedBlueprintError = null;
-            try
-            {
-                ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
-                {
-                    Process = new ProcessBlueprintProcess { Name = string.Empty },
-                    Steps = new List<ProcessBlueprintStep>
-                    {
-                        new ProcessBlueprintStep { Name = string.Empty, Operations = new List<SemanticOperation>() }
-                    },
-                    Retries = new List<ProcessBlueprintRetryPolicy>
-                    {
-                        new ProcessBlueprintRetryPolicy
-                        {
-                            EntryOperationKey = "missing_entry",
-                            RetryDecisionOperationKey = "missing_decision",
-                            MaxAttempts = 0
-                        }
-                    }
-                });
-            }
-            catch (ToolContractValidationException ex)
-            {
-                aggregatedBlueprintError = ex;
-            }
-            if (aggregatedBlueprintError?.Issues.Count < 5)
-                throw new InvalidOperationException("Blueprint预检没有一次聚合返回多个机械可发现问题。");
-
-            bool rejectedUninitializedLoop = false;
-            try
-            {
-                ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
-                {
-                    Process = new ProcessBlueprintProcess { Name = "回环复位检查" },
-                    Variables = new List<ProcessBlueprintVariable>
-                    {
-                        new ProcessBlueprintVariable
-                        {
-                            Name = "attemptCount",
-                            Scope = "process",
-                            Type = "double",
-                            Value = "0",
-                            Policy = "create"
-                        }
-                    },
-                    Steps = new List<ProcessBlueprintStep>
-                    {
-                        new ProcessBlueprintStep
-                        {
-                            Key = "loop",
-                            Name = "循环",
-                            Operations = new List<SemanticOperation>
-                            {
-                                new SemanticOperation { Key = "add", Kind = "variable.add", Variable = "attemptCount", Amount = 1 },
-                                new SemanticOperation
-                                {
-                                    Key = "back",
-                                    Kind = "flow.goto",
-                                    Target = new OperationTarget { OperationKey = "add" }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            catch (ArgumentException ex) when (ex.Message.Contains("复位", StringComparison.Ordinal))
-            {
-                rejectedUninitializedLoop = true;
-            }
-            if (!rejectedUninitializedLoop)
-                throw new InvalidOperationException("Blueprint未拒绝缺少每轮复位的回环累加变量。");
-
-            AiChangeSet retryBlueprint = ProcessBlueprintCompiler.Compile(new ProcessBlueprintDefinition
-            {
-                Process = new ProcessBlueprintProcess { Name = "标准重试检查" },
-                Variables = new List<ProcessBlueprintVariable>
-                {
-                    new ProcessBlueprintVariable { Name = "success", Scope = "process", Type = "double", Value = "0", Policy = "create" },
-                    new ProcessBlueprintVariable { Name = "result", Scope = "process", Type = "string", Value = "", Policy = "create" }
-                },
-                Steps = new List<ProcessBlueprintStep>
-                {
-                    new ProcessBlueprintStep
-                    {
-                        Key = "retry",
-                        Name = "扫码重试",
-                        Operations = new List<SemanticOperation>
-                        {
-                            new SemanticOperation { Key = "attempt_entry", Kind = "config.placeholder", Message = "扫码动作待配置" },
-                            new SemanticOperation
-                            {
-                                Key = "retry_decision",
-                                Kind = "branch.number_compare",
-                                Variable = "由编译器替换",
-                                Comparison = "lt",
-                                CompareValue = 1,
-                                WhenFalse = new OperationTarget { OperationKey = "failed" }
-                            },
-                            new SemanticOperation { Key = "failed", Kind = "alarm.raise", Message = "扫码失败" },
-                            new SemanticOperation { Key = "end", Kind = "flow.end" }
-                        }
-                    }
-                },
-                Retries = new List<ProcessBlueprintRetryPolicy>
-                {
-                    new ProcessBlueprintRetryPolicy
-                    {
-                        EntryOperationKey = "attempt_entry",
-                        MaxAttempts = 4,
-                        RetryDecisionOperationKey = "retry_decision",
-                        ResetVariables = new List<string> { "success" },
-                        ClearVariables = new List<string> { "result" }
-                    }
-                }
-            });
-            if (retryBlueprint.Actions.Count(action => string.Equals(
-                    action.Operation?.Kind, "alarm.raise", StringComparison.Ordinal)) != 1)
-                throw new InvalidOperationException("Blueprint标准重试或正式报警语义未确定性编译。");
-            if (!retryBlueprint.Variables.Any(variable =>
-                    variable.Name.StartsWith("__automation_retry_", StringComparison.Ordinal)
-                    && variable.Scope == VariableScopeContract.Process
-                    && variable.Type == VariableChangeContract.DoubleType)
-                || retryBlueprint.Actions.Count(action => string.Equals(
-                    action.Operation?.Kind, "variable.add", StringComparison.Ordinal)) != 1)
-            {
-                throw new InvalidOperationException("Blueprint未生成内部重试计数器或单次累加结构。");
-            }
+            VerifyProcessCreateChangeSetBoundary();
 
             Console.WriteLine(
                 $"任务能力包校验通过：Coordinator={coordinator.Length}, Design={design.Length}, Review={ToolNames(AutomationToolProfiles.ProcessReview).Length}, "
                 + $"Create={create.Length}, Edit={edit.Length}, Resource={resources.Length}, Runtime={control.Length}, Source={source.Length}, "
-                + $"Platform={platform.Length}；Blueprint Schema={blueprintSchemaBytes}字节。");
+                + $"Platform={platform.Length}；Control Schema={coordinatorSchemaBytes}字节；"
+                + $"Create ChangeSet Schema={createPreviewSchemaBytes}字节。");
         }
 
-        private static bool SchemaContainsTerm(JsonNode? node, string term)
+        private static void VerifyProcessCreateChangeSetBoundary()
         {
-            if (node == null || string.IsNullOrEmpty(term)) return false;
-            if (node is JsonObject jsonObject)
+            var valid = new AtomicChangeSetDefinition
             {
-                return jsonObject.Any(property =>
-                    property.Key.Contains(term, StringComparison.Ordinal)
-                    || SchemaContainsTerm(property.Value, term));
-            }
-            if (node is JsonArray jsonArray)
-                return jsonArray.Any(item => SchemaContainsTerm(item, term));
-            if (node is JsonValue jsonValue
-                && jsonValue.TryGetValue(out string? text))
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "process.create",
+                        Process = new ProcessActionValue
+                        {
+                            Key = "new_process",
+                            Name = "创建边界自检",
+                            AutoStart = false
+                        }
+                    },
+                    new ChangeSetAction
+                    {
+                        Type = "step.append",
+                        TargetProcess = new ProcessSelector { Key = "new_process" },
+                        Step = new StepActionValue { Key = "main", Name = "主步骤" }
+                    },
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        TargetProcess = new ProcessSelector { Key = "new_process" },
+                        TargetStep = new StepSelector { Key = "main" },
+                        Operation = new SemanticOperation { Kind = "flow.end" }
+                    }
+                }
+            };
+            AutomationMcpTools.ValidateProcessCreateChangeSet(valid);
+
+            var existingProcessEdit = new AtomicChangeSetDefinition
             {
-                return (text ?? string.Empty).Contains(term, StringComparison.Ordinal);
+                Actions = new List<ChangeSetAction>(valid.Actions)
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "process.update",
+                        TargetProcess = new ProcessSelector { Name = "现有流程" },
+                        Process = new ProcessActionValue { Disable = true }
+                    }
+                }
+            };
+            try
+            {
+                AutomationMcpTools.ValidateProcessCreateChangeSet(existingProcessEdit);
+                throw new InvalidOperationException("ProcessCreate 边界自检未拒绝既有流程修改。");
             }
-            return false;
+            catch (ArgumentException)
+            {
+                // 期望路径：创建能力不得越界修改已提交流程。
+            }
+        }
+
+        private static void VerifyOperationCapabilityResolver()
+        {
+            string[] wait = AutomationMcpTools.ResolveSemanticCandidates("等待工件到位信号");
+            string[] copy = AutomationMcpTools.ResolveSemanticCandidates("复制扫码结果字符串到载具编号变量");
+            if (!wait.SequenceEqual(new[] { "io.wait" }, StringComparer.Ordinal)
+                || !copy.SequenceEqual(new[] { "variable.copy" }, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException("常见业务措辞未能直接解析为平台语义能力。");
+            }
+
+            var registered = new JsonArray
+            {
+                new JsonObject { ["operaType"] = "延时", ["name"] = string.Empty },
+                new JsonObject { ["operaType"] = "流程结束", ["name"] = string.Empty }
+            };
+            JsonArray unrelated = AutomationMcpTools.RankNativeOperationCandidates(
+                registered, "调用扫码枪读取条码");
+            if (unrelated.Count != 0)
+                throw new InvalidOperationException("原生能力解析不得用空名称匹配所有注册指令。");
         }
 
         private static string[] ToolNames(string profile)
@@ -1169,10 +1033,12 @@ namespace Automation.McpServer
                 .ToArray();
         }
 
-        private static void VerifyPreviewChangeSetDiscriminatedUnions(string schemaJson)
+        private static void VerifyPreviewChangeSetCompactContract(
+            string schemaJson,
+            IReadOnlyCollection<string>? expectedTypes = null)
         {
             if ((schemaJson ?? string.Empty).Contains("\"entryMode\"", StringComparison.Ordinal))
-                throw new InvalidOperationException("preview_change_set 不得暴露 Blueprint 专用 entryMode。");
+                throw new InvalidOperationException("preview_change_set 不得暴露已退役的 entryMode。");
             JsonObject root = JsonNode.Parse(schemaJson ?? string.Empty) as JsonObject
                 ?? throw new InvalidOperationException("preview_change_set 参数Schema不是JSON对象。");
             EnsureClosedBranch(root, "preview_change_set根参数");
@@ -1188,113 +1054,145 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("replacePreviewId必须只存在于preview_change_set根参数。");
             }
             JsonObject actionSchema = FindSchemaByMarker(root, "x-localKeyScope", "current_change_set")
-                ?? throw new InvalidOperationException("preview_change_set 未找到ChangeAction判别联合。");
-            JsonArray actionBranches = actionSchema["oneOf"] as JsonArray
-                ?? throw new InvalidOperationException("ChangeAction Schema缺少oneOf。");
-            string[] expectedActionTypes = ChangeSetActionTypes.SupportedTypes.Split('、');
-            if (actionBranches.Count != expectedActionTypes.Length)
-                throw new InvalidOperationException($"ChangeAction分支数量错误：实际{actionBranches.Count}，期望{expectedActionTypes.Length}。");
-
-            var actualActionTypes = new HashSet<string>(StringComparer.Ordinal);
-            int operationUnionCount = 0;
-            foreach (JsonNode? node in actionBranches)
-            {
-                JsonObject branch = node as JsonObject
-                    ?? throw new InvalidOperationException("ChangeAction oneOf包含非对象分支。");
-                EnsureClosedBranch(branch, "ChangeAction");
-                JsonObject properties = branch["properties"] as JsonObject
-                    ?? throw new InvalidOperationException("ChangeAction分支缺少properties。");
-                string type = ReadDiscriminator(properties, "type", "ChangeAction");
-                if (!actualActionTypes.Add(type))
-                    throw new InvalidOperationException($"ChangeAction分支重复：{type}");
-                if (properties["operation"] is JsonObject operationReference)
-                {
-                    JsonObject operationSchema = ResolveLocalSchemaReference(root, operationReference);
-                    VerifySemanticOperationUnion(root, operationSchema, type);
-                    operationUnionCount++;
-                }
-            }
+                ?? throw new InvalidOperationException("preview_change_set 未找到ChangeAction契约。");
+            EnsureClosedBranch(actionSchema, "ChangeAction");
+            JsonObject actionProperties = actionSchema["properties"] as JsonObject
+                ?? throw new InvalidOperationException("ChangeAction缺少properties。");
+            string[] expectedActionTypes = expectedTypes?.ToArray()
+                ?? ChangeSetActionTypes.SupportedTypes.Split('、');
+            JsonArray actionTypeEnum = actionProperties["type"]?["enum"] as JsonArray
+                ?? throw new InvalidOperationException("ChangeAction.type缺少枚举。");
+            var actualActionTypes = new HashSet<string>(
+                actionTypeEnum.Select(item => item?.GetValue<string>() ?? string.Empty),
+                StringComparer.Ordinal);
             if (!actualActionTypes.SetEquals(expectedActionTypes))
-                throw new InvalidOperationException("ChangeAction判别联合与SupportedTypes不一致。");
-            if (operationUnionCount != 4)
-                throw new InvalidOperationException($"ChangeAction内嵌SemanticOperation联合数量错误：实际{operationUnionCount}，期望4。");
+                throw new InvalidOperationException("ChangeAction类型枚举与当前 Profile 的动作集不一致。");
+            JsonObject fieldsByType = actionSchema["x-fieldsByType"] as JsonObject
+                ?? throw new InvalidOperationException("ChangeAction缺少x-fieldsByType。");
+            if (expectedActionTypes.Any(type => !fieldsByType.ContainsKey(type)))
+                throw new InvalidOperationException("ChangeAction字段映射不完整。");
+            JsonObject operationReference = actionProperties["operation"] as JsonObject
+                ?? throw new InvalidOperationException("ChangeAction缺少operation引用。");
+            VerifySemanticOperationContract(
+                root,
+                ResolveLocalSchemaReference(root, operationReference));
         }
 
-        private static void VerifySemanticOperationUnion(
+        private static void VerifySemanticOperationContract(
             JsonObject root,
-            JsonObject operationSchema,
-            string actionType)
+            JsonObject operationSchema)
         {
             if (!string.Equals(operationSchema["x-symbolicTargetScope"]?.GetValue<string>(),
                     "operation_id_or_change_set_key", StringComparison.Ordinal))
-                throw new InvalidOperationException($"{actionType}.operation缺少符号目标作用域。");
-            JsonArray branches = operationSchema["oneOf"] as JsonArray
-                ?? throw new InvalidOperationException($"{actionType}.operation缺少oneOf。");
+                throw new InvalidOperationException("SemanticOperation缺少符号目标作用域。");
+            EnsureClosedBranch(operationSchema, "SemanticOperation");
+            JsonObject properties = operationSchema["properties"] as JsonObject
+                ?? throw new InvalidOperationException("SemanticOperation缺少properties。");
             string[] expectedKinds = SemanticOperationKinds.SupportedKinds.Split('、');
-            if (branches.Count != expectedKinds.Length)
-                throw new InvalidOperationException($"{actionType}.operation分支数量错误：实际{branches.Count}，期望{expectedKinds.Length}。");
-
-            var actualKinds = new HashSet<string>(StringComparer.Ordinal);
-            var kindProperties = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
-            var kindBranches = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
-            foreach (JsonNode? node in branches)
-            {
-                JsonObject branch = node as JsonObject
-                    ?? throw new InvalidOperationException($"{actionType}.operation oneOf包含非对象分支。");
-                EnsureClosedBranch(branch, $"{actionType}.operation");
-                JsonObject properties = branch["properties"] as JsonObject
-                    ?? throw new InvalidOperationException($"{actionType}.operation分支缺少properties。");
-                string kind = ReadDiscriminator(properties, "kind", $"{actionType}.operation");
-                if (!actualKinds.Add(kind))
-                    throw new InvalidOperationException($"SemanticOperation分支重复：{kind}");
-                foreach (string commonField in new[] { "opId", "key", "name" })
-                {
-                    if (!properties.ContainsKey(commonField))
-                        throw new InvalidOperationException($"{kind}分支缺少公共字段{commonField}。");
-                }
-                kindProperties[kind] = properties;
-                kindBranches[kind] = branch;
-            }
+            JsonArray kindEnum = properties["kind"]?["enum"] as JsonArray
+                ?? throw new InvalidOperationException("SemanticOperation.kind缺少枚举。");
+            var actualKinds = new HashSet<string>(
+                kindEnum.Select(item => item?.GetValue<string>() ?? string.Empty),
+                StringComparer.Ordinal);
             if (!actualKinds.SetEquals(expectedKinds))
-                throw new InvalidOperationException("SemanticOperation判别联合与SupportedKinds不一致。");
-
-            JsonObject ioWait = kindProperties["io.wait"];
-            if (!ioWait.ContainsKey("conditions") || !ioWait.ContainsKey("onFailure")
-                || ioWait.ContainsKey("io") || ioWait.ContainsKey("state")
-                || ioWait.ContainsKey("beforeMs") || ioWait.ContainsKey("afterMs"))
-                throw new InvalidOperationException("io.wait分支必须只使用conditions/timeoutMs/onFailure表达IO等待。");
-            VerifyIoConditionsSchema(root, ioWait["conditions"] as JsonObject, "io.wait.conditions");
-            JsonObject ioBranch = kindProperties["branch.io"];
-            if (!ioBranch.ContainsKey("conditions") || !ioBranch.ContainsKey("conditionLogic")
-                || !ioBranch.ContainsKey("whenTrue") || !ioBranch.ContainsKey("whenFalse"))
-                throw new InvalidOperationException("branch.io分支缺少联合条件或双分支字段。");
-            VerifyIoConditionsSchema(root, ioBranch["conditions"] as JsonObject, "branch.io.conditions");
+                throw new InvalidOperationException("SemanticOperation类型枚举与SupportedKinds不一致。");
+            JsonObject fieldsByKind = operationSchema["x-fieldsByKind"] as JsonObject
+                ?? throw new InvalidOperationException("SemanticOperation缺少x-fieldsByKind。");
+            if (expectedKinds.Any(kind => !fieldsByKind.ContainsKey(kind)))
+                throw new InvalidOperationException("SemanticOperation字段映射不完整。");
+            foreach (string commonField in new[] { "opId", "key", "name" })
+            {
+                if (!properties.ContainsKey(commonField))
+                    throw new InvalidOperationException($"SemanticOperation缺少公共字段{commonField}。");
+            }
+            foreach (string requiredField in new[]
+                { "conditions", "onFailure", "conditionLogic", "whenTrue", "whenFalse", "outputs", "timeoutMs" })
+            {
+                if (!properties.ContainsKey(requiredField))
+                    throw new InvalidOperationException($"SemanticOperation缺少字段{requiredField}。");
+            }
+            VerifyIoConditionsSchema(root, properties["conditions"] as JsonObject, "io.conditions");
+            VerifyIoConditionsSchema(root, properties["outputs"] as JsonObject, "io.outputs");
             JsonObject conditionLogic = ResolveLocalSchemaReference(
                 root,
-                ioBranch["conditionLogic"] as JsonObject
+                properties["conditionLogic"] as JsonObject
                     ?? throw new InvalidOperationException("branch.io.conditionLogic缺少Schema。"));
             if (conditionLogic["enum"] is not JsonArray logicValues
                 || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "all", StringComparison.Ordinal))
                 || !logicValues.Any(value => string.Equals(value?.GetValue<string>(), "any", StringComparison.Ordinal)))
                 throw new InvalidOperationException("branch.io.conditionLogic未限制为all/any。");
-            if (kindBranches["io.wait"]["required"] is not JsonArray waitRequired
-                || !waitRequired.Any(value => string.Equals(value?.GetValue<string>(), "conditions", StringComparison.Ordinal))
-                || !waitRequired.Any(value => string.Equals(value?.GetValue<string>(), "timeoutMs", StringComparison.Ordinal)))
-                throw new InvalidOperationException("io.wait未把conditions/timeoutMs声明为必填。");
-            JsonObject ioWrite = kindProperties["io.write"];
-            if (!ioWrite.ContainsKey("outputs") || ioWrite.ContainsKey("io") || ioWrite.ContainsKey("state")
-                || ioWrite.ContainsKey("beforeMs") || ioWrite.ContainsKey("afterMs"))
-                throw new InvalidOperationException("io.write分支必须只使用outputs表达同卡批量输出。");
-            VerifyIoConditionsSchema(root, ioWrite["outputs"] as JsonObject, "io.write.outputs");
-
-            JsonObject native = kindProperties["native.operation"];
             JsonObject fieldsSchema = ResolveLocalSchemaReference(
                 root,
-                native["fields"] as JsonObject
+                properties["fields"] as JsonObject
                     ?? throw new InvalidOperationException("native.operation.fields缺少Schema。"));
             if (fieldsSchema["additionalProperties"] is JsonValue additional
                     && additional.TryGetValue(out bool allowsFields) && !allowsFields)
                 throw new InvalidOperationException("native.operation.fields未保留动态原生字段。");
+        }
+
+        private static void VerifyCompactChangeSetApplyResult()
+        {
+            string raw = new JsonObject
+            {
+                ["ok"] = true,
+                ["type"] = "change_set.apply",
+                ["data"] = new JsonObject
+                {
+                    ["previewId"] = "preview-1",
+                    ["status"] = "committed",
+                    ["configurationSaved"] = true,
+                    ["readinessStatus"] = "ready",
+                    ["runnable"] = true,
+                    ["createdObjects"] = new JsonObject
+                    {
+                        ["processes"] = new JsonArray(new JsonObject
+                        {
+                            ["key"] = "process",
+                            ["procId"] = "proc-1",
+                            ["procIndex"] = 0,
+                            ["name"] = "流程",
+                            ["redundant"] = "discard"
+                        }),
+                        ["steps"] = new JsonArray(new JsonObject
+                        {
+                            ["key"] = "step",
+                            ["stepId"] = "step-1",
+                            ["procId"] = "proc-1",
+                            ["name"] = "步骤"
+                        }),
+                        ["operations"] = new JsonArray(new JsonObject
+                        {
+                            ["stepKey"] = "step",
+                            ["key"] = "end",
+                            ["opId"] = "op-1",
+                            ["name"] = "结束",
+                            ["operaType"] = "End",
+                            ["procId"] = "proc-1",
+                            ["stepId"] = "step-1"
+                        })
+                    },
+                    ["runBlockers"] = new JsonArray()
+                }
+            }.ToJsonString();
+            string compact = AutomationMcpTools.CompactChangeSetApplyResult(raw);
+            JsonObject response = JsonNode.Parse(compact) as JsonObject
+                ?? throw new InvalidOperationException("apply_change_set 紧凑结果不是JSON对象。");
+            JsonObject data = response["data"] as JsonObject
+                ?? throw new InvalidOperationException("apply_change_set 紧凑结果缺少data。");
+            JsonObject operation = data["createdObjects"]?["operations"]?[0] as JsonObject
+                ?? throw new InvalidOperationException("apply_change_set 紧凑结果丢失新建指令身份。");
+            JsonObject process = data["createdObjects"]?["processes"]?[0] as JsonObject
+                ?? throw new InvalidOperationException("apply_change_set 紧凑结果丢失新建流程身份。");
+            if (data["configurationSaved"]?.GetValue<bool>() != true
+                || data["readinessStatus"]?.GetValue<string>() != "ready"
+                || operation["opId"]?.GetValue<string>() != "op-1"
+                || operation["procId"]?.GetValue<string>() != "proc-1"
+                || operation["stepId"]?.GetValue<string>() != "step-1"
+                || process.ContainsKey("redundant"))
+            {
+                throw new InvalidOperationException(
+                    "apply_change_set 紧凑结果丢失提交事实、稳定身份或父级关联。");
+            }
         }
 
         private static void VerifyIoConditionsSchema(
@@ -1442,16 +1340,6 @@ namespace Automation.McpServer
             if (branch["additionalProperties"] is not JsonValue value
                 || !value.TryGetValue(out bool allowed) || allowed)
                 throw new InvalidOperationException($"{unionName}分支必须显式设置additionalProperties=false。");
-        }
-
-        private static string ReadDiscriminator(JsonObject properties, string fieldName, string unionName)
-        {
-            if (properties[fieldName] is not JsonObject field
-                || field["const"] is not JsonValue value
-                || !value.TryGetValue(out string? discriminator)
-                || string.IsNullOrEmpty(discriminator))
-                throw new InvalidOperationException($"{unionName}分支缺少{fieldName}.const判别值。");
-            return discriminator;
         }
 
         private static JsonObject? FindSchemaByMarker(JsonNode? node, string markerName, string markerValue)
