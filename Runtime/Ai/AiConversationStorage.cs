@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Automation.Protocol;
 // 模块：运行时 / AI 集成。
 // 职责范围：管理 AI 会话、配置、ACP/MCP 进程、受管运行环境和分析记录。
 
@@ -26,6 +27,8 @@ namespace Automation
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public List<AiConversationMessage> Messages { get; set; } = new List<AiConversationMessage>();
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public ReviewHandoffDefinition ReviewHandoff { get; set; }
     }
 
     public static class AiConversationStorage
@@ -55,6 +58,14 @@ namespace Automation
                     || string.IsNullOrWhiteSpace(conversation.Title) || conversation.Messages == null)
                 {
                     throw new InvalidDataException("AI 会话历史包含无效会话。");
+                }
+                if (conversation.ReviewHandoff != null)
+                {
+                    string handoffError = AiTaskCapabilityPolicy.ValidateReviewHandoff(
+                        conversation.ReviewHandoff,
+                        AutomationToolProfiles.ProcessReview);
+                    if (handoffError != null)
+                        throw new InvalidDataException("AI 会话历史包含无效评审交接：" + handoffError);
                 }
                 foreach (AiConversationMessage message in conversation.Messages)
                 {

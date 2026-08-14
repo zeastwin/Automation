@@ -73,6 +73,8 @@ namespace Automation
         private const int InitializeTimeoutMs = 30000;
         private const int SessionTimeoutMs = 30000;
         private const long MaxLogFileBytes = 5L * 1024L * 1024L;
+        private static readonly string[] capabilityBuiltinExtensionNames =
+            { "developer", "skills", "tom" };
 
         private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
         private static readonly string structuredExecutionLogRoot = Path.Combine(executionLogRoot, "Structured");
@@ -89,14 +91,23 @@ namespace Automation
         // 每个 ACP 进程使用独立会话名，避免 Goose 恢复旧会话历史污染新的用户请求。
         private readonly string runtimeSessionName = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6);
         private readonly StringBuilder assistantResponse = new StringBuilder();
+        private readonly StringBuilder finalAssistantResponse = new StringBuilder();
         private readonly StringBuilder currentAssistantTraceSegment = new StringBuilder();
         private readonly StringBuilder currentThoughtTraceSegment = new StringBuilder();
         private readonly Dictionary<string, AnalysisToolCallState> activeAnalysisToolCalls =
             new Dictionary<string, AnalysisToolCallState>(StringComparer.Ordinal);
         private readonly Dictionary<string, int> analysisToolAttempts =
             new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly HashSet<string> currentPromptToolNames =
+            new HashSet<string>(StringComparer.Ordinal);
         private readonly List<AnalysisTimeInterval> analysisToolIntervals =
             new List<AnalysisTimeInterval>();
+        private readonly Dictionary<string, JObject> availableGooseExtensions =
+            new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<ReviewVerifiedFactDefinition>> latestReviewFactsBySubject =
+            new Dictionary<string, List<ReviewVerifiedFactDefinition>>(StringComparer.Ordinal);
+        private readonly Dictionary<int, string> latestReviewProcIdsByIndex =
+            new Dictionary<int, string>();
         private string restoredConversationContext;
         private int nextRequestId;
         private Process process;
@@ -109,6 +120,28 @@ namespace Automation
         private int currentPromptToolCallCount;
         private int currentPromptToolErrorCount;
         private long currentPromptToolResultBytes;
+        private bool currentPromptAutomationToolSucceeded;
+        private bool currentPromptCurrentStateReadSucceeded;
+        private bool currentPromptConfigurationSaved;
+        private bool currentPromptChangeSetCommitted;
+        private bool currentPromptMigrationCommitted;
+        private bool currentPromptPreviewRejected;
+        private bool currentPromptSourceFilesChanged;
+        private bool currentPromptDesignKnowledgeReadSucceeded;
+        private bool currentPromptUnsafeMutationFailure;
+        private bool currentPromptSourceMutationUncertain;
+        private bool currentPromptMutationAttempted;
+        private bool currentPromptPreviewCreated;
+        private bool currentPromptVerificationSucceeded;
+        private bool currentPromptDecisionTerminationSent;
+        private long cumulativeInputTokens;
+        private long lastPromptInputTokens;
+        private long lastTurnToolResultBytes;
+        private TaskCapabilityDecisionDefinition lastSubmittedTaskDecision;
+        private int currentPromptTaskDecisionCount;
+        private AiTurnEvidence lastTurnEvidence = AiTurnEvidence.Empty;
+        private AiStageArtifact currentPromptStageArtifact = AiStageArtifact.Empty;
+        private AiStageArtifact lastTurnArtifact = AiStageArtifact.Empty;
         private int currentAnalysisSequence;
         private int currentParallelGroup;
         private int currentMaxConcurrentTools;
@@ -116,7 +149,13 @@ namespace Automation
         private long currentPreviewWaitMs;
         private DateTime lastAnalysisToolStartedUtc;
         private DateTime currentFirstModelActivityUtc;
+        private DateTime currentFirstPreviewAttemptUtc;
+        private DateTime currentFirstSuccessfulPreviewUtc;
+        private int currentToolFailuresAtFirstSuccessfulPreview;
+        private int currentAuthoringInputResolutionCalls;
+        private int currentOperationCapabilityResolutionCalls;
         private bool supportsImagePrompt;
+        private bool capabilityStateInvalid;
         private bool disposed;
 
         private readonly PlatformRuntime runtime;
@@ -137,13 +176,103 @@ namespace Automation
 
         public string ToolProfile => config.ToolProfile;
 
+        public bool HasLiveSession => !capabilityStateInvalid
+            && !string.IsNullOrWhiteSpace(sessionId)
+            && process != null
+            && !process.HasExited;
+
+        internal AiTurnEvidence LastTurnEvidence
+        {
+            get
+            {
+                lock (executionLock) return lastTurnEvidence;
+            }
+        }
+
+        internal AiStageArtifact LastTurnArtifact
+        {
+            get
+            {
+                lock (executionLock) return lastTurnArtifact;
+            }
+        }
+
+        internal TaskCapabilityDecisionDefinition LastSubmittedTaskDecision
+        {
+            get
+            {
+                lock (executionLock) return lastSubmittedTaskDecision;
+            }
+        }
+
+        internal int LastTaskDecisionSubmissionCount
+        {
+            get
+            {
+                lock (executionLock) return currentPromptTaskDecisionCount;
+            }
+        }
+
+        internal bool HasLockedTaskDecision
+        {
+            get
+            {
+                lock (executionLock) return lastSubmittedTaskDecision != null;
+            }
+        }
+
+        internal long CumulativeInputTokens
+        {
+            get
+            {
+                lock (executionLock) return cumulativeInputTokens;
+            }
+        }
+
+        internal long LastPromptInputTokens
+        {
+            get
+            {
+                lock (executionLock) return lastPromptInputTokens;
+            }
+        }
+
+        internal long LastTurnToolResultBytes
+        {
+            get
+            {
+                lock (executionLock) return lastTurnToolResultBytes;
+            }
+        }
+
+        internal int LastTurnToolCallCount
+        {
+            get
+            {
+                lock (executionLock) return currentPromptToolCallCount;
+            }
+        }
+
+        internal int ContextWindowTokens
+        {
+            get
+            {
+                AiModelServiceConfig service = GooseConfigStorage.FindModelService(config);
+                return service?.ContextLimit is int configured && configured > 0
+                    ? configured
+                    : 128000;
+            }
+        }
+
+        internal int ReservedOutputTokens => Math.Max(8192, config.MaxOutputTokens);
+
         public string LastAssistantResponse
         {
             get
             {
                 lock (executionLock)
                 {
-                    return assistantResponse.ToString();
+                    return BuildFinalAssistantResponseLocked();
                 }
             }
         }
@@ -217,6 +346,21 @@ namespace Automation
             }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
 
             sessionId = ReadSessionId(result);
+            capabilityStateInvalid = false;
+            try
+            {
+                await ReconcileBuiltinExtensionsAsync(config.ToolProfile, cancellationToken)
+                    .ConfigureAwait(false);
+                await VerifyCapabilitySurfaceAsync(config.ToolProfile, cancellationToken)
+                    .ConfigureAwait(false);
+                LogVerifiedCapabilitySurface(config.ToolProfile);
+            }
+            catch (Exception ex)
+            {
+                capabilityStateInvalid = true;
+                LogCapabilitySurfaceFailure(config.ToolProfile, ex);
+                throw;
+            }
             Report("lifecycle", $"EW-AI 会话已创建：{sessionId}", result);
         }
 
@@ -337,6 +481,26 @@ namespace Automation
                 currentPromptToolCallCount = 0;
                 currentPromptToolErrorCount = 0;
                 currentPromptToolResultBytes = 0L;
+                lastPromptInputTokens = 0L;
+                currentPromptAutomationToolSucceeded = false;
+                currentPromptCurrentStateReadSucceeded = false;
+                currentPromptConfigurationSaved = false;
+                currentPromptChangeSetCommitted = false;
+                currentPromptMigrationCommitted = false;
+                currentPromptPreviewRejected = false;
+                currentPromptSourceFilesChanged = false;
+                currentPromptDesignKnowledgeReadSucceeded = false;
+                currentPromptUnsafeMutationFailure = false;
+                currentPromptSourceMutationUncertain = false;
+                currentPromptMutationAttempted = false;
+                currentPromptPreviewCreated = false;
+                currentPromptVerificationSucceeded = false;
+                currentPromptDecisionTerminationSent = false;
+                lastSubmittedTaskDecision = null;
+                currentPromptTaskDecisionCount = 0;
+                lastTurnEvidence = AiTurnEvidence.Empty;
+                currentPromptStageArtifact = AiStageArtifact.Empty;
+                lastTurnArtifact = AiStageArtifact.Empty;
                 currentAnalysisSequence = 0;
                 currentParallelGroup = 0;
                 currentMaxConcurrentTools = 0;
@@ -344,10 +508,17 @@ namespace Automation
                 currentPreviewWaitMs = 0;
                 lastAnalysisToolStartedUtc = default(DateTime);
                 currentFirstModelActivityUtc = default(DateTime);
+                currentFirstPreviewAttemptUtc = default(DateTime);
+                currentFirstSuccessfulPreviewUtc = default(DateTime);
+                currentToolFailuresAtFirstSuccessfulPreview = 0;
+                currentAuthoringInputResolutionCalls = 0;
+                currentOperationCapabilityResolutionCalls = 0;
                 activeAnalysisToolCalls.Clear();
                 analysisToolAttempts.Clear();
+                currentPromptToolNames.Clear();
                 analysisToolIntervals.Clear();
                 assistantResponse.Clear();
+                finalAssistantResponse.Clear();
                 currentAssistantTraceSegment.Clear();
                 currentThoughtTraceSegment.Clear();
             }
@@ -385,12 +556,35 @@ namespace Automation
                     ["prompt"] = promptContent
                 }, 0, cancellationToken).ConfigureAwait(false);
 
+                long inputTokens = promptResult?["usage"]?["inputTokens"]?.Value<long?>()
+                    ?? promptResult?["usage"]?["input_tokens"]?.Value<long?>()
+                    ?? 0L;
+                lock (executionLock)
+                {
+                    lastPromptInputTokens = Math.Max(0L, inputTokens);
+                    cumulativeInputTokens += lastPromptInputTokens;
+                }
+
                 LogExecution("prompt_completed", promptResult["stopReason"]?.Value<string>() ?? "unknown", promptResult);
                 Report("lifecycle", $"EW-AI 本轮结束：{promptResult["stopReason"]?.Value<string>() ?? "unknown"}", promptResult);
                 return promptResult;
             }
             catch (Exception ex)
             {
+                bool terminatedByDecision;
+                lock (executionLock)
+                    terminatedByDecision = currentPromptDecisionTerminationSent
+                        && lastSubmittedTaskDecision != null;
+                if (terminatedByDecision && !cancellationToken.IsCancellationRequested)
+                {
+                    promptResult = new JObject
+                    {
+                        ["stopReason"] = "capability_decision_locked",
+                        ["usage"] = new JObject()
+                    };
+                    LogExecution("prompt_completed", "capability_decision_locked", promptResult);
+                    return promptResult;
+                }
                 promptException = ex;
                 LogExecution("prompt_failed", ex.Message, null);
                 throw;
@@ -402,7 +596,7 @@ namespace Automation
                 {
                     FlushReasoningTraceSegmentLocked("assistant_segment", currentAssistantTraceSegment, "final");
                     FlushReasoningTraceSegmentLocked("thought_segment", currentThoughtTraceSegment, "reasoning");
-                    response = assistantResponse.ToString();
+                    response = BuildFinalAssistantResponseLocked();
                 }
                 LogExecution("assistant_response", response, null);
                 long totalDurationMs;
@@ -423,6 +617,9 @@ namespace Automation
                 JObject turnFinished;
                 lock (executionLock)
                 {
+                    lastTurnEvidence = BuildTurnEvidenceLocked();
+                    lastTurnArtifact = currentPromptStageArtifact;
+                    lastTurnToolResultBytes = currentPromptToolResultBytes;
                     turnFinished = BuildTurnFinishedAnalysisLocked(
                         promptResult,
                         promptException,
@@ -434,90 +631,78 @@ namespace Automation
         }
 
         /// <summary>
-        /// 在当前 Goose 会话内重新挂载 Automation MCP，使 Goose 重新读取工具清单。
-        /// 返回 false 表示当前尚未创建会话，后续新会话会直接使用最新 MCP 配置。
+        /// 在当前 Goose 原生会话内重新挂载 Automation MCP。会话历史和 sessionId 保持不变。
+        /// 返回 false 表示会话尚未创建，session/new 会直接使用更新后的地址。
         /// </summary>
         public async Task<bool> ReloadAutomationExtensionAsync(string mcpUri, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(mcpUri))
-            {
                 throw new InvalidOperationException("MCP地址不能为空。");
-            }
 
             string activeSessionId = sessionId;
-            if (string.IsNullOrWhiteSpace(activeSessionId))
-            {
-                return false;
-            }
-            if (process == null || process.HasExited)
-            {
-                throw new InvalidOperationException("Goose进程已退出，无法在原会话内刷新工具。");
-            }
+            if (string.IsNullOrWhiteSpace(activeSessionId)) return false;
+            if (!HasLiveSession)
+                throw new InvalidOperationException("Goose进程或会话已失效，无法原地刷新工具。");
 
+            string previousMcpUri = config.McpUri;
             Exception removeError = null;
             try
             {
-                await SendRequestAsync("_goose/unstable/session/extensions/remove", new JObject
-                {
-                    ["sessionId"] = activeSessionId,
-                    ["name"] = "automation"
-                }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
+                await RemoveSessionExtensionAsync("automation", cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                // 即使扩展此前不存在也继续尝试挂载；若 Goose 不支持会话扩展接口，add 同样会失败并统一报错。
                 removeError = ex;
             }
 
             try
             {
-                await SendRequestAsync("_goose/unstable/session/extensions/add", new JObject
-                {
-                    ["sessionId"] = activeSessionId,
-                    ["extension"] = new JObject
-                    {
-                        ["type"] = "mcp",
-                        ["server"] = new JObject
-                        {
-                            ["name"] = "automation",
-                            ["type"] = "http",
-                            ["url"] = mcpUri.Trim(),
-                            ["headers"] = new JArray()
-                        }
-                    }
-                }, SessionTimeoutMs, cancellationToken).ConfigureAwait(false);
+                await AddAutomationExtensionAsync(mcpUri, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception addError)
             {
+                Exception rollbackError = null;
+                if (removeError == null && !string.IsNullOrWhiteSpace(previousMcpUri))
+                {
+                    try
+                    {
+                        await AddAutomationExtensionAsync(previousMcpUri, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        rollbackError = ex;
+                    }
+                }
                 string detail = removeError == null
                     ? addError.Message
                     : $"卸载失败：{removeError.Message}；挂载失败：{addError.Message}";
+                if (rollbackError != null)
+                    detail += "；恢复旧工具失败：" + rollbackError.Message;
                 throw new InvalidOperationException(
-                    "当前 Goose 版本不支持会话内工具热切换，或 Automation MCP 挂载失败。原对话未被重置。" + detail,
+                    "Goose 会话内 Automation MCP 切换失败，已停止当前任务且不会静默重建会话。" + detail,
                     addError);
             }
 
-            if (!string.Equals(sessionId, activeSessionId, StringComparison.Ordinal))
+            if (removeError != null)
             {
-                throw new InvalidOperationException("工具刷新期间 Goose 会话发生变化，已拒绝继续使用不确定状态。");
+                throw new InvalidOperationException(
+                    "Automation MCP 新端点已挂载，但旧扩展未能确认卸载；当前工具面不可信，已停止任务。"
+                    + removeError.Message,
+                    removeError);
             }
-
-            Report("lifecycle", $"Automation MCP 已在当前会话内重新挂载：{activeSessionId}", null);
+            EnsureSessionIdentity(activeSessionId);
+            Report("lifecycle", $"Automation MCP 已在原会话内重新挂载：{activeSessionId}", null);
             return true;
         }
 
         public bool CanSwitchTaskCapabilityInPlace(string targetProfile)
         {
-            string normalized = AutomationToolProfiles.Normalize(targetProfile);
-            if (!string.IsNullOrWhiteSpace(sessionId) && (process == null || process.HasExited))
-                return false;
-            bool currentRuntimeDiagnostic = string.Equals(
-                config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
-            bool targetRuntimeDiagnostic = string.Equals(
-                normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
-            return currentRuntimeDiagnostic == targetRuntimeDiagnostic
-                && AutomationToolProfiles.UsesDeveloperTools(config.ToolProfile)
-                    == AutomationToolProfiles.UsesDeveloperTools(normalized);
+            AutomationToolProfiles.Normalize(targetProfile);
+            if (capabilityStateInvalid) return false;
+            if (string.IsNullOrWhiteSpace(sessionId))
+                return process == null || !process.HasExited;
+            return HasLiveSession;
         }
 
         public async Task ConfigureTaskCapabilityAsync(
@@ -527,20 +712,386 @@ namespace Automation
             CancellationToken cancellationToken)
         {
             string normalized = AutomationToolProfiles.Normalize(targetProfile);
-            if (!CanSwitchTaskCapabilityInPlace(normalized))
+            bool enteringProcessReview = string.Equals(
+                    normalized, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
+                && !string.Equals(
+                    config.ToolProfile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal);
+            if (enteringProcessReview)
             {
-                throw new InvalidOperationException(
-                    $"能力包 {config.ToolProfile} → {normalized} 需要重建 Goose 会话。");
+                lock (executionLock)
+                {
+                    latestReviewFactsBySubject.Clear();
+                    latestReviewProcIdsByIndex.Clear();
+                }
             }
+            if (!CanSwitchTaskCapabilityInPlace(normalized))
+                throw new InvalidOperationException("当前 Goose 原生会话已经失效，不能继续热切换能力包。");
+
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                config.ToolProfile = normalized;
+                config.McpUri = mcpUri;
+                config.TaskCapabilityNotice = notice;
+                return;
+            }
+
+            string activeSessionId = sessionId;
             bool endpointChanged = !string.Equals(config.McpUri, mcpUri, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(config.ToolProfile, normalized, StringComparison.Ordinal);
-            if (endpointChanged)
+            try
             {
-                await ReloadAutomationExtensionAsync(mcpUri, cancellationToken).ConfigureAwait(false);
+                if (endpointChanged)
+                    await ReloadAutomationExtensionAsync(mcpUri, cancellationToken).ConfigureAwait(false);
+                await ReconcileBuiltinExtensionsAsync(normalized, cancellationToken).ConfigureAwait(false);
+                await VerifyCapabilitySurfaceAsync(normalized, cancellationToken).ConfigureAwait(false);
+                EnsureSessionIdentity(activeSessionId);
+                config.ToolProfile = normalized;
+                config.McpUri = mcpUri;
+                config.TaskCapabilityNotice = notice;
+                LogVerifiedCapabilitySurface(normalized);
             }
-            config.ToolProfile = normalized;
-            config.McpUri = mcpUri;
-            config.TaskCapabilityNotice = notice;
+            catch (Exception ex)
+            {
+                capabilityStateInvalid = true;
+                LogCapabilitySurfaceFailure(normalized, ex);
+                throw;
+            }
+
+            Report("lifecycle", $"原生会话能力已切换：{normalized}，sessionId={activeSessionId}", null);
+        }
+
+        private void LogVerifiedCapabilitySurface(string profile)
+        {
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "capability.surface.verified",
+                ["auditSessionId"] = auditSessionId,
+                ["gooseSessionId"] = sessionId ?? string.Empty,
+                ["profile"] = profile ?? string.Empty,
+                ["mcpUri"] = config.McpUri ?? string.Empty
+            });
+        }
+
+        private void LogCapabilitySurfaceFailure(string profile, Exception error)
+        {
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "capability.surface.failed",
+                ["auditSessionId"] = auditSessionId,
+                ["gooseSessionId"] = sessionId ?? string.Empty,
+                ["profile"] = profile ?? string.Empty,
+                ["mcpUri"] = config.McpUri ?? string.Empty,
+                ["error"] = error?.Message ?? string.Empty
+            });
+        }
+
+        private async Task AddAutomationExtensionAsync(
+            string mcpUri,
+            CancellationToken cancellationToken)
+        {
+            await AddSessionExtensionAsync(new JObject
+            {
+                ["type"] = "mcp",
+                ["server"] = new JObject
+                {
+                    ["name"] = "automation",
+                    ["type"] = "http",
+                    ["url"] = mcpUri.Trim(),
+                    ["headers"] = new JArray()
+                }
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task ReconcileBuiltinExtensionsAsync(
+            string profile,
+            CancellationToken cancellationToken)
+        {
+            string normalized = AutomationToolProfiles.Normalize(profile);
+            bool guidanceEnabled = !string.Equals(
+                    normalized, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal)
+                && !string.Equals(
+                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+            bool developerEnabled = AutomationToolProfiles.UsesDeveloperTools(normalized);
+            var desiredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (guidanceEnabled)
+            {
+                desiredNames.Add("skills");
+                desiredNames.Add("tom");
+            }
+            if (developerEnabled) desiredNames.Add("developer");
+
+            Dictionary<string, JObject> active = await GetSessionExtensionsAsync(cancellationToken)
+                .ConfigureAwait(false);
+            foreach (string managedName in capabilityBuiltinExtensionNames)
+            {
+                bool desired = desiredNames.Contains(managedName);
+                if (!active.TryGetValue(managedName, out JObject current))
+                {
+                    if (desired)
+                    {
+                        JObject definition = await GetAvailableExtensionAsync(
+                            managedName, cancellationToken).ConfigureAwait(false);
+                        ApplyCapabilityToolFilter(definition, managedName, normalized);
+                        await AddSessionExtensionAsync(definition, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    continue;
+                }
+
+                if (!desired)
+                {
+                    await RemoveSessionExtensionAsync(managedName, cancellationToken)
+                        .ConfigureAwait(false);
+                    continue;
+                }
+
+                if (string.Equals(managedName, "developer", StringComparison.OrdinalIgnoreCase)
+                    && !HasExpectedDeveloperFilter(current, normalized))
+                {
+                    await RemoveSessionExtensionAsync(managedName, cancellationToken)
+                        .ConfigureAwait(false);
+                    JObject definition = await GetAvailableExtensionAsync(
+                        managedName, cancellationToken).ConfigureAwait(false);
+                    ApplyCapabilityToolFilter(definition, managedName, normalized);
+                    await AddSessionExtensionAsync(definition, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task<JObject> GetAvailableExtensionAsync(
+            string name,
+            CancellationToken cancellationToken)
+        {
+            if (!availableGooseExtensions.TryGetValue(name, out JObject cached))
+            {
+                JObject result = await SendRequestAsync(
+                    "_goose/unstable/extensions/available",
+                    new JObject(),
+                    SessionTimeoutMs,
+                    cancellationToken).ConfigureAwait(false);
+                foreach (JToken item in result["extensions"] as JArray ?? new JArray())
+                {
+                    JObject extension = ExtractExtension(item);
+                    string extensionName = ReadExtensionName(extension);
+                    if (!string.IsNullOrWhiteSpace(extensionName))
+                        availableGooseExtensions[extensionName] = extension;
+                }
+                availableGooseExtensions.TryGetValue(name, out cached);
+            }
+            if (cached == null)
+                throw new InvalidOperationException($"Goose 未公布内置扩展：{name}。");
+            return (JObject)cached.DeepClone();
+        }
+
+        private async Task<Dictionary<string, JObject>> GetSessionExtensionsAsync(
+            CancellationToken cancellationToken)
+        {
+            JObject result = await SendRequestAsync(
+                "_goose/unstable/session/extensions/list",
+                new JObject { ["sessionId"] = sessionId },
+                SessionTimeoutMs,
+                cancellationToken).ConfigureAwait(false);
+            var extensions = new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+            foreach (JToken item in result["extensions"] as JArray ?? new JArray())
+            {
+                JObject extension = ExtractExtension(item);
+                string name = ReadExtensionName(extension);
+                if (!string.IsNullOrWhiteSpace(name)) extensions[name] = extension;
+            }
+            return extensions;
+        }
+
+        private async Task AddSessionExtensionAsync(
+            JObject extension,
+            CancellationToken cancellationToken)
+        {
+            await SendRequestAsync(
+                "_goose/unstable/session/extensions/add",
+                new JObject
+                {
+                    ["sessionId"] = sessionId,
+                    ["extension"] = extension
+                },
+                SessionTimeoutMs,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task RemoveSessionExtensionAsync(
+            string name,
+            CancellationToken cancellationToken)
+        {
+            await SendRequestAsync(
+                "_goose/unstable/session/extensions/remove",
+                new JObject
+                {
+                    ["sessionId"] = sessionId,
+                    ["name"] = name
+                },
+                SessionTimeoutMs,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task VerifyCapabilitySurfaceAsync(
+            string profile,
+            CancellationToken cancellationToken)
+        {
+            string normalized = AutomationToolProfiles.Normalize(profile);
+            Dictionary<string, JObject> extensions = await GetSessionExtensionsAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (!extensions.ContainsKey("automation"))
+                throw new InvalidOperationException("Goose 能力切换后未发现 Automation MCP 扩展。");
+
+            bool expectsGuidance = !string.Equals(
+                    normalized, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal)
+                && !string.Equals(
+                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+            if (extensions.ContainsKey("skills") != expectsGuidance
+                || extensions.ContainsKey("tom") != expectsGuidance)
+            {
+                throw new InvalidOperationException("Goose 指导扩展与当前能力包不一致。");
+            }
+
+            bool expectsDeveloper = AutomationToolProfiles.UsesDeveloperTools(normalized);
+            if (extensions.ContainsKey("developer") != expectsDeveloper)
+                throw new InvalidOperationException("Goose Developer 扩展与当前能力包不一致。");
+            if (expectsDeveloper
+                && !HasExpectedDeveloperFilter(extensions["developer"], normalized))
+                throw new InvalidOperationException("Goose Developer 工具白名单与当前能力包不一致。");
+
+            HashSet<string> automationTools = await GetExtensionToolNamesAsync(
+                "automation", cancellationToken).ConfigureAwait(false);
+            bool hasControlTool = automationTools
+                .Any(name => string.Equals(name, "request_capability", StringComparison.Ordinal)
+                    || name.EndsWith("__request_capability", StringComparison.Ordinal));
+            if (!hasControlTool)
+                throw new InvalidOperationException("当前 Automation 工具面缺少 request_capability 控制工具。");
+
+            if (expectsDeveloper)
+            {
+                HashSet<string> developerTools = await GetExtensionToolNamesAsync(
+                    "developer", cancellationToken).ConfigureAwait(false);
+                var normalizedNames = new HashSet<string>(
+                    developerTools.Select(NormalizeExtensionToolName),
+                    StringComparer.OrdinalIgnoreCase);
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "capability.surface.snapshot",
+                    ["auditSessionId"] = auditSessionId,
+                    ["gooseSessionId"] = sessionId ?? string.Empty,
+                    ["profile"] = normalized,
+                    ["extension"] = "developer",
+                    ["configuredTools"] = extensions["developer"]?["availableTools"]?.DeepClone()
+                        ?? extensions["developer"]?["available_tools"]?.DeepClone()
+                        ?? new JArray(),
+                    ["rawToolNames"] = new JArray(developerTools.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)),
+                    ["normalizedToolNames"] = new JArray(normalizedNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+                });
+                if (string.Equals(normalized, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
+                {
+                    string[] missing = new[] { "read", "tree" }
+                        .Where(name => !normalizedNames.Contains(name))
+                        .ToArray();
+                    if (missing.Length > 0)
+                    {
+                        throw new InvalidOperationException(
+                            "源码只读能力缺少 Developer 工具：" + string.Join(",", missing)
+                            + "；实际目录：" + string.Join(",", developerTools.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)));
+                    }
+                    if (normalizedNames.Any(name => !string.Equals(name, "read", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(name, "tree", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        AiAnalysisLogger.Write(new JObject
+                        {
+                            ["event"] = "capability.surface.catalog_unfiltered",
+                            ["auditSessionId"] = auditSessionId,
+                            ["gooseSessionId"] = sessionId ?? string.Empty,
+                            ["profile"] = normalized,
+                            ["extension"] = "developer",
+                            ["note"] = "tools/list 返回扩展目录；有效权限继续由 available_tools 与客户端权限闸门共同限制。",
+                            ["extraCatalogTools"] = new JArray(normalizedNames
+                                .Where(name => !string.Equals(name, "read", StringComparison.OrdinalIgnoreCase)
+                                    && !string.Equals(name, "tree", StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+                        });
+                    }
+                }
+            }
+        }
+
+        private static string NormalizeExtensionToolName(string name)
+        {
+            string value = (name ?? string.Empty).Trim();
+            int doubleUnderscore = value.LastIndexOf("__", StringComparison.Ordinal);
+            int slash = value.LastIndexOf('/');
+            int dot = value.LastIndexOf('.');
+            int colon = value.LastIndexOf(':');
+            int separator = Math.Max(doubleUnderscore, Math.Max(slash, Math.Max(dot, colon)));
+            if (separator < 0) return value;
+            return value.Substring(separator + (separator == doubleUnderscore ? 2 : 1));
+        }
+
+        private async Task<HashSet<string>> GetExtensionToolNamesAsync(
+            string extensionName,
+            CancellationToken cancellationToken)
+        {
+            JObject result = await SendRequestAsync(
+                "_goose/unstable/tools/list",
+                new JObject
+                {
+                    ["sessionId"] = sessionId,
+                    ["extensionName"] = extensionName
+                },
+                SessionTimeoutMs,
+                cancellationToken).ConfigureAwait(false);
+            return new HashSet<string>(
+                (result["tools"] as JArray ?? new JArray())
+                    .OfType<JObject>()
+                    .Select(item => item["name"]?.Value<string>() ?? string.Empty)
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static JObject ExtractExtension(JToken item)
+        {
+            JObject value = item as JObject ?? new JObject();
+            return value["extension"] as JObject ?? value;
+        }
+
+        private static string ReadExtensionName(JObject extension)
+        {
+            return extension?["name"]?.Value<string>()
+                ?? extension?["server"]?["name"]?.Value<string>();
+        }
+
+        private static void ApplyCapabilityToolFilter(
+            JObject extension,
+            string name,
+            string profile)
+        {
+            if (!string.Equals(name, "developer", StringComparison.OrdinalIgnoreCase)) return;
+            extension.Remove("available_tools");
+            extension.Remove("availableTools");
+            if (string.Equals(profile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
+                extension["available_tools"] = new JArray("read", "tree");
+        }
+
+        private static bool HasExpectedDeveloperFilter(JObject extension, string profile)
+        {
+            JArray configured = extension?["availableTools"] as JArray
+                ?? extension?["available_tools"] as JArray;
+            if (!string.Equals(profile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
+                return configured == null || configured.Count == 0;
+            var names = new HashSet<string>(
+                (configured ?? new JArray()).Values<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            return names.SetEquals(new[] { "read", "tree" });
+        }
+
+        private void EnsureSessionIdentity(string expectedSessionId)
+        {
+            if (!string.Equals(sessionId, expectedSessionId, StringComparison.Ordinal))
+                throw new InvalidOperationException("能力切换期间 Goose sessionId 发生变化，已拒绝继续。");
         }
 
         public void Cancel()
@@ -584,7 +1135,6 @@ namespace Automation
 
             bool runtimeDiagnostic = string.Equals(
                 config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
-            bool developerTools = AutomationToolProfiles.UsesDeveloperTools(config.ToolProfile);
             string sessionWorkingDirectory = ResolveWorkingDirectory();
             string skillProvisionMessage = null;
             if (!runtimeDiagnostic
@@ -598,13 +1148,9 @@ namespace Automation
             var startInfo = new ProcessStartInfo
             {
                 FileName = config.GooseExecutablePath,
-                // ACP 会话显式传入 Automation MCP 后，Goose 不会再自动加载默认平台扩展。
-                // 编辑会话必须显式启用 Developer、Skills 与 TOM，分别提供源码工具、Skill 加载和 MOIM 注入。
-                Arguments = runtimeDiagnostic
-                    ? "acp"
-                    : developerTools
-                        ? "acp --with-builtin developer,skills,tom"
-                        : "acp --with-builtin skills,tom",
+                // 所有业务能力均在 session/new 后通过 Goose 会话扩展接口动态挂载；
+                // 进程启动参数不再固化某个能力包，保证切换时保留同一个原生会话。
+                Arguments = "acp",
                 WorkingDirectory = sessionWorkingDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -637,7 +1183,7 @@ namespace Automation
             }
             // Goose 会把 Developer Shell 输出严格按 UTF-8 解码。统一通过随程序发布的
             // UTF-8 适配器启动 PowerShell，避免系统代码页把中文不可逆地解码成乱码。
-            string developerShellPath = developerTools ? ResolveGooseDeveloperShellPath() : null;
+            string developerShellPath = runtimeDiagnostic ? null : ResolveGooseDeveloperShellPath();
             if (!string.IsNullOrWhiteSpace(developerShellPath))
             {
                 startInfo.EnvironmentVariables["GOOSE_SHELL"] = developerShellPath;
@@ -757,10 +1303,8 @@ namespace Automation
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
             if (!runtimeDiagnostic)
             {
-                startupInfo.Append(developerTools
-                    ? " builtinExtensions=developer,skills,tom"
-                    : " builtinExtensions=skills,tom");
-                startupInfo.Append(" automationContextInjection=tom");
+                startupInfo.Append(" builtinExtensions=dynamic-session-scope");
+                startupInfo.Append(" automationContextInjection=dynamic-tom");
                 startupInfo.Append(" processAuthoringSkill=")
                     .Append(GooseRuntimeProvisioner.ProcessAuthoringSkillPath);
                 startupInfo.Append(" processReviewSkill=")
@@ -1248,6 +1792,8 @@ namespace Automation
         {
             {"automation__list_procs", "列出所有流程"},
             {"automation__search_proc_catalog", "搜索流程目录"},
+            {"automation__resolve_proc_target", "定位流程目标"},
+            {"automation__discover_project_resources", "批量发现项目资源"},
             {"automation__get_proc_overview", "获取流程概览"},
             {"automation__get_proc_detail", "获取流程详情"},
             {"automation__get_op_detail", "获取指令详情"},
@@ -1259,7 +1805,12 @@ namespace Automation
             {"automation__search_ops", "搜索指令"},
             {"automation__list_operation_types", "列出指令类型"},
             {"automation__get_operation_schema", "获取指令Schema"},
+            {"automation__get_native_operation_field_contract", "获取原生字段契约"},
             {"automation__get_operation_guide", "获取指令调用说明"},
+            {"automation__get_process_design_guide", "获取流程设计指南"},
+            {"automation__get_platform_development_context", "获取平台开发上下文"},
+            {"automation__search_platform_source", "受限检索平台源码"},
+            {"automation__request_capability", "申请任务能力"},
             {"automation__op_meta", "获取指令元数据"},
             {"automation__get_reference_catalog", "获取引用目录"},
             {"automation__get_semantic_operation_schema", "获取语义指令契约"},
@@ -1299,6 +1850,9 @@ namespace Automation
             {"preview.confirm", "预演确认"},
             {"change_set.preview", "流程变更预演"},
             {"change_set.apply", "流程变更提交"},
+            {"change_set.native_field_contract", "原生字段契约"},
+            {"migration.preview", "平台配置迁移预演"},
+            {"migration.apply", "平台配置迁移提交"},
             {"proc.control", "流程控制"},
             {"op.meta", "指令元数据"},
             {"io.list", "IO 列表"},
@@ -1382,6 +1936,13 @@ namespace Automation
                 analysisToolAttempts.TryGetValue(signature, out int previousAttempts);
                 attempt = previousAttempts + 1;
                 analysisToolAttempts[signature] = attempt;
+                if (!string.IsNullOrWhiteSpace(toolName)) currentPromptToolNames.Add(toolName);
+                if (IsPreviewTool(toolName) && currentFirstPreviewAttemptUtc == default(DateTime))
+                    currentFirstPreviewAttemptUtc = startedUtc;
+                if (string.Equals(toolName, "resolve_authoring_inputs", StringComparison.Ordinal))
+                    currentAuthoringInputResolutionCalls++;
+                if (string.Equals(toolName, "resolve_operation_capability", StringComparison.Ordinal))
+                    currentOperationCapabilityResolutionCalls++;
                 activeAtStart = activeAnalysisToolCalls.Count;
                 if (!string.IsNullOrWhiteSpace(callId))
                 {
@@ -1396,6 +1957,7 @@ namespace Automation
                     };
                 }
                 currentMaxConcurrentTools = Math.Max(currentMaxConcurrentTools, activeAtStart + 1);
+                CaptureFinalAssistantResponseBeforeToolLocked(toolName);
             }
 
             WriteAnalysisEvent("tool.started", new JObject
@@ -1464,6 +2026,18 @@ namespace Automation
 
             bool businessFailed = resultObject?["ok"]?.Type == JTokenType.Boolean
                 && resultObject["ok"].Value<bool>() == false;
+            string transportMessage = transportFailed
+                ? FindFirstString(parameters, "message", "error", "text")
+                : null;
+            string transportCode = transportFailed
+                && transportMessage?.IndexOf("未开放工具", StringComparison.Ordinal) >= 0
+                    ? "TOOL_NOT_AVAILABLE"
+                    : transportFailed ? "ACP_TOOL_CALL_FAILED" : string.Empty;
+            string reportedSideEffects = parameterGenerationFailed
+                ? "none"
+                : transportCode == "TOOL_NOT_AVAILABLE"
+                    ? "none"
+                    : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown";
             if (!string.IsNullOrEmpty(rawResult))
             {
                 lock (executionLock)
@@ -1478,6 +2052,103 @@ namespace Automation
                     currentPromptToolErrorCount++;
                 }
             }
+            bool terminateDecisionTurn = false;
+            if (!parameterGenerationFailed && IsMutationAttemptTool(state.ToolName))
+            {
+                lock (executionLock) currentPromptMutationAttempted = true;
+            }
+            if (!parameterGenerationFailed && !transportFailed && !businessFailed && state.IsAutomationMcp)
+            {
+                JObject resultData = resultObject?["data"] as JObject;
+                string resultType = resultObject?["type"]?.Value<string>() ?? string.Empty;
+                lock (executionLock)
+                {
+                    currentPromptAutomationToolSucceeded = true;
+                    if (IsCurrentStateEvidenceTool(state.ToolName))
+                    {
+                        currentPromptCurrentStateReadSucceeded = true;
+                        if (currentPromptConfigurationSaved
+                            || currentPromptChangeSetCommitted
+                            || currentPromptMigrationCommitted)
+                            currentPromptVerificationSucceeded = true;
+                    }
+                    if (string.Equals(state.ToolName, "get_process_design_guide", StringComparison.Ordinal))
+                        currentPromptDesignKnowledgeReadSucceeded = true;
+                    if (string.Equals(config.ToolProfile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal))
+                    {
+                        CaptureReviewObjectIdentityLocked(state.ToolName, resultData);
+                        CaptureReviewVerifiedFactsLocked(
+                            state.ToolName,
+                            state.ToolCallId,
+                            resultData,
+                            rawResult);
+                    }
+                    if (resultData?["configurationSaved"]?.Value<bool>() == true)
+                        currentPromptConfigurationSaved = true;
+                    if (string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
+                        && string.Equals(resultData?["status"]?.Value<string>(), "committed", StringComparison.Ordinal)
+                        && resultData?["configurationSaved"]?.Value<bool>() == true)
+                        currentPromptChangeSetCommitted = true;
+                    if (string.Equals(resultType, "migration.apply", StringComparison.Ordinal)
+                        && resultData?["committed"]?.Value<bool>() == true
+                        && resultData?["configurationSaved"]?.Value<bool>() == true)
+                        currentPromptMigrationCommitted = true;
+                    if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal)
+                        || string.Equals(resultType, "process_blueprint.preview", StringComparison.Ordinal)
+                        || string.Equals(resultType, "migration.preview", StringComparison.Ordinal))
+                    {
+                        currentPromptPreviewCreated = true;
+                        if (currentFirstSuccessfulPreviewUtc == default(DateTime))
+                        {
+                            currentFirstSuccessfulPreviewUtc = finishedUtc;
+                            currentToolFailuresAtFirstSuccessfulPreview = currentPromptToolErrorCount;
+                        }
+                    }
+                    currentPromptStageArtifact = AiStageArtifact.Capture(
+                        currentPromptStageArtifact,
+                        state.ToolName,
+                        resultType,
+                        resultData);
+                    if (string.Equals(resultType, "preview.reject", StringComparison.Ordinal)
+                        && resultData?["rejected"]?.Value<bool>() == true)
+                        currentPromptPreviewRejected = true;
+                    if (string.Equals(resultType, "task_decision.submit", StringComparison.Ordinal)
+                        && resultData != null)
+                    {
+                        currentPromptTaskDecisionCount++;
+                        if (lastSubmittedTaskDecision == null)
+                        {
+                            lastSubmittedTaskDecision = resultData.ToObject<TaskCapabilityDecisionDefinition>();
+                            AttachReviewVerifiedFactsLocked(lastSubmittedTaskDecision);
+                            if (!currentPromptDecisionTerminationSent)
+                            {
+                                currentPromptDecisionTerminationSent = true;
+                                terminateDecisionTurn = true;
+                            }
+                        }
+                    }
+                }
+            }
+            else if (!parameterGenerationFailed && !transportFailed && !businessFailed
+                && IsDeveloperWriteToolName(state.ToolName))
+            {
+                lock (executionLock) currentPromptSourceFilesChanged = true;
+            }
+            if (!parameterGenerationFailed
+                && string.Equals(config.ToolProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal)
+                && (IsDeveloperShellToolName(state.ToolName)
+                    || (IsDeveloperWriteToolName(state.ToolName) && (transportFailed || businessFailed))))
+            {
+                lock (executionLock) currentPromptSourceMutationUncertain = true;
+            }
+            if (!parameterGenerationFailed
+                && (transportFailed || businessFailed)
+                && AiTaskCapabilityPolicy.IsConfigurationMutation(config.ToolProfile)
+                && IsMutationAttemptTool(state.ToolName)
+                && !string.Equals(reportedSideEffects, "none", StringComparison.OrdinalIgnoreCase))
+            {
+                lock (executionLock) currentPromptUnsafeMutationFailure = true;
+            }
             string status = parameterGenerationFailed
                 ? "not_dispatched"
                 : transportFailed ? "transport_error"
@@ -1485,13 +2156,6 @@ namespace Automation
             string stage = parameterGenerationFailed
                 ? "provider.arguments"
                 : transportFailed ? "acp" : businessFailed ? "business" : string.Empty;
-            string transportMessage = transportFailed
-                ? FindFirstString(parameters, "message", "error", "text")
-                : null;
-            string transportCode = transportFailed
-                && transportMessage?.IndexOf("未开放工具", StringComparison.Ordinal) >= 0
-                    ? "TOOL_NOT_AVAILABLE"
-                    : transportFailed ? "ACP_TOOL_CALL_FAILED" : string.Empty;
             int resultBudget = string.Equals(status, "ok", StringComparison.Ordinal) ? 4 * 1024 : 8 * 1024;
             var data = new JObject
             {
@@ -1506,11 +2170,7 @@ namespace Automation
                     ["reachedMcp"] = parameterGenerationFailed
                         ? false
                         : state.IsAutomationMcp && !transportFailed ? (bool?)true : null,
-                    ["sideEffects"] = parameterGenerationFailed
-                        ? "none"
-                        : transportCode == "TOOL_NOT_AVAILABLE"
-                            ? "none"
-                            : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown"
+                    ["sideEffects"] = reportedSideEffects
                 }
             };
             if (!string.IsNullOrWhiteSpace(stage))
@@ -1558,6 +2218,15 @@ namespace Automation
                 };
             }
             WriteAnalysisEvent("tool.finished", data, finishedUtc);
+            if (terminateDecisionTurn)
+            {
+                WriteAnalysisEvent("capability.decision.termination_requested", new JObject
+                {
+                    ["tool"] = state.ToolName,
+                    ["reason"] = "first_valid_submission_locked"
+                }, finishedUtc);
+                Cancel();
+            }
         }
 
         // 尝试从工具返回 JSON 提取类型与数量摘要，失败则截断。
@@ -1644,20 +2313,23 @@ namespace Automation
             string context;
             switch (config.ToolProfile)
             {
+                case AutomationToolProfiles.TaskCoordinator:
+                    context = "当前能力：任务动态协调。你没有读取、开发、配置写入或运行工具。根据当前用户目标和最近一次工作阶段的真实结果，只调用一次 request_capability。完整流程创建直接申请 ProcessCreate；ProcessDesign 只用于纯方案或写入前必须先由用户取舍的设计。已按用户要求完成且允许保留占位时使用 finish，不因可选后续完善而 ask_user。第一条成功决定会立即锁定；调用后立即结束本轮，不要输出计划或总结。";
+                    break;
                 case AutomationToolProfiles.RuntimeDiagnostic:
                     context = "当前能力：运行现场取证。只根据现场工具返回的事实诊断，不执行运行控制或配置写入。";
                     break;
                 case AutomationToolProfiles.ProcessDesign:
-                    context = "当前能力：流程方案设计。按需读取已审核设计知识，输出可供后续落地的结构和未决项；本轮没有项目扫描或写入工具。";
+                    context = "当前能力：流程方案设计。仅处理纯方案或写入前必须让用户取舍的设计；按需读取已审核设计知识，输出可供后续落地的结构和未决项，本轮没有项目扫描或写入工具。";
                     break;
                 case AutomationToolProfiles.ProcessReview:
                     context = "当前能力：流程只读审查。主动获取完成结论所需的精确流程、引用和资源事实；严格区分事实、推断和证据缺口。";
                     break;
                 case AutomationToolProfiles.ProcessCreate:
-                    context = "当前能力：新建流程。优先使用单个 Process Blueprint 预演完整新流程，经前台确认后提交；未知资源或动作保留为可见占位并保持 incomplete。";
+                    context = "当前能力：新建流程。本能力同时承担必要设计、设计知识读取、资源发现和创建，不先申请 ProcessDesign。优先使用单个 Process Blueprint 预演完整新流程，经前台确认后提交；未知资源或动作保留为可见占位并保持 incomplete。";
                     break;
                 case AutomationToolProfiles.ProcessEdit:
-                    context = "当前能力：修改既有流程。先读取稳定ID和必要契约，再用 ChangeSet V2 预演，经前台确认后提交。";
+                    context = "当前能力：修改既有流程。评审交接已有targetIds时优先用get_op_details精读目标，不重复读取完整流程；同类型局部更新可直接复用返回的可写fields，字段形状不明确时使用get_native_operation_field_contract，避免同时读取全量原生契约和UI Schema。随后用 ChangeSet V2 预演，经前台确认后提交。";
                     break;
                 case AutomationToolProfiles.ResourceEdit:
                     context = "当前能力：编辑独立项目资源。只修改用户明确要求的变量、数据结构或报警配置，并使用精确名称、索引或现有资源事实。";
@@ -1666,7 +2338,10 @@ namespace Automation
                     context = "当前能力：流程运行控制。先验证启动条件和当前状态，只执行用户明确要求的启动、停止、暂停、恢复或有界测试。";
                     break;
                 case AutomationToolProfiles.SourceDevelopment:
-                    context = "当前能力：Automation 源码开发。使用开发工具修改和验证仓库代码；平台上下文仅在需要精确内部契约时按需读取。";
+                    context = "当前能力：Automation 源码开发。先用 search_platform_source、read、tree 做只读定位，确认目标后再使用开发工具修改和验证仓库代码；平台上下文仅在需要精确内部契约时按需读取。纯读取不要使用shell，因为shell无法被执行器证明无间接写入并会要求重建。若调查后无需修改，直接提交finish或ask_user，不得声称源码已变化。";
+                    break;
+                case AutomationToolProfiles.SourceReview:
+                    context = "当前能力：Automation 源码只读检查。优先使用 search_platform_source 受限检索，可以读取源码并按需获取平台开发上下文，但不得执行 shell、写入、编辑或删除文件。";
                     break;
                 case AutomationToolProfiles.PlatformConfiguration:
                     context = "当前能力：平台级配置迁移。只使用迁移预演、确认和应用链，并在提交后验证平台配置。";
@@ -2137,7 +2812,7 @@ namespace Automation
             JObject promptResult,
             Exception promptException,
             long totalDurationMs,
-            int visibleResponseChars)
+            int assistantResponseChars)
         {
             long toolAggregateMs = analysisToolIntervals.Sum(interval => interval.DurationMs);
             long toolWallMs = CalculateIntervalUnionMs(analysisToolIntervals);
@@ -2147,7 +2822,14 @@ namespace Automation
                 config.ToolProfile,
                 currentPromptToolCallCount,
                 currentPromptToolErrorCount,
-                currentPromptToolResultBytes);
+                currentPromptToolResultBytes,
+                promptResult?["usage"]?["inputTokens"]?.Value<long?>()
+                    ?? promptResult?["usage"]?["input_tokens"]?.Value<long?>()
+                    ?? 0L,
+                ContextWindowTokens,
+                unattributedMs,
+                currentPromptToolNames);
+            AiTurnEvidence evidence = BuildTurnEvidenceLocked();
             var result = new JObject
             {
                 ["status"] = promptException == null ? "completed" : "failed",
@@ -2156,6 +2838,16 @@ namespace Automation
                 ["firstActivityMs"] = currentFirstModelActivityUtc == default(DateTime)
                     ? (long?)null
                     : Math.Max(0L, (long)(currentFirstModelActivityUtc - currentPromptStartedUtc).TotalMilliseconds),
+                ["firstPreviewAttemptMs"] = currentFirstPreviewAttemptUtc == default(DateTime)
+                    ? (long?)null
+                    : Math.Max(0L, (long)(currentFirstPreviewAttemptUtc - currentPromptStartedUtc).TotalMilliseconds),
+                ["firstSuccessfulPreviewMs"] = currentFirstSuccessfulPreviewUtc == default(DateTime)
+                    ? (long?)null
+                    : Math.Max(0L, (long)(currentFirstSuccessfulPreviewUtc - currentPromptStartedUtc).TotalMilliseconds),
+                ["toolFailuresAtFirstSuccessfulPreview"] = currentFirstSuccessfulPreviewUtc == default(DateTime)
+                    ? (int?)null : currentToolFailuresAtFirstSuccessfulPreview,
+                ["authoringInputResolutionCalls"] = currentAuthoringInputResolutionCalls,
+                ["operationCapabilityResolutionCalls"] = currentOperationCapabilityResolutionCalls,
                 ["toolCallCount"] = currentPromptToolCallCount,
                 ["toolFailureCount"] = currentPromptToolErrorCount,
                 ["toolResultBytes"] = currentPromptToolResultBytes,
@@ -2166,14 +2858,49 @@ namespace Automation
                 ["toolWallMs"] = toolWallMs,
                 ["confirmationWaitMs"] = currentPreviewWaitMs,
                 ["unattributedMs"] = unattributedMs,
-                ["visibleResponseChars"] = visibleResponseChars,
+                ["assistantResponseChars"] = assistantResponseChars,
+                ["decisionMessageChars"] = lastSubmittedTaskDecision?.Message?.Length ?? 0,
+                ["persistedCandidateChars"] = !string.IsNullOrWhiteSpace(lastSubmittedTaskDecision?.Message)
+                    ? lastSubmittedTaskDecision.Message.Length
+                    : assistantResponseChars,
+                ["decisionLocked"] = lastSubmittedTaskDecision != null,
+                ["terminationRequested"] = currentPromptDecisionTerminationSent,
+                ["terminationObserved"] = string.Equals(
+                    promptResult?["stopReason"]?.Value<string>(),
+                    "capability_decision_locked",
+                    StringComparison.Ordinal),
+                ["terminationOutcome"] = !currentPromptDecisionTerminationSent
+                    ? "not_requested"
+                    : string.Equals(
+                        promptResult?["stopReason"]?.Value<string>(),
+                        "capability_decision_locked",
+                        StringComparison.Ordinal)
+                        ? "cancel_observed"
+                        : "turn_already_ended",
                 ["unfinishedToolCount"] = activeAnalysisToolCalls.Count,
                 ["trajectory"] = new JObject
                 {
                     ["status"] = trajectory.Status,
                     ["toolCallLimit"] = trajectory.ToolCallLimit,
                     ["toolResultByteLimit"] = trajectory.ToolResultByteLimit,
+                    ["contextPressureTokenLimit"] = trajectory.ContextPressureTokenLimit,
+                    ["unattributedMsLimit"] = trajectory.UnattributedMsLimit,
                     ["reasons"] = new JArray(trajectory.Reasons)
+                },
+                ["stageEvidence"] = new JObject
+                {
+                    ["automationToolSucceeded"] = evidence.AutomationToolSucceeded,
+                    ["currentStateReadSucceeded"] = evidence.CurrentStateReadSucceeded,
+                    ["configurationSaved"] = evidence.ConfigurationSaved,
+                    ["changeSetCommitted"] = evidence.ChangeSetCommitted,
+                    ["migrationCommitted"] = evidence.MigrationCommitted,
+                    ["previewCreated"] = evidence.PreviewCreated,
+                    ["mutationAttempted"] = evidence.MutationAttempted,
+                    ["verificationSucceeded"] = evidence.VerificationSucceeded,
+                    ["previewRejected"] = evidence.PreviewRejected,
+                    ["designKnowledgeReadSucceeded"] = evidence.DesignKnowledgeReadSucceeded,
+                    ["unsafeMutationFailure"] = evidence.UnsafeMutationFailure,
+                    ["sourceMutationUncertain"] = evidence.SourceMutationUncertain
                 }
             };
             JToken usage = promptResult?["usage"];
@@ -2190,6 +2917,625 @@ namespace Automation
                 };
             }
             return result;
+        }
+
+        private AiTurnEvidence BuildTurnEvidenceLocked()
+        {
+            return new AiTurnEvidence(
+                currentPromptAutomationToolSucceeded,
+                currentPromptCurrentStateReadSucceeded,
+                currentPromptConfigurationSaved,
+                currentPromptChangeSetCommitted,
+                currentPromptMigrationCommitted,
+                currentPromptPreviewRejected,
+                currentPromptSourceFilesChanged,
+                currentPromptToolErrorCount,
+                currentPromptDesignKnowledgeReadSucceeded,
+                currentPromptUnsafeMutationFailure,
+                currentPromptSourceMutationUncertain,
+                currentPromptMutationAttempted,
+                currentPromptPreviewCreated,
+                currentPromptVerificationSucceeded);
+        }
+
+        private void CaptureFinalAssistantResponseBeforeToolLocked(string toolName)
+        {
+            string candidate = assistantResponse.ToString().Trim();
+            if (string.Equals(toolName, "request_capability", StringComparison.Ordinal)
+                && finalAssistantResponse.Length == 0
+                && candidate.Length > 0)
+            {
+                finalAssistantResponse.Append(candidate);
+            }
+            // 工具调用前的普通 assistant 文本属于过程说明；只有 request_capability 前最后一段可作为最终输出。
+            assistantResponse.Clear();
+        }
+
+        private string BuildFinalAssistantResponseLocked()
+        {
+            if (finalAssistantResponse.Length > 0)
+                return finalAssistantResponse.ToString();
+            return assistantResponse.ToString().Trim();
+        }
+
+        private static bool IsDeveloperWriteToolName(string toolName)
+        {
+            string value = (toolName ?? string.Empty).Trim();
+            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
+                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
+            if (separator >= 0)
+                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
+            return string.Equals(value, "write", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "edit", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPreviewTool(string toolName)
+        {
+            return string.Equals(toolName, "preview_change_set", StringComparison.Ordinal)
+                || string.Equals(toolName, "preview_process_blueprint", StringComparison.Ordinal)
+                || (toolName ?? string.Empty).StartsWith("preview_", StringComparison.Ordinal)
+                    && (toolName ?? string.Empty).EndsWith("_configuration", StringComparison.Ordinal);
+        }
+
+        private static bool IsDeveloperShellToolName(string toolName)
+        {
+            string value = (toolName ?? string.Empty).Trim();
+            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
+                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
+            if (separator >= 0)
+                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
+            return string.Equals(value, "shell", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsCurrentStateEvidenceTool(string toolName)
+        {
+            if (string.IsNullOrWhiteSpace(toolName)) return false;
+            switch (toolName)
+            {
+                case "get_process_design_guide":
+                case "get_operation_schema":
+                case "get_operation_guide":
+                case "get_semantic_operation_schema":
+                case "get_native_operation_schemas":
+                case "get_native_operation_field_contract":
+                case "preview_change_set":
+                case "preview_process_blueprint":
+                case "apply_change_set":
+                case "discard_change_set_preview":
+                case "add_variable":
+                case "update_variable":
+                case "delete_variable":
+                case "upsert_data_struct":
+                case "delete_data_struct":
+                case "set_alarm":
+                case "delete_alarm":
+                case "preview_motion_io_configuration":
+                case "preview_io_debug_configuration":
+                case "preview_plc_configuration":
+                case "preview_communication_configuration":
+                case "apply_migration_configuration":
+                case "discard_migration_configuration":
+                case "request_capability":
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        private void CaptureReviewObjectIdentityLocked(string toolName, JObject resultData)
+        {
+            if (resultData == null
+                || (!string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
+                    && !string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
+                    && !string.Equals(toolName, "validate_proc", StringComparison.Ordinal)
+                    && !string.Equals(toolName, "get_op_details", StringComparison.Ordinal)))
+            {
+                return;
+            }
+            int? procIndex = resultData["procIndex"]?.Value<int?>();
+            string procId = resultData["procId"]?.Value<string>();
+            if (procIndex.HasValue && !string.IsNullOrWhiteSpace(procId))
+            {
+                latestReviewProcIdsByIndex[procIndex.Value] = procId.Trim();
+            }
+        }
+
+        private void CaptureReviewVerifiedFactsLocked(
+            string toolName,
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            if (resultData == null) return;
+            switch (toolName ?? string.Empty)
+            {
+                case "get_proc_overview":
+                    CaptureProcOverviewFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "validate_proc":
+                    CaptureValidateProcFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "get_flow_graph":
+                    CaptureFlowGraphFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "get_operation_references":
+                    CaptureOperationReferenceFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "find_variable_usages":
+                    CaptureVariableUsageFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "get_op_details":
+                    CaptureOperationDetailsFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "get_proc_references":
+                    CaptureProcReferenceFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+                case "audit_proc_batch":
+                    CaptureAuditFactsLocked(toolCallId, resultData, rawResult);
+                    break;
+            }
+        }
+
+        private void CaptureProcOverviewFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            int? procIndex = resultData["procIndex"]?.Value<int?>();
+            string procId = resultData["procId"]?.Value<string>();
+            if (!procIndex.HasValue || string.IsNullOrWhiteSpace(procId)) return;
+            string procName = resultData["name"]?.Value<string>() ?? procId;
+            string hash = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>() ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, procId, procName, "proc.procIndex", NormalizeFactValue(resultData["procIndex"]),
+                toolCallId, "/data/procIndex", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.autoStart", NormalizeFactValue(resultData["autoStart"]),
+                toolCallId, "/data/autoStart", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.disabled", NormalizeFactValue(resultData["disable"]),
+                toolCallId, "/data/disable", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.state", NormalizeFactValue(resultData["state"]),
+                toolCallId, "/data/state", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.readinessStatus", NormalizeFactValue(resultData["readinessStatus"]),
+                toolCallId, "/data/readinessStatus", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.runnable", NormalizeFactValue(resultData["runnable"]),
+                toolCallId, "/data/runnable", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.stepCount", NormalizeFactValue(resultData["stepCount"]),
+                toolCallId, "/data/stepCount", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.operationCount", NormalizeFactValue(resultData["operationCount"]),
+                toolCallId, "/data/operationCount", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.warningCount",
+                ((resultData["warnings"] as JArray)?.Count ?? 0).ToString(CultureInfo.InvariantCulture),
+                toolCallId, "/data/warnings", hash, "get_proc_overview");
+            AddReviewFact(facts, procId, procName, "proc.runBlockerCount",
+                ((resultData["runBlockers"] as JArray)?.Count ?? 0).ToString(CultureInfo.InvariantCulture),
+                toolCallId, "/data/runBlockers", hash, "get_proc_overview");
+            JArray steps = resultData["steps"] as JArray ?? new JArray();
+            for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                if (!(steps[stepIndex] is JObject step)) continue;
+                string stepId = step["stepId"]?.Value<string>();
+                if (!string.IsNullOrWhiteSpace(stepId))
+                {
+                    string stepName = step["name"]?.Value<string>() ?? stepId;
+                    AddReviewFact(facts, stepId, stepName, "step.disabled", NormalizeFactValue(step["disable"]),
+                        toolCallId, $"/data/steps/{stepIndex}/disable", hash, "get_proc_overview");
+                    AddReviewFact(facts, stepId, stepName, "step.operationCount", NormalizeFactValue(step["opCount"]),
+                        toolCallId, $"/data/steps/{stepIndex}/opCount", hash, "get_proc_overview");
+                }
+                CaptureOperationDirectoryFacts(facts, step["ops"] as JArray, toolCallId,
+                    $"/data/steps/{stepIndex}/ops", hash, "get_proc_overview", stepId);
+            }
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureValidateProcFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            int? procIndex = resultData["procIndex"]?.Value<int?>();
+            if (!procIndex.HasValue) return;
+            string subjectId = resultData["procId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(subjectId))
+            {
+                subjectId = latestReviewProcIdsByIndex.TryGetValue(procIndex.Value, out string procId)
+                    ? procId
+                    : "procIndex:" + procIndex.Value.ToString(CultureInfo.InvariantCulture);
+            }
+            string subjectName = resultData["procName"]?.Value<string>() ?? subjectId;
+            string evidenceSha256 = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>()
+                ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, subjectId, subjectName, "proc.procIndex",
+                procIndex.Value.ToString(CultureInfo.InvariantCulture), toolCallId,
+                "/data/procIndex", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.isValid",
+                NormalizeFactValue(resultData["isValid"]), toolCallId,
+                "/data/isValid", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.readinessStatus",
+                NormalizeFactValue(resultData["readinessStatus"]), toolCallId,
+                "/data/readinessStatus", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.runnable",
+                NormalizeFactValue(resultData["runnable"]), toolCallId,
+                "/data/runnable", evidenceSha256, "validate_proc");
+            int blockerCount = (resultData["runBlockers"] as JArray)?.Count ?? 0;
+            int placeholderBlockerCount = (resultData["runBlockers"] as JArray)?
+                .Values<string>()
+                .Count(message => (message ?? string.Empty).IndexOf("配置占位", StringComparison.Ordinal) >= 0)
+                ?? 0;
+            int warningCount = resultData["warningCount"]?.Value<int?>()
+                ?? (resultData["warnings"] as JArray)?.Count
+                ?? 0;
+            int placeholderWarningCount = (resultData["warnings"] as JArray)?
+                .OfType<JObject>()
+                .Select(item => item["message"]?.Value<string>() ?? string.Empty)
+                .Count(message => message.IndexOf("占位", StringComparison.Ordinal) >= 0)
+                ?? 0;
+            AddReviewFact(facts, subjectId, subjectName, "proc.warningCount",
+                warningCount.ToString(CultureInfo.InvariantCulture), toolCallId,
+                "/data/warningCount", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.placeholderWarningCount",
+                placeholderWarningCount.ToString(CultureInfo.InvariantCulture), toolCallId,
+                "/data/warnings", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.runBlockerCount",
+                blockerCount.ToString(CultureInfo.InvariantCulture), toolCallId,
+                "/data/runBlockers", evidenceSha256, "validate_proc");
+            AddReviewFact(facts, subjectId, subjectName, "proc.nonPlaceholderBlockerCount",
+                Math.Max(0, blockerCount - placeholderBlockerCount).ToString(CultureInfo.InvariantCulture),
+                toolCallId, "/data/runBlockers", evidenceSha256, "validate_proc");
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureFlowGraphFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            string evidenceSha256 = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>()
+                ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            JArray nodes = resultData["nodes"] as JArray ?? new JArray();
+            for (int index = 0; index < nodes.Count; index++)
+            {
+                if (!(nodes[index] is JObject node)
+                    || !string.Equals(node["kind"]?.Value<string>(), "operation", StringComparison.Ordinal))
+                    continue;
+                string opId = node["opId"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(opId)) continue;
+                string name = node["label"]?.Value<string>() ?? opId;
+                AddReviewFact(facts, opId, name, "operation.reachable",
+                    NormalizeFactValue(node["reachable"]), toolCallId,
+                    $"/data/nodes/{index}/reachable", evidenceSha256, "get_flow_graph");
+                AddReviewFact(facts, opId, name, "operation.invalid",
+                    NormalizeFactValue(node["invalid"]), toolCallId,
+                    $"/data/nodes/{index}/invalid", evidenceSha256, "get_flow_graph");
+            }
+            JArray diagnostics = resultData["diagnostics"] as JArray ?? new JArray();
+            for (int index = 0; index < diagnostics.Count; index++)
+            {
+                if (!(diagnostics[index] is JObject diagnostic)) continue;
+                string nodeId = diagnostic["nodeId"]?.Value<string>();
+                string code = diagnostic["code"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(nodeId)
+                    || !nodeId.StartsWith("op:", StringComparison.Ordinal)
+                    || string.IsNullOrWhiteSpace(code)) continue;
+                string opId = nodeId.Substring("op:".Length);
+                string name = nodes.OfType<JObject>().FirstOrDefault(node =>
+                    string.Equals(node["opId"]?.Value<string>(), opId, StringComparison.Ordinal))?["label"]?.Value<string>()
+                    ?? opId;
+                AddReviewFact(facts, opId, name, "operation.graphDiagnostic." + code,
+                    "true", toolCallId, $"/data/diagnostics/{index}", evidenceSha256, "get_flow_graph");
+            }
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureOperationReferenceFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            JObject target = resultData["target"] as JObject;
+            string opId = target?["opId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(opId)) return;
+            string name = target["opName"]?.Value<string>() ?? opId;
+            string evidenceSha256 = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>()
+                ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, opId, name, "operation.incomingGotoCount",
+                NormalizeFactValue(resultData["incomingGotoCountInBatch"]), toolCallId,
+                "/data/incomingGotoCountInBatch", evidenceSha256, "get_operation_references");
+            AddReviewFact(facts, opId, name, "operation.incomingGotoTruncated",
+                NormalizeFactValue(resultData["truncatedIncoming"]), toolCallId,
+                "/data/truncatedIncoming", evidenceSha256, "get_operation_references");
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureVariableUsageFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            JObject variable = resultData["variable"] as JObject;
+            string variableId = variable?["variableId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(variableId)) return;
+            string name = variable["name"]?.Value<string>() ?? variableId;
+            string evidenceSha256 = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>()
+                ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, variableId, name, "variable.usageCount",
+                NormalizeFactValue(resultData["matchCountInBatch"]), toolCallId,
+                "/data/matchCountInBatch", evidenceSha256, "find_variable_usages");
+            AddReviewFact(facts, variableId, name, "variable.usagesTruncated",
+                NormalizeFactValue(resultData["truncatedMatches"]), toolCallId,
+                "/data/truncatedMatches", evidenceSha256, "find_variable_usages");
+            AddReviewFact(facts, variableId, name, "variable.scope",
+                NormalizeFactValue(variable["scope"]), toolCallId,
+                "/data/variable/scope", evidenceSha256, "find_variable_usages");
+            AddReviewFact(facts, variableId, name, "variable.ownerProcId",
+                NormalizeFactValue(variable["ownerProcId"]), toolCallId,
+                "/data/variable/ownerProcId", evidenceSha256, "find_variable_usages");
+            JArray matches = resultData["matches"] as JArray ?? new JArray();
+            for (int index = 0; index < matches.Count; index++)
+            {
+                if (!(matches[index] is JObject match)) continue;
+                string opId = match["opId"]?.Value<string>();
+                string field = match["field"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(opId) || string.IsNullOrWhiteSpace(field)) continue;
+                string opName = match["opName"]?.Value<string>() ?? opId;
+                AddReviewFact(facts, opId, opName, "operation.field." + SanitizeFactKeySegment(field),
+                    CompactFactValue(match["value"]), toolCallId,
+                    $"/data/matches/{index}/value", evidenceSha256, "find_variable_usages");
+                AddReviewFact(facts, opId, opName, "operation.operaType",
+                    NormalizeFactValue(match["operaType"]), toolCallId,
+                    $"/data/matches/{index}/operaType", evidenceSha256, "find_variable_usages");
+            }
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureOperationDetailsFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            string hash = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>() ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            JArray operations = resultData["operations"] as JArray ?? new JArray();
+            for (int index = 0; index < operations.Count; index++)
+            {
+                if (!(operations[index] is JObject operation)) continue;
+                string opId = operation["opId"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(opId)) continue;
+                string name = operation["name"]?.Value<string>() ?? opId;
+                string path = $"/data/operations/{index}";
+                AddReviewFact(facts, opId, name, "operation.operaType", NormalizeFactValue(operation["operaType"]),
+                    toolCallId, path + "/operaType", hash, "get_op_details");
+                AddReviewFact(facts, opId, name, "operation.disabled", NormalizeFactValue(operation["disable"]),
+                    toolCallId, path + "/disable", hash, "get_op_details");
+                AddReviewFact(facts, opId, name, "operation.stepId", NormalizeFactValue(operation["stepId"]),
+                    toolCallId, path + "/stepId", hash, "get_op_details");
+                AddReviewFact(facts, opId, name, "operation.stepIndex", NormalizeFactValue(operation["stepIndex"]),
+                    toolCallId, path + "/stepIndex", hash, "get_op_details");
+                AddReviewFact(facts, opId, name, "operation.opIndex", NormalizeFactValue(operation["opIndex"]),
+                    toolCallId, path + "/opIndex", hash, "get_op_details");
+                AddReviewFact(facts, opId, name, "operation.flow", CompactFactValue(operation["flow"]),
+                    toolCallId, path + "/flow", hash, "get_op_details");
+                if (operation["fields"] is JObject fields)
+                {
+                    foreach (JProperty field in fields.Properties())
+                    {
+                        AddReviewFact(facts, opId, name,
+                            "operation.field." + SanitizeFactKeySegment(field.Name),
+                            CompactFactValue(field.Value), toolCallId,
+                            path + "/fields/" + field.Name.Replace("~", "~0").Replace("/", "~1"),
+                            hash, "get_op_details");
+                    }
+                }
+            }
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureProcReferenceFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            JObject target = resultData["target"] as JObject;
+            string procId = target?["procId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(procId)) return;
+            string name = target["procName"]?.Value<string>() ?? procId;
+            string hash = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>() ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, procId, name, "proc.referenceCountInBatch",
+                NormalizeFactValue(resultData["referenceCountInBatch"]), toolCallId,
+                "/data/referenceCountInBatch", hash, "get_proc_references");
+            AddReviewFact(facts, procId, name, "proc.referencesTruncated",
+                NormalizeFactValue(resultData["truncatedReferences"]), toolCallId,
+                "/data/truncatedReferences", hash, "get_proc_references");
+            AddReviewFact(facts, procId, name, "proc.referenceScanHasMore",
+                NormalizeFactValue(resultData["hasMoreProcs"]), toolCallId,
+                "/data/hasMoreProcs", hash, "get_proc_references");
+            MergeReviewFactsLocked(facts);
+        }
+
+        private void CaptureAuditFactsLocked(
+            string toolCallId,
+            JObject resultData,
+            string rawResult)
+        {
+            string revision = resultData["indexRevision"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(revision)) return;
+            string subjectId = "audit:" + revision;
+            string hash = AiAnalysisLogger.FingerprintText(rawResult)["sha256"]?.Value<string>() ?? string.Empty;
+            var facts = new List<ReviewVerifiedFactDefinition>();
+            AddReviewFact(facts, subjectId, "流程批量审计", "audit.findingCountInBatch",
+                NormalizeFactValue(resultData["findingCountInBatch"]), toolCallId,
+                "/data/findingCountInBatch", hash, "audit_proc_batch");
+            AddReviewFact(facts, subjectId, "流程批量审计", "audit.returnedFindingCount",
+                NormalizeFactValue(resultData["returnedFindingCount"]), toolCallId,
+                "/data/returnedFindingCount", hash, "audit_proc_batch");
+            AddReviewFact(facts, subjectId, "流程批量审计", "audit.hasMoreFindings",
+                NormalizeFactValue(resultData["hasMoreFindings"]), toolCallId,
+                "/data/hasMoreFindings", hash, "audit_proc_batch");
+            AddReviewFact(facts, subjectId, "流程批量审计", "audit.hasMoreProcs",
+                NormalizeFactValue(resultData["hasMoreProcs"]), toolCallId,
+                "/data/hasMoreProcs", hash, "audit_proc_batch");
+            AddReviewFact(facts, subjectId, "流程批量审计", "audit.procRange",
+                CompactFactValue(resultData["procRange"]), toolCallId,
+                "/data/procRange", hash, "audit_proc_batch");
+            MergeReviewFactsLocked(facts);
+        }
+
+        private static void CaptureOperationDirectoryFacts(
+            ICollection<ReviewVerifiedFactDefinition> facts,
+            JArray operations,
+            string toolCallId,
+            string basePath,
+            string evidenceSha256,
+            string sourceTool,
+            string stepId)
+        {
+            if (operations == null) return;
+            for (int index = 0; index < operations.Count; index++)
+            {
+                if (!(operations[index] is JObject operation)) continue;
+                string opId = operation["opId"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(opId)) continue;
+                string name = operation["name"]?.Value<string>() ?? opId;
+                AddReviewFact(facts, opId, name, "operation.operaType", NormalizeFactValue(operation["operaType"]),
+                    toolCallId, $"{basePath}/{index}/operaType", evidenceSha256, sourceTool);
+                AddReviewFact(facts, opId, name, "operation.disabled", NormalizeFactValue(operation["disable"]),
+                    toolCallId, $"{basePath}/{index}/disable", evidenceSha256, sourceTool);
+                AddReviewFact(facts, opId, name, "operation.stepId", stepId,
+                    toolCallId, $"{basePath}/{index}/opId", evidenceSha256, sourceTool);
+                AddReviewFact(facts, opId, name, "operation.opIndex", NormalizeFactValue(operation["opIndex"]),
+                    toolCallId, $"{basePath}/{index}/opIndex", evidenceSha256, sourceTool);
+            }
+        }
+
+        private static string CompactFactValue(JToken value)
+        {
+            string normalized = NormalizeFactValue(value);
+            return normalized.Length <= 512 ? normalized : normalized.Substring(0, 512) + "…";
+        }
+
+        private static string SanitizeFactKeySegment(string value)
+        {
+            string normalized = new string((value ?? string.Empty).Trim()
+                .Select(character => char.IsLetterOrDigit(character) || character == '_' || character == '-'
+                    ? character : '_')
+                .ToArray());
+            return normalized.Length == 0 ? "unknown" : normalized;
+        }
+
+        private static void AddReviewFact(
+            ICollection<ReviewVerifiedFactDefinition> facts,
+            string subjectId,
+            string subjectName,
+            string key,
+            string value,
+            string toolCallId,
+            string evidencePath,
+            string evidenceSha256,
+            string sourceTool)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            facts.Add(new ReviewVerifiedFactDefinition
+            {
+                SubjectId = subjectId,
+                SubjectName = subjectName,
+                Key = key,
+                Value = value,
+                SourceTool = sourceTool ?? string.Empty,
+                ToolCallId = toolCallId ?? string.Empty,
+                EvidencePath = evidencePath,
+                EvidenceSha256 = evidenceSha256
+            });
+        }
+
+        private void MergeReviewFactsLocked(IEnumerable<ReviewVerifiedFactDefinition> facts)
+        {
+            foreach (ReviewVerifiedFactDefinition fact in facts ?? Enumerable.Empty<ReviewVerifiedFactDefinition>())
+            {
+                if (!latestReviewFactsBySubject.TryGetValue(fact.SubjectId, out List<ReviewVerifiedFactDefinition> current))
+                {
+                    current = new List<ReviewVerifiedFactDefinition>();
+                    latestReviewFactsBySubject[fact.SubjectId] = current;
+                }
+                int existingIndex = current.FindIndex(item =>
+                    string.Equals(item.Key, fact.Key, StringComparison.Ordinal));
+                if (existingIndex >= 0) current[existingIndex] = fact;
+                else current.Add(fact);
+            }
+        }
+
+        private static string NormalizeFactValue(JToken value)
+        {
+            if (value == null || value.Type == JTokenType.Null) return string.Empty;
+            if (value.Type == JTokenType.Boolean)
+                return value.Value<bool>() ? "true" : "false";
+            return value.ToString(Formatting.None).Trim('"');
+        }
+
+        private void AttachReviewVerifiedFactsLocked(TaskCapabilityDecisionDefinition decision)
+        {
+            if (!string.Equals(config.ToolProfile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
+                || decision?.ReviewHandoff == null)
+            {
+                return;
+            }
+            var referencedFactIds = new HashSet<string>(
+                (decision.ReviewHandoff.Findings ?? new List<ReviewFindingDefinition>())
+                    .SelectMany(finding => finding?.EvidenceFactRefs ?? new List<string>())
+                    .Where(reference => !string.IsNullOrWhiteSpace(reference)),
+                StringComparer.Ordinal);
+            List<ReviewVerifiedFactDefinition> allFacts = latestReviewFactsBySubject
+                .OrderBy(item => item.Key, StringComparer.Ordinal)
+                .SelectMany(item => item.Value)
+                .ToList();
+            List<ReviewVerifiedFactDefinition> orderedFacts = allFacts
+                .Where(fact => referencedFactIds.Contains(ReviewFactReference.Build(fact.SubjectId, fact.Key)))
+                .Concat(allFacts.Where(fact => (fact.Key ?? string.Empty).StartsWith("proc.", StringComparison.Ordinal)
+                    || (fact.Key ?? string.Empty).StartsWith("audit.", StringComparison.Ordinal)))
+                .GroupBy(fact => ReviewFactReference.Build(fact.SubjectId, fact.Key), StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderByDescending(fact => referencedFactIds.Contains(
+                    ReviewFactReference.Build(fact.SubjectId, fact.Key)))
+                .ThenBy(fact => fact.SubjectId, StringComparer.Ordinal)
+                .ThenBy(fact => fact.Key, StringComparer.Ordinal)
+                .Take(100)
+                .ToList();
+            decision.ReviewHandoff.VerifiedFacts = orderedFacts
+                .Select(fact => new ReviewVerifiedFactDefinition
+                {
+                    SubjectId = fact.SubjectId,
+                    SubjectName = fact.SubjectName,
+                    Key = fact.Key,
+                    Value = fact.Value,
+                    SourceTool = fact.SourceTool,
+                    ToolCallId = fact.ToolCallId,
+                    EvidencePath = fact.EvidencePath,
+                    EvidenceSha256 = fact.EvidenceSha256
+                })
+                .ToList();
+        }
+
+        internal static bool IsMutationAttemptTool(string toolName)
+        {
+            switch ((toolName ?? string.Empty).Trim())
+            {
+                case "apply_change_set":
+                case "add_variable":
+                case "update_variable":
+                case "delete_variable":
+                case "upsert_data_struct":
+                case "delete_data_struct":
+                case "set_alarm":
+                case "delete_alarm":
+                case "apply_migration_configuration":
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static long CalculateIntervalUnionMs(IEnumerable<AnalysisTimeInterval> intervals)

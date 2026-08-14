@@ -46,6 +46,15 @@ namespace Automation.McpServer
                     if (string.IsNullOrWhiteSpace(operation.Variable) || operation.Value == null)
                         return "variable.set 必须提供 variable/value。";
                     return null!;
+                case "variable.clear":
+                    return string.IsNullOrWhiteSpace(operation.Variable)
+                        ? "variable.clear 必须提供 variable。"
+                        : null!;
+                case "variable.copy":
+                    return string.IsNullOrWhiteSpace(operation.SourceVariable)
+                        || string.IsNullOrWhiteSpace(operation.TargetVariable)
+                        ? "variable.copy 必须提供 sourceVariable/targetVariable。"
+                        : null!;
                 case "variable.add":
                     if (string.IsNullOrWhiteSpace(operation.Variable) || !operation.Amount.HasValue)
                         return "variable.add 必须提供 variable/amount。";
@@ -107,6 +116,11 @@ namespace Automation.McpServer
                         ? operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.io.whenFalse")
                         : ValidateTarget(operation.WhenTrue, "branch.io.whenTrue")
                             ?? (operation.WhenFalse == null ? null! : ValidateTarget(operation.WhenFalse, "branch.io.whenFalse"));
+                case "alarm.raise":
+                    if (string.IsNullOrWhiteSpace(operation.Message)) return "alarm.raise.message 不能为空。";
+                    if (ContainsPlaceholderSyntax(operation.Message))
+                        return "alarm.raise 是固定报警文本，不支持变量插值；未知报警内容使用config.placeholder。";
+                    return operation.Target == null ? null! : ValidateTarget(operation.Target, "alarm.raise.target");
                 case "popup.message":
                     if (string.IsNullOrWhiteSpace(operation.Message)) return "popup.message.message 不能为空。";
                     if (ContainsPlaceholderSyntax(operation.Message))

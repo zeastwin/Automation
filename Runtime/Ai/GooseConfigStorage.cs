@@ -95,8 +95,8 @@ namespace Automation
         public const string ToolProfileKey = "ToolProfile";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
-        public const int DefaultMaxOutputTokens = 8192;
-        public const double DefaultTemperature = 0.7d;
+        public const int DefaultMaxOutputTokens = 16384;
+        public const double DefaultTemperature = 0.3d;
         public const string DefaultProvider = "deepseek";
         public const string DefaultModel = "deepseek-v4-pro";
 
@@ -180,6 +180,17 @@ namespace Automation
                 if (config.MaxTurns == 30)
                 {
                     config.MaxTurns = DefaultMaxTurns;
+                    configMigrated = true;
+                }
+                // 仅迁移平台曾经发布过的默认值，保留用户主动设置的其他输出预算和采样温度。
+                if (config.MaxOutputTokens == 8192)
+                {
+                    config.MaxOutputTokens = DefaultMaxOutputTokens;
+                    configMigrated = true;
+                }
+                if (Math.Abs(config.Temperature - 0.7d) < 0.000001d)
+                {
+                    config.Temperature = DefaultTemperature;
                     configMigrated = true;
                 }
                 if (configMigrated)

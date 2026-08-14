@@ -490,6 +490,26 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void PopupContract_ExplainsFixedTextAlarmRecordingWithoutAlarmLibrary()
+        {
+            JObject behavior = OperationBehaviorCatalog.BuildContract(new PopupDialog());
+
+            Assert.AreEqual(OperationBehaviorCatalog.ContractVersion,
+                behavior["contractVersion"]?.Value<int>());
+            StringAssert.Contains(
+                behavior["fieldRules"]?[nameof(PopupDialog.SaveToAlarmFile)]?["description"]?.Value<string>()
+                    ?? string.Empty,
+                "固定文本报警");
+            StringAssert.Contains(
+                behavior["fieldRules"]?[nameof(PopupDialog.AlarmLightEnable)]?["description"]?.Value<string>()
+                    ?? string.Empty,
+                "不影响SaveToAlarmFile");
+            StringAssert.Contains(
+                behavior["alarmSemantics"]?["fixedTextAlarm"]?.Value<string>() ?? string.Empty,
+                "不要求报警信息库ID");
+        }
+
+        [TestMethod]
         public void LogicJumpDefaults_UseFiveMillisecondsAcrossNativeAndSemanticCreation()
         {
             Assert.AreEqual(5, new ParamGoto().InvalidDelayMs);

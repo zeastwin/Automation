@@ -731,6 +731,29 @@ namespace Automation
             {
                 return false;
             }
+            if (operation.ClearOutput)
+            {
+                bool hasClearOperand = !string.IsNullOrEmpty(operation.ChangeValue)
+                    || !string.IsNullOrEmpty(operation.ChangeValueIndex)
+                    || !string.IsNullOrEmpty(operation.ChangeValueIndex2Index)
+                    || !string.IsNullOrEmpty(operation.ChangeValueName)
+                    || !string.IsNullOrEmpty(operation.ChangeValueName2Index);
+                if (!string.Equals(operation.ModifyType, "替换", StringComparison.Ordinal)
+                    || hasClearOperand || operation.NegateSource || operation.NegateOperand)
+                {
+                    error = "清空变量只能使用替换模式，且不得配置修改值或取反";
+                    return false;
+                }
+                operation.RuntimeBinding = new ModifyValueRuntimeBinding
+                {
+                    Source = source,
+                    UsesLiteralChangeValue = true,
+                    Output = output,
+                    NeedsNumericValues = false,
+                    Calculate = (sourceText, changeText) => string.Empty
+                };
+                return true;
+            }
             bool usesLiteral = !string.IsNullOrEmpty(operation.ChangeValue);
             bool hasReference = !string.IsNullOrEmpty(operation.ChangeValueIndex)
                 || !string.IsNullOrEmpty(operation.ChangeValueIndex2Index)

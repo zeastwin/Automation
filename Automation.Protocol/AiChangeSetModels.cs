@@ -9,7 +9,7 @@ namespace Automation.Protocol
     public static class SemanticOperationKinds
     {
         public const string SupportedKinds =
-            "variable.set、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、branch.io、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
+            "variable.set、variable.clear、variable.copy、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、branch.io、alarm.raise、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
     }
 
     /// <summary>
@@ -194,7 +194,7 @@ namespace Automation.Protocol
 
         public string Variable { get; set; }
 
-        [Description("variable.set 的固定字面量；double 变量填写数字文本。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
+        [Description("variable.set 的固定字面量；double 变量填写数字文本。清空字符串必须使用 variable.clear，避免空值被误判为缺参。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
         public string Value { get; set; }
 
         [Description("variable.add 对 double 变量累加的固定数值。")]
@@ -202,6 +202,9 @@ namespace Automation.Protocol
 
         [Description("variable.compute 的源 double 变量。")]
         public string SourceVariable { get; set; }
+
+        [Description("variable.copy 的目标变量；必须与 sourceVariable 类型一致。")]
+        public string TargetVariable { get; set; }
 
         [Description("variable.compute 的运算符：add/subtract/multiply/divide/modulo/absolute。")]
         public string Operator { get; set; }
@@ -314,10 +317,13 @@ namespace Automation.Protocol
         [Description("跨步骤定位时可提供目标步骤稳定 Guid；当前步骤内定位无需提供。")]
         public string StepId { get; set; }
 
-        [Description("当前ChangeSet内跨步骤定位时可提供目标步骤局部key；当前步骤内定位无需提供。")]
+        [Description("当前ChangeSet内跨步骤定位时提供目标步骤局部key；只提供stepKey时由Blueprint进入目标步骤第一条有效指令。当前步骤内定位无需提供。")]
         public string StepKey { get; set; }
 
-        [Description("按指令key形成符号目标；仅可指向当前ChangeSet内新建指令。当前步骤只需operationKey；跨到当前ChangeSet新步骤时附加stepKey，跨到现有步骤内的新指令时附加stepId。空对象不是顺序执行；需要继续下一条时填写下一条指令的operationKey。目标必须在本次预演的最终结构中存在；已提交目标必须使用operationId。")]
+        [Description("按指令key形成符号目标；仅可指向当前ChangeSet内新建指令。当前步骤内跳转必须填写；Blueprint跨步骤默认可只填stepKey。目标必须在本次预演的最终结构中存在；已提交目标必须使用operationId。")]
         public string OperationKey { get; set; }
+
+        [Description("Blueprint跨步骤入口模式：first或operation。省略等同first并进入目标步骤第一条有效指令；只有明确需要跳入步骤中段时使用operation，且同时填写operationKey。普通ChangeSet不使用。")]
+        public string EntryMode { get; set; }
     }
 }

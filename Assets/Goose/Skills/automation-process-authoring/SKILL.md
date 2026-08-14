@@ -5,12 +5,11 @@ description: 在 Automation 低代码平台中创建、修改、重构或复制 
 
 # Automation 流程编写
 
-1. 先确定本次要写入的可观察行为、失败出口和外部副作用。创建或重构复杂流程时按目标调用 `get_process_design_guide`，通常只选一个主主题；历史功能块只指导结构，不提供当前资源名或参数。
-2. 只读取写入所依赖的当前对象。目标已知时按名称或稳定 ID 精确读取；资源名称未知时使用带关键词的搜索或过滤，不为“全面了解环境”枚举无关对象。
-3. 用户要求占位、骨架或先写结构时保留 Step 结构，并在未知动作处使用 `config.placeholder`，使结果可保存但保持 `incomplete`。不得用固定延时、普通弹框、常量或伪状态把缺失行为包装成 `ready/runnable`。
-4. 已确定的业务动作使用准确的语义 `kind`；字段或行为确有疑问时才读取对应 `get_semantic_operation_schema`。仅在语义层不能无损表达时读取精确 `get_native_operation_schemas`。本阶段所需变量放在同一 ChangeSet 的 `variables`，不先用独立变量工具旁路创建。
-5. 新建一个完整流程时，把流程、变量、步骤和指令组织成单个 `preview_process_blueprint`；平台会将其确定性编译为一个 ChangeSet V2 原子阶段，不要手工展开 create/append 动作。修改、重构或复制既有对象时，使用稳定 ID 构造一个完整 `preview_change_set` 阶段。
-6. 预演后根据变化、警告、阻塞和允许迁移等待前台确认，再仅以 `previewId` 调用 `apply_change_set`。修正活动预演时使用 `replacePreviewId` 完整替代旧阶段；提交后开始新阶段并改用返回的稳定 ID。
-7. 使用 `validate_proc` 核对最终结构与 Readiness。只有用户另行明确要求 `run_proc_test` 或运行时才进入运行控制任务；报告时区分已提交、结构有效、可运行和已观测运行。
+1. 先明确当前功能块的可观察目标、完成证据、外部副作用和失败出口。创建或重构复杂流程时按目标调用一次 `get_process_design_guide`，通常只选一个主主题；只提取会改变当前实现的知识，不生成固定格式的长篇设计卡。
+2. 使用 `resolve_authoring_inputs` 一次提交本功能块所需的绑定意图，每个 requirement 只代表一个变量、IO、工站、点位、通讯或报警用途。使用 `resolve_operation_capability` 解析业务动作可由哪个语义 kind 或已注册原生类型表达。聚合结果已经给出类型、作用域和兼容性时不再逐项读取；只有仍有歧义或字段确有疑问时，才调用返回中推荐的精确契约工具。候选不等于绑定事实，`bindingAllowed=false` 时选择占位、声明新变量或询问用户，不凭相似名称猜测。
+3. 已知动作使用准确的语义 `kind`；正式报警使用 `alarm.raise`，普通提示才使用 `popup.message`。未知动作使用 `config.placeholder`，保留真实 Step 结构并使结果保持 `incomplete`；事实补齐后用 `operation.replace` 完整替换。不得用延时、弹框、常量或伪状态伪造可运行结果。本阶段所需变量放在同一蓝图或 ChangeSet 中。
+4. 简单完整流程可一次 `preview_process_blueprint`。复杂流程先用预期 Step 和按功能块命名的占位提交 `autoStart=false` 的安全骨架并验证，再申请 `ProcessEdit`，按可独立审查的功能块逐段预演、确认、提交和回读。每次预演只需保证当前提交原子一致；不要求一个用户目标只预演一次。
+5. 蓝图只描述当前创建阶段，由平台确定性编译为 ChangeSet V2。重试策略中的 `maxAttempts` 是包含首次尝试的总次数；调用方声明入口、判定、业务变量复位/清理和耗尽出口，内部计数器、复位与累加由编译器生成。修改既有流程或补齐骨架时使用稳定 ID。若工具返回 `issues`，按 `suggestedRepair` 一次修正全部已报告问题；`safeToRetry=true` 才重试同一功能块。
+6. 预演后等待前台确认，再仅以 `previewId` 调用 `apply_change_set`；替换活动预演时使用 `replacePreviewId`。提交后立即使用返回的稳定 ID 和 `validate_proc` 验证，不重新发现已确认对象。最终说明区分已提交、结构有效、可运行和已观测运行；运行测试需要用户另行明确授权。
 
-字段结构以 MCP Schema 为准，运行语义以 behavior/Guide 为准，当前配置和状态以 Bridge、Store 与 Readiness 返回为准；不要在本 Skill 中补写这些契约。
+字段结构以 MCP Schema 为准，运行语义以 behavior/Guide 为准，当前配置和状态以 Bridge、Store 与 Readiness 返回为准。语义字段确有疑问时使用 `get_semantic_operation_schema`，真实原生类型确定后使用 `get_native_operation_schemas`；既有流程阶段写入使用 `preview_change_set`，`run_proc_test` 仍只在用户明确要求试运行时使用。不要在本 Skill 中补写这些契约。

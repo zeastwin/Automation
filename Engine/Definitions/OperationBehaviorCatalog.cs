@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 14;
+        public const int ContractVersion = 15;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -328,18 +328,21 @@ namespace Automation
 
                 case "修改变量":
                     contract = CreateContract(
-                        "读取源变量，用固定值或另一个变量执行运算，并写入结果变量。",
-                        new[] { "读取 ValueSource* 指定的源变量", "从 ChangeValue 固定值或 ChangeValue* 变量中二选一取得操作数", "按 ModifyType 计算", "写入 OutputValue* 指定的结果变量" },
+                        "读取源变量，用固定值或另一个变量执行运算，或显式清空 string 结果变量。",
+                        new[] { "读取 ValueSource* 指定的源变量", "ClearOutput=true时写入空字符串，否则从固定值或变量中取得操作数", "按 ModifyType 计算", "写入 OutputValue* 指定的结果变量" },
                         true);
                     contract["constraints"] = new JArray(
                         "ValueSourceIndex/ValueSourceName 等源引用必须且只能形成一个有效引用",
-                        "ChangeValue 固定值与 ChangeValueIndex/ChangeValueName 等变量引用必须且只能选择一种",
+                        "ClearOutput=false时，ChangeValue 固定值与 ChangeValueIndex/ChangeValueName 等变量引用必须且只能选择一种",
+                        "ClearOutput=true只支持string结果变量、替换模式且不得配置修改值或取反",
                         "OutputValueIndex/OutputValueName 等结果引用必须且只能形成一个有效引用",
                         "叠加、乘法、除法、求余和绝对值要求源变量与结果变量为 double；非绝对值操作数也必须为 double",
                         "除法和求余的固定操作数不能为0");
                     contract["semanticKinds"] = new JObject
                     {
                         ["fixedSet"] = "variable.set",
+                        ["clearString"] = "variable.clear",
+                        ["copySameType"] = "variable.copy",
                         ["fixedAdd"] = "variable.add",
                         ["variableOrNumericCompute"] = "variable.compute"
                     };
@@ -390,8 +393,8 @@ namespace Automation
 
                 case "弹框":
                     contract = CreateContract(
-                        "显示交互弹框，根据按钮结果跳转。",
-                        new[] { "根据 InfoType 解析提示内容", "按 PopupType 显示一至三个按钮", "所选按钮的 PopupGoto 非空时跳转，为空时顺序执行下一条" },
+                        "显示交互弹框，根据按钮结果跳转；SaveToAlarmFile=true 时同时记录平台报警事件。",
+                        new[] { "根据 InfoType 解析提示内容", "SaveToAlarmFile=true 时以错误级别记录提示并在弹框结束后写入报警展示日志", "按 PopupType 显示一至三个按钮", "所选按钮的 PopupGoto 非空时跳转，为空时顺序执行下一条" },
                         true);
                     contract["controlFlow"]["description"] = "按钮对应的 PopupGoto 非空时显式跳转；为空时顺序执行下一条。位于流程末尾时会自然结束并进入 Ready。";
                     AddConditionalGoto(contract, "PopupGoto1", "PopupType", new[] { "弹是", "弹是与否", "弹是与否与取消" }, "按钮1可选跳转目标；为空时顺序执行下一条");
@@ -400,6 +403,20 @@ namespace Automation
                     AddConditionalField(contract, "PopupMessage", "InfoType", new[] { "自定义提示信息" }, "固定提示文本");
                     AddConditionalField(contract, "PopupMessageValue", "InfoType", new[] { "变量类型" }, "提示内容变量");
                     AddConditionalField(contract, "PopupAlarmInfoId", "InfoType", new[] { "报警信息库" }, "报警信息编号");
+                    ((JObject)contract["fieldRules"])[nameof(PopupDialog.SaveToAlarmFile)] = new JObject
+                    {
+                        ["description"] = "true时把当前提示作为平台报警事件写入错误日志和报警展示日志；固定文本报警可使用InfoType=自定义提示信息，不要求PopupAlarmInfoId"
+                    };
+                    ((JObject)contract["fieldRules"])[nameof(PopupDialog.AlarmLightEnable)] = new JObject
+                    {
+                        ["description"] = "只控制已配置的蜂鸣器和红黄绿灯输出；禁用不影响SaveToAlarmFile形成的平台报警记录"
+                    };
+                    contract["alarmSemantics"] = new JObject
+                    {
+                        ["fixedTextAlarm"] = "InfoType=自定义提示信息且SaveToAlarmFile=true表示需要人工处理的固定文本平台报警，不要求报警信息库ID",
+                        ["alarmLibrary"] = "InfoType=报警信息库时由PopupAlarmInfoId选择报警内容",
+                        ["lightAndBuzzer"] = "AlarmLightEnable只决定是否驱动已配置声光IO，不决定是否记录报警"
+                    };
                     contract["failureModes"] = new JArray("提示内容或可见按钮文本为空时报警", "提示变量或报警信息不存在时报警", "非空跳转地址无效时报警");
                     break;
 

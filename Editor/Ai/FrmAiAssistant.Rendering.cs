@@ -371,6 +371,7 @@ namespace Automation
         {
             return (value ?? string.Empty)
                 .Replace("get_native_operation_schemas", "获取原生指令结构")
+                .Replace("get_native_operation_field_contract", "获取原生字段契约")
                 .Replace("get_semantic_operation_schema", "获取语义指令结构")
                 .Replace("preview_change_set", "预演变更阶段")
                 .Replace("apply_change_set", "提交配置阶段")
@@ -378,6 +379,8 @@ namespace Automation
                 .Replace("discard_change_set_preview", "结束变更预演")
                 .Replace("get_proc_overview", "获取流程概览")
                 .Replace("get_proc_detail", "获取流程详情")
+                .Replace("resolve_proc_target", "定位流程目标")
+                .Replace("discover_project_resources", "批量发现项目资源")
                 .Replace("list_procs", "列出流程")
                 .Replace("get_variable_by_name", "按名称获取变量")
                 .Replace("get_variable_by_index", "按索引获取变量")
@@ -729,9 +732,10 @@ namespace Automation
 
         private string PromoteLatestAssistantSegment(string fallbackText, string visualizationJson)
         {
-            string finalText = string.IsNullOrWhiteSpace(latestAssistantSegmentText)
-                ? fallbackText
-                : latestAssistantSegmentText;
+            // GooseAcpClient 已按工具边界选出权威最终段；request_capability 之后的重复总结不能覆盖它。
+            string finalText = string.IsNullOrWhiteSpace(fallbackText)
+                ? latestAssistantSegmentText
+                : fallbackText;
             if (!string.IsNullOrWhiteSpace(latestAssistantSegmentDivId))
             {
                 string time = DateTime.Now.ToString("HH:mm:ss");

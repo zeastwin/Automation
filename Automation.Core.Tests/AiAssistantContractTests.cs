@@ -2,12 +2,76 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Reflection;
+using Automation.Protocol;
 
 namespace Automation.Core.Tests
 {
     [TestClass]
     public sealed class AiAssistantContractTests
     {
+        [TestMethod]
+        public void GooseDefaults_UseAgentOutputBudgetAndLowVarianceSampling()
+        {
+            GooseConfig config = GooseConfigStorage.CreateDefaultConfig();
+
+            Assert.AreEqual(16384, config.MaxOutputTokens);
+            Assert.AreEqual(0.3d, config.Temperature, 0.000001d);
+        }
+
+        [TestMethod]
+        public void SourceReview_UsesReadOnlyDeveloperToolFilter()
+        {
+            MethodInfo method = typeof(GooseAcpClient).GetMethod(
+                "HasExpectedDeveloperFilter",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(method);
+            var readOnly = new JObject
+            {
+                ["available_tools"] = new JArray("read", "tree")
+            };
+            var unrestricted = new JObject();
+
+            Assert.IsTrue((bool)method.Invoke(null, new object[]
+            {
+                readOnly,
+                AutomationToolProfiles.SourceReview
+            }));
+            Assert.IsFalse((bool)method.Invoke(null, new object[]
+            {
+                readOnly,
+                AutomationToolProfiles.SourceDevelopment
+            }));
+            Assert.IsTrue((bool)method.Invoke(null, new object[]
+            {
+                unrestricted,
+                AutomationToolProfiles.SourceDevelopment
+            }));
+        }
+
+        [TestMethod]
+        public void SourceReview_NormalizesCatalogNamesAndBlocksNonReadDeveloperTools()
+        {
+            MethodInfo normalize = typeof(GooseAcpClient).GetMethod(
+                "NormalizeExtensionToolName",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(normalize);
+            Assert.AreEqual("read", normalize.Invoke(null, new object[] { "developer__read" }));
+            Assert.AreEqual("tree", normalize.Invoke(null, new object[] { "developer/tree" }));
+            Assert.AreEqual("read", normalize.Invoke(null, new object[] { "developer.read" }));
+            Assert.AreEqual("tree", normalize.Invoke(null, new object[] { "developer:tree" }));
+
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
+                AutomationToolProfiles.SourceReview, "developer__read"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
+                AutomationToolProfiles.SourceReview, "developer/tree"));
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
+                AutomationToolProfiles.SourceReview, "developer__shell"));
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
+                AutomationToolProfiles.SourceReview, "developer.analyze"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
+                AutomationToolProfiles.SourceReview, "automation__search_platform_source"));
+        }
+
         [TestMethod]
         public void DeveloperWrite_RequiresEditorProfile()
         {
@@ -85,6 +149,48 @@ namespace Automation.Core.Tests
 
             Assert.AreEqual(AiPreviewObservationKind.Applied, coordinator.Observe(applied, false).Kind);
             Assert.AreEqual(AiPreviewObservationKind.None, coordinator.Observe(incomplete, false).Kind);
+        }
+
+        [TestMethod]
+        public void DeveloperWrite_RequiresSourceDevelopmentCapability()
+        {
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "write"));
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.ProcessReview, "edit"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceDevelopment, "write"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "read"));
+        }
+
+        [TestMethod]
+        public void PreviewObservation_SupportsMigrationPreviewAndApply()
+        {
+            var coordinator = new AiPreviewConfirmationCoordinator();
+            JObject preview = BuildToolResult(
+                "migration.preview",
+                new JObject
+                {
+                    ["previewId"] = "1123456789abcdef0123456789abcdef",
+                    ["confirmed"] = false,
+                    ["committed"] = false,
+                    ["changes"] = new JArray(new JObject { ["type"] = "configuration.replace" }),
+                    ["messages"] = new JArray("替换PLC配置")
+                });
+            JObject applied = BuildToolResult(
+                "migration.apply",
+                new JObject
+                {
+                    ["previewId"] = "1123456789abcdef0123456789abcdef",
+                    ["committed"] = true,
+                    ["configurationSaved"] = true
+                });
+
+            Assert.AreEqual(
+                AiPreviewObservationKind.AwaitingConfirmation,
+                coordinator.Observe(preview, false).Kind);
+            Assert.AreEqual(AiPreviewObservationKind.Applied, coordinator.Observe(applied, false).Kind);
         }
 
         [TestMethod]

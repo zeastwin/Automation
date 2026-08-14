@@ -3,6 +3,9 @@ using System;
 // 职责范围：固化运行绑定、变量原子修改、字符串执行和自定义函数缓存的行为等价性。
 
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
+using Automation.Protocol;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Automation.Core.Tests
@@ -10,6 +13,119 @@ namespace Automation.Core.Tests
     [TestClass]
     public sealed class InstructionExecutionOptimizationTests
     {
+        [TestMethod]
+        public void VariableClear_CompilesAndWritesEmptyStringWithoutBecomingIncomplete()
+        {
+            var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+            {
+                ["扫码结果"] = new DicValue
+                {
+                    Id = Guid.NewGuid(),
+                    Index = 0,
+                    Name = "扫码结果",
+                    Type = "string",
+                    Value = "ABC"
+                },
+                ["计数"] = new DicValue
+                {
+                    Id = Guid.NewGuid(),
+                    Index = 1,
+                    Name = "计数",
+                    Type = "double",
+                    Value = "1"
+                }
+            };
+            var context = new AiOperationCompileContext(
+                0, variables, new AiResourceSnapshot());
+            var operation = (ModifyValue)AiOperationCompilerRegistry.Get("variable.clear")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "variable.clear",
+                    Variable = "扫码结果"
+                }, context);
+
+            Assert.IsTrue(operation.ClearOutput);
+            Assert.AreEqual("替换", operation.ModifyType);
+            Assert.IsTrue(string.IsNullOrEmpty(operation.ChangeValue));
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                AiOperationCompilerRegistry.Get("variable.clear").Compile(
+                    new SemanticOperation { Kind = "variable.clear", Variable = "计数" },
+                    context));
+
+            var process = TestProcessFactory.CreateEndingProcess("清空测试");
+            process.steps[0].Ops.Insert(0, operation);
+            ProcessReadinessAnalysis readiness = ProcessReadinessService.Analyze(
+                0, process, new[] { process });
+            Assert.IsFalse(readiness.RunBlockers.Any(item => item.Contains("修改值")));
+
+            var runtime = new PlatformRuntime();
+            Assert.IsTrue(runtime.Stores.Values.TrySetValue(
+                0, "扫码结果", "string", "ABC", string.Empty));
+            using (var engine = new ProcessEngine(new EngineContext
+            {
+                ValueStore = runtime.Stores.Values
+            }))
+            {
+                Assert.IsTrue(engine.RunModifyValue(new ProcHandle(), operation));
+                Assert.AreEqual(string.Empty, runtime.Stores.Values.GetValueByIndex(0).Value);
+            }
+        }
+
+        [TestMethod]
+        public void VariableCopy_CompilesSameTypeSourceAndTargetWithoutNativeSchemaGuessing()
+        {
+            var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
+            {
+                ["扫码结果"] = new DicValue
+                {
+                    Id = Guid.NewGuid(), Index = 0, Name = "扫码结果", Type = "string", Value = "ABC"
+                },
+                ["载具编号"] = new DicValue
+                {
+                    Id = Guid.NewGuid(), Index = 1, Name = "载具编号", Type = "string", Value = string.Empty
+                },
+                ["计数"] = new DicValue
+                {
+                    Id = Guid.NewGuid(), Index = 2, Name = "计数", Type = "double", Value = "0"
+                }
+            };
+            var context = new AiOperationCompileContext(0, variables, new AiResourceSnapshot());
+            var operation = (ModifyValue)AiOperationCompilerRegistry.Get("variable.copy")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "variable.copy",
+                    SourceVariable = "扫码结果",
+                    TargetVariable = "载具编号"
+                }, context);
+
+            Assert.AreEqual("替换", operation.ModifyType);
+            Assert.AreEqual("扫码结果", operation.ValueSourceName);
+            Assert.AreEqual("扫码结果", operation.ChangeValueName);
+            Assert.AreEqual("载具编号", operation.OutputValueName);
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                AiOperationCompilerRegistry.Get("variable.copy").Compile(
+                    new SemanticOperation
+                    {
+                        Kind = "variable.copy",
+                        SourceVariable = "扫码结果",
+                        TargetVariable = "计数"
+                    }, context));
+
+            var runtime = new PlatformRuntime();
+            Assert.IsTrue(runtime.Stores.Values.TrySetValue(
+                0, "扫码结果", "string", "ABC", string.Empty));
+            Assert.IsTrue(runtime.Stores.Values.TrySetValue(
+                1, "载具编号", "string", string.Empty, string.Empty));
+            using (var engine = new ProcessEngine(new EngineContext
+            {
+                ValueStore = runtime.Stores.Values
+            }))
+            {
+                Assert.IsTrue(engine.RunModifyValue(new ProcHandle(), operation));
+                Assert.AreEqual("ABC", runtime.Stores.Values.GetValueByIndex(1).Value);
+            }
+        }
+
         [TestMethod]
         public void ValueOperations_KeepCopyAndAtomicAliasSemantics()
         {

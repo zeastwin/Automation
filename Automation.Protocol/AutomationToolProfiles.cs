@@ -6,7 +6,7 @@ namespace Automation.Protocol
 {
     /// <summary>
     /// Automation MCP 工具档位的唯一名称契约。
-    /// Diagnostic/Editor 是用户权限外壳；其余名称是按单轮任务装配的最小能力包。
+    /// Diagnostic/Editor 是用户权限外壳；TaskCoordinator 是动态申请入口；其余名称是工作阶段能力包。
     /// </summary>
     public static class AutomationToolProfiles
     {
@@ -14,26 +14,36 @@ namespace Automation.Protocol
         public const string Editor = "Editor";
         public const string RuntimeDiagnostic = "RuntimeDiagnostic";
 
+        public const string TaskCoordinator = "TaskCoordinator";
         public const string ProcessDesign = "ProcessDesign";
         public const string ProcessReview = "ProcessReview";
         public const string ProcessCreate = "ProcessCreate";
         public const string ProcessEdit = "ProcessEdit";
         public const string ResourceEdit = "ResourceEdit";
         public const string RuntimeControl = "RuntimeControl";
+        public const string SourceReview = "SourceReview";
         public const string SourceDevelopment = "SourceDevelopment";
         public const string PlatformConfiguration = "PlatformConfiguration";
 
         public static readonly IReadOnlyList<string> All = new[]
         {
             Diagnostic, Editor, RuntimeDiagnostic,
+            TaskCoordinator,
             ProcessDesign, ProcessReview, ProcessCreate, ProcessEdit, ResourceEdit,
-            RuntimeControl, SourceDevelopment, PlatformConfiguration
+            RuntimeControl, SourceReview, SourceDevelopment, PlatformConfiguration
         };
 
         public static readonly IReadOnlyList<string> TaskProfiles = new[]
         {
+            TaskCoordinator,
             ProcessDesign, ProcessReview, ProcessCreate, ProcessEdit, ResourceEdit,
-            RuntimeControl, SourceDevelopment, PlatformConfiguration
+            RuntimeControl, SourceReview, SourceDevelopment, PlatformConfiguration
+        };
+
+        public static readonly IReadOnlyList<string> ExecutionProfiles = new[]
+        {
+            ProcessDesign, ProcessReview, ProcessCreate, ProcessEdit, ResourceEdit,
+            RuntimeControl, SourceReview, SourceDevelopment, PlatformConfiguration
         };
 
         public static string Normalize(string value)
@@ -55,9 +65,16 @@ namespace Automation.Protocol
                 string.Equals(item, value, StringComparison.OrdinalIgnoreCase));
         }
 
+        public static bool IsExecutionProfile(string value)
+        {
+            return ExecutionProfiles.Any(item =>
+                string.Equals(item, value, StringComparison.OrdinalIgnoreCase));
+        }
+
         public static bool UsesDeveloperTools(string value)
         {
-            return string.Equals(value, SourceDevelopment, StringComparison.OrdinalIgnoreCase)
+            return string.Equals(value, SourceReview, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, SourceDevelopment, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(value, Editor, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(value, Diagnostic, StringComparison.OrdinalIgnoreCase);
         }

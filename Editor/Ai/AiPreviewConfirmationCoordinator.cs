@@ -42,10 +42,13 @@ namespace Automation
             AiPreviewObservationKind kind;
             JArray changes = null;
             JArray messages = null;
-            if (string.Equals(resultType, "change_set.apply", StringComparison.Ordinal))
+            if (string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
+                || string.Equals(resultType, "migration.apply", StringComparison.Ordinal))
             {
-                if (!string.Equals(data["status"]?.Value<string>(), "committed", StringComparison.Ordinal)
-                    || data["configurationSaved"]?.Value<bool>() != true)
+                bool committed = string.Equals(resultType, "change_set.apply", StringComparison.Ordinal)
+                    ? string.Equals(data["status"]?.Value<string>(), "committed", StringComparison.Ordinal)
+                    : data["committed"]?.Value<bool>() == true;
+                if (!committed || data["configurationSaved"]?.Value<bool>() != true)
                 {
                     return AiPreviewObservation.None;
                 }
@@ -59,14 +62,18 @@ namespace Automation
                 }
                 kind = AiPreviewObservationKind.Rejected;
             }
-            else if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal))
+            else if (string.Equals(resultType, "change_set.preview", StringComparison.Ordinal)
+                || string.Equals(resultType, "migration.preview", StringComparison.Ordinal))
             {
                 bool? confirmed = data["confirmed"]?.Value<bool?>();
                 string status = data["status"]?.Value<string>() ?? string.Empty;
-                bool validStatus = confirmed == true
-                    ? string.Equals(status, "confirmed", StringComparison.Ordinal)
-                    : confirmed == false
-                        && string.Equals(status, "awaiting_confirmation", StringComparison.Ordinal);
+                bool migrationPreview = string.Equals(resultType, "migration.preview", StringComparison.Ordinal);
+                bool validStatus = migrationPreview
+                    ? confirmed.HasValue && data["committed"]?.Value<bool>() == false
+                    : confirmed == true
+                        ? string.Equals(status, "confirmed", StringComparison.Ordinal)
+                        : confirmed == false
+                            && string.Equals(status, "awaiting_confirmation", StringComparison.Ordinal);
                 if (!confirmed.HasValue || !validStatus
                     || data["changes"] is not JArray directChanges
                     || data["messages"] is not JArray directMessages)

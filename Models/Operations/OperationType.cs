@@ -1284,6 +1284,9 @@ namespace Automation
         [DisplayName("修改值取反"), Category("参数"), Description("启用后先对修改值取反，再与原变量进行运算。"), ReadOnly(false)]
         public bool NegateOperand { get; set; }
 
+        [DisplayName("清空结果变量"), Category("参数"), Description("显式把 string 结果变量写为空字符串；启用时修改模式必须为替换，且不得再配置修改值。"), ReadOnly(false)]
+        public bool ClearOutput { get; set; }
+
 
         [DisplayName("源变量索引"), Category("A源变量"), Description("源变量索引地址；用于读取待处理值。"), ReadOnly(false)]
         public string ValueSourceIndex { get; set; }

@@ -165,6 +165,11 @@ namespace Automation
         public string ResolveTarget(OperationTarget target, string path)
         {
             if (target == null) return string.Empty;
+            if (!string.IsNullOrWhiteSpace(target.EntryMode))
+            {
+                throw new InvalidOperationException(
+                    $"{path}.entryMode 只由 Process Blueprint 编译阶段使用，普通 ChangeSet 不接受。" );
+            }
             bool hasOperationId = !string.IsNullOrWhiteSpace(target.OperationId);
             bool hasOperationKey = !string.IsNullOrWhiteSpace(target.OperationKey);
             int selectorCount = (hasOperationId ? 1 : 0) + (hasOperationKey ? 1 : 0);
@@ -283,6 +288,8 @@ namespace Automation
             = new IAiOperationCompiler[]
             {
                 new VariableSetCompiler(),
+                new VariableClearCompiler(),
+                new VariableCopyCompiler(),
                 new VariableAddCompiler(),
                 new VariableComputeCompiler(),
                 new WaitCompiler(),
@@ -291,6 +298,7 @@ namespace Automation
                 new NumberCompareBranchCompiler(),
                 new NumberRangeBranchCompiler(),
                 new IoBranchCompiler(),
+                new AlarmRaiseCompiler(),
                 new PopupMessageCompiler(),
                 new PopupVariableCompiler(),
                 new ConfigurationPlaceholderCompiler(),
@@ -572,6 +580,68 @@ namespace Automation
             public VariableAddCompiler() : base(true) { }
             public override string Kind => "variable.add";
             public override string DefaultName => "变量累加";
+        }
+
+        private sealed class VariableClearCompiler : IAiOperationCompiler
+        {
+            public string Kind => "variable.clear";
+
+            public string DefaultName => "清空变量";
+
+            public JObject BuildContract() => Contract(
+                "显式清空 string 变量；这不是缺失 value，也不与 variable.set 空字面量混用",
+                new[] { "kind", "variable" },
+                new[] { "name" },
+                new JProperty("typeRule", "目标变量必须是 string"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string variableName = AiOperationCompileContext.RequireText(
+                    definition.Variable, "variable.clear.variable");
+                context.RequireVariable(variableName, "variable.clear.variable", "string");
+                return new ModifyValue
+                {
+                    ModifyType = "替换",
+                    ClearOutput = true,
+                    ValueSourceName = variableName,
+                    OutputValueName = variableName
+                };
+            }
+        }
+
+        private sealed class VariableCopyCompiler : IAiOperationCompiler
+        {
+            public string Kind => "variable.copy";
+
+            public string DefaultName => "复制变量";
+
+            public JObject BuildContract() => Contract(
+                "把源变量当前值复制到同类型目标变量",
+                new[] { "kind", "sourceVariable", "targetVariable" },
+                new[] { "name" },
+                new JProperty("typeRule", "源变量与目标变量必须同为double或同为string"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string source = AiOperationCompileContext.RequireText(
+                    definition.SourceVariable, "variable.copy.sourceVariable");
+                string target = AiOperationCompileContext.RequireText(
+                    definition.TargetVariable, "variable.copy.targetVariable");
+                DicValue sourceVariable = context.RequireVariable(source, "variable.copy.sourceVariable");
+                DicValue targetVariable = context.RequireVariable(target, "variable.copy.targetVariable");
+                if (!string.Equals(sourceVariable.Type, targetVariable.Type, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"variable.copy 源目标类型不一致：{source}={sourceVariable.Type}，{target}={targetVariable.Type}。");
+                }
+                return new ModifyValue
+                {
+                    ModifyType = "替换",
+                    ValueSourceName = source,
+                    ChangeValueName = source,
+                    OutputValueName = target
+                };
+            }
         }
 
         private sealed class VariableComputeCompiler : IAiOperationCompiler
@@ -933,6 +1003,43 @@ namespace Automation
             }
         }
 
+        private sealed class AlarmRaiseCompiler : IAiOperationCompiler
+        {
+            public string Kind => "alarm.raise";
+            public string DefaultName => "触发报警";
+
+            public JObject BuildContract() => Contract(
+                "显示必须人工确认的固定报警，并写入平台报警记录；普通提示使用popup.message，报警内容或处置资源未知时使用config.placeholder",
+                new[] { "kind", "message" }, new[] { "name", "buttonText", "target" },
+                new JProperty("messageSource", "literal"),
+                new JProperty("alarmRecord", "required"),
+                new JProperty("autoClose", "unsupported"),
+                new JProperty("alarmLight", "disabled-unless-explicit-native-configuration"),
+                new JProperty("targetShape", SymbolicTargetContract()),
+                new JProperty("targetBehavior", "用户确认后跳转target；省略时顺序执行下一条"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string message = AiOperationCompileContext.RequireText(definition.Message, "alarm.raise.message");
+                if (ContainsPlaceholderSyntax(message))
+                    throw new InvalidOperationException("alarm.raise.message 是固定报警文本，不支持变量插值。");
+                var operation = new PopupDialog
+                {
+                    PopupType = "弹是",
+                    InfoType = "自定义提示信息",
+                    PopupMessage = message,
+                    Btn1Text = string.IsNullOrWhiteSpace(definition.ButtonText) ? "确认" : definition.ButtonText.Trim(),
+                    DelayClose = false,
+                    DelayCloseTimeMs = 0,
+                    SaveToAlarmFile = true,
+                    AlarmLightEnable = "禁用"
+                };
+                if (definition.Target != null)
+                    operation.PopupGoto1 = context.ResolveTarget(definition.Target, "alarm.raise.target");
+                return operation;
+            }
+        }
+
         private sealed class PopupVariableCompiler : IAiOperationCompiler
         {
             public string Kind => "popup.variable";
@@ -988,7 +1095,7 @@ namespace Automation
             public string DefaultName => "待完善配置";
 
             public JObject BuildContract() => Contract(
-                "在目标、资源或业务参数暂时无法确定时保留一个显式占位，后续可继续更新；占位存在时平台允许保存但禁止启动流程",
+                "在目标、资源或业务参数暂时无法确定时保留一个显式占位；占位存在时平台允许保存但禁止启动，确认真实动作后必须使用 operation.replace 完整替换",
                 new[] { "kind", "message" }, new[] { "name" },
                 new JProperty("readiness", "incomplete-until-replaced"),
                 new JProperty("runBehavior", "blocked-before-start"));

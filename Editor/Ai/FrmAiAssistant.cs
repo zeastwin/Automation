@@ -2,6 +2,7 @@
 // 职责范围：AI 前台、ACP 会话、预演确认与对话渲染。
 
 using Automation.Bridge;
+using Automation.Protocol;
 using Markdig;
 using Microsoft.Web.WebView2.WinForms;
 using Newtonsoft.Json;
@@ -615,9 +616,37 @@ namespace Automation
                     BtnSend_Click(sender, EventArgs.Empty);
                     break;
                 case "runStandardTests":
+                    if (!TryReadStandardTestPromptSets(
+                        message["scenarios"], out List<AiStandardTestPromptSet> requestedTests, out string requestError))
+                    {
+                        ShowWebToast(requestError);
+                        break;
+                    }
                     await RunStandardTestsAsync(
-                        (message["ids"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>(),
+                        requestedTests,
                         message["separateConversations"]?.Value<bool?>() ?? true).ConfigureAwait(true);
+                    break;
+                case "saveStandardTestPrompts":
+                    if (!TryReadStandardTestPromptSets(
+                        message["scenarios"], out List<AiStandardTestPromptSet> promptSets, out string promptError)
+                        || !AiStandardTestSuite.TrySavePromptOverrides(promptSets, out promptError))
+                    {
+                        ShowWebToast(promptError);
+                        break;
+                    }
+                    ShowWebToast("标准测试语句已保存到本机配置。");
+                    PushWebAppState();
+                    EnqueueScript("if(window.renderStandardTests){window.renderStandardTests();}");
+                    break;
+                case "resetStandardTestPrompts":
+                    if (!AiStandardTestSuite.TryResetPromptOverrides(out string resetPromptError))
+                    {
+                        ShowWebToast(resetPromptError);
+                        break;
+                    }
+                    ShowWebToast("标准测试语句已恢复为内置默认值。");
+                    PushWebAppState();
+                    EnqueueScript("if(window.renderStandardTests){window.renderStandardTests();}");
                     break;
                 case "chooseFile":
                     ChooseFileAttachments();
@@ -775,6 +804,9 @@ namespace Automation
             string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? GooseConfigStorage.DefaultProvider : cboProvider.Text;
             string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? GooseConfigStorage.DefaultModel : cboModel.Text;
             string normalizedProvider = NormalizeGooseOverride(providerText);
+            IReadOnlyList<AiStandardTestScenario> configuredTests =
+                AiStandardTestSuite.GetConfiguredScenarios(out string standardTestWarning);
+            var defaultTests = AiStandardTestSuite.Scenarios.ToDictionary(item => item.Id, StringComparer.Ordinal);
             return new JObject
             {
                 ["sending"] = IsActiveTaskRunning || standardTestRunning,
@@ -814,12 +846,15 @@ namespace Automation
                         AiProviderSecretStorage.GetModelServiceSecretKey(item.Id))
                 })),
                 ["attachments"] = new JArray(pendingFileAttachments.Select(BuildAttachmentWebState)),
-                ["testScenarios"] = new JArray(AiStandardTestSuite.Scenarios.Select(item => new JObject
+                ["testScenarioWarning"] = standardTestWarning ?? string.Empty,
+                ["testScenarios"] = new JArray(configuredTests.Select(item => new JObject
                 {
                     ["id"] = item.Id,
                     ["name"] = item.Name,
                     ["description"] = item.Description,
-                    ["turnCount"] = item.Prompts.Count
+                    ["prompts"] = new JArray(item.Prompts),
+                    ["customized"] = !item.Prompts.SequenceEqual(
+                        defaultTests[item.Id].Prompts, StringComparer.Ordinal)
                 })),
                 ["activeConversationId"] = conversationCoordinator.TaskHomeVisible
                     ? string.Empty
@@ -1177,16 +1212,7 @@ namespace Automation
                 return false;
             }
 
-            try
-            {
-                config = await PrepareTaskCapabilityAsync(runtime, enteredPrompt, config).ConfigureAwait(true);
-            }
-            catch (Exception ex)
-            {
-                ShowWebToast("任务能力准备失败：" + ex.Message);
-                PushWebAppState();
-                return false;
-            }
+            GooseConfig permissionConfig = config;
 
             GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
                 !string.IsNullOrWhiteSpace(item.Error)
@@ -1234,40 +1260,72 @@ namespace Automation
 
             try
             {
-                AiTaskExecutionResult executionResult = await conversationCoordinator.ExecuteTaskAsync(
+                AiTaskExecutionResult executionResult = await conversationCoordinator.ExecuteDynamicTaskAsync(
                     runtime,
                     preparedPrompt,
                     preparedAttachments,
-                    () => EnsureTaskClient(runtime, config)).ConfigureAwait(true);
+                    permissionConfig.ToolProfile,
+                    fullPermissionEnabled,
+                    async stage =>
+                    {
+                        GooseConfig stageConfig = await PrepareTaskCapabilityAsync(
+                            runtime,
+                            stage,
+                            permissionConfig).ConfigureAwait(false);
+                        return EnsureTaskClient(runtime, stageConfig);
+                    }).ConfigureAwait(true);
                 if (executionResult.Status == AiTaskExecutionStatus.Cancelled)
                 {
+                    bool hasCompletedStage = (executionResult.CompletedStageProfiles?.Count ?? 0) > 0;
                     if (!conversationCoordinator.TaskHomeVisible
                         && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
                     {
-                        AppendConversation("系统", "已停止本轮生成。", UiPalette.Warning);
-                        if (restoreComposerOnFailure) RestoreComposerAfterFailedSend(enteredPrompt);
+                        string stopText = hasCompletedStage
+                            ? "已停止后续生成；已完成阶段的结果和实际副作用已保留，请先核对后再续做。"
+                            : "已停止本轮生成。";
+                        AppendConversation("系统", stopText, UiPalette.Warning);
+                        if (!hasCompletedStage && restoreComposerOnFailure)
+                            RestoreComposerAfterFailedSend(enteredPrompt);
+                    }
+                    if (hasCompletedStage)
+                    {
+                        string partialText = (executionResult.AssistantText ?? string.Empty).TrimEnd()
+                            + "\n\n任务由用户停止；后续阶段未执行。";
+                        conversationCoordinator.CompleteTask(runtime, partialText.Trim(), null);
+                        RemoveConsumedAttachments(preparedAttachments);
+                        if (!conversationCoordinator.TaskHomeVisible
+                            && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
+                            txtPrompt.Clear();
+                        SaveConversationHistory();
                     }
                     return false;
                 }
                 if (executionResult.Status == AiTaskExecutionStatus.Failed)
                 {
+                    bool hasCompletedStage = (executionResult.CompletedStageProfiles?.Count ?? 0) > 0;
                     if (!conversationCoordinator.TaskHomeVisible
                         && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
                     {
                         AppendConversation("错误", executionResult.Error, UiPalette.Danger);
-                        if (restoreComposerOnFailure) RestoreComposerAfterFailedSend(enteredPrompt);
+                        if (!hasCompletedStage && restoreComposerOnFailure)
+                            RestoreComposerAfterFailedSend(enteredPrompt);
+                    }
+                    if (hasCompletedStage)
+                    {
+                        string partialText = (executionResult.AssistantText ?? string.Empty).TrimEnd()
+                            + "\n\n后续阶段执行失败：" + executionResult.Error
+                            + "\n已完成阶段可能包含实际副作用，不要直接重放整个复合请求。";
+                        conversationCoordinator.CompleteTask(runtime, partialText.Trim(), null);
+                        RemoveConsumedAttachments(preparedAttachments);
+                        if (!conversationCoordinator.TaskHomeVisible
+                            && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
+                            txtPrompt.Clear();
+                        SaveConversationHistory();
                     }
                     return false;
                 }
 
-                HashSet<string> sentAttachmentIds = new HashSet<string>(
-                    preparedAttachments.Select(item => item.Id),
-                    StringComparer.Ordinal);
-                pendingFileAttachments.RemoveAll(item => sentAttachmentIds.Contains(item.Id));
-                foreach (string attachmentId in sentAttachmentIds)
-                {
-                    fileAttachmentPreviews.Remove(attachmentId);
-                }
+                RemoveConsumedAttachments(preparedAttachments);
                 bool isActive = !conversationCoordinator.TaskHomeVisible
                     && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation);
                 if (isActive)
@@ -1279,12 +1337,36 @@ namespace Automation
                 string visualizationJson = flowVisualizationProcesses.Count == 0
                     ? null
                     : flowVisualizationProcesses.ToString(Formatting.None);
+                string finalClientText = executionResult.Client?.LastAssistantResponse ?? string.Empty;
                 string assistantText = isActive
-                    ? PromoteLatestAssistantSegment(executionResult.Client.LastAssistantResponse, visualizationJson)
+                    ? PromoteLatestAssistantSegment(finalClientText, visualizationJson)
                     : ExtractLatestAssistantText(
                         executionResult.Events,
-                        executionResult.Client.LastAssistantResponse);
-                conversationCoordinator.CompleteTask(runtime, assistantText, visualizationJson);
+                        finalClientText);
+                string persistedAssistantText = string.IsNullOrWhiteSpace(executionResult.AssistantText)
+                    ? assistantText
+                    : executionResult.AssistantText;
+                if (isActive
+                    && string.IsNullOrWhiteSpace(executionResult.StageStopReason)
+                    && !string.IsNullOrWhiteSpace(executionResult.CoordinatorMessage))
+                {
+                    AppendConversation(
+                        "EW-AI",
+                        executionResult.CoordinatorMessage,
+                        UiPalette.TextPrimary);
+                }
+                if (!string.IsNullOrWhiteSpace(executionResult.StageStopReason))
+                {
+                    string stageNotice = "后续阶段未执行：" + executionResult.StageStopReason;
+                    if (isActive) AppendConversation("系统", stageNotice, UiPalette.Warning);
+                    assistantText = string.IsNullOrWhiteSpace(assistantText)
+                        ? stageNotice
+                        : assistantText.TrimEnd() + "\n\n" + stageNotice;
+                    persistedAssistantText = string.IsNullOrWhiteSpace(persistedAssistantText)
+                        ? stageNotice
+                        : persistedAssistantText.TrimEnd() + "\n\n" + stageNotice;
+                }
+                conversationCoordinator.CompleteTask(runtime, persistedAssistantText, visualizationJson);
                 SaveConversationHistory();
                 return true;
             }
@@ -1317,71 +1399,136 @@ namespace Automation
             }
         }
 
+        private void RemoveConsumedAttachments(IReadOnlyList<GooseFileAttachment> attachments)
+        {
+            var sentAttachmentIds = new HashSet<string>(
+                (attachments ?? Array.Empty<GooseFileAttachment>()).Select(item => item.Id),
+                StringComparer.Ordinal);
+            pendingFileAttachments.RemoveAll(item => sentAttachmentIds.Contains(item.Id));
+            foreach (string attachmentId in sentAttachmentIds)
+            {
+                fileAttachmentPreviews.Remove(attachmentId);
+            }
+        }
+
         private async Task<GooseConfig> PrepareTaskCapabilityAsync(
             AiTaskRuntime runtime,
-            string prompt,
+            AiTaskCapabilityStage stage,
             GooseConfig permissionConfig)
         {
             if (Workspace.Main?.McpServerManager == null)
             {
                 throw new InvalidOperationException("MCP Server管理器未初始化。");
             }
-
-            AiTaskCapabilityDecision decision = AiTaskCapabilityRouter.Route(
-                prompt,
-                runtime.Conversation?.Messages,
-                runtime.CapabilityProfile,
-                permissionConfig.ToolProfile,
-                fullPermissionEnabled);
-            string capabilityUri = await Workspace.Main.McpServerManager
-                .EnsureTaskCapabilityStartedAsync(decision.EffectiveProfile)
-                .ConfigureAwait(true);
-
-            GooseConfig effectiveConfig = GooseConfigStorage.CloneConfig(permissionConfig);
-            effectiveConfig.ToolProfile = decision.EffectiveProfile;
-            effectiveConfig.McpUri = capabilityUri;
-            effectiveConfig.TaskCapabilityNotice = decision.Notice;
-
-            GooseAcpClient existing = runtime.Client;
-            if (existing != null)
+            CancellationToken capabilityCancellation = runtime.Cancellation?.Token
+                ?? CancellationToken.None;
+            string previousProfile = runtime.CapabilityProfile;
+            AiAnalysisLogger.Write(new JObject
             {
-                if (existing.CanSwitchTaskCapabilityInPlace(decision.EffectiveProfile))
+                ["event"] = "capability.transition.started",
+                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                ["stageIndex"] = stage.Index,
+                ["fromProfile"] = previousProfile ?? string.Empty,
+                ["toProfile"] = stage.Profile,
+                ["gooseSessionId"] = runtime.Client?.SessionId ?? string.Empty
+            });
+            try
+            {
+                if (runtime.TrustedContextRolloverRequested && runtime.Client != null)
                 {
-                    try
+                    GooseAcpClient rolloverClient = runtime.Client;
+                    string previousGooseSessionId = rolloverClient.SessionId ?? string.Empty;
+                    if (ReferenceEquals(gooseClient, rolloverClient)) gooseClient = null;
+                    conversationCoordinator.ResetClientForCapability(runtime);
+                    runtime.TrustedContextRolloverRequested = false;
+                    AiAnalysisLogger.Write(new JObject
+                    {
+                        ["event"] = "context.rollover.applied",
+                        ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                        ["previousGooseSessionId"] = previousGooseSessionId,
+                        ["targetProfile"] = stage.Profile
+                    });
+                }
+
+                string capabilityUri = await Workspace.Main.McpServerManager
+                    .EnsureTaskCapabilityStartedAsync(stage.Profile, capabilityCancellation)
+                    .ConfigureAwait(true);
+                GooseConfig effectiveConfig = GooseConfigStorage.CloneConfig(permissionConfig);
+                effectiveConfig.ToolProfile = stage.Profile;
+                effectiveConfig.McpUri = capabilityUri;
+                effectiveConfig.TaskCapabilityNotice = null;
+
+                GooseAcpClient existing = runtime.Client;
+                if (existing != null)
+                {
+                    bool alreadyConfigured = existing.HasLiveSession
+                        && runtime.CapabilityStageIndex == stage.Index
+                        && string.Equals(runtime.CapabilityProfile, stage.Profile, StringComparison.Ordinal)
+                        && string.Equals(runtime.CapabilityMcpUri, capabilityUri, StringComparison.OrdinalIgnoreCase);
+                    if (!alreadyConfigured && existing.CanSwitchTaskCapabilityInPlace(stage.Profile))
                     {
                         await existing.ConfigureTaskCapabilityAsync(
-                            decision.EffectiveProfile,
+                            stage.Profile,
                             capabilityUri,
-                            decision.Notice,
-                            CancellationToken.None).ConfigureAwait(true);
+                            null,
+                            capabilityCancellation).ConfigureAwait(true);
                     }
-                    catch (InvalidOperationException)
+                    else if (!alreadyConfigured)
                     {
-                        // Goose 版本不支持热换或原进程已失效时，在加入本轮用户消息前安全重建并恢复历史。
                         if (ReferenceEquals(gooseClient, existing)) gooseClient = null;
                         conversationCoordinator.ResetClientForCapability(runtime);
                     }
                 }
-                else
-                {
-                    if (ReferenceEquals(gooseClient, existing)) gooseClient = null;
-                    conversationCoordinator.ResetClientForCapability(runtime);
-                }
-            }
 
-            runtime.CapabilityProfile = decision.EffectiveProfile;
-            runtime.CapabilityMcpUri = capabilityUri;
-            AiAnalysisLogger.Write(new JObject
+                runtime.CapabilityProfile = stage.Profile;
+                runtime.CapabilityMcpUri = capabilityUri;
+                runtime.CapabilityStageIndex = stage.Index;
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "capability.surface.prepared",
+                    ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                    ["stageIndex"] = stage.Index,
+                    ["profile"] = stage.Profile,
+                    ["gooseSessionId"] = runtime.Client?.SessionId ?? string.Empty,
+                    ["mcpUri"] = capabilityUri
+                });
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "capability.transition.completed",
+                    ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                    ["stageIndex"] = stage.Index,
+                    ["fromProfile"] = previousProfile ?? string.Empty,
+                    ["toProfile"] = stage.Profile,
+                    ["gooseSessionId"] = runtime.Client?.SessionId ?? string.Empty,
+                    ["maxOutputTokens"] = effectiveConfig.MaxOutputTokens
+                });
+                return effectiveConfig;
+            }
+            catch (OperationCanceledException)
             {
-                ["event"] = "capability.routed",
-                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
-                ["requestedProfile"] = decision.RequestedProfile,
-                ["effectiveProfile"] = decision.EffectiveProfile,
-                ["permissionProfile"] = permissionConfig.ToolProfile,
-                ["reason"] = decision.Reason,
-                ["restricted"] = !string.IsNullOrWhiteSpace(decision.Notice)
-            });
-            return effectiveConfig;
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "capability.transition.cancelled",
+                    ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                    ["stageIndex"] = stage.Index,
+                    ["fromProfile"] = previousProfile ?? string.Empty,
+                    ["toProfile"] = stage.Profile
+                });
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AiAnalysisLogger.Write(new JObject
+                {
+                    ["event"] = "capability.transition.failed",
+                    ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                    ["stageIndex"] = stage.Index,
+                    ["fromProfile"] = previousProfile ?? string.Empty,
+                    ["toProfile"] = stage.Profile,
+                    ["error"] = ex.Message
+                });
+                throw;
+            }
         }
 
         private void SaveModelService(JObject value)
@@ -1512,17 +1659,51 @@ namespace Automation
             conversationCoordinator.Cancel(runtime);
         }
 
-        private async Task RunStandardTestsAsync(IEnumerable<string> scenarioIds, bool separateConversations)
+        private static bool TryReadStandardTestPromptSets(
+            JToken token,
+            out List<AiStandardTestPromptSet> promptSets,
+            out string error)
+        {
+            promptSets = new List<AiStandardTestPromptSet>();
+            error = null;
+            if (token is not JArray scenarios || scenarios.Count == 0)
+            {
+                error = "请至少选择一个测试场景。";
+                return false;
+            }
+            foreach (JToken scenarioToken in scenarios)
+            {
+                if (scenarioToken is not JObject scenario
+                    || scenario["id"]?.Type != JTokenType.String
+                    || scenario["prompts"] is not JArray prompts
+                    || prompts.Any(item => item.Type != JTokenType.String))
+                {
+                    error = "标准测试语句请求结构无效。";
+                    return false;
+                }
+                promptSets.Add(new AiStandardTestPromptSet
+                {
+                    Id = scenario["id"].Value<string>(),
+                    Prompts = prompts.Values<string>().ToList()
+                });
+            }
+            return true;
+        }
+
+        private async Task RunStandardTestsAsync(
+            IEnumerable<AiStandardTestPromptSet> requestedTests,
+            bool separateConversations)
         {
             if (sending || standardTestRunning)
             {
                 return;
             }
 
-            List<AiStandardTestScenario> selectedScenarios = AiStandardTestSuite.Select(scenarioIds);
+            List<AiStandardTestScenario> selectedScenarios =
+                AiStandardTestSuite.Select(requestedTests, out string selectionError);
             if (selectedScenarios.Count == 0)
             {
-                ShowWebToast("没有选择测试场景。");
+                ShowWebToast(selectionError ?? "没有选择测试场景。");
                 return;
             }
             if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
@@ -1538,6 +1719,7 @@ namespace Automation
             int totalTurns = selectedScenarios.Sum(item => item.Prompts.Count);
             int passedScenarios = 0;
             int failedScenarios = 0;
+            bool executionFailed = false;
             try
             {
                 for (int scenarioIndex = 0; scenarioIndex < selectedScenarios.Count; scenarioIndex++)
@@ -1548,11 +1730,32 @@ namespace Automation
                     }
 
                     AiStandardTestScenario scenario = selectedScenarios[scenarioIndex];
-                    if (separateConversations)
+                    AiTaskRuntime scenarioRuntime = EnsureActiveConversation(separateConversations);
+                    if (scenarioRuntime == null)
                     {
-                        StartNewConversation();
+                        executionFailed = true;
+                        failedScenarios++;
+                        AppendConversation(
+                            "错误",
+                            "标准测试无法创建任务会话，测试未启动。",
+                            UiPalette.Danger);
+                        AiAnalysisLogger.Write(new JObject
+                        {
+                            ["event"] = "standard_test.execution_failed",
+                            ["scenarioId"] = scenario.Id,
+                            ["message"] = "AI 任务运行时不存在。"
+                        });
+                        break;
                     }
                     AppendConversation("系统", "标准测试：" + scenario.Name, UiPalette.TextSecondary);
+                    AiAnalysisLogger.Write(new JObject
+                    {
+                        ["event"] = "standard_test.started",
+                        ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
+                        ["scenarioId"] = scenario.Id,
+                        ["promptCount"] = scenario.Prompts.Count,
+                        ["prompts"] = new JArray(scenario.Prompts)
+                    });
 
                     if (!AiStandardTestSuite.Prepare(
                         Workspace.Runtime,
@@ -1562,7 +1765,7 @@ namespace Automation
                         AiAnalysisLogger.Write(new JObject
                         {
                             ["event"] = "standard_test.preparation_failed",
-                            ["conversationId"] = conversationCoordinator.ActiveConversation?.Id ?? string.Empty,
+                            ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                             ["scenarioId"] = scenario.Id,
                             ["message"] = prepareError ?? string.Empty
                         });
@@ -1582,17 +1785,30 @@ namespace Automation
                     {
                         if (standardTestStopRequested)
                         {
+                            scenarioCompleted = false;
                             break;
                         }
                         bool completed = await SendPromptAsync(
-                            ActiveTaskRuntime,
+                            scenarioRuntime,
                             prompt,
                             new List<GooseFileAttachment>(),
                             false).ConfigureAwait(true);
                         if (!completed)
                         {
                             scenarioCompleted = false;
-                            standardTestStopRequested = true;
+                            if (!standardTestStopRequested)
+                            {
+                                executionFailed = true;
+                                failedScenarios++;
+                                AiAnalysisLogger.Write(new JObject
+                                {
+                                    ["event"] = "standard_test.execution_failed",
+                                    ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
+                                    ["scenarioId"] = scenario.Id,
+                                    ["completedTurns"] = completedTurns,
+                                    ["message"] = "测试语句未能完成。"
+                                });
+                            }
                             break;
                         }
                         completedTurns++;
@@ -1607,7 +1823,7 @@ namespace Automation
                         AiAnalysisLogger.Write(new JObject
                         {
                             ["event"] = "standard_test.evaluated",
-                            ["conversationId"] = conversationCoordinator.ActiveConversation?.Id ?? string.Empty,
+                            ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
                             ["scenarioId"] = scenario.Id,
                             ["passed"] = evaluation.Passed,
                             ["checks"] = new JArray(evaluation.Details)
@@ -1616,6 +1832,11 @@ namespace Automation
                             evaluation.Passed
                                 ? UiPalette.Success
                                 : UiPalette.Danger);
+                    }
+
+                    if (executionFailed)
+                    {
+                        break;
                     }
 
                     if (separateConversations && conversationCoordinator.ActiveConversation != null)
@@ -1635,6 +1856,8 @@ namespace Automation
                 ApplyPermissions();
                 ShowWebToast(stopped
                     ? $"标准测试已停止，完成 {completedTurns}/{totalTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。"
+                    : executionFailed
+                        ? $"标准测试执行中断，完成 {completedTurns}/{totalTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。请查看当前任务中的错误。"
                     : $"标准测试已完成，共 {completedTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。");
             }
         }
@@ -1708,9 +1931,19 @@ namespace Automation
 
         private void StartNewConversation()
         {
-            conversationCoordinator.StartNew();
-            SaveConversationHistory();
-            ResetConversationViewState();
+            EnsureActiveConversation(true);
+        }
+
+        private AiTaskRuntime EnsureActiveConversation(bool forceNew)
+        {
+            AiTaskRuntime previousRuntime = ActiveTaskRuntime;
+            AiTaskRuntime runtime = conversationCoordinator.EnsureActive(forceNew);
+            if (!ReferenceEquals(previousRuntime, runtime))
+            {
+                SaveConversationHistory();
+                ResetConversationViewState();
+            }
+            return runtime;
         }
 
         private void DeleteCurrentConversation()
@@ -1844,8 +2077,14 @@ namespace Automation
             {
                 var created = new GooseAcpClient(Workspace.Runtime, config, runtime.RestoredContext);
                 runtime.RestoredContext = null;
-                created.EventReceived += item => TaskClient_EventReceived(runtime, item);
-                created.PermissionRequestHandler = HandlePermissionRequest;
+                created.EventReceived += item => TaskClient_EventReceived(
+                    runtime,
+                    created.ToolProfile,
+                    item);
+                created.PermissionRequestHandler = request => HandlePermissionRequest(
+                    request,
+                    created.ToolProfile,
+                    created);
                 return created;
             });
             if (ReferenceEquals(ActiveTaskRuntime, runtime))
@@ -1855,7 +2094,10 @@ namespace Automation
             return client;
         }
 
-        private void TaskClient_EventReceived(AiTaskRuntime runtime, GooseAcpEvent item)
+        private void TaskClient_EventReceived(
+            AiTaskRuntime runtime,
+            string capabilityProfile,
+            GooseAcpEvent item)
         {
             if (IsDisposed)
             {
@@ -1865,11 +2107,20 @@ namespace Automation
             {
                 try
                 {
-                    BeginInvoke(new Action<AiTaskRuntime, GooseAcpEvent>(TaskClient_EventReceived), runtime, item);
+                    BeginInvoke(new Action<AiTaskRuntime, string, GooseAcpEvent>(TaskClient_EventReceived),
+                        runtime, capabilityProfile, item);
                 }
                 catch (InvalidOperationException)
                 {
                 }
+                return;
+            }
+
+            // 动态协调轮只交换能力申请，不进入用户对话、预演 UI 或可持久化工作阶段证据。
+            if (string.Equals(
+                capabilityProfile, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal))
+            {
+                PushWebAppState();
                 return;
             }
 
@@ -1884,7 +2135,7 @@ namespace Automation
             }
             else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
-                TryPromptPreviewConfirmation(item.Raw);
+                TryPromptPreviewConfirmation(item.Raw, runtime);
             }
             PushWebAppState();
         }
@@ -1920,7 +2171,10 @@ namespace Automation
 
 
 
-        private JObject HandlePermissionRequest(JObject request)
+        private JObject HandlePermissionRequest(
+            JObject request,
+            string capabilityProfile = null,
+            GooseAcpClient taskClient = null)
         {
             if (IsDisposed || Disposing || !IsHandleCreated)
             {
@@ -1938,7 +2192,7 @@ namespace Automation
                         {
                             try
                             {
-                                response = HandlePermissionRequest(request);
+                                response = HandlePermissionRequest(request, capabilityProfile, taskClient);
                             }
                             catch (Exception ex)
                             {
@@ -1971,12 +2225,54 @@ namespace Automation
                 ?? "EW-AI 权限请求";
 
             string toolName = request["toolCall"]?["name"]?.Value<string>() ?? "";
+            string normalizedToolName = AiAnalysisLogger.NormalizeToolName(toolName);
             JObject arguments = request["toolCall"]?["arguments"] as JObject;
-            if (IsDeveloperWriteBlockedByProfile(toolProfile, toolName))
+            if (string.Equals(normalizedToolName, "request_capability", StringComparison.Ordinal))
+            {
+                JArray requestOptions = request["options"] as JArray;
+                string requestOptionId = FindAllowOptionId(requestOptions);
+                return string.IsNullOrWhiteSpace(requestOptionId)
+                    ? new JObject { ["outcome"] = new JObject { ["outcome"] = "allowed" } }
+                    : new JObject
+                    {
+                        ["outcome"] = new JObject
+                        {
+                            ["outcome"] = "selected",
+                            ["optionId"] = requestOptionId
+                        }
+                    };
+            }
+            if (taskClient?.HasLockedTaskDecision == true)
+            {
+                AppendConversation(
+                    "系统",
+                    "⛔ 本轮能力决定已经锁定，已拒绝决定后的额外工具调用。",
+                    UiPalette.Warning);
+                return BuildPermissionCancelled();
+            }
+            if (IsDeveloperToolBlockedByCapability(capabilityProfile, toolName))
+            {
+                AppendConversation(
+                    "系统",
+                    "⛔ SourceReview 只允许 Developer 的 read/tree，已拒绝：" + toolName,
+                    UiPalette.Danger);
+                return BuildPermissionCancelled();
+            }
+            if (IsDeveloperWriteBlockedByCapability(toolProfile, capabilityProfile, toolName))
             {
                 AppendConversation(
                     "系统",
                     "⛔ 当前诊断模式只允许读取源码，已拒绝修改文件。",
+                    UiPalette.Danger);
+                return BuildPermissionCancelled();
+            }
+            if (IsDeveloperShellTool(toolName)
+                && !string.Equals(
+                    capabilityProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal))
+            {
+                AppendConversation(
+                    "系统",
+                    "⛔ 当前能力包没有源码 Shell 执行权限。",
                     UiPalette.Danger);
                 return BuildPermissionCancelled();
             }
@@ -2072,14 +2368,73 @@ namespace Automation
 
         private static bool IsDeveloperWriteTool(string toolName)
         {
-            return string.Equals(toolName, "write", StringComparison.Ordinal)
-                || string.Equals(toolName, "edit", StringComparison.Ordinal);
+            string value = (toolName ?? string.Empty).Trim();
+            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
+                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
+            if (separator >= 0)
+                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
+            return string.Equals(value, "write", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "edit", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDeveloperShellTool(string toolName)
+        {
+            string value = (toolName ?? string.Empty).Trim();
+            return string.Equals(value, "shell", StringComparison.OrdinalIgnoreCase)
+                || value.EndsWith("__shell", StringComparison.OrdinalIgnoreCase)
+                || value.EndsWith("/shell", StringComparison.OrdinalIgnoreCase)
+                || value.EndsWith(".shell", StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool IsDeveloperWriteBlockedByProfile(string profile, string toolName)
         {
             return !string.Equals(profile, "Editor", StringComparison.Ordinal)
                 && IsDeveloperWriteTool(toolName);
+        }
+
+        internal static bool IsDeveloperWriteBlockedByCapability(
+            string permissionProfile,
+            string capabilityProfile,
+            string toolName)
+        {
+            if (!IsDeveloperWriteTool(toolName)) return false;
+            if (!string.Equals(permissionProfile, AutomationToolProfiles.Editor, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return AutomationToolProfiles.IsExecutionProfile(capabilityProfile)
+                && !string.Equals(
+                    capabilityProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal);
+        }
+
+        internal static bool IsDeveloperToolBlockedByCapability(
+            string capabilityProfile,
+            string toolName)
+        {
+            if (!string.Equals(
+                capabilityProfile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            string value = (toolName ?? string.Empty).Trim();
+            bool qualifiedDeveloper = value.StartsWith("developer__", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("developer/", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("developer.", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("developer:", StringComparison.OrdinalIgnoreCase);
+            string leaf = value;
+            int doubleUnderscore = leaf.LastIndexOf("__", StringComparison.Ordinal);
+            int separator = Math.Max(doubleUnderscore,
+                Math.Max(leaf.LastIndexOf('/'), Math.Max(leaf.LastIndexOf('.'), leaf.LastIndexOf(':'))));
+            if (separator >= 0)
+            {
+                leaf = leaf.Substring(separator + (separator == doubleUnderscore ? 2 : 1));
+            }
+            bool knownUnqualifiedDeveloper = string.Equals(leaf, "shell", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "write", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "edit", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "read", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "tree", StringComparison.OrdinalIgnoreCase);
+            if (!qualifiedDeveloper && !knownUnqualifiedDeveloper) return false;
+            return !string.Equals(leaf, "read", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(leaf, "tree", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ResolveHmiSourceDirectory()
@@ -2214,12 +2569,13 @@ namespace Automation
             // tool_call 事件只有输入参数。
             if (!replayingTaskEvents && string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
-                TryPromptPreviewConfirmation(item.Raw);
+                TryPromptPreviewConfirmation(item.Raw, ActiveTaskRuntime);
             }
         }
 
-        private async void TryPromptPreviewConfirmation(JObject raw)
+        private async void TryPromptPreviewConfirmation(JObject raw, AiTaskRuntime sourceRuntime)
         {
+            GooseAcpClient sourceClient = sourceRuntime?.Client ?? gooseClient;
             AiPreviewObservation observation = previewCoordinator.Observe(raw, autoApproveMode);
             if (observation.Kind == AiPreviewObservationKind.None
                 || observation.Kind == AiPreviewObservationKind.AlreadyPresented)
@@ -2229,7 +2585,7 @@ namespace Automation
 
             if (observation.Kind == AiPreviewObservationKind.Applied)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
+                sourceClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
                 {
                     ["previewId"] = observation.PreviewId,
                     ["resultType"] = observation.ResultType
@@ -2238,7 +2594,7 @@ namespace Automation
             }
             if (observation.Kind == AiPreviewObservationKind.Rejected)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                sourceClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
                 {
                     ["previewId"] = observation.PreviewId,
                     ["decision"] = "rejected",
@@ -2248,7 +2604,7 @@ namespace Automation
             }
             if (observation.Kind == AiPreviewObservationKind.Confirmed)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                sourceClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
                 {
                     ["previewId"] = observation.PreviewId,
                     ["decision"] = "confirmed",
@@ -2257,7 +2613,7 @@ namespace Automation
                 return;
             }
 
-            gooseClient?.LogFrontendAnalysisEvent("preview.created", new JObject
+            sourceClient?.LogFrontendAnalysisEvent("preview.created", new JObject
             {
                 ["previewId"] = observation.PreviewId,
                 ["status"] = "awaiting_confirmation",
@@ -2266,7 +2622,7 @@ namespace Automation
 
             if (observation.Kind == AiPreviewObservationKind.AutoApprovalMismatch)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
+                sourceClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
                 {
                     ["previewId"] = observation.PreviewId,
                     ["message"] = "自动批准模式下返回了未确认预演。"
@@ -2274,7 +2630,7 @@ namespace Automation
                 return;
             }
 
-            gooseClient?.LogFrontendAnalysisEvent("preview.presented", new JObject
+            sourceClient?.LogFrontendAnalysisEvent("preview.presented", new JObject
             {
                 ["previewId"] = observation.PreviewId,
                 ["changeCount"] = observation.Changes?.Count ?? 0,
@@ -2286,7 +2642,7 @@ namespace Automation
                 observation.Changes,
                 observation.Messages);
             confirmationStopwatch.Stop();
-            gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+            sourceClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
             {
                 ["previewId"] = observation.PreviewId,
                 ["decision"] = result == DialogResult.Yes ? "confirmed" : "rejected",
@@ -2302,13 +2658,15 @@ namespace Automation
                 else
                 {
                     await previewClient.RejectAsync(observation.PreviewId).ConfigureAwait(true);
-                    AppendConversation("系统", "已取消本次变更。", UiPalette.Warning);
+                    if (ReferenceEquals(ActiveTaskRuntime, sourceRuntime))
+                        AppendConversation("系统", "已取消本次变更。", UiPalette.Warning);
                 }
             }
             catch (Exception ex)
             {
                 string action = result == DialogResult.Yes ? "确认" : "取消";
-                AppendConversation("错误", action + "预演失败：" + ex.Message, UiPalette.Danger);
+                if (ReferenceEquals(ActiveTaskRuntime, sourceRuntime))
+                    AppendConversation("错误", action + "预演失败：" + ex.Message, UiPalette.Danger);
             }
         }
 

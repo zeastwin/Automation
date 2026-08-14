@@ -279,6 +279,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
+                ["configurationSaved"] = true,
                 ["deleted"] = BuildVariableJObject(target),
                 ["message"] = $"变量[{target.Name}]已删除，原槽位 index={target.Index} 保持为空。"
             };
@@ -408,6 +409,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
+                ["configurationSaved"] = true,
                 ["variable"] = BuildVariableJObject(created),
                 ["message"] = $"变量 [{name}] 已创建于 index={targetIndex}。"
             };
@@ -538,6 +540,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
+                ["configurationSaved"] = true,
                 ["variable"] = BuildVariableJObject(committed),
                 ["message"] = hasValue
                     ? $"变量[{target.Name}]当前值和属性已更新。"

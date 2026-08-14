@@ -15,10 +15,13 @@ namespace Automation.McpServer
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context", "get_process_design_guide",
-            "list_procs", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph", "get_step_detail",
+            "list_procs", "search_proc_catalog", "resolve_proc_target", "discover_project_resources",
+            "resolve_authoring_inputs", "resolve_operation_capability",
+            "get_proc_overview", "get_proc_detail", "get_flow_graph", "get_step_detail",
             "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
             "list_operation_types", "get_native_operation_schemas",
+            "get_native_operation_field_contract",
             "get_semantic_operation_schema", "get_operation_guide",
             "get_snapshot", "validate_proc",
             "wait_for_proc_state",
@@ -75,34 +78,28 @@ namespace Automation.McpServer
         private static readonly IReadOnlyDictionary<string, HashSet<string>> TaskToolProfiles =
             new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
             {
+                [AutomationToolProfiles.TaskCoordinator] = ToolSet("request_capability"),
                 [AutomationToolProfiles.ProcessDesign] = ToolSet("get_process_design_guide"),
                 [AutomationToolProfiles.ProcessReview] = ToolSet(
-                    "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph",
-                    "get_step_detail", "get_op_detail", "get_op_details", "search_ops",
+                    "resolve_proc_target", "discover_project_resources", "get_proc_overview", "get_flow_graph",
+                    "get_step_detail", "get_op_details", "search_ops",
                     "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
-                    "get_operation_context", "audit_proc_batch", "diagnose_issue", "diagnose_proc", "validate_proc",
-                    "get_snapshot", "get_info_log_tail",
+                    "get_operation_context", "audit_proc_batch", "validate_proc",
                     "get_operation_schema", "get_operation_guide", "get_semantic_operation_schema",
                     "get_native_operation_schemas", "get_variable_by_name", "get_variable_by_index",
                     "get_station", "get_point", "get_data_struct", "search_data_struct_items",
-                    "get_io", "search_io", "get_communication", "get_plc_device", "search_alarms", "get_alarm"),
+                    "get_io", "get_communication", "get_plc_device", "get_alarm"),
                 [AutomationToolProfiles.ProcessCreate] = ToolSet(
-                    "get_process_design_guide", "search_proc_catalog", "get_proc_overview", "get_proc_detail",
-                    "get_flow_graph", "get_step_detail", "get_op_detail", "get_operation_references",
-                    "get_operation_schema", "get_operation_guide", "get_semantic_operation_schema",
-                    "get_native_operation_schemas", "get_variable_by_name", "get_station", "get_point",
-                    "get_data_struct", "search_data_struct_items", "get_io", "search_io", "get_communication",
-                    "get_plc_device", "search_alarms", "get_alarm", "preview_process_blueprint",
+                    "get_process_design_guide", "resolve_proc_target", "resolve_authoring_inputs",
+                    "resolve_operation_capability", "get_semantic_operation_schema",
+                    "get_native_operation_schemas", "preview_process_blueprint",
                     "apply_change_set", "discard_change_set_preview", "validate_proc"),
                 [AutomationToolProfiles.ProcessEdit] = ToolSet(
-                    "get_process_design_guide", "search_proc_catalog", "get_proc_overview", "get_proc_detail", "get_flow_graph",
-                    "get_step_detail", "get_op_detail", "get_op_details", "search_ops",
-                    "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
-                    "get_operation_context", "get_operation_schema", "get_operation_guide",
-                    "get_semantic_operation_schema", "get_native_operation_schemas", "get_variable_by_name",
-                    "get_variable_by_index", "get_station", "get_point", "get_data_struct",
-                    "search_data_struct_items", "get_io", "search_io", "get_communication", "get_plc_device",
-                    "search_alarms", "get_alarm", "preview_change_set", "apply_change_set",
+                    "resolve_proc_target", "resolve_authoring_inputs", "resolve_operation_capability",
+                    "get_proc_detail", "get_flow_graph", "get_step_detail", "get_op_details",
+                    "get_operation_references", "get_operation_context", "get_native_operation_field_contract",
+                    "get_operation_guide", "get_semantic_operation_schema", "get_native_operation_schemas",
+                    "preview_change_set", "apply_change_set",
                     "discard_change_set_preview", "validate_proc"),
                 [AutomationToolProfiles.ResourceEdit] = ToolSet(
                     "list_variables", "get_variable_by_name", "get_variable_by_index", "find_variable_usages",
@@ -116,7 +113,10 @@ namespace Automation.McpServer
                     "get_variable_by_index", "get_io", "search_io", "get_io_state", "get_communication",
                     "get_plc_device", "search_alarms", "get_alarm", "run_proc_test", "start_proc", "stop_proc",
                     "pause_proc", "resume_proc"),
-                [AutomationToolProfiles.SourceDevelopment] = ToolSet("get_platform_development_context"),
+                [AutomationToolProfiles.SourceReview] = ToolSet(
+                    "get_platform_development_context", "search_platform_source"),
+                [AutomationToolProfiles.SourceDevelopment] = ToolSet(
+                    "get_platform_development_context", "search_platform_source"),
                 [AutomationToolProfiles.PlatformConfiguration] = ToolSet(
                     "get_migration_configuration", "preview_motion_io_configuration", "preview_io_debug_configuration",
                     "preview_plc_configuration", "preview_communication_configuration", "apply_migration_configuration",
@@ -131,6 +131,8 @@ namespace Automation.McpServer
             if (TaskToolProfiles.TryGetValue(profile, out HashSet<string>? taskTools))
             {
                 enabled.UnionWith(taskTools);
+                if (AutomationToolProfiles.IsExecutionProfile(profile))
+                    enabled.Add("request_capability");
             }
             else if (string.Equals(profile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal))
             {
@@ -182,9 +184,24 @@ namespace Automation.McpServer
                 {
                     ApplyStringArraySchema(tool, "operaTypes", null);
                 }
+                else if (string.Equals(toolName, "get_native_operation_field_contract", StringComparison.Ordinal))
+                {
+                    ApplyStringArraySchema(tool, "fieldNames", null, 12);
+                }
                 else if (string.Equals(toolName, "get_process_design_guide", StringComparison.Ordinal))
                 {
                     ApplyStringArraySchema(tool, "topics", ProcessDesignGuideCatalog.SupportedTopics);
+                }
+                else if (string.Equals(toolName, "request_capability", StringComparison.Ordinal))
+                {
+                    ApplyTaskCapabilityDecisionSchema(tool, profile);
+                }
+                else if (string.Equals(toolName, "search_platform_source", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "maxResults", 1, 100);
+                    ApplyToolStringEnum(tool, "fileExtension",
+                        ".cs", ".csproj", ".props", ".targets", ".json", ".md",
+                        ".js", ".html", ".css", ".ps1", ".xml", ".config", ".yaml", ".yml");
                 }
                 else if (string.Equals(toolName, "add_variable", StringComparison.Ordinal))
                 {
@@ -239,6 +256,26 @@ namespace Automation.McpServer
                     ApplyToolNumericRange(tool, "offset", 0, int.MaxValue);
                     ApplyToolNumericRange(tool, "limit", 1, 100);
                 }
+                else if (string.Equals(toolName, "resolve_proc_target", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "limitPerKeyword", 1, 20);
+                    ApplyStringArraySchema(tool, "keywords", null, 6);
+                    ApplyPlainTextArrayItems(tool, "keywords", 100, rejectWildcard: true);
+                }
+                else if (string.Equals(toolName, "discover_project_resources", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "limitPerQuery", 1, 20);
+                    ApplyProjectResourceDiscoverySchema(tool);
+                }
+                else if (string.Equals(toolName, "resolve_authoring_inputs", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "limitPerRequirement", 1, 10);
+                    ApplyAuthoringInputResolutionSchema(tool);
+                }
+                else if (string.Equals(toolName, "resolve_operation_capability", StringComparison.Ordinal))
+                {
+                    ApplyOperationCapabilityResolutionSchema(tool);
+                }
                 else if (string.Equals(toolName, "list_io", StringComparison.Ordinal)
                     || string.Equals(toolName, "search_io", StringComparison.Ordinal))
                 {
@@ -276,6 +313,410 @@ namespace Automation.McpServer
             return tools.OrderBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal).ToList();
         }
 
+        private static void ApplyTaskCapabilityDecisionSchema(McpServerTool tool, string profile)
+        {
+            JsonObject root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject
+                ?? throw new InvalidOperationException("request_capability 参数Schema不是对象。");
+            JsonObject decision = FindObjectSchemaWithProperties(
+                    root, "version", "action", "capability", "objective", "message", "authorizationQuote",
+                    "requiresUserConfirmationAfter", "basis", "findingIds", "reviewHandoff")
+                ?? throw new InvalidOperationException("request_capability 缺少decision结构。");
+            root["additionalProperties"] = false;
+            JsonObject properties = decision["properties"] as JsonObject
+                ?? throw new InvalidOperationException("request_capability 决定Schema缺少字段定义。");
+            bool reviewProfile = string.Equals(
+                profile, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal);
+            string[] runStageFields = reviewProfile
+                ? new[] { "version", "action", "capability", "objective", "authorizationQuote", "requiresUserConfirmationAfter", "basis", "findingIds", "reviewHandoff" }
+                : new[] { "version", "action", "capability", "objective", "authorizationQuote", "requiresUserConfirmationAfter", "basis" };
+            string[] completionFields = reviewProfile
+                ? new[] { "version", "action", "message", "reviewHandoff" }
+                : new[] { "version", "action", "message" };
+            JsonObject runStage = CreateTaskDecisionBranch(
+                properties,
+                "run_stage",
+                runStageFields,
+                new[] { "version", "action", "capability", "objective" });
+            if (runStage["properties"] is JsonObject runProperties)
+            {
+                if (runProperties["capability"] is JsonObject capability)
+                    capability["enum"] = new JsonArray(
+                        AutomationToolProfiles.ExecutionProfiles
+                            .Select(value => JsonValue.Create(value)).ToArray());
+                if (runProperties["objective"] is JsonObject objective)
+                {
+                    objective["minLength"] = 1;
+                    objective["maxLength"] = 500;
+                }
+                if (runProperties["authorizationQuote"] is JsonObject authorizationQuote)
+                    authorizationQuote["maxLength"] = 300;
+                if (runProperties["basis"] is JsonObject basis)
+                    basis["enum"] = new JsonArray(
+                        TaskDecisionBases.DirectUserChange,
+                        TaskDecisionBases.ProvenReviewFinding);
+                if (runProperties["findingIds"] is JsonObject findingIds)
+                {
+                    findingIds["minItems"] = 1;
+                    findingIds["maxItems"] = 50;
+                    findingIds["uniqueItems"] = true;
+                }
+            }
+            JsonObject finish = CreateTaskDecisionBranch(
+                properties,
+                "finish",
+                completionFields,
+                new[] { "version", "action", "message" });
+            JsonObject askUser = CreateTaskDecisionBranch(
+                properties,
+                "ask_user",
+                completionFields,
+                new[] { "version", "action", "message" });
+            foreach (JsonObject branch in new[] { finish, askUser })
+            {
+                if (branch["properties"]?["message"] is JsonObject message)
+                {
+                    message["minLength"] = 1;
+                    message["maxLength"] = 1000;
+                }
+            }
+            if (reviewProfile)
+            {
+                foreach (JsonObject branch in new[] { runStage, finish, askUser })
+                    ApplyReviewHandoffConstraints(branch);
+            }
+            RemoveGeneratedInputProperty(root, "verifiedFacts");
+            string? description = decision["description"]?.GetValue<string>();
+            decision.Clear();
+            decision["type"] = "object";
+            if (!string.IsNullOrWhiteSpace(description)) decision["description"] = description;
+            decision["oneOf"] = new JsonArray(runStage, finish, askUser);
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void RemoveGeneratedInputProperty(JsonNode? node, string propertyName)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties)
+                {
+                    properties.Remove(propertyName);
+                }
+                if (obj["required"] is JsonArray required)
+                {
+                    int requiredIndex = required.Select((item, index) => new { item, index })
+                        .Where(entry => string.Equals(
+                            entry.item?.GetValue<string>(), propertyName, StringComparison.Ordinal))
+                        .Select(entry => entry.index)
+                        .DefaultIfEmpty(-1)
+                        .First();
+                    if (requiredIndex >= 0) required.RemoveAt(requiredIndex);
+                }
+                foreach (KeyValuePair<string, JsonNode?> property in obj.ToList())
+                {
+                    RemoveGeneratedInputProperty(property.Value, propertyName);
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    RemoveGeneratedInputProperty(item, propertyName);
+                }
+            }
+        }
+
+        private static void ApplyReviewHandoffConstraints(JsonObject branch)
+        {
+            JsonObject? handoff = branch["properties"]?["reviewHandoff"] as JsonObject;
+            if (handoff == null) return;
+            JsonObject? handoffObject = FindObjectSchemaWithProperties(
+                handoff, "status", "summary", "findings");
+            if (handoffObject?["properties"] is not JsonObject handoffProperties) return;
+            // verifiedFacts 由宿主从本阶段成功工具结果机械附加，不允许模型提交或改写。
+            handoffProperties.Remove("verifiedFacts");
+            if (handoffObject["required"] is JsonArray required)
+            {
+                int requiredIndex = required.Select((item, index) => new { item, index })
+                    .Where(entry => string.Equals(
+                        entry.item?.GetValue<string>(), "verifiedFacts", StringComparison.Ordinal))
+                    .Select(entry => entry.index)
+                    .DefaultIfEmpty(-1)
+                    .First();
+                if (requiredIndex >= 0) required.RemoveAt(requiredIndex);
+            }
+            if (handoffProperties["status"] is JsonObject status)
+                status["enum"] = new JsonArray(
+                    ReviewHandoffStatuses.ProvenDefect,
+                    ReviewHandoffStatuses.ConfigurationGap,
+                    ReviewHandoffStatuses.Unresolved,
+                    ReviewHandoffStatuses.NoDefect);
+            if (handoffProperties["summary"] is JsonObject summary)
+            {
+                summary["minLength"] = 1;
+                summary["maxLength"] = 2000;
+            }
+            if (handoffProperties["findings"] is JsonObject findings)
+            {
+                findings["maxItems"] = 50;
+                findings["uniqueItems"] = true;
+            }
+            JsonObject? findingObject = FindObjectSchemaWithProperties(
+                handoffObject, "id", "summary", "category", "repairability", "targetIds",
+                "evidence", "evidenceFactRefs", "minimalChange");
+            if (findingObject?["properties"] is JsonObject findingProperties)
+            {
+                findingObject["additionalProperties"] = false;
+                findingObject["required"] = new JsonArray(
+                    "id", "summary", "category", "repairability", "targetIds",
+                    "evidence", "evidenceFactRefs", "minimalChange");
+                if (findingProperties["category"] is JsonObject category)
+                    category["enum"] = new JsonArray(
+                        ReviewFindingCategories.StructuralDefect,
+                        ReviewFindingCategories.RuntimeDefect,
+                        ReviewFindingCategories.SafetyDefect);
+                if (findingProperties["repairability"] is JsonObject repairability)
+                    repairability["enum"] = new JsonArray(
+                        ReviewFindingRepairability.SafeWithoutExternalFacts,
+                        ReviewFindingRepairability.RequiresUserChoice);
+                foreach (string arrayName in new[] { "targetIds", "evidenceFactRefs" })
+                {
+                    if (findingProperties[arrayName] is JsonObject array)
+                    {
+                        array["minItems"] = 1;
+                        array["maxItems"] = 20;
+                        array["uniqueItems"] = true;
+                    }
+                }
+            }
+        }
+
+        private static void ApplyProjectResourceDiscoverySchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject rootProperties
+                || rootProperties["queries"] is not JsonObject queries)
+            {
+                throw new InvalidOperationException("discover_project_resources 参数Schema缺少queries。");
+            }
+            queries["minItems"] = 1;
+            queries["maxItems"] = 12;
+            queries["uniqueItems"] = true;
+            JsonObject? queryObject = FindObjectSchemaWithProperties(
+                queries, "kind", "keywords", "ioType", "stationIndex");
+            if (queryObject?["properties"] is not JsonObject queryProperties)
+                throw new InvalidOperationException("discover_project_resources 参数Schema缺少查询项结构。");
+            queryObject["additionalProperties"] = false;
+            queryObject["required"] = new JsonArray("kind", "keywords");
+            if (queryProperties["kind"] is JsonObject kind)
+                kind["enum"] = new JsonArray(
+                    "process", "io", "variable", "station", "point", "data_struct",
+                    "alarm", "communication", "plc");
+            if (queryProperties["keywords"] is JsonObject keywords)
+            {
+                keywords["minItems"] = 1;
+                keywords["maxItems"] = 6;
+                keywords["uniqueItems"] = true;
+                if (keywords["items"] is JsonObject keyword)
+                {
+                    keyword["minLength"] = 1;
+                    keyword["maxLength"] = 100;
+                    keyword["pattern"] = "^(?!\\*$).*\\S.*$";
+                }
+            }
+            if (queryProperties["ioType"] is JsonObject ioType)
+                ioType["enum"] = new JsonArray("通用输入", "通用输出");
+            if (queryProperties["stationIndex"] is JsonObject stationIndex)
+                stationIndex["minimum"] = 0;
+            queryObject["allOf"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["if"] = new JsonObject
+                    {
+                        ["properties"] = new JsonObject
+                        {
+                            ["kind"] = new JsonObject { ["const"] = "io" }
+                        },
+                        ["required"] = new JsonArray("kind")
+                    },
+                    ["else"] = new JsonObject
+                    {
+                        ["not"] = new JsonObject { ["required"] = new JsonArray("ioType") }
+                    }
+                },
+                new JsonObject
+                {
+                    ["if"] = new JsonObject
+                    {
+                        ["properties"] = new JsonObject
+                        {
+                            ["kind"] = new JsonObject { ["const"] = "point" }
+                        },
+                        ["required"] = new JsonArray("kind")
+                    },
+                    ["then"] = new JsonObject { ["required"] = new JsonArray("stationIndex") },
+                    ["else"] = new JsonObject
+                    {
+                        ["not"] = new JsonObject { ["required"] = new JsonArray("stationIndex") }
+                    }
+                }
+            };
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyAuthoringInputResolutionSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject rootProperties
+                || rootProperties["requirements"] is not JsonObject requirements)
+            {
+                throw new InvalidOperationException("resolve_authoring_inputs 参数Schema缺少requirements。");
+            }
+            requirements["minItems"] = 1;
+            requirements["maxItems"] = 20;
+            JsonObject? item = FindObjectSchemaWithProperties(
+                requirements, "key", "kind", "names", "purpose", "ioType",
+                "requiredType", "requiredScope", "ownerProcId", "stationIndex");
+            if (item?["properties"] is not JsonObject properties)
+                throw new InvalidOperationException("resolve_authoring_inputs 缺少绑定意图结构。");
+            item["additionalProperties"] = false;
+            item["required"] = new JsonArray("key", "kind", "names", "purpose");
+            if (properties["key"] is JsonObject key)
+            {
+                key["minLength"] = 1;
+                key["maxLength"] = 80;
+            }
+            if (properties["kind"] is JsonObject kind)
+                kind["enum"] = new JsonArray(
+                    "process", "io", "variable", "station", "point", "data_struct",
+                    "alarm", "communication", "plc");
+            if (properties["names"] is JsonObject names)
+            {
+                names["minItems"] = 1;
+                names["maxItems"] = 4;
+                names["uniqueItems"] = true;
+                if (names["items"] is JsonObject name)
+                {
+                    name["minLength"] = 1;
+                    name["maxLength"] = 100;
+                    name["pattern"] = "^(?!\\*$).*\\S.*$";
+                }
+            }
+            if (properties["purpose"] is JsonObject purpose)
+            {
+                purpose["minLength"] = 1;
+                purpose["maxLength"] = 200;
+            }
+            if (properties["ioType"] is JsonObject ioType)
+                ioType["enum"] = new JsonArray("通用输入", "通用输出");
+            if (properties["requiredType"] is JsonObject requiredType)
+                requiredType["enum"] = new JsonArray("double", "string");
+            if (properties["requiredScope"] is JsonObject requiredScope)
+                requiredScope["enum"] = new JsonArray(
+                    VariableScopeContract.Public,
+                    VariableScopeContract.Process,
+                    VariableScopeContract.System);
+            if (properties["stationIndex"] is JsonObject stationIndex)
+                stationIndex["minimum"] = 0;
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyOperationCapabilityResolutionSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject rootProperties
+                || rootProperties["intents"] is not JsonObject intents)
+            {
+                throw new InvalidOperationException("resolve_operation_capability 参数Schema缺少intents。");
+            }
+            intents["minItems"] = 1;
+            intents["maxItems"] = 12;
+            JsonObject? item = FindObjectSchemaWithProperties(intents, "key", "intent");
+            if (item?["properties"] is not JsonObject properties)
+                throw new InvalidOperationException("resolve_operation_capability 缺少动作意图结构。");
+            item["additionalProperties"] = false;
+            item["required"] = new JsonArray("key", "intent");
+            foreach (string propertyName in new[] { "key", "intent" })
+            {
+                if (properties[propertyName] is JsonObject property)
+                {
+                    property["minLength"] = 1;
+                    property["maxLength"] = propertyName == "key" ? 80 : 200;
+                }
+            }
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyPlainTextArrayItems(
+            McpServerTool tool,
+            string propertyName,
+            int maximumLength,
+            bool rejectWildcard)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            if (root?["properties"] is not JsonObject properties
+                || properties[propertyName] is not JsonObject arraySchema
+                || arraySchema["items"] is not JsonObject itemSchema)
+            {
+                throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少文本数组：{propertyName}");
+            }
+            itemSchema["minLength"] = 1;
+            itemSchema["maxLength"] = maximumLength;
+            itemSchema["pattern"] = rejectWildcard ? "^(?!\\*$).*\\S.*$" : "^.*\\S.*$";
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static JsonObject CreateTaskDecisionBranch(
+            JsonObject sourceProperties,
+            string actionName,
+            IReadOnlyCollection<string> propertyNames,
+            IReadOnlyCollection<string> requiredNames)
+        {
+            var branchProperties = new JsonObject();
+            foreach (string name in propertyNames)
+            {
+                branchProperties[name] = sourceProperties[name]?.DeepClone();
+            }
+            if (branchProperties["version"] is JsonObject version)
+                version["enum"] = new JsonArray(1);
+            if (branchProperties["action"] is JsonObject action)
+                action["enum"] = new JsonArray(actionName);
+            return new JsonObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = branchProperties,
+                ["required"] = new JsonArray(
+                    requiredNames.Select(name => JsonValue.Create(name)).ToArray())
+            };
+        }
+
+        private static JsonObject? FindObjectSchemaWithProperties(
+            JsonNode? node,
+            params string[] propertyNames)
+        {
+            if (node is JsonObject obj)
+            {
+                if (obj["properties"] is JsonObject properties
+                    && propertyNames.All(properties.ContainsKey))
+                    return obj;
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    JsonObject? found = FindObjectSchemaWithProperties(property.Value, propertyNames);
+                    if (found != null) return found;
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    JsonObject? found = FindObjectSchemaWithProperties(item, propertyNames);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
         private static HashSet<string> ToolSet(params string[] names)
         {
             return new HashSet<string>(names ?? Array.Empty<string>(), StringComparer.Ordinal);
@@ -296,7 +737,10 @@ namespace Automation.McpServer
         }
 
         private static void ApplyStringArraySchema(
-            McpServerTool tool, string propertyName, IEnumerable<string>? allowedValues)
+            McpServerTool tool,
+            string propertyName,
+            IEnumerable<string>? allowedValues,
+            int? maximumItems = null)
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             if (root?["properties"] is not JsonObject properties
@@ -305,6 +749,7 @@ namespace Automation.McpServer
                 throw new InvalidOperationException($"{tool.ProtocolTool.Name} 参数Schema缺少字段：{propertyName}");
             }
             arraySchema["minItems"] = 1;
+            if (maximumItems.HasValue) arraySchema["maxItems"] = maximumItems.Value;
             arraySchema["uniqueItems"] = true;
             if (allowedValues != null)
             {
@@ -370,6 +815,9 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("preview_change_set 生成Schema缺少动作或语义指令字段。");
             }
 
+            // entryMode 只解决 Blueprint 的跨步骤默认入口；普通 ChangeSet 必须提交精确目标。
+            RemoveGeneratedInputProperty(operationSchema, "entryMode");
+
             ApplyPositionSchema(positionSchema);
             JsonObject definitions = ApplySemanticOperationDiscriminator(root, operationSchema);
             ApplyVariableChangeSchema(root);
@@ -409,10 +857,13 @@ namespace Automation.McpServer
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             JsonObject? operationSchema = FindSemanticOperationSchema(root);
+            JsonObject? targetSchema = FindObjectSchemaWithProperties(
+                operationSchema, "operationId", "stepId", "stepKey", "operationKey");
             if (root?["properties"] is not JsonObject rootProperties
                 || rootProperties["blueprint"] is not JsonObject blueprintSchema
                 || blueprintSchema["properties"] is not JsonObject blueprintProperties
-                || operationSchema == null)
+                || operationSchema == null
+                || targetSchema == null)
             {
                 throw new InvalidOperationException("preview_process_blueprint 生成Schema缺少蓝图或语义指令定义。");
             }
@@ -423,7 +874,36 @@ namespace Automation.McpServer
             if (blueprintProperties["steps"] is JsonObject stepsArray)
                 stepsArray["minItems"] = 1;
 
+            JsonObject? retrySchema = CloseBlueprintObject(
+                root,
+                new[] { "entryOperationKey", "counterVariable", "maxAttempts", "retryDecisionOperationKey", "resetVariables", "clearVariables" },
+                new[] { "entryOperationKey", "maxAttempts", "retryDecisionOperationKey" });
+            if (retrySchema?["properties"] is JsonObject retryProperties)
+            {
+                // counterVariable 仅供编译器内部填充，不进入模型输入契约。
+                retryProperties.Remove("counterVariable");
+                foreach (string propertyName in new[] { "entryOperationKey", "retryDecisionOperationKey" })
+                {
+                    if (retryProperties[propertyName] is JsonObject keySchema)
+                        keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                }
+                if (retryProperties["maxAttempts"] is JsonObject maxAttemptsSchema)
+                {
+                    maxAttemptsSchema["minimum"] = 1;
+                    maxAttemptsSchema["maximum"] = 100;
+                }
+                foreach (string propertyName in new[] { "resetVariables", "clearVariables" })
+                {
+                    if (retryProperties[propertyName] is JsonObject arraySchema)
+                    {
+                        arraySchema["minItems"] = 1;
+                        arraySchema["uniqueItems"] = true;
+                    }
+                }
+            }
+
             CloseBlueprintObject(root, new[] { "name", "autoStart", "disable" }, new[] { "name" });
+            JsonObject? blueprintOperationsArray = null;
             JsonObject? stepSchema = CloseBlueprintObject(
                 root,
                 new[] { "key", "name", "disable", "operations" },
@@ -433,7 +913,10 @@ namespace Automation.McpServer
                 if (stepProperties["key"] is JsonObject keySchema)
                     keySchema["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
                 if (stepProperties["operations"] is JsonObject operationsArray)
+                {
                     operationsArray["minItems"] = 1;
+                    blueprintOperationsArray = operationsArray;
+                }
             }
 
             JsonObject? variableSchema = CloseBlueprintObject(
@@ -465,8 +948,53 @@ namespace Automation.McpServer
                 }
             }
 
+            ApplyBlueprintTargetSchema(targetSchema);
             ApplySemanticOperationDiscriminator(root, operationSchema);
+            if (blueprintOperationsArray != null)
+            {
+                blueprintOperationsArray["items"] = new JsonObject
+                {
+                    ["$ref"] = "#/$defs/semanticOperation"
+                };
+            }
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyBlueprintTargetSchema(JsonObject targetSchema)
+        {
+            JsonObject properties = targetSchema["properties"] as JsonObject
+                ?? throw new InvalidOperationException("蓝图跳转目标Schema缺少字段定义。");
+            properties.Remove("operationId");
+            properties.Remove("stepId");
+            targetSchema["additionalProperties"] = false;
+            targetSchema.Remove("required");
+            targetSchema["anyOf"] = new JsonArray
+            {
+                new JsonObject { ["required"] = new JsonArray("operationKey") },
+                new JsonObject { ["required"] = new JsonArray("stepKey") }
+            };
+            targetSchema["description"] =
+                "蓝图只能引用本次blueprint内的局部key。当前步骤内填写operationKey；跨步骤优先只填stepKey并自动进入该步骤首指令。确需跳入目标步骤中段时同时填写operationKey与entryMode=operation。";
+            if (properties["operationKey"] is JsonObject operationKey)
+            {
+                operationKey["minLength"] = 1;
+                operationKey["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                operationKey["description"] =
+                    "目标指令的局部key，取自steps[].operations[].key；不是步骤key，也不能引用已提交指令。";
+            }
+            if (properties["stepKey"] is JsonObject stepKey)
+            {
+                stepKey["minLength"] = 1;
+                stepKey["pattern"] = "^[A-Za-z][A-Za-z0-9_-]{0,31}$";
+                stepKey["description"] =
+                    "跨步骤时填写目标步骤局部key；省略operationKey时自动进入该步骤首指令。当前步骤内定位时省略。";
+            }
+            if (properties["entryMode"] is JsonObject entryMode)
+            {
+                entryMode["enum"] = new JsonArray("first", "operation");
+                entryMode["description"] =
+                    "跨步骤入口模式；通常省略。只有明确跳入目标步骤中段时填写operation并同时提供operationKey。";
+            }
         }
 
         private static JsonObject? CloseBlueprintObject(
@@ -523,6 +1051,8 @@ namespace Automation.McpServer
             operationSchema["oneOf"] = new JsonArray
             {
                 SemanticShape(operationProperties, "variable.set", new[] { "variable", "value" }),
+                SemanticShape(operationProperties, "variable.clear", new[] { "variable" }),
+                SemanticShape(operationProperties, "variable.copy", new[] { "sourceVariable", "targetVariable" }),
                 SemanticShape(operationProperties, "variable.add", new[] { "variable", "amount" }),
                 SemanticShape(operationProperties, "variable.compute", new[] { "sourceVariable", "operator", "outputVariable" },
                     "operandValue", "operandVariable"),
@@ -535,6 +1065,8 @@ namespace Automation.McpServer
                     "includeBounds", "whenTrue", "whenFalse"),
                 SemanticShape(operationProperties, "branch.io", new[] { "conditions" },
                     "conditionLogic", "whenTrue", "whenFalse"),
+                SemanticShape(operationProperties, "alarm.raise", new[] { "message" },
+                    "buttonText", "target"),
                 SemanticShape(operationProperties, "popup.message", new[] { "message" },
                     "buttonText", "autoCloseMs", "target"),
                 SemanticShape(operationProperties, "popup.variable", new[] { "variable" },

@@ -40,6 +40,25 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void StandardTests_ExposeEditablePromptAndPersistenceControls()
+        {
+            string html = typeof(FrmAiAssistant)
+                .GetField(
+                    "BaseConversationHtml",
+                    BindingFlags.Static | BindingFlags.NonPublic)
+                ?.GetValue(null) as string;
+
+            Assert.IsFalse(string.IsNullOrWhiteSpace(html));
+            StringAssert.Contains(html, "className='test-prompt'");
+            StringAssert.Contains(html, "+ 增加一轮");
+            StringAssert.Contains(html, "id=\"saveTestPrompts\"");
+            StringAssert.Contains(html, "id=\"resetTestPrompts\"");
+            StringAssert.Contains(html, "post('runStandardTests',{scenarios:scenarios");
+            StringAssert.Contains(html, "post('saveStandardTestPrompts',{scenarios:scenarios}");
+            StringAssert.Contains(html, "post('resetStandardTestPrompts')");
+        }
+
+        [TestMethod]
         [TestCategory("Desktop")]
         [Timeout(30000)]
         public void Show_WhenWebViewRuntimeIsAvailable_EnablesEditorControls()

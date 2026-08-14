@@ -111,7 +111,7 @@ namespace Automation
                 throw CreateAlarmException(evt, sourceResolveError);
             }
             string sourceValue = sourceItem.Value;
-            if (string.IsNullOrEmpty(sourceValue))
+            if (!ops.ClearOutput && string.IsNullOrEmpty(sourceValue))
             {
                 throw CreateAlarmException(evt, "找不到源变量");
             }
@@ -122,7 +122,7 @@ namespace Automation
             DicValue changeItem = null;
             if (binding.UsesLiteralChangeValue)
             {
-                changeValue = ops.ChangeValue;
+                changeValue = ops.ClearOutput ? string.Empty : ops.ChangeValue;
             }
             else
             {
@@ -133,7 +133,7 @@ namespace Automation
                 changeValue = changeItem.Value;
                 changeIndex = changeItem.Index;
             }
-            if (string.IsNullOrEmpty(changeValue))
+            if (!ops.ClearOutput && string.IsNullOrEmpty(changeValue))
             {
                 throw CreateAlarmException(evt, "找不到修改变量");
             }
@@ -176,6 +176,12 @@ namespace Automation
                 throw CreateAlarmException(evt, outputResolveError);
             }
             int outputIndex = outputItem.Index;
+            if (ops.ClearOutput
+                && !string.Equals(outputItem.Type, "string", StringComparison.OrdinalIgnoreCase))
+            {
+                string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;
+                throw CreateAlarmException(evt, $"清空变量只支持 string 类型:{outputName}");
+            }
             if (needNumeric && !string.Equals(outputItem.Type, "double", StringComparison.OrdinalIgnoreCase))
             {
                 string outputName = string.IsNullOrWhiteSpace(outputItem.Name) ? $"索引{outputItem.Index}" : outputItem.Name;

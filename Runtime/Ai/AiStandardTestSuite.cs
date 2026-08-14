@@ -2,9 +2,13 @@ using Automation.Protocol;
 // 模块：运行时 / AI 集成。
 // 职责范围：管理 AI 会话、配置、ACP/MCP 进程、受管运行环境和分析记录。
 
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Automation
 {
@@ -37,6 +41,23 @@ namespace Automation
         public string Description { get; }
         public AiStandardTestSetupKind SetupKind { get; }
         public IReadOnlyList<string> Prompts { get; }
+
+        internal AiStandardTestScenario WithPrompts(IEnumerable<string> prompts)
+        {
+            return new AiStandardTestScenario(
+                Id,
+                Name,
+                Description,
+                SetupKind,
+                (prompts ?? Enumerable.Empty<string>()).ToArray());
+        }
+    }
+
+    public sealed class AiStandardTestPromptSet
+    {
+        public string Id { get; set; }
+
+        public List<string> Prompts { get; set; }
     }
 
     public sealed class AiStandardTestFixtureState
@@ -70,6 +91,14 @@ namespace Automation
 
     public static class AiStandardTestSuite
     {
+        private const int PromptConfigVersion = 1;
+        private const string PromptConfigFileName = "AiStandardTests.json";
+        internal const int MaximumPromptCount = 12;
+        internal const int MaximumPromptLength = 4000;
+        internal const int MaximumScenarioPromptLength = 20000;
+        private static readonly object promptConfigLock = new object();
+        private static IReadOnlyList<AiStandardTestScenario> configuredScenarioCache;
+        private static string configuredScenarioCacheError;
         private const string OwnedPrefix = "标准测试_";
         private const string ProductProcessName = OwnedPrefix + "产品检测流程";
         private const string ResultVariableName = OwnedPrefix + "检测结果";
@@ -122,10 +151,189 @@ namespace Automation
 
         public static IReadOnlyList<AiStandardTestScenario> Scenarios => scenarios;
 
-        public static List<AiStandardTestScenario> Select(IEnumerable<string> ids)
+        public static IReadOnlyList<AiStandardTestScenario> GetConfiguredScenarios(out string error)
         {
-            var selectedIds = new HashSet<string>(ids ?? Enumerable.Empty<string>());
-            return scenarios.Where(item => selectedIds.Contains(item.Id)).ToList();
+            lock (promptConfigLock)
+            {
+                if (configuredScenarioCache != null)
+                {
+                    error = configuredScenarioCacheError;
+                    return configuredScenarioCache;
+                }
+                error = null;
+                string path = AutomationRuntimeOptions.ActiveConfigFile(PromptConfigFileName);
+                if (!File.Exists(path))
+                {
+                    configuredScenarioCache = scenarios;
+                    return configuredScenarioCache;
+                }
+                try
+                {
+                    JObject root = JObject.Parse(File.ReadAllText(path, Encoding.UTF8));
+                    if (root["version"]?.Value<int?>() != PromptConfigVersion
+                        || root["scenarios"] is not JArray configured)
+                    {
+                        throw new InvalidOperationException("自定义标准测试配置结构无效。");
+                    }
+                    if (configured.Count == 0)
+                    {
+                        configuredScenarioCache = scenarios;
+                        return configuredScenarioCache;
+                    }
+                    List<AiStandardTestPromptSet> promptSets = configured
+                        .OfType<JObject>()
+                        .Select(item => new AiStandardTestPromptSet
+                        {
+                            Id = item["id"]?.Value<string>(),
+                            Prompts = (item["prompts"] as JArray)?.Values<string>().ToList()
+                        }).ToList();
+                    if (promptSets.Count != configured.Count)
+                        throw new InvalidOperationException("自定义标准测试场景必须是对象。");
+                    if (!TryNormalizePromptSets(
+                        promptSets, false, out Dictionary<string, string[]> normalized, out error))
+                    {
+                        configuredScenarioCache = scenarios;
+                        configuredScenarioCacheError = error;
+                        return configuredScenarioCache;
+                    }
+                    configuredScenarioCache = scenarios.Select(item =>
+                        normalized.TryGetValue(item.Id, out string[] prompts)
+                            ? item.WithPrompts(prompts)
+                            : item).ToList();
+                    return configuredScenarioCache;
+                }
+                catch (Exception ex)
+                {
+                    error = "读取自定义标准测试语句失败，已使用内置默认值：" + ex.Message;
+                    configuredScenarioCache = scenarios;
+                    configuredScenarioCacheError = error;
+                    return configuredScenarioCache;
+                }
+            }
+        }
+
+        public static List<AiStandardTestScenario> Select(
+            IEnumerable<AiStandardTestPromptSet> requested,
+            out string error)
+        {
+            if (!TryNormalizePromptSets(requested, false, out Dictionary<string, string[]> normalized, out error))
+                return new List<AiStandardTestScenario>();
+            return scenarios.Where(item => normalized.ContainsKey(item.Id))
+                .Select(item => item.WithPrompts(normalized[item.Id])).ToList();
+        }
+
+        public static bool TrySavePromptOverrides(
+            IEnumerable<AiStandardTestPromptSet> requested,
+            out string error)
+        {
+            if (!TryNormalizePromptSets(requested, true, out Dictionary<string, string[]> normalized, out error))
+                return false;
+            var overrides = new JArray();
+            foreach (AiStandardTestScenario scenario in scenarios)
+            {
+                string[] prompts = normalized[scenario.Id];
+                if (prompts.SequenceEqual(scenario.Prompts, StringComparer.Ordinal)) continue;
+                overrides.Add(new JObject
+                {
+                    ["id"] = scenario.Id,
+                    ["prompts"] = new JArray(prompts)
+                });
+            }
+            return TryWritePromptConfig(overrides, out error);
+        }
+
+        public static bool TryResetPromptOverrides(out string error)
+        {
+            return TryWritePromptConfig(new JArray(), out error);
+        }
+
+        private static bool TryNormalizePromptSets(
+            IEnumerable<AiStandardTestPromptSet> requested,
+            bool requireAllScenarios,
+            out Dictionary<string, string[]> normalized,
+            out string error)
+        {
+            normalized = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            error = null;
+            var knownIds = new HashSet<string>(scenarios.Select(item => item.Id), StringComparer.Ordinal);
+            foreach (AiStandardTestPromptSet promptSet in requested ?? Enumerable.Empty<AiStandardTestPromptSet>())
+            {
+                string id = promptSet?.Id?.Trim() ?? string.Empty;
+                if (!knownIds.Contains(id))
+                {
+                    error = "未知标准测试场景：" + (id.Length == 0 ? "<空>" : id);
+                    return false;
+                }
+                if (normalized.ContainsKey(id))
+                {
+                    error = "标准测试场景重复：" + id;
+                    return false;
+                }
+                List<string> prompts = promptSet.Prompts ?? new List<string>();
+                if (prompts.Count < 1 || prompts.Count > MaximumPromptCount)
+                {
+                    error = $"标准测试[{id}]语句轮数必须在1..{MaximumPromptCount}。";
+                    return false;
+                }
+                string[] values = prompts.Select(value => (value ?? string.Empty).Trim()).ToArray();
+                int invalidIndex = Array.FindIndex(values,
+                    value => value.Length == 0 || value.Length > MaximumPromptLength);
+                if (invalidIndex >= 0)
+                {
+                    error = $"标准测试[{id}]第{invalidIndex + 1}轮语句必须在1..{MaximumPromptLength}个字符。";
+                    return false;
+                }
+                if (values.Sum(value => value.Length) > MaximumScenarioPromptLength)
+                {
+                    error = $"标准测试[{id}]全部语句合计不能超过{MaximumScenarioPromptLength}个字符。";
+                    return false;
+                }
+                normalized.Add(id, values);
+            }
+            if (normalized.Count == 0)
+            {
+                error = "请至少选择一个标准测试场景。";
+                return false;
+            }
+            if (requireAllScenarios && normalized.Count != scenarios.Count)
+            {
+                error = "保存自定义语句时必须包含全部标准测试场景。";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryWritePromptConfig(JArray configured, out string error)
+        {
+            error = null;
+            try
+            {
+                string path = AutomationRuntimeOptions.ActiveConfigFile(PromptConfigFileName);
+                string directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    error = "标准测试配置路径无效：" + path;
+                    return false;
+                }
+                Directory.CreateDirectory(directory);
+                var root = new JObject
+                {
+                    ["version"] = PromptConfigVersion,
+                    ["scenarios"] = configured ?? new JArray()
+                };
+                File.WriteAllText(path, root.ToString(Formatting.Indented), new UTF8Encoding(false));
+                lock (promptConfigLock)
+                {
+                    configuredScenarioCache = null;
+                    configuredScenarioCacheError = null;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "保存自定义标准测试语句失败：" + ex.Message;
+                return false;
+            }
         }
 
         public static bool Prepare(

@@ -86,10 +86,12 @@ namespace Automation
         }
 
         /// <summary>
-        /// 为一个任务级能力包启动固定工具集合的独立 MCP 实例。
-        /// 实例按档位复用，避免并发 AI 任务通过全局 Profile 切换互相污染。
+        /// 为任务级能力包启动工具集合固定的 MCP 实例。
+        /// 实例按档位共享复用；任务会话彼此独立，且不得通过全局 Profile 切换共享工具面。
         /// </summary>
-        public async Task<string> EnsureTaskCapabilityStartedAsync(string toolProfile)
+        public async Task<string> EnsureTaskCapabilityStartedAsync(
+            string toolProfile,
+            System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
         {
             string normalized = AutomationToolProfiles.Normalize(toolProfile);
             if (!AutomationToolProfiles.IsTaskProfile(normalized))
@@ -97,7 +99,7 @@ namespace Automation
                 throw new InvalidOperationException($"不是任务级能力档位：{normalized}。");
             }
 
-            await taskCapabilityStartLock.WaitAsync().ConfigureAwait(false);
+            await taskCapabilityStartLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 string instanceName = "task_" + normalized.ToLowerInvariant();
@@ -124,7 +126,8 @@ namespace Automation
                     baseUri,
                     normalized,
                     enableTrayIcon: false,
-                    allowToolProfileChanges: false).ConfigureAwait(false);
+                    allowToolProfileChanges: false,
+                    cancellationToken).ConfigureAwait(false);
                 return baseUri;
             }
             finally
@@ -150,7 +153,8 @@ namespace Automation
             string baseUri,
             string toolProfile,
             bool enableTrayIcon,
-            bool allowToolProfileChanges)
+            bool allowToolProfileChanges,
+            System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
         {
             string normalizedBaseUri = NormalizeBaseUri(baseUri);
             if (string.IsNullOrWhiteSpace(normalizedBaseUri))
@@ -224,7 +228,7 @@ namespace Automation
 
             for (int attempt = 0; attempt < 40; attempt++)
             {
-                await Task.Delay(250).ConfigureAwait(false);
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 string info = await ReadHttpAsync(normalizedBaseUri + "/info", 1000).ConfigureAwait(false);
                 if (HasExpectedProfile(info, toolProfile))
                 {

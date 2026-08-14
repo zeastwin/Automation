@@ -619,7 +619,16 @@ namespace Automation
                 || !string.IsNullOrEmpty(modify.ChangeValueIndex2Index)
                 || !string.IsNullOrEmpty(modify.ChangeValueName)
                 || !string.IsNullOrEmpty(modify.ChangeValueName2Index);
-            if (hasLiteral == hasReference)
+            if (modify.ClearOutput)
+            {
+                if (!string.Equals(modify.ModifyType, "替换", StringComparison.Ordinal)
+                    || hasLiteral || hasReference || modify.NegateSource || modify.NegateOperand)
+                {
+                    blockers.Add($"{location} 的清空变量只能使用替换模式，且不得配置修改值或取反。" );
+                    incomplete = true;
+                }
+            }
+            else if (hasLiteral == hasReference)
             {
                 blockers.Add(hasLiteral
                     ? $"{location} 的固定修改值与修改值变量不能同时配置。"
@@ -640,7 +649,7 @@ namespace Automation
                 || modify.ModifyType == "除法"
                 || modify.ModifyType == "求余";
             double number = 0;
-            if (numericMode && hasLiteral
+            if (!modify.ClearOutput && numericMode && hasLiteral
                 && !double.TryParse(modify.ChangeValue,
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out number)
@@ -649,7 +658,7 @@ namespace Automation
                 blockers.Add($"{location} 的固定修改值不是有效数字。");
                 incomplete = true;
             }
-            else if ((modify.ModifyType == "除法" || modify.ModifyType == "求余")
+            else if (!modify.ClearOutput && (modify.ModifyType == "除法" || modify.ModifyType == "求余")
                 && hasLiteral && number == 0d)
             {
                 blockers.Add($"{location} 的除数或求余操作数不能为0。");

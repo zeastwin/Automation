@@ -546,6 +546,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["procIndex"] = procIndex,
+                ["procId"] = proc.head?.Id.ToString("D"),
                 ["procName"] = proc.head?.Name ?? string.Empty,
                 ["isValid"] = isValid,
                 ["readinessStatus"] = readiness.ReadinessStatus,

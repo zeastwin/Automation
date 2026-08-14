@@ -482,12 +482,24 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .check-line input{width:16px;height:16px;margin:0;}
 .service-summary{min-height:38px;padding:9px 11px;border:1px solid #dde5ef;border-radius:9px;background:#f4f7fb;color:#526071;font-size:12px;line-height:1.55;}
 #modelServiceOverlay{z-index:35;}
-.test-list{display:flex;flex-direction:column;gap:9px;}
-.test-item{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;padding:11px 12px;border:1px solid #dde5ef;border-radius:10px;background:#fff;cursor:pointer;}
+.test-list{display:flex;flex-direction:column;gap:12px;}
+.test-item{padding:12px;border:1px solid #dde5ef;border-radius:10px;background:#fff;}
 .test-item:hover{border-color:#a8c4e1;background:#f8fbff;}
-.test-item input{margin-top:3px;}
+.test-head{display:grid;grid-template-columns:22px 1fr;gap:9px;align-items:start;cursor:pointer;}
+.test-head input{margin-top:3px;}
 .test-name{font-size:13px;font-weight:650;color:#25354a;}
 .test-desc{margin-top:3px;font-size:12px;line-height:1.5;color:#748195;}
+.test-customized{margin-left:7px;color:#1f6fb2;font-size:11px;font-weight:500;}
+.test-prompts{display:flex;flex-direction:column;gap:7px;margin:10px 0 0 31px;}
+.test-prompt-row{display:grid;grid-template-columns:34px minmax(0,1fr) 30px;gap:7px;align-items:start;}
+.test-turn-label{padding-top:8px;font-size:11px;color:#758398;}
+.test-prompt{box-sizing:border-box;width:100%;min-height:58px;max-height:150px;resize:vertical;border:1px solid #d8e0ea;border-radius:8px;padding:7px 9px;background:#fff;color:#24354a;font:12px/1.5 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;}
+.test-prompt:focus{outline:none;border-color:#5797cf;box-shadow:0 0 0 2px rgba(57,132,198,.12);}
+.test-remove-prompt{width:30px;height:30px;border:1px solid #d8e0ea;border-radius:7px;background:#fff;color:#7d8898;cursor:pointer;}
+.test-remove-prompt:hover:not(:disabled){color:#ad3540;border-color:#e7a7ad;background:#fff7f8;}
+.test-remove-prompt:disabled{opacity:.35;cursor:default;}
+.test-add-prompt{align-self:flex-start;margin-left:41px;border:0;background:transparent;color:#2477b8;font-size:12px;cursor:pointer;padding:5px 0;}
+.test-warning{margin-bottom:10px;padding:9px 11px;border-radius:8px;background:#fff1f1;color:#9b3540;font-size:12px;line-height:1.5;}
 .test-options{margin-top:13px;padding:11px 12px;border-radius:9px;background:#fff6e8;color:#76501d;font-size:12px;line-height:1.55;}
 .test-options label{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#35445a;}
 .modal-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid #edf1f6;background:#fff;}
@@ -673,10 +685,10 @@ function collectConfig(){
         provider:byId('cfgProvider').value,
         model:byId('cfgModel').value,
         modelServiceId:byId('cfgModelService').value,
-        temperature:parseFloat(byId('cfgTemperature').value||'0.7'),
+        temperature:parseFloat(byId('cfgTemperature').value||'0.3'),
         apiKey:byId('cfgApiKey').value,
         maxTurns:parseInt(byId('cfgTurns').value||'1',10),
-        maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
+        maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'16384',10),
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
         autoApproveMode:!!(appState.config||{}).autoApproveMode
     };
@@ -688,8 +700,8 @@ function fillConfig(){
     byId('cfgMcp').value=c.mcpUri||'';
     byId('cfgSession').value=c.sessionName||'';
     byId('cfgTurns').value=c.maxTurns||20;
-    byId('cfgOutputTokens').value=c.maxOutputTokens||8192;
-    byId('cfgTemperature').value=typeof c.temperature==='number'?c.temperature:0.7;
+    byId('cfgOutputTokens').value=c.maxOutputTokens||16384;
+    byId('cfgTemperature').value=typeof c.temperature==='number'?c.temperature:0.3;
     setModelServiceOptions(byId('cfgModelService'),appState.modelServices||[],c.modelServiceId||'');
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-v4-pro');
@@ -884,23 +896,62 @@ function collectModelService(){
 }
 function openStandardTests(){renderStandardTests();byId('testOverlay').classList.add('open');}
 function closeStandardTests(){byId('testOverlay').classList.remove('open');}
-function renderStandardTests(){
-    var host=byId('testList');host.innerHTML='';
-    (appState.testScenarios||[]).forEach(function(item,index){
-        var label=document.createElement('label');label.className='test-item';
-        var input=document.createElement('input');input.type='checkbox';input.value=item.id;input.checked=index<2;
-        var body=document.createElement('div');
-        var name=document.createElement('div');name.className='test-name';name.textContent=item.name+(item.turnCount>1?'（'+item.turnCount+'轮）':'');
-        var desc=document.createElement('div');desc.className='test-desc';desc.textContent=item.description;
-        body.appendChild(name);body.appendChild(desc);label.appendChild(input);label.appendChild(body);host.appendChild(label);
+function refreshStandardTestRows(card){
+    var rows=card.querySelectorAll('.test-prompt-row');
+    Array.prototype.forEach.call(rows,function(row,index){
+        row.querySelector('.test-turn-label').textContent='第'+(index+1)+'轮';
+        row.querySelector('.test-remove-prompt').disabled=rows.length<=1;
     });
 }
-function runStandardTests(){
-    var ids=Array.prototype.map.call(byId('testList').querySelectorAll('input:checked'),function(item){return item.value;});
-    if(!ids.length){showToast('请至少选择一个测试场景。');return;}
-    closeStandardTests();
-    post('runStandardTests',{ids:ids,separateConversations:byId('separateTestConversations').checked});
+function appendStandardTestPrompt(card,value){
+    var prompts=card.querySelector('.test-prompts');
+    var row=document.createElement('div');row.className='test-prompt-row';
+    var turn=document.createElement('span');turn.className='test-turn-label';
+    var textarea=document.createElement('textarea');textarea.className='test-prompt';textarea.maxLength=4000;textarea.value=value||'';
+    var remove=document.createElement('button');remove.type='button';remove.className='test-remove-prompt';remove.title='删除这一轮';remove.textContent='×';
+    remove.addEventListener('click',function(){row.remove();refreshStandardTestRows(card);});
+    row.appendChild(turn);row.appendChild(textarea);row.appendChild(remove);prompts.appendChild(row);refreshStandardTestRows(card);
 }
+function renderStandardTests(){
+    var host=byId('testList');host.innerHTML='';
+    if(appState.testScenarioWarning){var warning=document.createElement('div');warning.className='test-warning';warning.textContent=appState.testScenarioWarning;host.appendChild(warning);}
+    (appState.testScenarios||[]).forEach(function(item,index){
+        var card=document.createElement('div');card.className='test-item';card.dataset.id=item.id;
+        var label=document.createElement('label');label.className='test-head';
+        var input=document.createElement('input');input.className='test-selector';input.type='checkbox';input.value=item.id;input.checked=index<2;
+        var body=document.createElement('div');
+        var name=document.createElement('div');name.className='test-name';name.textContent=item.name;
+        if(item.customized){var customized=document.createElement('span');customized.className='test-customized';customized.textContent='已自定义';name.appendChild(customized);}
+        var desc=document.createElement('div');desc.className='test-desc';desc.textContent=item.description;
+        body.appendChild(name);body.appendChild(desc);label.appendChild(input);label.appendChild(body);card.appendChild(label);
+        var prompts=document.createElement('div');prompts.className='test-prompts';card.appendChild(prompts);
+        (item.prompts||['']).forEach(function(prompt){appendStandardTestPrompt(card,prompt);});
+        var add=document.createElement('button');add.type='button';add.className='test-add-prompt';add.textContent='+ 增加一轮';
+        add.addEventListener('click',function(){if(card.querySelectorAll('.test-prompt-row').length>=12){showToast('每个场景最多12轮。');return;}appendStandardTestPrompt(card,'');});
+        card.appendChild(add);host.appendChild(card);
+    });
+}
+function collectStandardTestScenarios(selectedOnly){
+    return Array.prototype.reduce.call(byId('testList').querySelectorAll('.test-item'),function(result,card){
+        var selected=card.querySelector('.test-selector').checked;
+        if(selectedOnly&&!selected){return result;}
+        var prompts=Array.prototype.map.call(card.querySelectorAll('.test-prompt'),function(item){return item.value.trim();});
+        result.push({id:card.dataset.id,prompts:prompts});return result;
+    },[]);
+}
+function runStandardTests(){
+    var scenarios=collectStandardTestScenarios(true);
+    if(!scenarios.length){showToast('请至少选择一个测试场景。');return;}
+    if(scenarios.some(function(item){return item.prompts.some(function(prompt){return !prompt;});})){showToast('测试语句不能为空。');return;}
+    closeStandardTests();
+    post('runStandardTests',{scenarios:scenarios,separateConversations:byId('separateTestConversations').checked});
+}
+function saveStandardTestPrompts(){
+    var scenarios=collectStandardTestScenarios(false);
+    if(scenarios.some(function(item){return item.prompts.some(function(prompt){return !prompt;});})){showToast('测试语句不能为空。');return;}
+    post('saveStandardTestPrompts',{scenarios:scenarios});
+}
+function resetStandardTestPrompts(){if(window.confirm('确定恢复全部内置测试语句吗？已保存的自定义语句将被覆盖。')){post('resetStandardTestPrompts');}}
 function showToast(text){var t=byId('toast');t.textContent=text;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(function(){t.classList.remove('show');},3200);}
 function copyMessage(button){
     var msg=button.closest('.msg');
@@ -994,6 +1045,8 @@ document.addEventListener('DOMContentLoaded',function(){
     byId('modelServiceOverlay').addEventListener('click',function(e){if(e.target===this){closeModelServices();}});
     byId('closeTests').addEventListener('click',closeStandardTests);
     byId('cancelTests').addEventListener('click',closeStandardTests);
+    byId('saveTestPrompts').addEventListener('click',saveStandardTestPrompts);
+    byId('resetTestPrompts').addEventListener('click',resetStandardTestPrompts);
     byId('runTests').addEventListener('click',runStandardTests);
     byId('testOverlay').addEventListener('click',function(e){if(e.target===this){closeStandardTests();}});
     post('ready');
@@ -1026,10 +1079,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   <footer class=""composer-wrap""><div id=""composer"" class=""composer""><div id=""attachmentList"" class=""attachment-list"" aria-label=""待发送文件""></div><textarea id=""promptInput"" class=""prompt-input"" placeholder=""要求后续变更""></textarea><button id=""attachButton"" class=""attach-button"" type=""button"" title=""添加文件"" aria-label=""添加文件"">+</button><button id=""sendButton"" class=""send-button"" title=""发送"" aria-label=""发送""><span class=""circle""><svg class=""arrow-icon"" viewBox=""0 0 24 24""><path d=""M12 5 5.5 11.5l1.6 1.6 3.8-3.8V20h2.2V9.3l3.8 3.8 1.6-1.6L12 5Z""/></svg><span class=""stop-icon""></span></span></button></div></footer>
 </div>
 <div class=""modal-backdrop"" id=""testOverlay"">
-  <section class=""config-modal"" style=""width:min(680px,96vw)"">
-    <div class=""modal-head""><div><div class=""modal-title"">标准测试</div><div class=""modal-desc"">选择场景后将按真实聊天链路逐轮发送，仍遵守当前权限与预演确认。</div></div><button class=""icon-button"" id=""closeTests"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
+  <section class=""config-modal"" style=""width:min(820px,96vw)"">
+    <div class=""modal-head""><div><div class=""modal-title"">标准测试</div><div class=""modal-desc"">选择场景并直接编辑每轮用户语句；夹具和验收规则仍使用该标准场景的定义。</div></div><button class=""icon-button"" id=""closeTests"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
     <div class=""modal-body scrollable""><div class=""test-list"" id=""testList""></div><div class=""test-options""><label><input type=""checkbox"" id=""separateTestConversations"" checked> 每个场景使用独立新对话</label>这些测试可能创建或修改流程配置。未开启自动批准时，仍需人工确认每次预演。</div></div>
-    <div class=""modal-foot""><div></div><div class=""foot-right""><button class=""text-button"" id=""cancelTests"">取消</button><button class=""primary-button"" id=""runTests"">开始测试</button></div></div>
+    <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""resetTestPrompts"">恢复默认语句</button><button class=""text-button"" id=""saveTestPrompts"">保存语句</button></div><div class=""foot-right""><button class=""text-button"" id=""cancelTests"">取消</button><button class=""primary-button"" id=""runTests"">开始测试</button></div></div>
   </section>
 </div>
 <div class=""modal-backdrop"" id=""configOverlay"">

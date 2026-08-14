@@ -12,6 +12,46 @@ namespace Automation.McpServer
     [McpServerToolType]
     public static class AutomationMcpTools
     {
+        [McpServerTool(Name = "request_capability"), Description(
+            "提交当前时刻的一个动态调度决定。该工具只回显并记录决定，不读取平台、不修改配置、不运行流程。action=run_stage时只申请下一步一个能力包；工作阶段返回事实后再重新决定。action=finish结束任务；action=ask_user等待用户补充。不能自行扩展用户的副作用授权。")]
+        public static string RequestCapability(
+            [Description("单步决定。run_stage填写capability/objective；仅运行控制、平台配置和源码修改还必须在authorizationQuote逐字引用当前用户消息中的授权片段。finish或ask_user只填写message。第一条成功决定会被执行器锁定，调用后立即结束本轮")]
+            TaskCapabilityDecisionDefinition decision)
+        {
+            if (decision == null) throw new ArgumentNullException(nameof(decision));
+            string result = JsonSerializer.Serialize(new
+            {
+                ok = true,
+                type = "task_decision.submit",
+                data = decision
+            });
+            ToolCallLogger.Log(nameof(RequestCapability), new { decision }, result);
+            return result;
+        }
+
+        [McpServerTool(Name = "search_platform_source"), Description(
+            "在 Automation 平台源码根目录内执行只读字面量检索。路径会被限制在平台源码根目录，跳过bin/obj/.git等生成或管理目录，不执行Shell、不接受正则表达式。用于源码审查和修改前定位；返回相对路径、行号、匹配行和截断标志。")]
+        public static string SearchPlatformSource(
+            [Description("必填字面量，忽略大小写；长度1..200，不是正则表达式")] string query,
+            [Description("相对平台源码根目录的可选子目录；空字符串表示全仓库，不能使用..越界")] string relativeDirectory = "",
+            [Description("只搜索一种受支持扩展名，例如.cs或.md")] string fileExtension = ".cs",
+            [Description("最多返回匹配行数，范围1..100")] int maxResults = 50)
+        {
+            string result = PlatformSourceSearchCatalog.Search(
+                query,
+                relativeDirectory,
+                fileExtension,
+                maxResults);
+            ToolCallLogger.Log(nameof(SearchPlatformSource), new
+            {
+                query,
+                relativeDirectory,
+                fileExtension,
+                maxResults
+            }, result);
+            return result;
+        }
+
         [McpServerTool(Name = "get_native_operation_schemas"), Description(
             "按精确原生operaType批量读取递归字段契约，供operation.kind=native.operation使用。返回common公共契约与各类型差量，合并后填写。")]
         public static async Task<string> GetOperationSchemas(
@@ -21,6 +61,69 @@ namespace Automation.McpServer
                 toolName: nameof(GetOperationSchemas),
                 args: new { operaTypes },
                 action: client => client.GetNativeOperationContractsAsync(operaTypes)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_native_operation_field_contract"), Description(
+            "按一个精确原生operaType读取少量顶层字段的可写契约。既有同类型指令做operation.update时优先使用本工具，"
+            + "避免读取整类原生契约或UI Schema；返回字段JSON形状、引用类型和对应运行规则。改变指令类型或需要完整递归结构时再使用get_native_operation_schemas。")]
+        public static async Task<string> GetNativeOperationFieldContract(
+            [Description("现有指令的精确原生类型，例如逻辑判断、修改变量")] string operaType,
+            [Description("1..12个区分大小写的顶层可写字段名，例如FalseGoto")] string[] fieldNames)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetNativeOperationFieldContract),
+                args: new { operaType, fieldNames },
+                action: async client =>
+                {
+                    string normalizedType = (operaType ?? string.Empty).Trim();
+                    if (normalizedType.Length == 0)
+                        throw new ArgumentException("operaType 不能为空。", nameof(operaType));
+                    string[] normalizedFields = (fieldNames ?? Array.Empty<string>())
+                        .Select(value => (value ?? string.Empty).Trim())
+                        .Where(value => value.Length > 0)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    if (normalizedFields.Length < 1 || normalizedFields.Length > 12)
+                        throw new ArgumentException("fieldNames 必须包含1..12个非空唯一字段。", nameof(fieldNames));
+                    string raw = await client.GetNativeOperationContractsAsync(new[] { normalizedType })
+                        .ConfigureAwait(false);
+                    JsonObject root = ParseBridgeResponse(raw);
+                    EnsureBridgeSuccess(root);
+                    JsonObject data = root["data"] as JsonObject
+                        ?? throw new InvalidOperationException("原生指令契约缺少data。");
+                    JsonObject common = data["common"] as JsonObject ?? new JsonObject();
+                    JsonObject contract = data["contracts"]?[normalizedType] as JsonObject
+                        ?? throw new ArgumentException($"未找到原生指令契约：{normalizedType}。", nameof(operaType));
+                    JsonObject commonFields = common["fields"] as JsonObject ?? new JsonObject();
+                    JsonObject typeFields = contract["fields"] as JsonObject ?? new JsonObject();
+                    JsonObject commonRules = common["behavior"]?["fieldRules"] as JsonObject ?? new JsonObject();
+                    JsonObject typeRules = contract["behavior"]?["fieldRules"] as JsonObject ?? new JsonObject();
+                    var selectedFields = new JsonObject();
+                    var selectedRules = new JsonObject();
+                    foreach (string fieldName in normalizedFields)
+                    {
+                        JsonNode? field = typeFields[fieldName] ?? commonFields[fieldName];
+                        if (field == null)
+                            throw new ArgumentException(
+                                $"原生指令[{normalizedType}]没有顶层可写字段：{fieldName}。", nameof(fieldNames));
+                        selectedFields[fieldName] = field.DeepClone();
+                        JsonNode? rule = typeRules[fieldName] ?? commonRules[fieldName];
+                        if (rule != null) selectedRules[fieldName] = rule.DeepClone();
+                    }
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "change_set.native_field_contract",
+                        ["data"] = new JsonObject
+                        {
+                            ["operaType"] = normalizedType,
+                            ["writeKind"] = "native.operation",
+                            ["updateSemantics"] = "operation.update fields是同类型顶层局部补丁",
+                            ["fields"] = selectedFields,
+                            ["fieldRules"] = selectedRules
+                        }
+                    });
+                }).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_semantic_operation_schema"), Description(
@@ -40,22 +143,22 @@ namespace Automation.McpServer
             [Description("当前完整原子阶段；actions与variables整体预演。阶段依赖的新变量也在variables中提交")] AtomicChangeSetDefinition changeSet,
             [Description("仅用于修正尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null)
         {
-            if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
-            if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
-                throw new ArgumentException("changeSet 至少包含一个动作或变量声明。", nameof(changeSet));
-            var compiledInput = new AiChangeSet
-            {
-                Version = 2,
-                Title = changeSet.Title,
-                Actions = changeSet.Actions,
-                Variables = changeSet.Variables
-            };
-            string validationError = AiChangeSetCatalog.Validate(compiledInput);
             return await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
                 args: new { changeSet, replacePreviewId },
                 action: client =>
                 {
+                    if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
+                    if ((changeSet.Actions?.Count ?? 0) == 0 && (changeSet.Variables?.Count ?? 0) == 0)
+                        throw new ArgumentException("changeSet 至少包含一个动作或变量声明。", nameof(changeSet));
+                    var compiledInput = new AiChangeSet
+                    {
+                        Version = 2,
+                        Title = changeSet.Title,
+                        Actions = changeSet.Actions,
+                        Variables = changeSet.Variables
+                    };
+                    string validationError = AiChangeSetCatalog.Validate(compiledInput);
                     if (validationError != null)
                         throw new ArgumentException(validationError, nameof(changeSet));
                     return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
@@ -63,18 +166,21 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_process_blueprint"), Description(
-            "预演一个完整的新流程蓝图。按顺序填写流程、变量、步骤和语义指令；工具会确定性编译为单个ChangeSet V2原子阶段。未知动作或资源必须保留为config.placeholder并保持incomplete。返回结果仍使用同一previewId，经前台确认后调用apply_change_set提交。")]
+            "预演新流程的当前创建阶段。简单流程可一次填写完整实现；复杂流程先填写步骤与config.placeholder功能块，形成autoStart=false且incomplete的安全骨架，提交后切到ProcessEdit按稳定ID分阶段补齐。工具只把本次蓝图确定性编译为一个ChangeSet V2原子阶段；返回previewId经前台确认后调用apply_change_set提交。")]
         public static async Task<string> PreviewProcessBlueprint(
-            [Description("单个完整新流程的声明式蓝图；不需要手工展开process.create/step.append/operation.append动作")]
+            [Description("单个新流程当前创建阶段的声明式蓝图；可为完整简单流程或复杂流程安全骨架，不需要手工展开process.create/step.append/operation.append动作")]
             ProcessBlueprintDefinition blueprint,
             [Description("仅用于修正尚未apply的活动蓝图预演；新蓝图完整替代旧阶段")]
             string? replacePreviewId = null)
         {
-            AiChangeSet compiledInput = ProcessBlueprintCompiler.Compile(blueprint);
             return await ExecuteAsync(
                 toolName: nameof(PreviewProcessBlueprint),
                 args: new { blueprint, replacePreviewId },
-                action: client => client.PreviewChangeSetAsync(compiledInput, replacePreviewId))
+                action: client =>
+                {
+                    AiChangeSet compiledInput = ProcessBlueprintCompiler.Compile(blueprint);
+                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
+                })
                 .ConfigureAwait(false);
         }
 
@@ -149,6 +255,60 @@ namespace Automation.McpServer
                 toolName: nameof(SearchProcCatalog),
                 args: new { keyword, offset, limit, includeStepSummary },
                 action: client => client.SearchProcCatalogAsync(keyword, offset, limit, includeStepSummary)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "resolve_proc_target"), Description(
+            "用1..6个普通文本线索一次定位流程，按每个线索查询后去重返回候选。"
+            + "适合用户名称与项目名称不完全一致时使用；不接受空字符串或*，不读取指令详情。")]
+        public static async Task<string> ResolveProcTarget(
+            [Description("流程名称、编号或简称线索，1..6项；按任一线索匹配")] string[] keywords,
+            [Description("每个线索最多返回1..20项，默认10")] int? limitPerKeyword = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ResolveProcTarget),
+                args: new { keywords, limitPerKeyword },
+                action: async client =>
+                {
+                    string[] normalizedKeywords = NormalizeDiscoveryKeywords(keywords, "keywords");
+                    int limit = limitPerKeyword ?? 10;
+                    if (limit < 1 || limit > 20)
+                        throw new ArgumentException(
+                            "limitPerKeyword 必须在1..20范围内。", nameof(limitPerKeyword));
+                    var queries = new JsonArray();
+                    var candidates = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+                    foreach (string keyword in normalizedKeywords)
+                    {
+                        JsonObject response = ParseBridgeResponse(await client.SearchProcCatalogAsync(
+                            keyword, 0, limit, false).ConfigureAwait(false));
+                        EnsureBridgeSuccess(response);
+                        JsonObject data = response["data"] as JsonObject ?? new JsonObject();
+                        JsonArray items = data["items"] as JsonArray ?? new JsonArray();
+                        queries.Add(new JsonObject
+                        {
+                            ["keyword"] = keyword,
+                            ["total"] = data["total"]?.DeepClone(),
+                            ["returned"] = items.Count
+                        });
+                        foreach (JsonObject item in items.OfType<JsonObject>())
+                        {
+                            string key = item["procId"]?.GetValue<string>()
+                                ?? "index:" + (item["procIndex"]?.ToJsonString() ?? string.Empty);
+                            candidates[key] = (JsonObject)item.DeepClone();
+                        }
+                    }
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "proc.resolve",
+                        ["data"] = new JsonObject
+                        {
+                            ["queryMode"] = "any_keyword_contains",
+                            ["queries"] = queries,
+                            ["matchedCount"] = candidates.Count,
+                            ["items"] = ToJsonArray(candidates.Values)
+                        }
+                    });
+                }).ConfigureAwait(false);
         }
 
         [McpServerTool(Name = "get_proc_overview"), Description(
@@ -518,7 +678,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_operation_guide"), Description(
-            "按精确原生operaType读取同一行为契约源。coverage=specialized时返回已建模的运行行为、字段联动和失败条件；coverage=unknown时不提供控制流结论。语义kind的行为由语义Schema返回。")]
+            "按精确原生operaType读取同一行为契约源。coverage=specialized时返回已建模的运行行为、字段联动和失败条件；coverage=unknown时不提供控制流结论。语义kind的行为由语义Schema返回；固定业务报警直接使用alarm.raise，不要把中文意图“报警”猜成原生operaType。")]
         public static async Task<string> GetOperationGuide(
             [Description("精确指令类型，例如IO检测、逻辑判断、工站运行")] string operaType)
         {
@@ -1020,6 +1180,210 @@ namespace Automation.McpServer
                 action: client => client.ListAlarmsAsync(includeEmpty, categoryLike, nameLike, offset, limit)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "discover_project_resources"), Description(
+            "批量发现流程设计或修改所需的项目资源。一次接受多个类别和多个名称线索，按查询分组返回去重候选与明确的0命中；"
+            + "每组返回resolutionStatus和bindingAllowed；只有exact可作为已确认绑定，candidate/ambiguous只是候选，必须占位或询问用户。"
+            + "避免分别用search_proc_catalog/search_io/search_alarms反复试词。空字符串和*不代表全量，必须提供真实线索。")]
+        public static async Task<string> DiscoverProjectResources(
+            [Description("1..12组资源查询；kind支持process/io/variable/station/point/data_struct/alarm/communication/plc")]
+            ProjectResourceDiscoveryQuery[] queries,
+            [Description("每组最多返回1..20项，默认10")]
+            int? limitPerQuery = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(DiscoverProjectResources),
+                args: new { queries, limitPerQuery },
+                action: async client =>
+                {
+                    if (queries == null || queries.Length < 1 || queries.Length > 12)
+                        throw new ArgumentException("queries 必须包含1..12组资源查询。", nameof(queries));
+                    int limit = limitPerQuery ?? 10;
+                    if (limit < 1 || limit > 20)
+                        throw new ArgumentException("limitPerQuery 必须在1..20范围内。", nameof(limitPerQuery));
+                    ProjectResourceDiscoveryQuery[] normalized = queries
+                        .Select((query, index) => NormalizeDiscoveryQuery(query, index))
+                        .ToArray();
+                    if (normalized.Sum(query => query.Keywords.Count) > 24)
+                        throw new ArgumentException("queries 的关键词总数不能超过24。", nameof(queries));
+                    var results = new JsonArray();
+                    foreach (ProjectResourceDiscoveryQuery query in normalized)
+                    {
+                        JsonArray items = await DiscoverResourceItemsAsync(client, query, limit)
+                            .ConfigureAwait(false);
+                        JsonObject resolution = BuildDiscoveryResolution(query, items);
+                        results.Add(new JsonObject
+                        {
+                            ["kind"] = query.Kind,
+                            ["keywords"] = new JsonArray(query.Keywords
+                                .Select(keyword => JsonValue.Create(keyword))
+                                .ToArray()),
+                            ["ioType"] = string.IsNullOrWhiteSpace(query.IoType) ? null : query.IoType,
+                            ["stationIndex"] = query.StationIndex,
+                            ["queryMode"] = "any_keyword_contains",
+                            ["matchedCount"] = items.Count,
+                            ["resolutionStatus"] = resolution["status"]?.DeepClone(),
+                            ["bindingAllowed"] = resolution["bindingAllowed"]?.DeepClone(),
+                            ["exactMatchNames"] = resolution["exactMatchNames"]?.DeepClone(),
+                            ["resolutionNote"] = resolution["note"]?.DeepClone(),
+                            ["items"] = items
+                        });
+                    }
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "project.resource.discovery",
+                        ["data"] = new JsonObject
+                        {
+                            ["queryCount"] = results.Count,
+                            ["results"] = results
+                        }
+                    });
+                }).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "resolve_authoring_inputs"), Description(
+            "按当前功能块的用途批量解析流程写入输入。每个requirement只表示一个资源绑定，names是该资源的精确名称或别名；"
+            + "返回唯一精确命中、变量类型/作用域兼容性、bindingAllowed以及可直接用于后续蓝图的事实。"
+            + "聚合结果已包含详情时不要再逐项读取；不兼容、模糊或缺失项应声明新变量、保留config.placeholder或询问用户。")]
+        public static async Task<string> ResolveAuthoringInputs(
+            [Description("1..20个独立绑定意图；每项key唯一，kind支持process/io/variable/station/point/data_struct/alarm/communication/plc")]
+            AuthoringInputRequirement[] requirements,
+            [Description("每项最多返回1..10个候选，默认5")]
+            int? limitPerRequirement = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ResolveAuthoringInputs),
+                args: new { requirements, limitPerRequirement },
+                action: async client =>
+                {
+                    if (requirements == null || requirements.Length < 1 || requirements.Length > 20)
+                        throw new ArgumentException("requirements 必须包含1..20个绑定意图。", nameof(requirements));
+                    int limit = limitPerRequirement ?? 5;
+                    if (limit < 1 || limit > 10)
+                        throw new ArgumentException("limitPerRequirement 必须在1..10范围内。", nameof(limitPerRequirement));
+                    AuthoringInputRequirement[] normalized = requirements
+                        .Select((requirement, index) => NormalizeAuthoringInputRequirement(requirement, index))
+                        .ToArray();
+                    string[] duplicatedKeys = normalized
+                        .GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                        .Where(group => group.Count() > 1)
+                        .Select(group => group.Key)
+                        .ToArray();
+                    if (duplicatedKeys.Length > 0)
+                        throw new ArgumentException(
+                            "requirements.key 必须唯一，重复：" + string.Join("、", duplicatedKeys) + "。",
+                            nameof(requirements));
+                    if (normalized.Sum(item => item.Names.Count) > 40)
+                        throw new ArgumentException("requirements 的名称或别名总数不能超过40。", nameof(requirements));
+
+                    var results = new JsonArray();
+                    foreach (AuthoringInputRequirement requirement in normalized)
+                    {
+                        var query = new ProjectResourceDiscoveryQuery
+                        {
+                            Kind = requirement.Kind,
+                            Keywords = requirement.Names,
+                            IoType = requirement.IoType,
+                            StationIndex = requirement.StationIndex
+                        };
+                        JsonArray items = await DiscoverResourceItemsAsync(client, query, limit)
+                            .ConfigureAwait(false);
+                        JsonObject resolution = BuildDiscoveryResolution(query, items);
+                        JsonObject compatibility = BuildAuthoringInputCompatibility(requirement, items, resolution);
+                        results.Add(new JsonObject
+                        {
+                            ["key"] = requirement.Key,
+                            ["kind"] = requirement.Kind,
+                            ["purpose"] = requirement.Purpose,
+                            ["names"] = new JsonArray(requirement.Names
+                                .Select(name => JsonValue.Create(name)).ToArray()),
+                            ["requiredType"] = NullIfEmpty(requirement.RequiredType),
+                            ["requiredScope"] = NullIfEmpty(requirement.RequiredScope),
+                            ["ownerProcId"] = NullIfEmpty(requirement.OwnerProcId),
+                            ["stationIndex"] = requirement.StationIndex,
+                            ["resolutionStatus"] = resolution["status"]?.DeepClone(),
+                            ["compatibilityStatus"] = compatibility["status"]?.DeepClone(),
+                            ["bindingAllowed"] = compatibility["bindingAllowed"]?.DeepClone(),
+                            ["selected"] = compatibility["selected"]?.DeepClone(),
+                            ["note"] = compatibility["note"]?.DeepClone(),
+                            ["candidates"] = items
+                        });
+                    }
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "project.authoring_inputs",
+                        ["data"] = new JsonObject
+                        {
+                            ["requirementCount"] = results.Count,
+                            ["results"] = results,
+                            ["nextStep"] = "仅对bindingAllowed=false且会改变业务行为的未决项继续取证；其余结果可直接进入当前功能块预演。"
+                        }
+                    });
+                }).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "resolve_operation_capability"), Description(
+            "把自然语言业务动作解析为平台真实可用的语义kind与已注册原生operaType候选。"
+            + "调用方不应把业务描述直接传给get_operation_schema；先使用本工具，再按返回的nextContractTool读取确有需要的精确字段契约。")]
+        public static async Task<string> ResolveOperationCapability(
+            [Description("1..12个独立业务动作意图，每项key唯一")]
+            OperationCapabilityIntent[] intents)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(ResolveOperationCapability),
+                args: new { intents },
+                action: async client =>
+                {
+                    OperationCapabilityIntent[] normalized = NormalizeOperationCapabilityIntents(intents);
+                    JsonObject response = ParseBridgeResponse(
+                        await client.OpMetaAsync("list_types", new JsonObject()).ConfigureAwait(false));
+                    EnsureBridgeSuccess(response);
+                    JsonArray registered = response["data"]?["items"] as JsonArray ?? new JsonArray();
+                    var results = new JsonArray();
+                    foreach (OperationCapabilityIntent intent in normalized)
+                    {
+                        string[] semanticCandidates = ResolveSemanticCandidates(intent.Intent);
+                        JsonArray nativeCandidates = semanticCandidates.Length > 0
+                            ? new JsonArray()
+                            : RankNativeOperationCandidates(registered, intent.Intent);
+                        bool exact = semanticCandidates.Length == 1 && nativeCandidates.Count == 0
+                            || semanticCandidates.Length == 0 && nativeCandidates.Count == 1;
+                        bool resolved = semanticCandidates.Length > 0 || nativeCandidates.Count > 0;
+                        results.Add(new JsonObject
+                        {
+                            ["key"] = intent.Key,
+                            ["intent"] = intent.Intent,
+                            ["semanticCandidates"] = new JsonArray(semanticCandidates
+                                .Select(value => JsonValue.Create(value)).ToArray()),
+                            ["nativeCandidates"] = nativeCandidates,
+                            ["resolutionStatus"] = exact ? "exact" : resolved ? "candidate" : "missing",
+                            ["contractReadAllowed"] = exact,
+                            ["recommendedFallback"] = resolved ? null : "config.placeholder",
+                            ["nextContractTool"] = semanticCandidates.Length == 1
+                                ? "get_semantic_operation_schema"
+                                : nativeCandidates.Count == 1
+                                    ? "get_native_operation_schemas"
+                                    : null
+                        });
+                    }
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "operation.capability_resolution",
+                        ["data"] = new JsonObject
+                        {
+                            ["results"] = results,
+                            ["supportedSemanticKinds"] = new JsonArray(
+                                SemanticOperationKinds.SupportedKinds.Split('、')
+                                    .Select(value => JsonValue.Create(value)).ToArray()),
+                            ["registeredNativeTypes"] = registered.DeepClone(),
+                            ["rule"] = "只有返回的精确kind或operaType可以进入契约读取；没有候选时使用config.placeholder，不猜测类型名。"
+                        }
+                    });
+                }).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "get_alarm"), Description(
             "读取单个报警信息详情。返回 index/name/category/btn1/btn2/btn3/note 字段。"
             + "用于查看指定槽位的报警配置。")]
@@ -1065,6 +1429,480 @@ namespace Automation.McpServer
                 action: client => client.DeleteAlarmAsync(index)).ConfigureAwait(false);
         }
 
+        private static ProjectResourceDiscoveryQuery NormalizeDiscoveryQuery(
+            ProjectResourceDiscoveryQuery query,
+            int index)
+        {
+            if (query == null)
+                throw new ArgumentException($"queries[{index}] 不能为空。", nameof(query));
+            string kind = (query.Kind ?? string.Empty).Trim();
+            if (!ProjectResourceDiscoveryKinds.SupportedKinds.Split('、')
+                .Contains(kind, StringComparer.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"queries[{index}].kind 不支持：{kind}。", nameof(query));
+            }
+            string[] keywords = NormalizeDiscoveryKeywords(
+                query.Keywords?.ToArray(), $"queries[{index}].keywords");
+            string? ioType = string.IsNullOrWhiteSpace(query.IoType) ? null : query.IoType.Trim();
+            if (!string.Equals(kind, "io", StringComparison.Ordinal) && ioType != null)
+                throw new ArgumentException($"queries[{index}].ioType 只用于kind=io。", nameof(query));
+            if (ioType != null
+                && !string.Equals(ioType, "通用输入", StringComparison.Ordinal)
+                && !string.Equals(ioType, "通用输出", StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"queries[{index}].ioType 只能是通用输入或通用输出。", nameof(query));
+            }
+            int? stationIndex = query.StationIndex;
+            if (string.Equals(kind, "point", StringComparison.Ordinal))
+            {
+                if (!stationIndex.HasValue || stationIndex.Value < 0)
+                    throw new ArgumentException($"queries[{index}].stationIndex 在kind=point时必须是非负整数。", nameof(query));
+            }
+            else if (stationIndex.HasValue)
+            {
+                throw new ArgumentException($"queries[{index}].stationIndex 只用于kind=point。", nameof(query));
+            }
+            return new ProjectResourceDiscoveryQuery
+            {
+                Kind = kind,
+                Keywords = keywords.ToList(),
+                IoType = ioType,
+                StationIndex = stationIndex
+            };
+        }
+
+        private static AuthoringInputRequirement NormalizeAuthoringInputRequirement(
+            AuthoringInputRequirement requirement,
+            int index)
+        {
+            if (requirement == null)
+                throw new ArgumentException($"requirements[{index}] 不能为空。", nameof(requirement));
+            string key = (requirement.Key ?? string.Empty).Trim();
+            if (key.Length < 1 || key.Length > 80)
+                throw new ArgumentException($"requirements[{index}].key 长度必须为1..80。", nameof(requirement));
+            string kind = (requirement.Kind ?? string.Empty).Trim();
+            if (!ProjectResourceDiscoveryKinds.SupportedKinds.Split('、')
+                .Contains(kind, StringComparer.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"requirements[{index}].kind 不支持：{kind}。", nameof(requirement));
+            }
+            string[] names = NormalizeDiscoveryKeywords(
+                requirement.Names?.ToArray(), $"requirements[{index}].names");
+            if (names.Length > 4)
+                throw new ArgumentException($"requirements[{index}].names 最多4项。", nameof(requirement));
+            string purpose = (requirement.Purpose ?? string.Empty).Trim();
+            if (purpose.Length < 1 || purpose.Length > 200)
+                throw new ArgumentException($"requirements[{index}].purpose 长度必须为1..200。", nameof(requirement));
+            string? ioType = NullIfWhiteSpace(requirement.IoType);
+            string? requiredType = NullIfWhiteSpace(requirement.RequiredType);
+            string? requiredScope = NullIfWhiteSpace(requirement.RequiredScope);
+            string? ownerProcId = NullIfWhiteSpace(requirement.OwnerProcId);
+            int? stationIndex = requirement.StationIndex;
+            if (!string.Equals(kind, "io", StringComparison.Ordinal) && ioType != null)
+                throw new ArgumentException($"requirements[{index}].ioType 只用于kind=io。", nameof(requirement));
+            if (ioType != null && ioType != "通用输入" && ioType != "通用输出")
+                throw new ArgumentException($"requirements[{index}].ioType 只能是通用输入或通用输出。", nameof(requirement));
+            if (!string.Equals(kind, "variable", StringComparison.Ordinal)
+                && (requiredType != null || requiredScope != null || ownerProcId != null))
+            {
+                throw new ArgumentException(
+                    $"requirements[{index}] 的requiredType/requiredScope/ownerProcId只用于kind=variable。",
+                    nameof(requirement));
+            }
+            if (requiredType != null && !VariableChangeContract.IsValidType(requiredType))
+                throw new ArgumentException($"requirements[{index}].requiredType 只能是double或string。", nameof(requirement));
+            if (requiredScope != null && !VariableScopeContract.IsValid(requiredScope))
+                throw new ArgumentException(
+                    $"requirements[{index}].requiredScope 只能是{VariableScopeContract.SupportedScopes}。",
+                    nameof(requirement));
+            if (ownerProcId != null && !Guid.TryParse(ownerProcId, out _))
+                throw new ArgumentException($"requirements[{index}].ownerProcId 必须是GUID。", nameof(requirement));
+            if (ownerProcId != null && requiredScope != VariableScopeContract.Process)
+                throw new ArgumentException(
+                    $"requirements[{index}].ownerProcId 只在requiredScope=process时使用。",
+                    nameof(requirement));
+            if (string.Equals(kind, "point", StringComparison.Ordinal))
+            {
+                if (!stationIndex.HasValue || stationIndex.Value < 0)
+                    throw new ArgumentException(
+                        $"requirements[{index}].stationIndex 在kind=point时必须是非负整数。",
+                        nameof(requirement));
+            }
+            else if (stationIndex.HasValue)
+            {
+                throw new ArgumentException(
+                    $"requirements[{index}].stationIndex 只用于kind=point。",
+                    nameof(requirement));
+            }
+            return new AuthoringInputRequirement
+            {
+                Key = key,
+                Kind = kind,
+                Names = names.ToList(),
+                Purpose = purpose,
+                IoType = ioType,
+                RequiredType = requiredType,
+                RequiredScope = requiredScope,
+                OwnerProcId = ownerProcId,
+                StationIndex = stationIndex
+            };
+        }
+
+        private static JsonObject BuildAuthoringInputCompatibility(
+            AuthoringInputRequirement requirement,
+            JsonArray items,
+            JsonObject resolution)
+        {
+            string resolutionStatus = resolution["status"]?.GetValue<string>()
+                ?? ProjectResourceResolutionStatuses.Missing;
+            JsonObject? selected = items.OfType<JsonObject>()
+                .FirstOrDefault(item => requirement.Names.Any(name => string.Equals(
+                    item["name"]?.GetValue<string>(), name, StringComparison.OrdinalIgnoreCase)));
+            if (!string.Equals(
+                    resolutionStatus, ProjectResourceResolutionStatuses.Exact, StringComparison.Ordinal)
+                || selected == null)
+            {
+                return new JsonObject
+                {
+                    ["status"] = "unresolved",
+                    ["bindingAllowed"] = false,
+                    ["selected"] = null,
+                    ["note"] = resolution["note"]?.DeepClone()
+                };
+            }
+
+            var mismatches = new List<string>();
+            if (string.Equals(requirement.Kind, "variable", StringComparison.Ordinal))
+            {
+                string actualType = selected["type"]?.GetValue<string>() ?? string.Empty;
+                string actualScope = selected["scope"]?.GetValue<string>() ?? string.Empty;
+                string actualOwner = selected["ownerProcId"]?.GetValue<string>() ?? string.Empty;
+                if (!string.IsNullOrEmpty(requirement.RequiredType)
+                    && !string.Equals(requirement.RequiredType, actualType, StringComparison.OrdinalIgnoreCase))
+                {
+                    mismatches.Add($"type要求{requirement.RequiredType}，实际{actualType}");
+                }
+                if (!string.IsNullOrEmpty(requirement.RequiredScope)
+                    && !string.Equals(requirement.RequiredScope, actualScope, StringComparison.Ordinal))
+                {
+                    mismatches.Add($"scope要求{requirement.RequiredScope}，实际{actualScope}");
+                }
+                if (!string.IsNullOrEmpty(requirement.OwnerProcId)
+                    && !string.Equals(requirement.OwnerProcId, actualOwner, StringComparison.OrdinalIgnoreCase))
+                {
+                    mismatches.Add($"ownerProcId要求{requirement.OwnerProcId}，实际{actualOwner}");
+                }
+            }
+            bool compatible = mismatches.Count == 0;
+            return new JsonObject
+            {
+                ["status"] = compatible ? "compatible" : "incompatible",
+                ["bindingAllowed"] = compatible,
+                ["selected"] = selected.DeepClone(),
+                ["note"] = compatible
+                    ? "唯一精确命中且满足当前用途约束，可直接绑定。"
+                    : "唯一精确命中但不兼容：" + string.Join("；", mismatches) + "。不得通过修改现有资源来迁就内部实现。"
+            };
+        }
+
+        private static OperationCapabilityIntent[] NormalizeOperationCapabilityIntents(
+            OperationCapabilityIntent[] intents)
+        {
+            if (intents == null || intents.Length < 1 || intents.Length > 12)
+                throw new ArgumentException("intents 必须包含1..12个业务动作意图。", nameof(intents));
+            OperationCapabilityIntent[] normalized = intents.Select((item, index) =>
+            {
+                string key = (item?.Key ?? string.Empty).Trim();
+                string intent = (item?.Intent ?? string.Empty).Trim();
+                if (key.Length < 1 || key.Length > 80)
+                    throw new ArgumentException($"intents[{index}].key 长度必须为1..80。", nameof(intents));
+                if (intent.Length < 1 || intent.Length > 200)
+                    throw new ArgumentException($"intents[{index}].intent 长度必须为1..200。", nameof(intents));
+                return new OperationCapabilityIntent { Key = key, Intent = intent };
+            }).ToArray();
+            string[] duplicates = normalized.GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1).Select(group => group.Key).ToArray();
+            if (duplicates.Length > 0)
+                throw new ArgumentException("intents.key 必须唯一，重复：" + string.Join("、", duplicates) + "。", nameof(intents));
+            return normalized;
+        }
+
+        private static string[] ResolveSemanticCandidates(string intent)
+        {
+            var candidates = new HashSet<string>(StringComparer.Ordinal);
+            AddCandidateWhenContains(candidates, intent, "清空", "variable.clear");
+            AddCandidateWhenContains(candidates, intent, "赋值|设置变量|写变量", "variable.set");
+            AddCandidateWhenContains(candidates, intent, "复制变量|拷贝变量", "variable.copy");
+            AddCandidateWhenContains(candidates, intent, "累加|计数", "variable.add");
+            AddCandidateWhenContains(candidates, intent, "计算|运算", "variable.compute");
+            AddCandidateWhenContains(candidates, intent, "延时|等待时间|节拍", "wait");
+            AddCandidateWhenContains(candidates, intent, "跳转|转到", "flow.goto");
+            AddCandidateWhenContains(candidates, intent, "结束流程|正常结束", "flow.end");
+            AddCandidateWhenContains(candidates, intent, "数值比较|次数判断|大于|小于|等于", "branch.number_compare");
+            AddCandidateWhenContains(candidates, intent, "数值范围|区间", "branch.number_range");
+            AddCandidateWhenContains(candidates, intent, "IO判断|输入判断|信号判断", "branch.io");
+            AddCandidateWhenContains(candidates, intent, "报警|故障提示", "alarm.raise");
+            AddCandidateWhenContains(candidates, intent, "弹框|普通提示", "popup.message");
+            AddCandidateWhenContains(candidates, intent, "写IO|输出信号|置位输出|复位输出", "io.write");
+            AddCandidateWhenContains(candidates, intent, "等待IO|等待输入|等待到位", "io.wait");
+            AddCandidateWhenContains(candidates, intent, "启动子流程|停止子流程|控制流程", "process.control");
+            AddCandidateWhenContains(candidates, intent, "等待子流程|等待流程", "process.wait");
+            return candidates.ToArray();
+        }
+
+        private static void AddCandidateWhenContains(
+            ISet<string> candidates,
+            string intent,
+            string aliases,
+            string kind)
+        {
+            if (aliases.Split('|').Any(alias => intent.IndexOf(alias, StringComparison.OrdinalIgnoreCase) >= 0))
+                candidates.Add(kind);
+        }
+
+        private static JsonArray RankNativeOperationCandidates(JsonArray registered, string intent)
+        {
+            string normalized = intent.Replace("操作", string.Empty).Replace("动作", string.Empty).Trim();
+            IEnumerable<JsonObject> candidates = registered.OfType<JsonObject>()
+                .Where(item =>
+                {
+                    string type = item["operaType"]?.GetValue<string>() ?? string.Empty;
+                    string name = item["name"]?.GetValue<string>() ?? string.Empty;
+                    return normalized.Length > 0
+                        && (type.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
+                            || name.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
+                            || intent.IndexOf(type, StringComparison.OrdinalIgnoreCase) >= 0
+                            || intent.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+                })
+                .Take(8);
+            return ToJsonArray(candidates);
+        }
+
+        private static string? NullIfWhiteSpace(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static JsonNode? NullIfEmpty(string? value)
+        {
+            return string.IsNullOrEmpty(value) ? null : JsonValue.Create(value);
+        }
+
+        private static string[] NormalizeDiscoveryKeywords(string[]? keywords, string path)
+        {
+            string[] normalized = (keywords ?? Array.Empty<string>())
+                .Select(item => (item ?? string.Empty).Trim())
+                .Where(item => item.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (normalized.Length < 1 || normalized.Length > 6)
+                throw new ArgumentException($"{path} 必须包含1..6个非空普通文本线索。", path);
+            if (normalized.Any(item => string.Equals(item, "*", StringComparison.Ordinal)))
+                throw new ArgumentException($"{path} 不接受*；需要全量目录时使用对应list工具。", path);
+            return normalized;
+        }
+
+        private static async Task<JsonArray> DiscoverResourceItemsAsync(
+            AutomationBridgeClient client,
+            ProjectResourceDiscoveryQuery query,
+            int limit)
+        {
+            var matches = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+            if (string.Equals(query.Kind, "station", StringComparison.Ordinal)
+                || string.Equals(query.Kind, "point", StringComparison.Ordinal)
+                || string.Equals(query.Kind, "data_struct", StringComparison.Ordinal))
+            {
+                string raw = string.Equals(query.Kind, "station", StringComparison.Ordinal)
+                    ? await client.ListStationsAsync().ConfigureAwait(false)
+                    : string.Equals(query.Kind, "point", StringComparison.Ordinal)
+                        ? await client.ListPointsAsync(query.StationIndex!.Value).ConfigureAwait(false)
+                        : await client.ListDataStructsAsync().ConfigureAwait(false);
+                JsonObject response = ParseBridgeResponse(raw);
+                EnsureBridgeSuccess(response);
+                JsonArray catalog = response["data"]?["items"] as JsonArray ?? new JsonArray();
+                foreach (JsonObject item in catalog.OfType<JsonObject>()
+                    .Where(item => MatchesAnyKeyword(item, query.Keywords)).Take(limit))
+                {
+                    JsonObject resolvedItem = item;
+                    string name = item["name"]?.GetValue<string>() ?? string.Empty;
+                    if (string.Equals(query.Kind, "data_struct", StringComparison.Ordinal)
+                        && query.Keywords.Any(keyword => string.Equals(
+                            keyword, name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        JsonObject detail = ParseBridgeResponse(
+                            await client.GetDataStructAsync(name).ConfigureAwait(false));
+                        EnsureBridgeSuccess(detail);
+                        resolvedItem = detail["data"] as JsonObject ?? item;
+                    }
+                    AddDiscoveryMatch(matches, resolvedItem, query.Kind);
+                }
+                return ToJsonArray(matches.Values);
+            }
+            if (string.Equals(query.Kind, "communication", StringComparison.Ordinal)
+                || string.Equals(query.Kind, "plc", StringComparison.Ordinal))
+            {
+                string action = string.Equals(query.Kind, "plc", StringComparison.Ordinal)
+                    ? "plc" : "communications";
+                JsonObject parameters = string.Equals(query.Kind, "plc", StringComparison.Ordinal)
+                    ? new JsonObject { ["includeMaps"] = false }
+                    : new JsonObject { ["includeStatus"] = false };
+                JsonObject response = ParseBridgeResponse(await client.ListResourcesAsync(action, parameters)
+                    .ConfigureAwait(false));
+                EnsureBridgeSuccess(response);
+                JsonObject data = response["data"] as JsonObject ?? new JsonObject();
+                IEnumerable<JsonObject> catalog = string.Equals(query.Kind, "plc", StringComparison.Ordinal)
+                    ? (data["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
+                    : (data["tcp"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
+                        .Concat((data["serial"] as JsonArray ?? new JsonArray()).OfType<JsonObject>());
+                foreach (JsonObject item in catalog.Where(item => MatchesAnyKeyword(item, query.Keywords)))
+                {
+                    AddDiscoveryMatch(matches, item, query.Kind);
+                    if (matches.Count >= limit) break;
+                }
+                return ToJsonArray(matches.Values);
+            }
+
+            foreach (string keyword in query.Keywords)
+            {
+                JsonObject response;
+                switch (query.Kind)
+                {
+                    case "process":
+                        response = ParseBridgeResponse(await client.SearchProcCatalogAsync(
+                            keyword, 0, limit, false).ConfigureAwait(false));
+                        break;
+                    case "io":
+                        response = ParseBridgeResponse(await client.SearchIoAsync(
+                            keyword, query.IoType, null, 0, limit).ConfigureAwait(false));
+                        break;
+                    case "variable":
+                        response = ParseBridgeResponse(await client.ListVariablesAsync(
+                            null, keyword, null, null, 0, limit).ConfigureAwait(false));
+                        break;
+                    case "alarm":
+                        response = ParseBridgeResponse(await client.ListAlarmsAsync(
+                            false, null, keyword, 0, limit).ConfigureAwait(false));
+                        break;
+                    default:
+                        throw new InvalidOperationException("未实现的资源发现类别：" + query.Kind);
+                }
+                EnsureBridgeSuccess(response);
+                JsonArray items = response["data"]?["items"] as JsonArray ?? new JsonArray();
+                foreach (JsonObject item in items.OfType<JsonObject>())
+                {
+                    AddDiscoveryMatch(matches, item, query.Kind);
+                    if (matches.Count >= limit) break;
+                }
+                if (matches.Count >= limit) break;
+            }
+            return ToJsonArray(matches.Values);
+        }
+
+        private static bool MatchesAnyKeyword(
+            JsonObject item,
+            IReadOnlyCollection<string> keywords)
+        {
+            string name = item?["name"]?.GetValue<string>() ?? string.Empty;
+            return keywords.Any(keyword =>
+                name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static JsonObject BuildDiscoveryResolution(
+            ProjectResourceDiscoveryQuery query,
+            JsonArray items)
+        {
+            string[] exactNames = (items ?? new JsonArray())
+                .OfType<JsonObject>()
+                .Select(item => item["name"]?.GetValue<string>() ?? string.Empty)
+                .Where(name => name.Length > 0 && query.Keywords.Any(keyword =>
+                    string.Equals(name, keyword, StringComparison.OrdinalIgnoreCase)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            int count = items?.Count ?? 0;
+            string status = count == 0
+                ? ProjectResourceResolutionStatuses.Missing
+                : exactNames.Length == 1
+                    ? ProjectResourceResolutionStatuses.Exact
+                    : count == 1
+                        ? ProjectResourceResolutionStatuses.Candidate
+                        : ProjectResourceResolutionStatuses.Ambiguous;
+            bool bindingAllowed = string.Equals(
+                status, ProjectResourceResolutionStatuses.Exact, StringComparison.Ordinal);
+            string note;
+            switch (status)
+            {
+                case ProjectResourceResolutionStatuses.Exact:
+                    note = "唯一精确名称命中，可按该精确名称绑定。";
+                    break;
+                case ProjectResourceResolutionStatuses.Missing:
+                    note = "没有命中资源；写入时保留可见占位，不能猜测。";
+                    break;
+                case ProjectResourceResolutionStatuses.Candidate:
+                    note = "仅有一个模糊候选，但不是精确名称证据；写入时保留可见占位或询问用户。";
+                    break;
+                default:
+                    note = "存在多个候选且没有唯一精确命中；不得自行选择，写入时保留可见占位或询问用户。";
+                    break;
+            }
+            return new JsonObject
+            {
+                ["status"] = status,
+                ["bindingAllowed"] = bindingAllowed,
+                ["exactMatchNames"] = new JsonArray(exactNames
+                    .Select(name => (JsonNode?)JsonValue.Create(name))
+                    .ToArray()),
+                ["note"] = note
+            };
+        }
+
+        private static void AddDiscoveryMatch(
+            IDictionary<string, JsonObject> matches,
+            JsonObject item,
+            string kind)
+        {
+            string key = item["procId"]?.GetValue<string>()
+                ?? item["name"]?.GetValue<string>()
+                ?? item["index"]?.ToJsonString()
+                ?? item["procIndex"]?.ToJsonString()
+                ?? Guid.NewGuid().ToString("N");
+            matches[kind + ":" + key] = (JsonObject)item.DeepClone();
+        }
+
+        private static JsonObject ParseBridgeResponse(string raw)
+        {
+            return JsonNode.Parse(raw ?? string.Empty) as JsonObject
+                ?? throw new InvalidOperationException("Bridge 返回的不是JSON对象。");
+        }
+
+        private static void EnsureBridgeSuccess(JsonObject response)
+        {
+            if (response?["ok"]?.GetValue<bool>() == true) return;
+            string code = response?["errorCode"]?.GetValue<string>() ?? "BRIDGE_ERROR";
+            string message = response?["message"]?.GetValue<string>() ?? "Bridge 查询失败。";
+            throw new ResourceDiscoveryBridgeException(
+                code + ": " + message,
+                response?.ToJsonString() ?? JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    type = "mcp.error",
+                    errorCode = code,
+                    message
+                }));
+        }
+
+        private static JsonArray ToJsonArray(IEnumerable<JsonObject> items)
+        {
+            var array = new JsonArray();
+            foreach (JsonObject item in items ?? Enumerable.Empty<JsonObject>())
+            {
+                array.Add(item?.DeepClone());
+            }
+            return array;
+        }
+
         private static async Task<string> ExecuteAsync(string toolName, object args,
             Func<AutomationBridgeClient, Task<string>> action)
         {
@@ -1080,14 +1918,64 @@ namespace Automation.McpServer
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                if (ex is ArgumentException)
+                if (ex is ToolContractValidationException validationError)
+                {
+                    string result = JsonSerializer.Serialize(new
+                    {
+                        ok = false,
+                        type = "mcp.error",
+                        errorCode = validationError.ErrorCode,
+                        message = validationError.Message,
+                        issues = validationError.Issues.Select(issue => new
+                        {
+                            path = issue.Path,
+                            rule = issue.Rule,
+                            message = issue.Message,
+                            suggestedRepair = issue.SuggestedRepair
+                        }),
+                        recovery = new
+                        {
+                            sideEffects = "none",
+                            safeToRetry = true,
+                            retryScope = "same_function_block"
+                        }
+                    });
+                    ToolCallLogger.Complete(
+                        callId, toolName, args, result, durationMs: stopwatch.ElapsedMilliseconds);
+                    return result;
+                }
+                if (ex is ResourceDiscoveryBridgeException bridgeError)
+                {
+                    ToolCallLogger.Complete(
+                        callId, toolName, args, bridgeError.Response,
+                        durationMs: stopwatch.ElapsedMilliseconds);
+                    return bridgeError.Response;
+                }
+                if (ex is ArgumentException argumentError)
                 {
                     string result = JsonSerializer.Serialize(new
                     {
                         ok = false,
                         type = "mcp.error",
                         errorCode = "INVALID_ARGUMENT",
-                        message = ex.Message
+                        message = argumentError.Message,
+                        issues = new[]
+                        {
+                            new
+                            {
+                                path = string.IsNullOrWhiteSpace(argumentError.ParamName)
+                                    ? "$" : argumentError.ParamName,
+                                rule = "tool_argument_contract",
+                                message = argumentError.Message,
+                                suggestedRepair = "保持当前业务目标不变，按该路径和消息修正参数后重试同一功能块。"
+                            }
+                        },
+                        recovery = new
+                        {
+                            sideEffects = "none",
+                            safeToRetry = true,
+                            retryScope = "same_function_block"
+                        }
                     });
                     ToolCallLogger.Complete(
                         callId, toolName, args, result, durationMs: stopwatch.ElapsedMilliseconds);
@@ -1096,6 +1984,17 @@ namespace Automation.McpServer
                 ToolCallLogger.Complete(callId, toolName, args, string.Empty, ex.ToString(), stopwatch.ElapsedMilliseconds);
                 throw;
             }
+        }
+
+        private sealed class ResourceDiscoveryBridgeException : InvalidOperationException
+        {
+            public ResourceDiscoveryBridgeException(string message, string response)
+                : base(message)
+            {
+                Response = response;
+            }
+
+            public string Response { get; }
         }
 
     }

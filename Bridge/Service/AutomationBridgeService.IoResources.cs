@@ -345,6 +345,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
+                ["configurationSaved"] = true,
                 ["alarm"] = BuildAlarmJObject(alarm),
                 ["message"] = $"报警 [{name}] 已保存于 index={index}。"
             };
@@ -371,6 +372,7 @@ namespace Automation.Bridge
             return new JObject
             {
                 ["ok"] = true,
+                ["configurationSaved"] = true,
                 ["index"] = index,
                 ["message"] = $"报警 index={index}「{oldName}」已清空。"
             };

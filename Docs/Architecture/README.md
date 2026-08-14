@@ -84,7 +84,7 @@ flowchart TD
 | `OperationEditingService` | 指令结构编辑的草稿、跳转重算和原子提交边界。 |
 | `ProcessVariableConfigurationService` | 流程结构与变量配置联合提交的刷新、历史和回滚边界。 |
 | `IoDebugConfigurationEditorService` | IO 调试选择、备注、排序和关联修改的草稿与提交边界。 |
-| `AiConversationCoordinator` | AI 会话、单轮任务状态、取消、执行结果和历史持久化的统一所有者。 |
+| `AiConversationCoordinator` | AI 会话、动态能力申请循环、工作阶段证据、取消、执行结果和历史持久化的统一所有者。 |
 | `EditorWorkspace` | 平台窗体之间的实例级协作对象。 |
 | `IPlatformEditorUiAdapter` | 非 UI 模块请求刷新、选中、日志或确认时使用的 UI 边界。 |
 | `Readiness` | 配置是否具备运行条件；可保存不等于可运行。 |
