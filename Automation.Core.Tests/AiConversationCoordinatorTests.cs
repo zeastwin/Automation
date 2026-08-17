@@ -41,21 +41,20 @@ namespace Automation.Core.Tests
                 });
             artifact = AiStageArtifact.Capture(
                 artifact,
-                "resolve_authoring_inputs",
-                "project.authoring_inputs",
+                "list_authoring_resources",
+                "project.authoring_resources",
                 new JObject
                 {
                     ["results"] = new JArray(new JObject
                     {
-                        ["key"] = "scanResult",
-                        ["kind"] = "variable",
-                        ["bindingAllowed"] = true,
-                        ["selected"] = new JObject
+                        ["type"] = "io_input",
+                        ["total"] = 1,
+                        ["items"] = new JArray(new JObject
                         {
-                            ["name"] = "扫码结果",
-                            ["type"] = "string",
-                            ["scope"] = "process"
-                        }
+                            ["resourceRef"] = "io_input:0:0:0",
+                            ["name"] = "搬运气缸到位感应1",
+                            ["ioType"] = "通用输入"
+                        })
                     })
                 });
 
@@ -65,8 +64,41 @@ namespace Automation.Core.Tests
                 "11111111-1111-1111-1111-111111111111",
                 compact["changeSetApply"]?["createdObjects"]?[0]?["procId"]?.Value<string>());
             Assert.AreEqual(
-                "扫码结果",
-                compact["authoringInputs"]?[0]?["selected"]?["name"]?.Value<string>());
+                "搬运气缸到位感应1",
+                compact["authoringResources"]?[0]?["items"]?[0]?["name"]?.Value<string>());
+            Assert.AreEqual(
+                "io_input:0:0:0",
+                compact["authoringResources"]?[0]?["items"]?[0]?["resourceRef"]?.Value<string>());
+        }
+
+        [TestMethod]
+        public void Cancel_RecordsExplicitSourceOnRuntime()
+        {
+            var coordinator = new AiConversationCoordinator();
+            AiTaskRuntime runtime = coordinator.EnsureActive(false);
+            runtime.Cancellation = new System.Threading.CancellationTokenSource();
+
+            coordinator.Cancel(runtime, "standard_test_user_stop");
+
+            Assert.AreEqual("standard_test_user_stop", runtime.CancellationSource);
+            Assert.IsTrue(runtime.Cancellation.IsCancellationRequested);
+            runtime.Cancellation.Dispose();
+        }
+
+        [TestMethod]
+        public void RestoredContext_IncludesBoundedTrustedFactsWithObservationBoundary()
+        {
+            var conversation = new AiConversation
+            {
+                TrustedFactsJson = "{\"authoringResources\":[{\"type\":\"motion\",\"items\":[]}]}",
+                TrustedFactsObservedAt = new System.DateTime(2026, 8, 17, 14, 46, 0)
+            };
+
+            string restored = AiConversationCoordinator.BuildRestoredContext(conversation);
+
+            StringAssert.Contains(restored, "此前工具机械观察");
+            StringAssert.Contains(restored, "用户明确配置已变化时必须重新读取");
+            StringAssert.Contains(restored, "authoringResources");
         }
     }
 }

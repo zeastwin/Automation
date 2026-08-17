@@ -158,7 +158,7 @@ namespace Automation
         private DateTime currentFirstPreviewAttemptUtc;
         private DateTime currentFirstSuccessfulPreviewUtc;
         private int currentToolFailuresAtFirstSuccessfulPreview;
-        private int currentAuthoringInputResolutionCalls;
+        private int currentAuthoringResourceListCalls;
         private int currentOperationCapabilityResolutionCalls;
         private bool supportsImagePrompt;
         private bool capabilityStateInvalid;
@@ -565,7 +565,7 @@ namespace Automation
                 currentFirstPreviewAttemptUtc = default(DateTime);
                 currentFirstSuccessfulPreviewUtc = default(DateTime);
                 currentToolFailuresAtFirstSuccessfulPreview = 0;
-                currentAuthoringInputResolutionCalls = 0;
+                currentAuthoringResourceListCalls = 0;
                 currentOperationCapabilityResolutionCalls = 0;
                 activeAnalysisToolCalls.Clear();
                 analysisToolAttempts.Clear();
@@ -2006,7 +2006,7 @@ namespace Automation
             {"automation__list_procs", "列出所有流程"},
             {"automation__search_proc_catalog", "搜索流程目录"},
             {"automation__resolve_proc_target", "定位流程目标"},
-            {"automation__discover_project_resources", "批量发现项目资源"},
+            {"automation__list_authoring_resources", "查看流程编写资源"},
             {"automation__get_proc_overview", "获取流程概览"},
             {"automation__inspect_process", "聚合检查流程"},
             {"automation__get_proc_detail", "获取流程详情"},
@@ -2153,8 +2153,8 @@ namespace Automation
                 if (!string.IsNullOrWhiteSpace(toolName)) currentPromptToolNames.Add(toolName);
                 if (IsPreviewTool(toolName) && currentFirstPreviewAttemptUtc == default(DateTime))
                     currentFirstPreviewAttemptUtc = startedUtc;
-                if (string.Equals(toolName, "resolve_authoring_inputs", StringComparison.Ordinal))
-                    currentAuthoringInputResolutionCalls++;
+                if (string.Equals(toolName, "list_authoring_resources", StringComparison.Ordinal))
+                    currentAuthoringResourceListCalls++;
                 if (string.Equals(toolName, "resolve_operation_capability", StringComparison.Ordinal))
                     currentOperationCapabilityResolutionCalls++;
                 activeAtStart = activeAnalysisToolCalls.Count;
@@ -3079,7 +3079,7 @@ namespace Automation
                     : Math.Max(0L, (long)(currentFirstSuccessfulPreviewUtc - currentPromptStartedUtc).TotalMilliseconds),
                 ["toolFailuresAtFirstSuccessfulPreview"] = currentFirstSuccessfulPreviewUtc == default(DateTime)
                     ? (int?)null : currentToolFailuresAtFirstSuccessfulPreview,
-                ["authoringInputResolutionCalls"] = currentAuthoringInputResolutionCalls,
+                ["authoringResourceListCalls"] = currentAuthoringResourceListCalls,
                 ["operationCapabilityResolutionCalls"] = currentOperationCapabilityResolutionCalls,
                 ["toolCallCount"] = currentPromptToolCallCount,
                 ["toolFailureCount"] = currentPromptToolErrorCount,

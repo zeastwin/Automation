@@ -34,12 +34,17 @@ namespace Automation.Core.Tests
             StringAssert.Contains(automation, "get_process_design_guide");
             StringAssert.Contains(automation, "只要求“设计、方案、结构或怎么写”");
             StringAssert.Contains(automation, "不要加载写入 Skill");
-            StringAssert.Contains(automation, "不先做全平台盘点");
+            StringAssert.Contains(automation, "list_authoring_resources");
+            StringAssert.Contains(automation, "不预猜名称");
             StringAssert.Contains(automation, "禁用本身不自动等于 Bug");
             StringAssert.Contains(automation, "不为了利用现有资源推导额外副作用");
             StringAssert.Contains(automation, "具体创建、评审和修改步骤由对应 Skill 提供");
             StringAssert.Contains(automation, "safeToRetry=true");
             StringAssert.Contains(automation, "不是已实现结构");
+            StringAssert.Contains(automation, "不是该功能无需实现的证据");
+            StringAssert.Contains(automation, "单个输入未激活不证明相反机械终态");
+            StringAssert.Contains(automation, "plan_motion_points");
+            StringAssert.Contains(automation, "人工示教坐标前不能运行");
 
             string review = ReadEmbedded(
                 "Automation.Assets.Goose.Skills.automation-process-review.SKILL.md");
@@ -62,9 +67,13 @@ namespace Automation.Core.Tests
             StringAssert.Contains(authoring, "name: automation-process-authoring");
             StringAssert.Contains(authoring, "只读流程评审使用 automation-process-review");
             StringAssert.Contains(authoring, "config.placeholder");
-            StringAssert.Contains(authoring, "resolve_authoring_inputs");
+            StringAssert.Contains(authoring, "list_authoring_resources");
             StringAssert.Contains(authoring, "resolve_operation_capability");
-            StringAssert.Contains(authoring, "新建流程直接使用 `preview_change_set`");
+            StringAssert.Contains(authoring, "基础 Schema 已足以表达");
+            StringAssert.Contains(authoring, "只证明动作类型和契约已确定");
+            StringAssert.Contains(authoring, "bindingRepair.candidates");
+            StringAssert.Contains(authoring, "resourceRef");
+            StringAssert.Contains(authoring, "新建流程直接使用 `ProcessCreate.preview_change_set`");
             StringAssert.Contains(authoring, "不得用延时、弹框、常量或伪状态");
             StringAssert.Contains(authoring, "operation.replace");
             StringAssert.Contains(authoring, "保持占位时可用 `operation.update`");
@@ -72,9 +81,19 @@ namespace Automation.Core.Tests
             StringAssert.Contains(authoring, "不自动补报警、停机、复位、重试或提示");
             StringAssert.Contains(authoring, "可独立审查和保存的安全功能块");
             StringAssert.Contains(authoring, "不要求一个用户目标一次写完");
-            StringAssert.Contains(authoring, "`process.create`、`step.append` 和 `operation.append`");
-            StringAssert.Contains(authoring, "跨步骤全局唯一时可直接使用");
+            StringAssert.Contains(authoring, "authoringLease.leaseId");
+            StringAssert.Contains(authoring, "ownerProcess.key");
+            StringAssert.Contains(authoring, "string.clear");
+            StringAssert.Contains(authoring, "number.zero");
+            StringAssert.Contains(authoring, "inspect_process");
+            StringAssert.Contains(authoring, "跨步骤全局唯一时可直接引用");
             StringAssert.Contains(authoring, "自然语言声明不是实现证据");
+            StringAssert.Contains(authoring, "字段或行为错误才使用对应小契约");
+            StringAssert.Contains(authoring, "authoringGaps");
+            StringAssert.Contains(authoring, "它不证明该功能不需要");
+            StringAssert.Contains(authoring, "单个输入的反向状态也不能代替相反机械终态反馈");
+            StringAssert.Contains(authoring, "用 `plan_motion_points`");
+            StringAssert.Contains(authoring, "planned 点位可以保存和继续搭建流程");
             Assert.IsFalse(authoring.Contains("preview_process_blueprint", StringComparison.Ordinal));
             Assert.IsFalse(authoring.Contains("retries[]", StringComparison.Ordinal));
             Assert.IsFalse(authoring.Contains("blueprintEvidence", StringComparison.Ordinal));

@@ -103,7 +103,7 @@ namespace Automation.Core.Tests
                     new IoStateCondition { Io = io0.Name, State = true }
                 }
             };
-            InvalidOperationException branchError = Assert.ThrowsExactly<InvalidOperationException>(
+            AiResourceBindingException branchError = Assert.ThrowsExactly<AiResourceBindingException>(
                 () => AiOperationCompilerRegistry.Get("branch.io")
                     .Compile(outputBranch, compileContext));
             StringAssert.Contains(branchError.Message, "只能引用通用输入");
@@ -124,6 +124,51 @@ namespace Automation.Core.Tests
             resources[io1.Name].CardNum = 1;
             Assert.ThrowsExactly<InvalidOperationException>(() =>
                 AiOperationCompilerRegistry.Get("io.write").Compile(write, compileContext));
+        }
+
+        [TestMethod]
+        public void SemanticIoOperations_UseStableResourceRefAndReturnTypedCandidates()
+        {
+            const string inputName = "搬运气缸到位感应1";
+            string resourceRef = AuthoringResourceRefs.ForIo("通用输入", 0, 0, "0");
+            var input = new AiIoResource
+            {
+                Name = inputName,
+                ResourceRef = resourceRef,
+                IoType = "通用输入",
+                CardNum = 0,
+                Module = 0,
+                IoIndex = "0"
+            };
+            var resources = new Dictionary<string, AiIoResource>(StringComparer.Ordinal)
+            {
+                [inputName] = input,
+                [resourceRef] = input
+            };
+            var context = new AiOperationCompileContext(
+                0,
+                new Dictionary<string, DicValue>(StringComparer.Ordinal),
+                new AiResourceSnapshot(resources));
+
+            var wait = new SemanticOperation
+            {
+                Kind = "io.wait",
+                TimeoutMs = 1000,
+                Conditions = new List<IoStateCondition>
+                {
+                    new IoStateCondition { Io = resourceRef, State = true }
+                }
+            };
+            var compiled = (IoCheck)AiOperationCompilerRegistry.Get("io.wait")
+                .Compile(wait, context);
+            Assert.AreEqual(inputName, compiled.IoParams[0].IoName);
+
+            wait.Conditions[0].Io = "搬运气缸到位传感器1";
+            AiResourceBindingException error = Assert.ThrowsExactly<AiResourceBindingException>(() =>
+                AiOperationCompilerRegistry.Get("io.wait").Compile(wait, context));
+            Assert.AreEqual("io_input", error.RequiredResourceType);
+            Assert.AreEqual(resourceRef, error.Candidates[0].ResourceRef);
+            Assert.AreEqual(inputName, error.Candidates[0].Name);
         }
 
         [TestMethod]

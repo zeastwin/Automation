@@ -48,6 +48,7 @@
             this.u = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.v = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.w = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.teachingState = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.Touch = new System.Windows.Forms.ToolStripMenuItem();
             this.MovePoint = new System.Windows.Forms.ToolStripMenuItem();
@@ -105,7 +106,8 @@
             this.z,
             this.u,
             this.v,
-            this.w});
+            this.w,
+            this.teachingState});
             this.dataGridView1.ContextMenuStrip = this.contextMenuStrip1;
             this.dataGridView1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dataGridView1.Location = new System.Drawing.Point(0, 36);
@@ -190,6 +192,14 @@
             this.w.FillWeight = 105.3233F;
             this.w.HeaderText = "w";
             this.w.Name = "w";
+            //
+            // teachingState
+            //
+            this.teachingState.DataPropertyName = "TeachingStateDisplay";
+            this.teachingState.FillWeight = 75F;
+            this.teachingState.HeaderText = "状态";
+            this.teachingState.Name = "teachingState";
+            this.teachingState.ReadOnly = true;
             // 
             // contextMenuStrip1
             // 
@@ -449,6 +459,7 @@
         private System.Windows.Forms.DataGridViewTextBoxColumn u;
         private System.Windows.Forms.DataGridViewTextBoxColumn v;
         private System.Windows.Forms.DataGridViewTextBoxColumn w;
+        private System.Windows.Forms.DataGridViewTextBoxColumn teachingState;
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
         private System.Windows.Forms.ToolStripMenuItem Touch;
         private System.Windows.Forms.ToolStripMenuItem MovePoint;

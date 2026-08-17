@@ -72,6 +72,7 @@ namespace Automation
         private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
         private bool platformInitializationStarted;
         private bool platformInitialized;
+        private bool editorCachePrewarmStarted;
         private bool allowFinalClose;
         private int aiInfrastructureStartState;
         private int shutdownStarted;
@@ -577,12 +578,37 @@ namespace Automation
             QueueEditorCachePrewarm();
         }
 
+        /// <summary>
+        /// HMI 空闲阶段的隐藏预加载入口。WinForms 控件必须继续由宿主 UI 线程创建；
+        /// 提前创建主窗口句柄后，首次显示不再集中承担句柄创建和缓存预热。
+        /// </summary>
+        internal void PrepareHiddenPreload()
+        {
+            if (Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                throw new InvalidOperationException("平台编辑器隐藏预加载必须在创建它的 UI 线程执行。");
+            }
+            if (IsDisposed || Disposing || !platformInitialized)
+            {
+                throw new InvalidOperationException("平台编辑器尚未完成运行时附加，无法隐藏预加载。");
+            }
+            if (!IsHandleCreated)
+            {
+                _ = Handle;
+            }
+            QueueEditorCachePrewarm();
+        }
+
         private void QueueEditorCachePrewarm()
         {
-            if (IsDisposed || Disposing || !IsHandleCreated)
+            if (IsDisposed
+                || Disposing
+                || !IsHandleCreated
+                || editorCachePrewarmStarted)
             {
                 return;
             }
+            editorCachePrewarmStarted = true;
             frmSearch?.PrewarmIndex();
             frmValue?.QueueVariableProjectionPrewarm();
             uiWarmupCoordinator.Schedule("variable-table-control", 10, () =>

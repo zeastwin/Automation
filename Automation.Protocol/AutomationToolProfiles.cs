@@ -59,18 +59,20 @@ namespace Automation.Protocol
                     "get_variable_by_name", "get_io", "get_communication",
                     "submit_review_handoff", "request_capability"),
                 [ProcessCreate] = Tools(
-                    "get_process_design_guide", "resolve_authoring_inputs",
+                    "get_process_design_guide", "list_authoring_resources",
                     "resolve_operation_capability", "get_semantic_operation_schema",
-                    "get_native_operation_schemas", "preview_change_set", "apply_change_set",
+                    "get_native_operation_schemas", "inspect_process",
+                    "preview_change_set", "apply_change_set",
                     "discard_change_set_preview", "validate_proc", "request_capability"),
                 [ProcessEdit] = Tools(
-                    "resolve_proc_target", "resolve_authoring_inputs", "resolve_operation_capability",
+                    "resolve_proc_target", "list_authoring_resources", "resolve_operation_capability",
                     "inspect_process", "get_op_details", "get_operation_references",
                     "get_operation_context", "get_native_operation_field_contract",
                     "get_operation_guide", "get_semantic_operation_schema",
                     "get_native_operation_schemas", "preview_change_set", "apply_change_set",
                     "discard_change_set_preview", "validate_proc", "request_capability"),
                 [ResourceEdit] = Tools(
+                    "list_authoring_resources", "plan_motion_points",
                     "list_variables", "get_variable_by_name", "get_variable_by_index",
                     "find_variable_usages", "add_variable", "update_variable", "delete_variable",
                     "list_data_structs", "get_data_struct", "search_data_struct_items",

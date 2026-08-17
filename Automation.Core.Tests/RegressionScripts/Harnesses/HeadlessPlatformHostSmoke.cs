@@ -85,9 +85,13 @@ namespace Automation.Tests
                     Form editor = editorField == null
                         ? null
                         : editorField.GetValue(host) as Form;
-                    if (editor == null || editor.IsDisposed || editor.Visible || host.IsPlatformVisible)
+                    if (editor == null
+                        || editor.IsDisposed
+                        || !editor.IsHandleCreated
+                        || editor.Visible
+                        || host.IsPlatformVisible)
                     {
-                        throw new InvalidOperationException("平台编辑器未完成隐藏预加载。");
+                        throw new InvalidOperationException("平台编辑器未完成隐藏句柄预加载。");
                     }
                     FieldInfo aiStartStateField = editor.GetType().GetField(
                         "aiInfrastructureStartState",

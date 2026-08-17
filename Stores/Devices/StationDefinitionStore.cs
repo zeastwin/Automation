@@ -37,6 +37,7 @@ namespace Automation
                 error = "工站配置主文件及备份均无法读取。";
                 return false;
             }
+            NormalizePointCollections(loaded);
             ReplaceAll(loaded);
             return true;
         }
@@ -52,6 +53,7 @@ namespace Automation
             List<DataStation> candidate = stations
                 .Select(ObjectGraphCloner.Clone)
                 .ToList();
+            NormalizePointCollections(candidate);
             if (!AtomicJsonFileStore.Save(configPath, "DataStation", candidate))
             {
                 error = "工站配置保存失败，正式内存未修改。";
@@ -83,6 +85,39 @@ namespace Automation
             items.Clear();
             items.AddRange(replacement);
             Interlocked.Increment(ref version);
+        }
+
+        private static void NormalizePointCollections(IEnumerable<DataStation> stations)
+        {
+            foreach (DataStation station in stations ?? Array.Empty<DataStation>())
+            {
+                if (station == null) continue;
+                station.ListDataPos = station.ListDataPos ?? new List<DataPos>();
+                foreach (DataPos legacyPoint in ((IEnumerable<DataPos>)station.dicDataPos?.Values
+                    ?? Array.Empty<DataPos>())
+                    .Where(point => point != null
+                        && point.Index >= 0 && point.Index < DataStation.PointCapacity
+                        && !string.IsNullOrWhiteSpace(point.Name)))
+                {
+                    while (station.ListDataPos.Count <= legacyPoint.Index)
+                    {
+                        station.ListDataPos.Add(new DataPos(station.ListDataPos.Count));
+                    }
+                    DataPos listPoint = station.ListDataPos[legacyPoint.Index];
+                    if (listPoint == null || string.IsNullOrWhiteSpace(listPoint.Name))
+                    {
+                        station.ListDataPos[legacyPoint.Index] = legacyPoint;
+                    }
+                }
+                while (station.ListDataPos.Count < DataStation.PointCapacity)
+                {
+                    station.ListDataPos.Add(new DataPos(station.ListDataPos.Count));
+                }
+                station.dicDataPos = station.ListDataPos
+                    .Where(point => point != null && !string.IsNullOrWhiteSpace(point.Name))
+                    .GroupBy(point => point.Name, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            }
         }
     }
 }

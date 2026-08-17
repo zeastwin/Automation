@@ -163,6 +163,11 @@ namespace Automation
                         {
                             incomplete = true;
                         }
+                        if (AddMotionPointBlockers(
+                            operation, validationContext, location, blockers))
+                        {
+                            incomplete = true;
+                        }
                         IReadOnlyList<string> runtimeErrors =
                             ProcessDefinitionService.ValidateOperationRuntimeConfiguration(
                                 operation, location, validationContext);
@@ -258,6 +263,100 @@ namespace Automation
                 }
                 blockers.Add($"{location} 的 {reference.Path} {error}");
                 incomplete = true;
+            }
+            return incomplete;
+        }
+
+        private static bool AddMotionPointBlockers(
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            string location,
+            ICollection<string> blockers)
+        {
+            List<DataStation> stations = validationContext?.Runtime?.Stores.Stations.Items;
+            if (stations == null || operation == null) return false;
+
+            string stationName = null;
+            if (operation is StationRunPos runPos) stationName = runPos.StationName;
+            else if (operation is CreateTray tray) stationName = tray.StationName;
+            else if (operation is ModifyStationPos modify) stationName = modify.StationName;
+            else if (operation is GetStationPos getPos) stationName = getPos.StationName;
+            else return false;
+
+            DataStation station = stations.FirstOrDefault(item => item != null
+                && string.Equals(item.Name, stationName, StringComparison.Ordinal));
+            if (station == null)
+            {
+                blockers.Add($"{location} 引用的工站不存在：{stationName ?? string.Empty}。");
+                return true;
+            }
+
+            bool incomplete = false;
+            DataPos FindPoint(string name) => station.ListDataPos?.FirstOrDefault(item =>
+                item != null && string.Equals(item.Name, name, StringComparison.Ordinal));
+            void RequirePoint(string name, string field, bool requireTaught)
+            {
+                DataPos point = FindPoint(name);
+                if (point == null)
+                {
+                    blockers.Add($"{location} 的{field}不存在：{name ?? string.Empty}。");
+                    incomplete = true;
+                    return;
+                }
+                if (requireTaught && point.IsTaught == false)
+                {
+                    blockers.Add($"{location} 的{field}尚未人工示教坐标：{point.Name}。");
+                    incomplete = true;
+                }
+            }
+
+            if (operation is StationRunPos stationRunPos)
+            {
+                DataPos point = stationRunPos.PosIndex >= 0
+                    && station.ListDataPos != null
+                    && stationRunPos.PosIndex < station.ListDataPos.Count
+                        ? station.ListDataPos[stationRunPos.PosIndex]
+                        : FindPoint(stationRunPos.PosName);
+                if (point == null || string.IsNullOrWhiteSpace(point.Name))
+                {
+                    blockers.Add($"{location} 的运动目标点位不存在：{stationRunPos.PosName ?? string.Empty}。");
+                    incomplete = true;
+                }
+                else if (point.IsTaught == false)
+                {
+                    blockers.Add($"{location} 的运动目标点位尚未人工示教坐标：{point.Name}。");
+                    incomplete = true;
+                }
+            }
+            else if (operation is CreateTray createTray)
+            {
+                RequirePoint(createTray.PX1, "左上参考点", true);
+                RequirePoint(createTray.PX2, "右上参考点", true);
+                RequirePoint(createTray.PY1, "左下参考点", true);
+                RequirePoint(createTray.PY2, "右下参考点", true);
+            }
+            else if (operation is ModifyStationPos modifyStationPos)
+            {
+                if (!string.Equals(modifyStationPos.RefPosName, "当前位置", StringComparison.Ordinal)
+                    && !string.Equals(modifyStationPos.RefPosName, "自定义坐标", StringComparison.Ordinal))
+                {
+                    RequirePoint(modifyStationPos.RefPosName, "参考点位", true);
+                }
+                // 覆盖可把待示教目标写成真实坐标；叠加必须先有可信基准坐标。
+                RequirePoint(modifyStationPos.TargetPosName, "目标点位",
+                    !string.Equals(modifyStationPos.ModifyType, "替换", StringComparison.Ordinal));
+            }
+            else if (operation is GetStationPos getStationPos)
+            {
+                if (string.Equals(getStationPos.SourceType, "指定点位", StringComparison.Ordinal))
+                {
+                    RequirePoint(getStationPos.SourcePosName, "来源点位", true);
+                }
+                if (string.Equals(getStationPos.SaveType, "保存到点位", StringComparison.Ordinal))
+                {
+                    // 目标槽位只需已规划；本指令会从真实来源写入坐标并转为已示教。
+                    RequirePoint(getStationPos.TargetPosName, "保存目标点位", false);
+                }
             }
             return incomplete;
         }

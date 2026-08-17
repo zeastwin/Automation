@@ -12,7 +12,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 21;
-        public const int IntegrationContextVersion = 56;
+        public const int IntegrationContextVersion = 60;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         public const string ProcessReviewSkillName = "automation-process-review";
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(
@@ -319,8 +319,9 @@ namespace Automation
                 "diagnose_issue",
                 "get_platform_development_context",
                 "get_process_design_guide",
+                "list_authoring_resources",
                 "只要求“设计、方案、结构或怎么写”",
-                "不先做全平台盘点"
+                "不预猜名称"
             };
             string missingContextAnchor = Array.Find(contextAnchors,
                 anchor => integrationContext.IndexOf(anchor, StringComparison.Ordinal) < 0);
@@ -331,7 +332,8 @@ namespace Automation
 
             string[] retiredRoutes =
             {
-                "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc_batch"
+                "preview_intent", "apply_intent", "preview_patch", "apply_patch", "create_proc_batch",
+                "resolve_authoring_inputs", "discover_project_resources"
             };
             string retiredRoute = Array.Find(retiredRoutes,
                 route => integrationContext.IndexOf(route, StringComparison.Ordinal) >= 0);
@@ -350,7 +352,7 @@ namespace Automation
                 "description:",
                 "# Automation 流程编写",
                 "get_process_design_guide",
-                "resolve_authoring_inputs",
+                "list_authoring_resources",
                 "resolve_operation_capability",
                 "preview_change_set",
                 "apply_change_set",
@@ -374,7 +376,8 @@ namespace Automation
             string[] retiredRoutes =
             {
                 "preview_intent", "apply_intent", "preview_patch", "create_proc_batch",
-                "preview_process_blueprint", "blueprintEvidence", "retries[]"
+                "preview_process_blueprint", "blueprintEvidence", "retries[]",
+                "resolve_authoring_inputs", "discover_project_resources"
             };
             string retiredRoute = Array.Find(
                 retiredRoutes,

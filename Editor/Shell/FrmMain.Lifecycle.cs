@@ -15,6 +15,8 @@ namespace Automation
         private void FrmMain_Load(object sender, EventArgs e)
         {
             InitializePlatform();
+            // 独立平台模式没有 HMI 隐藏预加载阶段，在句柄就绪后走同一套分片预热。
+            QueueEditorCachePrewarm();
         }
 
         private void FrmMain_Shown(object sender, EventArgs e)

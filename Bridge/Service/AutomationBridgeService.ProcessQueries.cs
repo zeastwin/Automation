@@ -215,10 +215,12 @@ namespace Automation.Bridge
                     continue;
                 }
 
+                JObject behavior = OperationBehaviorCatalog.BuildContract(template);
                 items.Add(new JObject
                 {
                     ["operaType"] = template.OperaType ?? string.Empty,
-                    ["name"] = template.Name ?? string.Empty
+                    ["name"] = template.Name ?? string.Empty,
+                    ["intentAliases"] = behavior?["intentAliases"]?.DeepClone() ?? new JArray()
                 });
             }
 

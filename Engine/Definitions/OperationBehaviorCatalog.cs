@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 16;
+        public const int ContractVersion = 17;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -31,6 +31,7 @@ namespace Automation
                         "对目标工站的全部有效轴执行回零。",
                         new[] { "由 StationIndex 或 StationName 定位工站", "校验每个有效轴的卡、轴和回零参数", "按 StationHomeType 选择依次回零或同时回零", "ContinueWithoutWaiting=false 时等待全部轴回零且到位" },
                         true);
+                    contract["intentAliases"] = new JArray("工站回原", "工站回零", "轴回原", "轴回零", "运动回原");
                     contract["constraints"] = new JArray("StationIndex 非 -1 时优先按索引定位，否则按 StationName", "同步等待使用120000毫秒固定超时", "异步模式只证明动作已下发，后续流程需自行等待或检测");
                     contract["failureModes"] = new JArray("工站、运动控制、轴配置或运动资源无效时报警", "同步等待超时时报警");
                     break;
@@ -40,9 +41,13 @@ namespace Automation
                         "以协调直线运动驱动目标工站的有效轴运动到预设点位。",
                         new[] { "按 StationName 定位工站", "由 PosIndex 或 PosName 定位点位", "按 IsDisableAxis 选择参与轴", "按 ChangeVel 选择工站默认参数或本次速度参数", "根据各轴位移与限制计算安全向量速度", "向工站坐标系一次下发绝对直线运动并按配置等待、超时和检测到位" },
                         true);
+                    contract["intentAliases"] = new JArray(
+                        "移动到点位", "运动到点位", "前往点位", "进入取料位", "进入放料位",
+                        "移动到取料位", "移动到放料位", "运动到取料位", "运动到放料位",
+                        "前往取料位", "前往放料位", "返回安全位", "移动到安全位", "工站定位");
                     AddRequiredField(contract, "StationName", "目标工站精确名称");
-                    contract["constraints"] = new JArray("参与轴必须位于同一张控制卡", "工站 CoordinateSystem 必须为控制器支持的坐标系", "PosIndex 非 -1 时优先按索引定位，否则按 PosName", "ChangeVel=改变速度时 Vel/Acc/Dec 分别使用大于0的固定值或对应变量且范围1..100", "ContinueWithoutWaiting=true 时不等待完成", "CheckInPosition 仅在等待模式完成后检查轴到位");
-                    contract["failureModes"] = new JArray("工站、点位、同卡约束、坐标系、轴配置、速度、超时或运动资源无效时报警", "组运动启动失败、等待超时或未到位时报警并停止整组");
+                    contract["constraints"] = new JArray("参与轴必须位于同一张控制卡", "工站 CoordinateSystem 必须为控制器支持的坐标系", "PosIndex 非 -1 时优先按索引定位，否则按 PosName", "ChangeVel=改变速度时 Vel/Acc/Dec 分别使用大于0的固定值或对应变量且范围1..100", "ContinueWithoutWaiting=true 时不等待完成", "CheckInPosition 仅在等待模式完成后检查轴到位", "点位名称可先规划并保存，但坐标必须经人工编辑、取点或真实采集确认后才能执行运动");
+                    contract["failureModes"] = new JArray("工站、点位、点位未示教、同卡约束、坐标系、轴配置、速度、超时或运动资源无效时报警", "组运动启动失败、等待超时或未到位时报警并停止整组");
                     break;
 
                 case "点位修改":
@@ -100,6 +105,7 @@ namespace Automation
                         "按六轴固定偏移量或变量偏移量驱动工站执行协调直线相对运动。",
                         new[] { "按 StationName 定位工站", "逐个有效轴从 Axis1..Axis6 固定值或 Axis1V..Axis6V 变量取得偏移", "按 ChangeVel 选择速度参数", "根据各轴偏移与限制计算安全向量速度", "向工站坐标系一次下发相对直线运动并按配置等待、超时和检测到位" },
                         true);
+                    contract["intentAliases"] = new JArray("工站偏移", "相对运动", "相对移动", "轴偏移", "按偏移量移动");
                     AddRequiredField(contract, "StationName", "目标工站精确名称");
                     contract["constraints"] = new JArray("参与轴必须位于同一张控制卡", "工站 CoordinateSystem 必须为控制器支持的坐标系", "每个轴固定偏移为0时可从对应变量读取", "ChangeVel=改变速度时 Vel/Acc/Dec 使用固定值或变量且最终范围1..100", "ContinueWithoutWaiting=true 时不等待完成");
                     contract["failureModes"] = new JArray("工站、同卡约束、坐标系、轴、偏移、速度、超时或运动资源无效时报警", "组运动启动失败、等待超时或未到位时报警并停止整组");
@@ -130,6 +136,7 @@ namespace Automation
                         "等待目标工站全部有效轴停止，或同时满足停止、回零和到位状态。",
                         new[] { "由 StationIndex 或 StationName 定位工站", "解析固定 TimeoutMs 或 TimeoutVariableName", "轮询全部有效轴", "按 WaitForHomeCompleted 决定是否同时要求回零完成" },
                         true);
+                    contract["intentAliases"] = new JArray("等待工站停止", "等待轴停止", "等待运动完成", "等待回零完成", "等待轴到位");
                     contract["constraints"] = new JArray("StationIndex 非 -1 时优先按索引定位，否则按 StationName", "超时最终值必须大于0毫秒", "WaitForHomeCompleted=true 时要求轴停止、回零完成且到位");
                     contract["failureModes"] = new JArray("工站、轴、超时变量或运动状态无效时报警", "等待超时时报警");
                     break;
@@ -360,7 +367,8 @@ namespace Automation
                     contract["semanticKinds"] = new JObject
                     {
                         ["fixedSet"] = "variable.set",
-                        ["clearString"] = "variable.clear",
+                        ["clearString"] = "string.clear",
+                        ["zeroNumber"] = "number.zero",
                         ["copySameType"] = "variable.copy",
                         ["fixedAdd"] = "variable.add",
                         ["variableOrNumericCompute"] = "variable.compute"

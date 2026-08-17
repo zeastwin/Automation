@@ -300,6 +300,11 @@ namespace Automation
                 MarkAlarm(evt, $"工站点位不存在:{stationRunPos.PosName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            if (posItems.IsTaught == false)
+            {
+                MarkAlarm(evt, $"工站点位尚未人工示教坐标:{posItems.Name}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
 
                     if (Context.Motion == null || Context.CardStore == null)
                     {
@@ -568,6 +573,13 @@ namespace Automation
             if (px1 == null || px2 == null || py1 == null || py2 == null)
             {
                 MarkAlarm(evt, $"料盘参考点不存在:左上={createTray.PX1},右上={createTray.PX2},左下={createTray.PY1},右下={createTray.PY2}");
+                throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            DataPos untaughtTrayPoint = new[] { px1, px2, py1, py2 }
+                .FirstOrDefault(point => point.IsTaught == false);
+            if (untaughtTrayPoint != null)
+            {
+                MarkAlarm(evt, $"料盘参考点尚未人工示教坐标:{untaughtTrayPoint.Name}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
@@ -966,6 +978,11 @@ namespace Automation
             {
                 throw CreateAlarmException(evt, $"目标点不存在:{modifyStationPos.TargetPosName}");
             }
+            if (targetPos.IsTaught == false
+                && !string.Equals(modifyStationPos.ModifyType, "替换", StringComparison.Ordinal))
+            {
+                throw CreateAlarmException(evt, $"叠加修改的目标点尚未人工示教坐标:{modifyStationPos.TargetPosName}");
+            }
 
             double[] refValues = new double[6];
             bool[] refAvailable = new bool[6];
@@ -1042,6 +1059,10 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, $"参考点不存在:{modifyStationPos.RefPosName}");
                 }
+                if (refPos.IsTaught == false)
+                {
+                    throw CreateAlarmException(evt, $"参考点尚未人工示教坐标:{modifyStationPos.RefPosName}");
+                }
                 List<double> posValues = refPos.GetAllValues();
                 if (posValues == null || posValues.Count < 6)
                 {
@@ -1095,6 +1116,7 @@ namespace Automation
             targetPos.U = targetValues[3];
             targetPos.V = targetValues[4];
             targetPos.W = targetValues[5];
+            targetPos.IsTaught = true;
 
             if (station.dicDataPos != null && !string.IsNullOrWhiteSpace(targetPos.Name))
             {
@@ -1202,6 +1224,10 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, $"指定点位不存在:{getStationPos.SourcePosName}");
                 }
+                if (sourcePos.IsTaught == false)
+                {
+                    throw CreateAlarmException(evt, $"指定点位尚未人工示教坐标:{getStationPos.SourcePosName}");
+                }
                 List<double> sourceValues = sourcePos.GetAllValues();
                 if (sourceValues == null || sourceValues.Count < 6)
                 {
@@ -1251,6 +1277,7 @@ namespace Automation
                     targetPos.V = values[4];
                     targetPos.W = values[5];
                 }
+                targetPos.IsTaught = true;
                 if (targetPos.Index >= 0 && targetPos.Index < station.ListDataPos.Count)
                 {
                     station.ListDataPos[targetPos.Index] = targetPos;

@@ -96,23 +96,28 @@ namespace Automation.Bridge
                 .Select(value => value.Trim()).Distinct(StringComparer.Ordinal).ToArray();
             try
             {
-                JObject compactContracts = StructuredOperationCompiler.BuildCompactContracts(distinct);
-                compactContracts.AddFirst(new JProperty("schemaRoute", new JObject
-                {
-                    ["representation"] = "native",
-                    ["writeKind"] = "native.operation",
-                    ["writeFields"] = "operation.operaType + operation.fields",
-                    ["nextTool"] = "preview_change_set",
-                    ["fieldMeaning"] = "saveRequired决定配置能否保存；critical与behavior.fieldRules决定流程能否启动",
-                    ["rule"] = "先合并common与精确operaType差量再填写递归字段；语义kind使用语义Schema"
-                }));
-                return compactContracts;
+                return BuildNativeOperationContractsWithRoute(distinct);
             }
             catch (Exception ex) when (ex is InvalidOperationException
                 || ex is ArgumentException || ex is KeyNotFoundException)
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
             }
+        }
+
+        private static JObject BuildNativeOperationContractsWithRoute(IEnumerable<string> operaTypes)
+        {
+            JObject compactContracts = StructuredOperationCompiler.BuildCompactContracts(operaTypes);
+            compactContracts.AddFirst(new JProperty("schemaRoute", new JObject
+            {
+                ["representation"] = "native",
+                ["writeKind"] = "native.operation",
+                ["writeFields"] = "operation.operaType + operation.fields",
+                ["nextTool"] = "preview_change_set",
+                ["fieldMeaning"] = "saveRequired决定配置能否保存；critical与behavior.fieldRules决定流程能否启动",
+                ["rule"] = "先合并common与精确operaType差量再填写递归字段；语义kind使用语义Schema"
+            }));
+            return compactContracts;
         }
 
         private static void ValidateChangeSetShape(JObject changeSet)
@@ -334,7 +339,18 @@ namespace Automation.Bridge
                         "当前 ChangeSet 引用了另一未提交预演中的局部 key。",
                         scopeRecovery.ToString(Formatting.None));
                 }
-                JArray issues = ex is AiChangeSetValidationException validation
+                AiResourceBindingException bindingError = ex as AiResourceBindingException;
+                JArray issues = bindingError != null
+                    ? new JArray(new JObject
+                    {
+                        ["path"] = bindingError.Path,
+                        ["rule"] = "resource_binding",
+                        ["message"] = bindingError.Message,
+                        ["suggestedRepair"] = bindingError.Candidates.Count > 0
+                            ? "直接采用 recovery.bindingRepair.candidates 中同类型资源的 resourceRef，不改写展示名称。"
+                            : "重新读取对应资源类别；没有合法对象时保留占位或询问用户。"
+                    })
+                    : ex is AiChangeSetValidationException validation
                     ? new JArray(validation.Issues.Select(issue => new JObject
                     {
                         ["path"] = issue.Path ?? "$.changeSet",
@@ -350,17 +366,25 @@ namespace Automation.Bridge
                         ["message"] = ex.Message,
                         ["suggestedRepair"] = "保持业务目标不变，按编译错误修正全部相关字段后重试同一功能块。"
                     });
+                JObject repairContracts = bindingError == null
+                    ? BuildChangeSetRepairContracts(changeSet, issues)
+                    : new JObject();
+                var recovery = new JObject
+                {
+                    ["validationError"] = ex.Message,
+                    ["issues"] = issues,
+                    ["reason"] = "fix_validation_error",
+                    ["retryableWhen"] = "change_set_passes_validation",
+                    ["sideEffects"] = "none",
+                    ["safeToRetry"] = true,
+                    ["retryScope"] = "same_function_block"
+                };
+                if (bindingError != null)
+                    recovery["bindingRepair"] = BuildResourceBindingRepair(bindingError);
+                if (repairContracts.HasValues)
+                    recovery["repairContracts"] = repairContracts;
                 throw new BridgeRequestException(400, "CHANGE_SET_COMPILE_FAILED",
-                    "语义变更集编译失败。", new JObject
-                    {
-                        ["validationError"] = ex.Message,
-                        ["issues"] = issues,
-                        ["reason"] = "fix_validation_error",
-                        ["retryableWhen"] = "change_set_passes_validation",
-                        ["sideEffects"] = "none",
-                        ["safeToRetry"] = true,
-                        ["retryScope"] = "same_function_block"
-                    }.ToString(Formatting.None));
+                    "语义变更集编译失败。", recovery.ToString(Formatting.None));
             }
 
             JObject normalized = JObject.FromObject(changeSet);
@@ -406,6 +430,125 @@ namespace Automation.Bridge
                     ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
                     : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
             };
+        }
+
+        private static JObject BuildResourceBindingRepair(AiResourceBindingException error)
+        {
+            return new JObject
+            {
+                ["path"] = error?.Path ?? string.Empty,
+                ["requested"] = error?.RequestedValue ?? string.Empty,
+                ["requiredResourceType"] = error?.RequiredResourceType ?? string.Empty,
+                ["reason"] = error?.Reason ?? string.Empty,
+                ["actualResourceType"] = error?.ActualResourceType ?? string.Empty,
+                ["bindingValidation"] = "failed",
+                ["candidates"] = new JArray((error?.Candidates
+                    ?? Array.Empty<AiResourceBindingCandidate>()).Select(candidate => new JObject
+                    {
+                        ["resourceRef"] = candidate.ResourceRef ?? string.Empty,
+                        ["name"] = candidate.Name ?? string.Empty,
+                        ["resourceType"] = candidate.ResourceType ?? string.Empty,
+                        ["replacement"] = new JObject
+                        {
+                            ["field"] = error?.Path ?? string.Empty,
+                            ["value"] = candidate.ResourceRef ?? candidate.Name ?? string.Empty
+                        }
+                    }))
+            };
+        }
+
+        private static JObject BuildChangeSetRepairContracts(AiChangeSet changeSet, JArray issues)
+        {
+            IReadOnlyList<ChangeSetAction> actions = changeSet?.Actions
+                ?? new List<ChangeSetAction>();
+            string[] allSemanticKinds = actions
+                .Select(action => action?.Operation?.Kind?.Trim())
+                .Where(kind => !string.IsNullOrWhiteSpace(kind)
+                    && AiOperationCompilerRegistry.Kinds.Contains(kind, StringComparer.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            string[] allNativeTypes = actions
+                .Where(action => string.Equals(
+                    action?.Operation?.Kind, "native.operation", StringComparison.Ordinal))
+                .Select(action => action?.Operation?.OperaType?.Trim())
+                .Where(operaType => !string.IsNullOrWhiteSpace(operaType))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            var referencedSemanticKinds = new HashSet<string>(StringComparer.Ordinal);
+            var referencedNativeTypes = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (JObject issue in (issues ?? new JArray()).OfType<JObject>())
+            {
+                SemanticOperation operation = null;
+                if (TryReadActionIndex(issue["path"]?.Value<string>(), out int actionIndex)
+                    && actionIndex >= 0 && actionIndex < actions.Count)
+                {
+                    operation = actions[actionIndex]?.Operation;
+                }
+                if (operation == null)
+                {
+                    string message = issue["message"]?.Value<string>() ?? string.Empty;
+                    string inferredKind = allSemanticKinds.FirstOrDefault(kind =>
+                        message.IndexOf(kind + ".", StringComparison.Ordinal) >= 0);
+                    if (!string.IsNullOrWhiteSpace(inferredKind))
+                        operation = actions.Select(action => action?.Operation).FirstOrDefault(candidate =>
+                            string.Equals(candidate?.Kind, inferredKind, StringComparison.Ordinal));
+                    if (operation == null)
+                    {
+                        string inferredType = allNativeTypes.FirstOrDefault(operaType =>
+                            message.IndexOf(operaType, StringComparison.Ordinal) >= 0);
+                        if (!string.IsNullOrWhiteSpace(inferredType))
+                            operation = actions.Select(action => action?.Operation).FirstOrDefault(candidate =>
+                                string.Equals(candidate?.OperaType, inferredType, StringComparison.Ordinal));
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(operation?.Kind)) continue;
+                if (string.Equals(operation.Kind, "native.operation", StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(operation.OperaType))
+                {
+                    referencedNativeTypes.Add(operation.OperaType.Trim());
+                    issue["contractRef"] = "native." + operation.OperaType.Trim();
+                }
+                else
+                {
+                    referencedSemanticKinds.Add(operation.Kind.Trim());
+                    issue["contractRef"] = "semantic." + operation.Kind.Trim();
+                }
+            }
+
+            var contracts = new JObject();
+            if (referencedSemanticKinds.Count > 0)
+                contracts["semantic"] = AiOperationCompilerRegistry.BuildContracts(
+                    referencedSemanticKinds.ToArray());
+            if (referencedNativeTypes.Count > 0)
+            {
+                try
+                {
+                    contracts["native"] = BuildNativeOperationContractsWithRoute(
+                        referencedNativeTypes.ToArray());
+                }
+                catch (Exception contractError) when (contractError is InvalidOperationException
+                    || contractError is ArgumentException || contractError is KeyNotFoundException)
+                {
+                    contracts["nativeContractError"] = contractError.Message;
+                }
+            }
+            return contracts;
+        }
+
+        private static bool TryReadActionIndex(string path, out int actionIndex)
+        {
+            actionIndex = -1;
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            const string marker = "actions[";
+            int start = path.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return false;
+            start += marker.Length;
+            int end = path.IndexOf(']', start);
+            return end > start
+                && int.TryParse(path.Substring(start, end - start),
+                    NumberStyles.None, CultureInfo.InvariantCulture, out actionIndex);
         }
 
         private static JArray BuildChangeSetAllowedTransitions(
@@ -598,10 +741,24 @@ namespace Automation.Bridge
                     {
                         ioResources[item.Key] = new AiIoResource
                         {
+                            Name = item.Key,
+                            ResourceRef = AuthoringResourceRefs.ForIo(
+                                item.Value.IOType,
+                                item.Value.CardNum,
+                                item.Value.Module,
+                                item.Value.IOIndex),
                             IoType = item.Value.IOType ?? string.Empty,
                             CardNum = item.Value.CardNum,
+                            Module = item.Value.Module,
                             IoIndex = item.Value.IOIndex ?? string.Empty
                         };
+                        string resourceRef = AuthoringResourceRefs.ForIo(
+                            item.Value.IOType,
+                            item.Value.CardNum,
+                            item.Value.Module,
+                            item.Value.IOIndex);
+                        if (!string.IsNullOrWhiteSpace(resourceRef))
+                            ioResources[resourceRef] = ioResources[item.Key];
                     }
                 }
             }

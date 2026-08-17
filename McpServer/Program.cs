@@ -210,7 +210,7 @@ namespace Automation.McpServer
                 .ToArray();
             string[] required =
             {
-                "list_operation_types", "resolve_operation_capability", "resolve_authoring_inputs", "get_native_operation_schemas", "get_native_operation_field_contract", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
+                "list_operation_types", "resolve_operation_capability", "list_authoring_resources", "get_native_operation_schemas", "get_native_operation_field_contract", "get_semantic_operation_schema", "get_process_design_guide", "preview_change_set",
                 "get_flow_graph",
                 "get_operation_guide", "apply_change_set", "discard_change_set_preview", "validate_proc",
                 "wait_for_proc_state", "run_proc_test", "get_communication",
@@ -220,7 +220,7 @@ namespace Automation.McpServer
                 "list_variables", "get_variable_by_name", "get_variable_by_index",
                 "set_variable_by_name", "set_variable_by_index",
                 "find_variable_usages", "trace_resource",
-                "add_variable", "update_variable", "delete_variable"
+                "add_variable", "update_variable", "delete_variable", "plan_motion_points"
             };
             string[] retired =
             {
@@ -238,7 +238,7 @@ namespace Automation.McpServer
                 "get_variable", "set_variable", "search_variables",
                 "begin_change_set_draft", "append_change_set_draft", "get_change_set_draft",
                 "stage_changes", "get_staged_changes", "preview_staged_changes", "discard_staged_changes",
-                "preview_process_blueprint"
+                "preview_process_blueprint", "discover_project_resources", "resolve_authoring_inputs"
             };
             string? missing = required.FirstOrDefault(name => !names.Contains(name, StringComparer.Ordinal));
             if (missing != null) throw new InvalidOperationException($"Editor Profile 缺少工具：{missing}");
@@ -516,6 +516,9 @@ namespace Automation.McpServer
             JsonObject? processDesignRoot = JsonNode.Parse(processDesignGuide) as JsonObject;
             JsonArray? processDesignSections = processDesignRoot?["sections"] as JsonArray;
             JsonArray? processKnowledgeBlocks = processDesignRoot?["knowledgeBlocks"] as JsonArray;
+            JsonArray? functionalBlocks = processDesignRoot?["goalCoverage"]?["functionalBlocks"] as JsonArray;
+            JsonArray? resourceRequests = processDesignRoot?["goalCoverage"]?["resourceRequests"] as JsonArray;
+            JsonObject? evidenceGapPolicy = processDesignRoot?["goalCoverage"]?["evidenceGapPolicy"] as JsonObject;
             string processDesignMarkdown = processDesignSections == null
                 ? string.Empty
                 : string.Join("\n", processDesignSections
@@ -540,6 +543,21 @@ namespace Automation.McpServer
                 || processDesignRoot?["includedCore"]?.GetValue<bool>() != true
                 || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
                 || processKnowledgeBlocks?.Count != requiredKnowledgeIds.Length
+                || functionalBlocks?.Count != 4
+                || resourceRequests == null
+                || !resourceRequests.Any(request => string.Equals(
+                    request?["type"]?.GetValue<string>(), "motion", StringComparison.Ordinal))
+                || !(processDesignRoot?["goalCoverage"]?["proofBoundary"]?.GetValue<string>()
+                    ?? string.Empty).Contains("不证明用户业务目标", StringComparison.Ordinal)
+                || !(evidenceGapPolicy?["missingFact"]?.GetValue<string>()
+                    ?? string.Empty).Contains("不能据此判定该功能不需要", StringComparison.Ordinal)
+                || !(evidenceGapPolicy?["alternativeMechanism"]?.GetValue<string>()
+                    ?? string.Empty).Contains("config.placeholder", StringComparison.Ordinal)
+                || !(evidenceGapPolicy?["completionClaim"]?.GetValue<string>()
+                    ?? string.Empty).Contains("不得用可编译", StringComparison.Ordinal)
+                || !functionalBlocks.Any(block => string.Equals(
+                    block?["topic"]?.GetValue<string>(), "pick-place", StringComparison.Ordinal)
+                    && (block?["slots"] as JsonArray)?.Count == 5)
                 || requiredKnowledgeIds.Any(patternId => !processKnowledgeBlocks.Any(block =>
                     string.Equals(
                         block?["patternId"]?.GetValue<string>(),
@@ -562,6 +580,7 @@ namespace Automation.McpServer
                 || identifyOnlyRoot?["detail"]?.GetValue<string>() != "compact"
                 || identifyOnlySections[0]?["topic"]?.GetValue<string>() != "core"
                 || identifyOnlySections[1]?["topic"]?.GetValue<string>() != "identify"
+                || identifyOnlySections[1]?["format"]?.GetValue<string>() != "compact"
                 || !(identifyOnlySections[0]?["markdown"]?.GetValue<string>() ?? string.Empty)
                     .Contains("最短可靠路径", StringComparison.Ordinal)
                 || identifyKnowledgeBlocks == null
@@ -586,6 +605,7 @@ namespace Automation.McpServer
                 "set_variable_by_name", "set_variable_by_index",
                 "add_variable", "update_variable", "delete_variable",
                 "upsert_data_struct", "delete_data_struct", "set_alarm", "delete_alarm",
+                "plan_motion_points",
                 "get_migration_configuration",
                 "preview_motion_io_configuration", "preview_io_debug_configuration",
                 "preview_plc_configuration", "preview_communication_configuration",
@@ -682,73 +702,6 @@ namespace Automation.McpServer
                 throw new InvalidOperationException(
                     "preview_change_set Schema 意外暴露旧流程写入字段，流程结构只能通过 actions 表达。");
             }
-            string invalidIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
-            {
-                Version = 2,
-                Actions = new List<ChangeSetAction>
-                {
-                    new ChangeSetAction
-                    {
-                        Type = "operation.append",
-                        Operation = new SemanticOperation
-                        {
-                            Kind = "io.wait",
-                            TimeoutMs = 1000
-                        }
-                    }
-                }
-            });
-            string validIoWait = AiChangeSetCatalog.Validate(new AiChangeSet
-            {
-                Version = 2,
-                Actions = new List<ChangeSetAction>
-                {
-                    new ChangeSetAction
-                    {
-                        Type = "operation.append",
-                        Operation = new SemanticOperation
-                        {
-                            Kind = "io.wait",
-                            Conditions = new List<IoStateCondition>
-                            {
-                                new IoStateCondition { Io = "气缸原位", State = true },
-                                new IoStateCondition { Io = "气缸动位", State = false }
-                            },
-                            TimeoutMs = 1000,
-                            OnFailure = new OperationTarget { OperationKey = "recovery" }
-                        }
-                    }
-                }
-            });
-            string validIoWrite = AiChangeSetCatalog.Validate(new AiChangeSet
-            {
-                Version = 2,
-                Actions = new List<ChangeSetAction>
-                {
-                    new ChangeSetAction
-                    {
-                        Type = "operation.append",
-                        Operation = new SemanticOperation
-                        {
-                            Kind = "io.write",
-                            Outputs = new List<IoOutputState>
-                            {
-                                new IoOutputState { Io = "电磁阀A", State = true },
-                                new IoOutputState { Io = "电磁阀B", State = false }
-                            }
-                        }
-                    }
-                }
-            });
-            if (!(invalidIoWait ?? string.Empty).Contains("conditions", StringComparison.Ordinal)
-                || validIoWait != null)
-            {
-                throw new InvalidOperationException("io.wait联合条件与失败目标的本地校验错误。");
-            }
-            if (validIoWrite != null)
-            {
-                throw new InvalidOperationException("io.write同卡批量输出的本地校验错误。");
-            }
             VerifyTaskCapabilityProfiles();
             Console.WriteLine(
                 $"Editor Profile 校验通过，共 {names.Length} 个工具；preview_change_set Schema {previewSchemaBytes}字节；V2 写入链完整，旧写入链未暴露。");
@@ -814,10 +767,11 @@ namespace Automation.McpServer
             string[] create = ToolNames(AutomationToolProfiles.ProcessCreate);
             if (!create.Contains("preview_change_set", StringComparer.Ordinal)
                 || !create.Contains("apply_change_set", StringComparer.Ordinal)
+                || !create.Contains("inspect_process", StringComparer.Ordinal)
                 || create.Contains("resolve_proc_target", StringComparer.Ordinal)
-                || !create.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
+                || !create.Contains("list_authoring_resources", StringComparer.Ordinal)
                 || !create.Contains("resolve_operation_capability", StringComparer.Ordinal)
-                || create.Contains("discover_project_resources", StringComparer.Ordinal)
+                || create.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
                 || create.Contains("get_operation_schema", StringComparer.Ordinal)
                 || create.Contains("search_proc_catalog", StringComparer.Ordinal)
                 || create.Contains("search_io", StringComparer.Ordinal)
@@ -829,11 +783,11 @@ namespace Automation.McpServer
             string[] edit = ToolNames(AutomationToolProfiles.ProcessEdit);
             if (!edit.Contains("preview_change_set", StringComparer.Ordinal)
                 || !edit.Contains("resolve_proc_target", StringComparer.Ordinal)
-                || !edit.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
+                || !edit.Contains("list_authoring_resources", StringComparer.Ordinal)
                 || !edit.Contains("resolve_operation_capability", StringComparer.Ordinal)
                 || !edit.Contains("inspect_process", StringComparer.Ordinal)
                 || !edit.Contains("get_op_details", StringComparer.Ordinal)
-                || edit.Contains("discover_project_resources", StringComparer.Ordinal)
+                || edit.Contains("resolve_authoring_inputs", StringComparer.Ordinal)
                 || edit.Contains("get_proc_detail", StringComparer.Ordinal)
                 || edit.Contains("get_flow_graph", StringComparer.Ordinal)
                 || edit.Contains("get_step_detail", StringComparer.Ordinal)
@@ -846,7 +800,7 @@ namespace Automation.McpServer
 
             string[] review = ToolNames(AutomationToolProfiles.ProcessReview);
             if (!review.Contains("resolve_proc_target", StringComparer.Ordinal)
-                || review.Contains("discover_project_resources", StringComparer.Ordinal)
+                || review.Contains("list_authoring_resources", StringComparer.Ordinal)
                 || !review.Contains("inspect_process", StringComparer.Ordinal)
                 || !review.Contains("get_op_details", StringComparer.Ordinal)
                 || !review.Contains("submit_review_handoff", StringComparer.Ordinal)
@@ -892,12 +846,24 @@ namespace Automation.McpServer
                 throw new InvalidOperationException("RuntimeControl 工具边界错误。");
 
             string[] resources = ToolNames(AutomationToolProfiles.ResourceEdit);
-            if (!resources.Contains("add_variable", StringComparer.Ordinal)
+            if (!resources.Contains("list_authoring_resources", StringComparer.Ordinal)
+                || !resources.Contains("plan_motion_points", StringComparer.Ordinal)
+                || !resources.Contains("add_variable", StringComparer.Ordinal)
                 || !resources.Contains("upsert_data_struct", StringComparer.Ordinal)
                 || !resources.Contains("set_alarm", StringComparer.Ordinal)
                 || resources.Contains("preview_change_set", StringComparer.Ordinal)
                 || resources.Contains("start_proc", StringComparer.Ordinal))
                 throw new InvalidOperationException("ResourceEdit 工具边界错误。");
+            string planPointSchema = McpToolProfile.CreateTools(AutomationToolProfiles.ResourceEdit)
+                .Single(tool => string.Equals(
+                    tool.ProtocolTool.Name, "plan_motion_points", StringComparison.Ordinal))
+                .ProtocolTool.InputSchema.GetRawText();
+            if (!planPointSchema.Contains("\"maxItems\":20", StringComparison.Ordinal)
+                || !planPointSchema.Contains("\"maxLength\":100", StringComparison.Ordinal)
+                || !planPointSchema.Contains("\"minimum\":0", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("点位规划工具的批量、名称或工站索引Schema边界不完整。");
+            }
 
             string[] platform = ToolNames(AutomationToolProfiles.PlatformConfiguration);
             if (!platform.Contains("get_migration_configuration", StringComparer.Ordinal)
@@ -912,7 +878,10 @@ namespace Automation.McpServer
             int createPreviewSchemaBytes = Encoding.UTF8.GetByteCount(createPreviewSchema);
             VerifyPreviewChangeSetCompactContract(
                 createPreviewSchema,
-                new[] { "process.create", "step.append", "operation.append" });
+                ChangeSetActionTypes.SupportedTypes.Split('、')
+                    .Where(type => !string.Equals(type, "process.delete", StringComparison.Ordinal)
+                        && !string.Equals(type, "process.delete_all", StringComparison.Ordinal))
+                    .ToArray());
             var dynamicRegistry = new DynamicMcpToolRegistry(AutomationToolProfiles.ProcessCreate);
             string activeCreateSchema = dynamicRegistry.GetEnabledTool("preview_change_set")
                 .ProtocolTool.InputSchema.GetRawText();
@@ -935,11 +904,14 @@ namespace Automation.McpServer
             }
             if (createPreviewSchema.Contains("preview_process_blueprint", StringComparison.Ordinal)
                 || createPreviewSchema.Contains("retries", StringComparison.Ordinal)
-                || createPreviewSchema.Contains("entryMode", StringComparison.Ordinal))
+                || createPreviewSchema.Contains("entryMode", StringComparison.Ordinal)
+                || !createPreviewSchema.Contains("authoringLeaseId", StringComparison.Ordinal)
+                || !createPreviewSchema.Contains("x-processCreateModes", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("ProcessCreate ChangeSet Schema 仍暴露已退役的 Blueprint 或重试宏字段。");
+                throw new InvalidOperationException("ProcessCreate ChangeSet Schema 的增量创建契约不完整或仍暴露已退役字段。");
             }
             VerifyProcessCreateChangeSetBoundary();
+            VerifyAuthoringResourceRequestContract();
 
             Console.WriteLine(
                 $"任务能力包校验通过：Coordinator={coordinator.Length}, Design={design.Length}, Review={ToolNames(AutomationToolProfiles.ProcessReview).Length}, "
@@ -981,6 +953,41 @@ namespace Automation.McpServer
             };
             AutomationMcpTools.ValidateProcessCreateChangeSet(valid);
 
+            string createdProcId = Guid.NewGuid().ToString("D");
+            var authoringLease = new ProcessAuthoringLease(
+                new string('a', 32), createdProcId, "创建边界自检");
+            var continuation = new AtomicChangeSetDefinition
+            {
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "step.append",
+                        TargetProcess = new ProcessSelector { ProcId = createdProcId },
+                        Step = new StepActionValue { Key = "next", Name = "后续步骤" }
+                    },
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        TargetProcess = new ProcessSelector { ProcId = createdProcId },
+                        TargetStep = new StepSelector { Key = "next" },
+                        Operation = new SemanticOperation { Kind = "flow.end" }
+                    }
+                }
+            };
+            AutomationMcpTools.ValidateProcessCreateChangeSet(continuation, authoringLease);
+
+            continuation.Actions[0].TargetProcess = new ProcessSelector { ProcId = Guid.NewGuid().ToString("D") };
+            try
+            {
+                AutomationMcpTools.ValidateProcessCreateChangeSet(continuation, authoringLease);
+                throw new InvalidOperationException("ProcessCreate 续建边界自检未拒绝其他流程。");
+            }
+            catch (ArgumentException)
+            {
+                // 期望路径：续建凭据只能写入首次创建返回的稳定流程。
+            }
+
             var existingProcessEdit = new AtomicChangeSetDefinition
             {
                 Actions = new List<ChangeSetAction>(valid.Actions)
@@ -1002,16 +1009,220 @@ namespace Automation.McpServer
             {
                 // 期望路径：创建能力不得越界修改已提交流程。
             }
+
+            const string initialPreviewId = "11111111111111111111111111111111";
+            ProcessAuthoringLeaseRegistry.BindInitialPreview(initialPreviewId);
+            if (!ProcessAuthoringLeaseRegistry.IsInitialPreview(initialPreviewId))
+                throw new InvalidOperationException("ProcessCreate 首阶段预演未被标记为可签发创建工作区凭据。");
+            string applied = new JsonObject
+            {
+                ["ok"] = true,
+                ["type"] = "change_set.apply",
+                ["data"] = new JsonObject
+                {
+                    ["createdObjects"] = new JsonObject
+                    {
+                        ["processes"] = new JsonArray
+                        {
+                            new JsonObject
+                            {
+                                ["procId"] = createdProcId,
+                                ["name"] = "创建边界自检"
+                            }
+                        }
+                    }
+                }
+            }.ToJsonString();
+            ProcessAuthoringLease? issuedLease =
+                ProcessAuthoringLeaseRegistry.RegisterCreatedProcess(applied);
+            if (issuedLease == null || issuedLease.ProcId != createdProcId)
+                throw new InvalidOperationException("ProcessCreate 提交后没有签发目标收窄的创建工作区凭据。");
+            const string continuationPreviewId = "22222222222222222222222222222222";
+            ProcessAuthoringLeaseRegistry.BindPreview(continuationPreviewId, issuedLease);
+            if (!ReferenceEquals(
+                    ProcessAuthoringLeaseRegistry.GetPreviewLease(continuationPreviewId),
+                    issuedLease))
+                throw new InvalidOperationException("ProcessCreate 续建预演没有绑定原创建工作区。");
+            string attached = ProcessAuthoringLeaseRegistry.AttachToApplyResult(applied, issuedLease);
+            string? attachedLeaseId = (JsonNode.Parse(attached) as JsonObject)?["data"]?["authoringLease"]?["leaseId"]
+                ?.GetValue<string>();
+            if (!string.Equals(attachedLeaseId, issuedLease.LeaseId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("ProcessCreate 提交结果缺少可继续使用的authoringLease。");
+            }
+            ProcessAuthoringLeaseRegistry.CompletePreview(initialPreviewId);
+            ProcessAuthoringLeaseRegistry.CompletePreview(continuationPreviewId);
+        }
+
+        private static void VerifyAuthoringResourceRequestContract()
+        {
+            var request = new AuthoringResourceListRequest
+            {
+                Type = "motion"
+            };
+            AuthoringResourceListRequest normalized =
+                AutomationMcpTools.NormalizeAuthoringResourceRequest(request, 0);
+            if (!string.Equals(normalized.Type, "motion", StringComparison.Ordinal)
+                || normalized.NameLike != null)
+            {
+                throw new InvalidOperationException("作者资源目录错误要求先提供名称过滤。");
+            }
+            string ioRef = AuthoringResourceRefs.ForIo("通用输入", 0, 0, "1");
+            if (!string.Equals(ioRef, "io_input:0:0:1", StringComparison.Ordinal))
+                throw new InvalidOperationException("作者资源目录没有生成稳定的类型化IO引用。");
+            JsonArray projectedIo = AutomationMcpTools.ProjectAuthoringResourceItems(
+                "io_input",
+                new JsonArray(new JsonObject
+                {
+                    ["index"] = 1,
+                    ["name"] = "到位感应",
+                    ["cardNum"] = 0,
+                    ["module"] = 0,
+                    ["ioIndex"] = "1",
+                    ["ioType"] = "通用输入",
+                    ["referenceImpact"] = new JsonObject { ["total"] = 99 }
+                }));
+            if (!string.Equals(
+                    projectedIo[0]?["resourceRef"]?.GetValue<string>(),
+                    ioRef,
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    projectedIo[0]?["binding"]?["value"]?.GetValue<string>(),
+                    ioRef,
+                    StringComparison.Ordinal)
+                || projectedIo[0]?["referenceImpact"] != null)
+            {
+                throw new InvalidOperationException("作者资源目录没有返回可直接绑定的紧凑IO投影。");
+            }
+            JsonArray projectedVariable = AutomationMcpTools.ProjectAuthoringResourceItems(
+                "variable",
+                new JsonArray(new JsonObject
+                {
+                    ["variableId"] = "11111111-1111-1111-1111-111111111111",
+                    ["name"] = "状态",
+                    ["type"] = "double",
+                    ["scope"] = "public",
+                    ["value"] = "123",
+                    ["referenceImpact"] = new JsonObject { ["total"] = 99 }
+                }));
+            if (projectedVariable[0]?["value"] != null
+                || projectedVariable[0]?["referenceImpact"] != null
+                || string.IsNullOrWhiteSpace(projectedVariable[0]?["resourceRef"]?.GetValue<string>()))
+            {
+                throw new InvalidOperationException("作者资源目录仍混入变量运行值或引用影响。");
+            }
+            JsonObject evidenceBoundaries =
+                AutomationMcpTools.BuildAuthoringResourceEvidenceBoundaries();
+            if (!(evidenceBoundaries["missingFact"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("不能据此判定该功能不需要", StringComparison.Ordinal)
+                || !(evidenceBoundaries["ioState"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("不证明机构已到达相反终态", StringComparison.Ordinal)
+                || !(evidenceBoundaries["goalPreservation"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("config.placeholder", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("作者资源目录缺少防止静默目标降级的证据边界。");
+            }
+            var motionStation = new JsonObject { ["name"] = "搬运工站" };
+            JsonObject? missingTarget = AutomationMcpTools.BuildMotionAuthoringGap(
+                motionStation, "motion_station:0", 0, 0);
+            if (!string.Equals(
+                    missingTarget?["code"]?.GetValue<string>(),
+                    "MOTION_NAMED_TARGET_MISSING",
+                    StringComparison.Ordinal)
+                || !(missingTarget?["impact"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("不证明当前目标不需要", StringComparison.Ordinal)
+                || !(missingTarget?["impact"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("规划有业务含义的点位名", StringComparison.Ordinal)
+                || (missingTarget?["nextOptions"] as JsonArray)?.Count != 3
+                || AutomationMcpTools.BuildMotionAuthoringGap(
+                    motionStation, "motion_station:0", 1, 1) != null)
+            {
+                throw new InvalidOperationException("无命名点位的运动工站没有返回准确、非阻断的作者缺口。");
+            }
+            JsonObject? teachingRequired = AutomationMcpTools.BuildMotionAuthoringGap(
+                motionStation, "motion_station:0", 2, 1);
+            if (!string.Equals(
+                    teachingRequired?["code"]?.GetValue<string>(),
+                    "MOTION_POINT_TEACHING_REQUIRED",
+                    StringComparison.Ordinal)
+                || !(teachingRequired?["impact"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("保持incomplete", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("规划点位没有明确返回人工示教与启动阻塞边界。");
+            }
+            request.Type = "station";
+            try
+            {
+                AutomationMcpTools.NormalizeAuthoringResourceRequest(request, 0);
+                throw new InvalidOperationException("作者资源目录接受了已退役的拆分工站类别。");
+            }
+            catch (ArgumentException)
+            {
+                // 期望路径：运动资源由motion一次聚合工站、轴和点位。
+            }
         }
 
         private static void VerifyOperationCapabilityResolver()
         {
             string[] wait = AutomationMcpTools.ResolveSemanticCandidates("等待工件到位信号");
             string[] copy = AutomationMcpTools.ResolveSemanticCandidates("复制扫码结果字符串到载具编号变量");
+            string[] cylinderOut = AutomationMcpTools.ResolveSemanticCandidates("气缸伸出动作");
+            string[] cylinderFeedback = AutomationMcpTools.ResolveSemanticCandidates("等待气缸到位反馈");
+            string[] axisFeedback = AutomationMcpTools.ResolveSemanticCandidates("等待轴到位");
             if (!wait.SequenceEqual(new[] { "io.wait" }, StringComparer.Ordinal)
-                || !copy.SequenceEqual(new[] { "variable.copy" }, StringComparer.Ordinal))
+                || !copy.SequenceEqual(new[] { "variable.copy" }, StringComparer.Ordinal)
+                || !cylinderOut.SequenceEqual(new[] { "io.write" }, StringComparer.Ordinal)
+                || !cylinderFeedback.SequenceEqual(new[] { "io.wait" }, StringComparer.Ordinal)
+                || axisFeedback.Length != 0)
             {
                 throw new InvalidOperationException("常见业务措辞未能直接解析为平台语义能力。");
+            }
+            JsonArray native = AutomationMcpTools.RankNativeOperationCandidates(
+                new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["operaType"] = "工站走点",
+                        ["name"] = "工站走点",
+                        ["intentAliases"] = new JsonArray("移动到取料位", "移动到放料位")
+                    }
+                },
+                "移动到取料位");
+            if (native.Count != 1
+                || native[0]?["operaType"]?.GetValue<string>() != "工站走点")
+            {
+                throw new InvalidOperationException("运动业务措辞未能映射到权威原生动作别名。");
+            }
+            JsonObject exactSemantic = AutomationMcpTools.BuildOperationCapabilityResolutionItem(
+                "clear-count", "清零执行次数", new[] { "number.zero" }, new JsonArray());
+            if (!string.Equals(
+                    exactSemantic["resolutionStatus"]?.GetValue<string>(), "exact", StringComparison.Ordinal)
+                || !string.Equals(
+                    exactSemantic["resolutionScope"]?.GetValue<string>(), "operation_kind_only", StringComparison.Ordinal)
+                || !string.Equals(
+                    exactSemantic["resourceBindingValidation"]?.GetValue<string>(), "not_performed", StringComparison.Ordinal)
+                || !string.Equals(
+                    exactSemantic["contractRef"]?.GetValue<string>(),
+                    "semantic.number.zero",
+                    StringComparison.Ordinal)
+                || exactSemantic["contractIncluded"]?.GetValue<bool>() != true
+                || exactSemantic.ContainsKey("nextContractTool")
+                || exactSemantic.ContainsKey("contractReadAllowed"))
+            {
+                throw new InvalidOperationException("唯一语义能力必须声明同结果已包含精确契约，且不得残留二次读取Schema提示。");
+            }
+            JsonObject exactNative = AutomationMcpTools.BuildOperationCapabilityResolutionItem(
+                "scan", "调用扫码枪读取条码", Array.Empty<string>(), new JsonArray
+                {
+                    new JsonObject { ["operaType"] = "扫码读取", ["name"] = "扫码枪读取" }
+                });
+            if (!string.Equals(
+                    exactNative["resolved"]?["representation"]?.GetValue<string>(), "native", StringComparison.Ordinal)
+                || !string.Equals(
+                    exactNative["contractRef"]?.GetValue<string>(), "native.扫码读取", StringComparison.Ordinal)
+                || exactNative["contractIncluded"]?.GetValue<bool>() != true)
+            {
+                throw new InvalidOperationException("唯一原生能力必须返回可直接写入的解析身份和同结果契约引用。");
             }
 
             var registered = new JsonArray
@@ -1251,8 +1462,7 @@ namespace Automation.McpServer
             VerifyNumericRange(tools, "search_ops", "offset", 0, int.MaxValue);
             VerifyNumericRange(tools, "search_ops", "limit", 1, 100);
             VerifyNumericRange(tools, "resolve_proc_target", "limitPerKeyword", 1, 20);
-            VerifyNumericRange(tools, "discover_project_resources", "limitPerQuery", 1, 20);
-            VerifyNumericRange(tools, "resolve_authoring_inputs", "limitPerRequirement", 1, 10);
+            VerifyNumericRange(tools, "list_authoring_resources", "limitPerType", 1, 100);
             string resolverSchema = tools.Single(tool => string.Equals(
                 tool.ProtocolTool.Name, "resolve_proc_target", StringComparison.Ordinal))
                 .ProtocolTool.InputSchema.GetRawText();
@@ -1265,28 +1475,20 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("流程目标聚合定位Schema缺少关键词数量或普通文本约束。");
             }
-            string discoverySchema = tools.Single(tool => string.Equals(
-                tool.ProtocolTool.Name, "discover_project_resources", StringComparison.Ordinal))
+            string authoringResourceSchema = tools.Single(tool => string.Equals(
+                tool.ProtocolTool.Name, "list_authoring_resources", StringComparison.Ordinal))
                 .ProtocolTool.InputSchema.GetRawText();
-            if (!discoverySchema.Contains("\"minItems\":1", StringComparison.Ordinal)
-                || !discoverySchema.Contains("\"maxItems\":6", StringComparison.Ordinal)
-                || !discoverySchema.Contains("\"maxItems\":12", StringComparison.Ordinal)
-                || !discoverySchema.Contains("\"communication\"", StringComparison.Ordinal)
-                || !discoverySchema.Contains("\"const\":\"io\"", StringComparison.Ordinal))
+            if (!authoringResourceSchema.Contains("\"minItems\":1", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("\"maxItems\":9", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("\"motion\"", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("\"io_input\"", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("\"io_output\"", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("nameLike", StringComparison.Ordinal)
+                || !authoringResourceSchema.Contains("offset", StringComparison.Ordinal)
+                || authoringResourceSchema.Contains("names", StringComparison.Ordinal)
+                || authoringResourceSchema.Contains("keywords", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("资源聚合发现Schema缺少查询组或关键词数量约束。");
-            }
-            string authoringInputSchema = tools.Single(tool => string.Equals(
-                tool.ProtocolTool.Name, "resolve_authoring_inputs", StringComparison.Ordinal))
-                .ProtocolTool.InputSchema.GetRawText();
-            if (!authoringInputSchema.Contains("\"maxItems\":20", StringComparison.Ordinal)
-                || !authoringInputSchema.Contains("\"maxItems\":4", StringComparison.Ordinal)
-                || !authoringInputSchema.Contains("requiredScope", StringComparison.Ordinal)
-                || !authoringInputSchema.Contains("ownerProcId", StringComparison.Ordinal)
-                || !authoringInputSchema.Contains("data_struct", StringComparison.Ordinal)
-                || !authoringInputSchema.Contains("stationIndex", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("流程编写输入解析Schema缺少用途或变量兼容性约束。");
+                throw new InvalidOperationException("作者资源目录Schema没有落实按类别先枚举、名称过滤可选的契约。");
             }
             string operationResolutionSchema = tools.Single(tool => string.Equals(
                 tool.ProtocolTool.Name, "resolve_operation_capability", StringComparison.Ordinal))

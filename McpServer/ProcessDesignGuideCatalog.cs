@@ -93,10 +93,10 @@ namespace Automation.McpServer
             var sections = new List<object>();
             foreach (string topic in selectedTopics)
             {
-                string sourceTopic = string.Equals(normalizedDetail, "compact", StringComparison.Ordinal)
-                    && string.Equals(topic, "core", StringComparison.Ordinal)
-                        ? "core-compact"
-                        : topic;
+                bool compact = string.Equals(normalizedDetail, "compact", StringComparison.Ordinal);
+                string sourceTopic = compact && string.Equals(topic, "core", StringComparison.Ordinal)
+                    ? "core-compact"
+                    : topic;
                 if (!TryExtract(source, sourceTopic, out string markdown))
                 {
                     return Error(
@@ -106,9 +106,10 @@ namespace Automation.McpServer
                 sections.Add(new
                 {
                     topic,
-                    format = string.Equals(sourceTopic, "core-compact", StringComparison.Ordinal)
-                        ? "compact" : "full",
-                    markdown
+                    format = compact ? "compact" : "full",
+                    markdown = compact && !string.Equals(topic, "core", StringComparison.Ordinal)
+                        ? BuildCompactTopicMarkdown(markdown)
+                        : markdown
                 });
             }
 
@@ -126,6 +127,14 @@ namespace Automation.McpServer
 
             string sourceSha256 = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
+            object[] functionalBlocks = normalized
+                .Select(BuildFunctionalBlock)
+                .OfType<object>()
+                .ToArray();
+            string[] requiredResourceTypes = normalized
+                .SelectMany(GetRequiredResourceTypes)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
             IEnumerable<object> knowledgeBlocks = string.Equals(
                 normalizedDetail, "full", StringComparison.Ordinal)
                 ? knowledge.Blocks.Select(block => (object)new
@@ -165,6 +174,19 @@ namespace Automation.McpServer
                 sections,
                 usableKnowledgeCatalogSha256 = knowledge.CatalogSha256,
                 knowledgeBlocks,
+                goalCoverage = new
+                {
+                    proofBoundary = "Readiness只证明当前结构可保存或可启动，不证明用户业务目标已经完成。",
+                    completionRule = "最终答复前根据当前目标核对已提交结构与功能槽，分别标明已实现、占位和缺少事实；功能槽不规定固定调用顺序或一次提交完成。",
+                    evidenceGapPolicy = new
+                    {
+                        missingFact = "相关资源存在但精确目标、角色、极性或终态证据缺失，只能证明当前仍有证据缺口，不能据此判定该功能不需要。",
+                        alternativeMechanism = "只有当前事实或用户意图足以支持时才改用另一机构；替代会实质改变目标含义时，询问用户或用config.placeholder保留原目标。",
+                        completionClaim = "不得用可编译、ready或runnable代替功能槽完成证据，也不得把未实现槽位静默从目标中删除。"
+                    },
+                    resourceRequests = requiredResourceTypes.Select(type => new { type }),
+                    functionalBlocks
+                },
                 authority = new
                 {
                     fields = "当前语义或原生Schema",
@@ -174,6 +196,118 @@ namespace Automation.McpServer
                     referencePolicy = "只返回已完成甄别的可用规范；旧项目证据和审核中间结果不进入运行时上下文"
                 }
             });
+        }
+
+        private static object? BuildFunctionalBlock(string topic)
+        {
+            switch (topic)
+            {
+                case "actuator":
+                    return new
+                    {
+                        topic,
+                        requiredResourceTypes = new[] { "io_input", "io_output" },
+                        slots = new object[]
+                        {
+                            Slot("command", "执行器目标命令", "required", "真实输出及已确认的电气目标"),
+                            Slot("feedback", "目标反馈", "when_available", "反馈等待或明确的开环设备契约"),
+                            Slot("failure_exit", "失败出口", "when_requested_or_required", "超时或矛盾反馈后的可见控制流")
+                        }
+                    };
+                case "motion":
+                    return new
+                    {
+                        topic,
+                        requiredResourceTypes = new[] { "motion" },
+                        slots = new object[]
+                        {
+                            Slot("motion_target", "运动目标", "required", "当前工站与实际轴；优先复用已示教点位，没有现成目标时规划有业务含义的点位名并登记为待示教"),
+                            Slot("motion_action", "真实运动动作", "required", "原生运动指令及其精确契约"),
+                            Slot("motion_completion", "运动完成证据", "required", "同步完成或显式等待/到位证据")
+                        }
+                    };
+                case "pick-place":
+                    return new
+                    {
+                        topic,
+                        requiredResourceTypes = new[] { "motion", "io_input", "io_output" },
+                        slots = new object[]
+                        {
+                            Slot("pickup_motion", "进入取料位置", "required", "取料工站与真实运动动作；缺少现成点位时规划取料点名，坐标留给人工示教"),
+                            Slot("acquire", "取得工件", "required", "夹持或真空命令及可用反馈"),
+                            Slot("place_motion", "进入放料位置", "required", "放料工站与真实运动动作；缺少现成点位时规划放料点名，坐标留给人工示教"),
+                            Slot("release", "释放工件", "required", "释放命令及可用反馈"),
+                            Slot("safe_transition", "安全过渡", "when_required_by_mechanism", "明确的安全点或机构互锁事实")
+                        }
+                    };
+                case "transfer":
+                    return new
+                    {
+                        topic,
+                        requiredResourceTypes = new[] { "motion", "io_input", "io_output" },
+                        slots = new object[]
+                        {
+                            Slot("mechanism_selection", "确认搬运机构", "required", "当前motion与相关IO目录及用户目标；缺少点位或角色事实不是排除相关机构的证据"),
+                            Slot("transfer_action", "搬运动作", "required", "现场实际输送、升降、气动或运动资源"),
+                            Slot("arrival_evidence", "到达证明", "required", "边界/到位反馈或明确开环契约；单一输入未激活不证明相反机械终态"),
+                            Slot("handoff", "交接提交", "when_crossing_ownership", "接收确认与占用状态转移")
+                        }
+                    };
+                default:
+                    return null;
+            }
+        }
+
+        private static string[] GetRequiredResourceTypes(string topic)
+        {
+            switch (topic)
+            {
+                case "actuator":
+                    return new[] { "io_input", "io_output" };
+                case "motion":
+                    return new[] { "motion" };
+                case "pick-place":
+                case "transfer":
+                    return new[] { "motion", "io_input", "io_output" };
+                default:
+                    return Array.Empty<string>();
+            }
+        }
+
+        private static string BuildCompactTopicMarkdown(string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;
+            string heading = markdown.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault() ?? string.Empty;
+            var sections = new List<string>();
+            foreach (string name in new[]
+            {
+                "适用范围", "职责", "可组合子块", "设计要点", "关键边界", "参考骨架", "推荐结构"
+            })
+            {
+                string value = ExtractMarkdownSubsection(markdown, name);
+                if (!string.IsNullOrWhiteSpace(value)) sections.Add("### " + name + "\n\n" + value);
+                if (sections.Count >= 3) break;
+            }
+            string result = string.Join("\n\n", new[] { heading }.Concat(sections));
+            const int maxLength = 2400;
+            return result.Length <= maxLength ? result : result.Substring(0, maxLength) + "…";
+        }
+
+        private static string ExtractMarkdownSubsection(string markdown, string heading)
+        {
+            string marker = "### " + heading;
+            int start = markdown.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return string.Empty;
+            start += marker.Length;
+            int end = markdown.IndexOf("\n### ", start, StringComparison.Ordinal);
+            if (end < 0) end = markdown.Length;
+            return markdown.Substring(start, end - start).Trim();
+        }
+
+        private static object Slot(string id, string goal, string requirement, string evidence)
+        {
+            return new { id, goal, requirement, evidence };
         }
 
         private static string ExtractKnowledgeSection(string markdown, string heading)

@@ -142,7 +142,8 @@ namespace Automation
 
         /// <summary>
         /// 在 HMI 已显示且 UI 空闲时隐藏预加载平台编辑器。
-        /// 这里只创建并附加编辑器，不显示窗口，也不提前启动 AI/MCP。
+        /// 这里创建并附加编辑器、提前创建主窗口句柄并启动分片缓存预热，
+        /// 但不显示窗口，也不提前启动 AI/MCP。
         /// </summary>
         internal bool TryPreloadPlatformEditor(out string error)
         {
@@ -151,7 +152,8 @@ namespace Automation
             {
                 EnsureUiThread();
                 EnsureReadyOrFaulted();
-                EnsurePlatformEditorCreated();
+                FrmMain editor = EnsurePlatformEditorCreated();
+                editor.PrepareHiddenPreload();
                 return true;
             }
             catch (Exception ex)

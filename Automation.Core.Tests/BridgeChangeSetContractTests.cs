@@ -356,6 +356,12 @@ namespace Automation.Core.Tests
                         "编译失败必须返回结构化修复项。");
                     Assert.IsFalse(string.IsNullOrWhiteSpace(
                         error["issues"]?[0]?["suggestedRepair"]?.Value<string>()));
+                    Assert.AreEqual("preview_change_set",
+                        error["recovery"]?["repairContracts"]?["semantic"]?["schemaRoute"]?["nextTool"]?.Value<string>());
+                    CollectionAssert.Contains(
+                        error["recovery"]?["repairContracts"]?["semantic"]?["contracts"]?["flow.goto"]?["saveRequired"]
+                            ?.Values<string>().ToArray() ?? Array.Empty<string>(),
+                        "kind");
                     Assert.AreEqual(1, form.Runtime.Stores.Processes.Items.Count);
                     Assert.AreEqual(1, form.Runtime.Stores.Processes.Items[0].steps[0].Ops.Count,
                         "失败的预演不得修改正式流程。");
@@ -406,6 +412,63 @@ namespace Automation.Core.Tests
                     Assert.AreEqual("0-0-0", jump.DefaultGoto);
                 }
             }, TimeSpan.FromSeconds(30));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void Preview_MisspelledIo_ReturnsTypedResourceRefCandidateWithoutSchemaDump()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    Assert.IsTrue(form.Runtime.Stores.IoConfiguration.TryReplaceMap(
+                        new[]
+                        {
+                            new System.Collections.Generic.List<IO>
+                            {
+                                new IO
+                                {
+                                    Name = "搬运气缸到位感应1",
+                                    CardNum = 0,
+                                    Module = 0,
+                                    IOIndex = "0",
+                                    IOType = "通用输入"
+                                }
+                            }
+                        },
+                        out string ioError), ioError);
+                    var service = new AutomationBridgeService(form);
+                    AutomationBridgeResponse preview = Preview(service, new JArray
+                    {
+                        CreateProcessAction("binding", "资源绑定测试"),
+                        AppendStepAction("binding", "step", "等待"),
+                        AppendOperationAction("binding", "step", new JObject
+                        {
+                            ["key"] = "wait",
+                            ["kind"] = "io.wait",
+                            ["conditions"] = new JArray(new JObject
+                            {
+                                ["io"] = "搬运气缸到位传感器1",
+                                ["state"] = true
+                            }),
+                            ["timeoutMs"] = 1000
+                        })
+                    });
+                    JObject error = JObject.Parse(preview.Body);
+
+                    Assert.AreEqual(400, preview.StatusCode, preview.Body);
+                    Assert.AreEqual("resource_binding", error["issues"]?[0]?["rule"]?.Value<string>());
+                    Assert.AreEqual("io_input", error["recovery"]?["bindingRepair"]?["requiredResourceType"]?.Value<string>());
+                    Assert.AreEqual(
+                        "io_input:0:0:0",
+                        error["recovery"]?["bindingRepair"]?["candidates"]?[0]?["resourceRef"]?.Value<string>());
+                    Assert.IsNull(error["recovery"]?["repairContracts"],
+                        "资源拼写错误只应返回类型化候选，不应重复发送动作Schema。");
+                    Assert.AreEqual(0, form.Runtime.Stores.Processes.Items.Count);
+                }
+            }, TimeSpan.FromSeconds(20));
         }
 
         private static JObject PreviewProcess(

@@ -145,6 +145,8 @@ namespace Automation.Bridge
                         return WrapResponse("point.list", ExecuteOnUiThread(() => HandleListPoints(request)));
                     case "/bridge/point/get":
                         return WrapResponse("point.get", ExecuteOnUiThread(() => HandleGetPoint(request)));
+                    case "/bridge/point/plan":
+                        return WrapResponse("point.plan", ExecuteOnUiThread(() => HandlePlanMotionPoints(request)));
                     case "/bridge/point/set":
                         return WrapResponse("point.set", ExecuteOnUiThread(() => HandleSetPoint(request)));
                     case "/bridge/point/delete":

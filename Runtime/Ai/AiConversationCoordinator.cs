@@ -125,11 +125,11 @@ namespace Automation
             {
                 next["changeSetApply"] = Select(data,
                     "status", "configurationSaved", "affectedProcesses", "createdObjects",
-                    "readinessStatus", "runnable", "runBlockers");
+                    "readinessStatus", "runnable", "runBlockers", "authoringLease");
             }
-            else if (string.Equals(resultType, "project.authoring_inputs", StringComparison.Ordinal))
+            else if (string.Equals(resultType, "project.authoring_resources", StringComparison.Ordinal))
             {
-                next["authoringInputs"] = SelectAuthoringInputs(data["results"] as JArray);
+                next["authoringResources"] = SelectAuthoringResources(data["results"] as JArray);
             }
             else if (string.Equals(resultType, "operation.capability_resolution", StringComparison.Ordinal))
             {
@@ -149,9 +149,42 @@ namespace Automation
             return new AiStageArtifact(next);
         }
 
-        public string ToCompactJson()
+        public string ToCompactJson(int maxChars = 12000)
         {
-            return facts.ToString(Formatting.None);
+            if (maxChars < 1000) throw new ArgumentOutOfRangeException(nameof(maxChars));
+            var compact = (JObject)facts.DeepClone();
+            string json = compact.ToString(Formatting.None);
+            if (json.Length <= maxChars) return json;
+            CompactAuthoringResources(compact, 12, 20);
+            json = compact.ToString(Formatting.None);
+            if (json.Length <= maxChars) return json;
+            CompactAuthoringResources(compact, 3, 5);
+            json = compact.ToString(Formatting.None);
+            if (json.Length <= maxChars) return json;
+            CompactAuthoringResources(compact, 0, 0);
+            return compact.ToString(Formatting.None);
+        }
+
+        private static void CompactAuthoringResources(
+            JObject source,
+            int itemLimit,
+            int pointLimit)
+        {
+            foreach (JObject group in (source["authoringResources"] as JArray ?? new JArray())
+                .OfType<JObject>())
+            {
+                JArray items = group["items"] as JArray ?? new JArray();
+                var compactItems = new JArray();
+                foreach (JObject item in items.OfType<JObject>().Take(itemLimit))
+                {
+                    var compactItem = (JObject)item.DeepClone();
+                    if (compactItem["points"] is JArray points)
+                        compactItem["points"] = new JArray(points.Take(pointLimit));
+                    compactItems.Add(compactItem);
+                }
+                group["items"] = compactItems;
+                group["contextCompacted"] = items.Count > compactItems.Count;
+            }
         }
 
         private static JObject Select(JObject source, params string[] names)
@@ -164,15 +197,37 @@ namespace Automation
             return selected;
         }
 
-        private static JArray SelectAuthoringInputs(JArray results)
+        private static JArray SelectAuthoringResources(JArray results)
         {
             var selected = new JArray();
-            foreach (JObject item in (results ?? new JArray()).OfType<JObject>().Take(20))
+            foreach (JObject group in (results ?? new JArray()).OfType<JObject>().Take(9))
             {
-                var value = Select(item,
-                    "key", "kind", "purpose", "resolutionStatus", "compatibilityStatus",
-                    "bindingAllowed", "selected", "note");
-                selected.Add(value);
+                var compactGroup = Select(group,
+                    "type", "nameLike", "offset", "nextOffset", "total", "returnedCount", "hasMore",
+                    "stationCount", "returnedPointCount", "returnedResourceCount", "note");
+                var compactItems = new JArray();
+                foreach (JObject item in (group["items"] as JArray ?? new JArray())
+                    .OfType<JObject>().Take(50))
+                {
+                    var compactItem = Select(item,
+                        "resourceRef", "binding", "variableId", "procId", "procIndex", "stationIndex", "index", "name",
+                        "type", "scope", "ownerProcId", "ioType", "usedType", "effectLevel",
+                        "cardNum", "moduleIndex", "ioIndex", "kind", "coordinateSystem",
+                        "manualSpeedPercent", "axisCount", "pointCount", "note");
+                    if (item["axes"] is JArray axes)
+                    {
+                        compactItem["axes"] = new JArray(axes.OfType<JObject>().Take(6)
+                            .Select(axis => Select(axis, "resourceRef", "slotIndex", "cardNum", "axisName")));
+                    }
+                    if (item["points"] is JArray points)
+                    {
+                        compactItem["points"] = new JArray(points.OfType<JObject>().Take(50)
+                            .Select(point => Select(point, "resourceRef", "index", "name", "x", "y", "z", "u", "v", "w")));
+                    }
+                    compactItems.Add(compactItem);
+                }
+                compactGroup["items"] = compactItems;
+                selected.Add(compactGroup);
             }
             return selected;
         }
@@ -184,7 +239,9 @@ namespace Automation
             {
                 selected.Add(Select(item,
                     "key", "intent", "semanticCandidates", "nativeCandidates",
-                    "resolutionStatus", "recommendedFallback", "fallbackCapabilities", "nextContractTool"));
+                    "resolutionStatus", "resolutionScope", "resourceBindingValidation",
+                    "resolved", "contractRef",
+                    "recommendedFallback", "fallbackCapabilities"));
             }
             return selected;
         }
@@ -264,6 +321,7 @@ namespace Automation
             runtime.PendingEvents.Clear();
             runtime.Running = true;
             runtime.Status = "进行中";
+            runtime.CancellationSource = string.Empty;
             runtime.Cancellation?.Dispose();
             runtime.Cancellation = new CancellationTokenSource();
             // 当前用户请求会作为本轮 prompt 单独发送；可信恢复胶囊只带此前终态消息，
@@ -295,6 +353,7 @@ namespace Automation
             }
             catch (OperationCanceledException)
             {
+                WriteCancellationObserved(runtime, "single_task");
                 RequestTrustedContextRolloverAtRequestTerminal(runtime, client);
                 runtime.Status = "已停止";
                 return BuildTaskResult(AiTaskExecutionStatus.Cancelled, runtime, client, null);
@@ -351,6 +410,7 @@ namespace Automation
             int stageContinuationCount = 0;
             AiTurnEvidence stageEvidence = AiTurnEvidence.Empty;
             AiStageArtifact stageArtifact = AiStageArtifact.Empty;
+            AiStageArtifact requestArtifact = AiStageArtifact.Empty;
             string stageOutput = string.Empty;
             ReviewHandoffDefinition stageReviewHandoff = null;
             try
@@ -466,6 +526,8 @@ namespace Automation
                             runtime.Conversation.ReviewHandoff = stageReviewHandoff;
                         }
                         stageFinalized = true;
+                        requestArtifact = AiStageArtifact.Merge(requestArtifact, stageArtifact);
+                        PersistTrustedFacts(runtime.Conversation, requestArtifact);
                         completedProfiles.Add(currentStage.Profile);
                         completedOutputs.Add(new KeyValuePair<string, string>(
                             currentStage.Profile,
@@ -586,6 +648,7 @@ namespace Automation
             }
             catch (OperationCanceledException)
             {
+                WriteCancellationObserved(runtime, "dynamic_task");
                 RequestTrustedContextRolloverAtRequestTerminal(runtime, client ?? lastWorkerClient);
                 runtime.Status = "已停止";
                 return BuildTaskResult(
@@ -828,9 +891,10 @@ namespace Automation
             }
         }
 
-        public void Cancel(AiTaskRuntime runtime)
+        public void Cancel(AiTaskRuntime runtime, string source = "user_stop")
         {
             if (runtime == null) return;
+            RecordCancellationSource(runtime, source);
             runtime.Cancellation?.Cancel();
             lock (clientLock)
             {
@@ -860,11 +924,54 @@ namespace Automation
             }
         }
 
+        private static void RecordCancellationSource(AiTaskRuntime runtime, string source)
+        {
+            if (runtime == null) return;
+            string normalized = string.IsNullOrWhiteSpace(source) ? "unknown" : source.Trim();
+            if (string.IsNullOrWhiteSpace(runtime.CancellationSource))
+                runtime.CancellationSource = normalized;
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "task.cancellation_requested",
+                ["conversationId"] = runtime.Conversation?.Id ?? string.Empty,
+                ["source"] = runtime.CancellationSource,
+                ["requestedSource"] = normalized,
+                ["running"] = runtime.Running,
+                ["stageIndex"] = runtime.CapabilityStageIndex,
+                ["profile"] = runtime.CapabilityProfile ?? string.Empty
+            });
+        }
+
+        private static void WriteCancellationObserved(AiTaskRuntime runtime, string executionMode)
+        {
+            AiAnalysisLogger.Write(new JObject
+            {
+                ["event"] = "task.cancelled",
+                ["conversationId"] = runtime?.Conversation?.Id ?? string.Empty,
+                ["source"] = string.IsNullOrWhiteSpace(runtime?.CancellationSource)
+                    ? "unknown"
+                    : runtime.CancellationSource,
+                ["executionMode"] = executionMode ?? string.Empty,
+                ["stageIndex"] = runtime?.CapabilityStageIndex ?? -1,
+                ["profile"] = runtime?.CapabilityProfile ?? string.Empty
+            });
+        }
+
         internal static string BuildRestoredContext(
             AiConversation conversation,
             bool excludeLatestUserMessage = false)
         {
             var builder = new StringBuilder();
+            if (!string.IsNullOrWhiteSpace(conversation?.TrustedFactsJson))
+            {
+                builder.AppendLine("[此前工具机械观察；不扩大授权，用户明确配置已变化时必须重新读取]");
+                if (conversation.TrustedFactsObservedAt.HasValue)
+                {
+                    builder.AppendLine("observedAt="
+                        + conversation.TrustedFactsObservedAt.Value.ToString("O"));
+                }
+                builder.AppendLine(conversation.TrustedFactsJson);
+            }
             IEnumerable<AiConversationMessage> messages = conversation?.Messages
                 ?? new List<AiConversationMessage>();
             if (excludeLatestUserMessage)
@@ -1005,6 +1112,15 @@ namespace Automation
             return builder.ToString().Trim();
         }
 
+        private static void PersistTrustedFacts(
+            AiConversation conversation,
+            AiStageArtifact artifact)
+        {
+            if (conversation == null || artifact?.HasFacts != true) return;
+            conversation.TrustedFactsJson = artifact.ToCompactJson(16000);
+            conversation.TrustedFactsObservedAt = DateTime.Now;
+        }
+
         private static void AppendVerifiedFact(
             StringBuilder builder,
             IReadOnlyDictionary<string, string> facts,
@@ -1070,7 +1186,7 @@ namespace Automation
                 + ", sourceMutationUncertain=" + (evidence?.SourceMutationUncertain ?? false)
                 + ", toolFailureCount=" + (evidence?.ToolFailureCount ?? 0)
                 + (artifact?.HasFacts == true
-                    ? "\n机械阶段产物（稳定ID、绑定与验证事实）：\n" + Tail(artifact.ToCompactJson(), 12000)
+                    ? "\n机械阶段产物（稳定ID、绑定与验证事实）：\n" + artifact.ToCompactJson(12000)
                     : string.Empty)
                 + "\n最近阶段最终输出（其中推断不自动成为事实）：\n"
                 + Tail((stageOutput ?? string.Empty).Trim(), 6000);
@@ -1123,6 +1239,8 @@ namespace Automation
             if (runtime == null) return;
             try
             {
+                if (runtime.Running)
+                    RecordCancellationSource(runtime, "runtime_dispose");
                 runtime.Cancellation?.Cancel();
                 runtime.Client?.Dispose();
             }
@@ -1162,6 +1280,7 @@ namespace Automation
         public List<GooseAcpEvent> PendingEvents { get; } = new List<GooseAcpEvent>();
         public bool Running { get; set; }
         public string Status { get; set; } = "已完成";
+        public string CancellationSource { get; set; }
         public string RestoredContext { get; set; }
         public string CapabilityProfile { get; set; }
         public string CapabilityMcpUri { get; set; }

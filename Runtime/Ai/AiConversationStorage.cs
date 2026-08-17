@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Automation.Protocol;
 // 模块：运行时 / AI 集成。
 // 职责范围：管理 AI 会话、配置、ACP/MCP 进程、受管运行环境和分析记录。
@@ -29,6 +30,10 @@ namespace Automation
         public List<AiConversationMessage> Messages { get; set; } = new List<AiConversationMessage>();
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public ReviewHandoffDefinition ReviewHandoff { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string TrustedFactsJson { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public DateTime? TrustedFactsObservedAt { get; set; }
     }
 
     public static class AiConversationStorage
@@ -66,6 +71,19 @@ namespace Automation
                         AutomationToolProfiles.ProcessReview);
                     if (handoffError != null)
                         throw new InvalidDataException("AI 会话历史包含无效评审交接：" + handoffError);
+                }
+                if (!string.IsNullOrWhiteSpace(conversation.TrustedFactsJson))
+                {
+                    if (conversation.TrustedFactsJson.Length > 16000)
+                        throw new InvalidDataException("AI 会话可信事实超过16000字符边界。");
+                    try
+                    {
+                        JObject.Parse(conversation.TrustedFactsJson);
+                    }
+                    catch (JsonException ex)
+                    {
+                        throw new InvalidDataException("AI 会话可信事实不是有效JSON对象。", ex);
+                    }
                 }
                 foreach (AiConversationMessage message in conversation.Messages)
                 {

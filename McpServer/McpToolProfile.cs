@@ -15,8 +15,8 @@ namespace Automation.McpServer
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context", "get_process_design_guide",
-            "list_procs", "search_proc_catalog", "resolve_proc_target", "discover_project_resources",
-            "resolve_authoring_inputs", "resolve_operation_capability",
+            "list_procs", "search_proc_catalog", "resolve_proc_target", "list_authoring_resources",
+            "resolve_operation_capability",
             "get_proc_overview", "get_proc_detail", "get_flow_graph", "get_step_detail",
             "get_op_detail", "get_op_details",
             "get_operation_references", "get_proc_references", "trace_resource", "find_variable_usages",
@@ -63,7 +63,7 @@ namespace Automation.McpServer
             "set_variable_by_name", "set_variable_by_index",
             "add_variable", "update_variable", "delete_variable",
             "upsert_data_struct", "delete_data_struct",
-            "set_alarm", "delete_alarm"
+            "set_alarm", "delete_alarm", "plan_motion_points"
         };
 
         private static readonly HashSet<string> FullPermissionTools = new HashSet<string>(StringComparer.Ordinal)
@@ -212,15 +212,16 @@ namespace Automation.McpServer
                     ApplyStringArraySchema(tool, "keywords", null, 6);
                     ApplyPlainTextArrayItems(tool, "keywords", 100, rejectWildcard: true);
                 }
-                else if (string.Equals(toolName, "discover_project_resources", StringComparison.Ordinal))
+                else if (string.Equals(toolName, "list_authoring_resources", StringComparison.Ordinal))
                 {
-                    ApplyToolNumericRange(tool, "limitPerQuery", 1, 20);
-                    ApplyProjectResourceDiscoverySchema(tool);
+                    ApplyToolNumericRange(tool, "limitPerType", 1, 100);
+                    ApplyAuthoringResourceListSchema(tool);
                 }
-                else if (string.Equals(toolName, "resolve_authoring_inputs", StringComparison.Ordinal))
+                else if (string.Equals(toolName, "plan_motion_points", StringComparison.Ordinal))
                 {
-                    ApplyToolNumericRange(tool, "limitPerRequirement", 1, 10);
-                    ApplyAuthoringInputResolutionSchema(tool);
+                    ApplyToolNumericRange(tool, "stationIndex", 0, int.MaxValue);
+                    ApplyStringArraySchema(tool, "pointNames", null, 20);
+                    ApplyPlainTextArrayItems(tool, "pointNames", 100, rejectWildcard: true);
                 }
                 else if (string.Equals(toolName, "resolve_operation_capability", StringComparison.Ordinal))
                 {
@@ -422,134 +423,34 @@ namespace Automation.McpServer
             }
         }
 
-        private static void ApplyProjectResourceDiscoverySchema(McpServerTool tool)
+        private static void ApplyAuthoringResourceListSchema(McpServerTool tool)
         {
             JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
             if (root?["properties"] is not JsonObject rootProperties
-                || rootProperties["queries"] is not JsonObject queries)
+                || rootProperties["requests"] is not JsonObject requests)
             {
-                throw new InvalidOperationException("discover_project_resources 参数Schema缺少queries。");
+                throw new InvalidOperationException("list_authoring_resources 参数Schema缺少requests。");
             }
-            queries["minItems"] = 1;
-            queries["maxItems"] = 12;
-            queries["uniqueItems"] = true;
-            JsonObject? queryObject = FindObjectSchemaWithProperties(
-                queries, "kind", "keywords", "ioType", "stationIndex");
-            if (queryObject?["properties"] is not JsonObject queryProperties)
-                throw new InvalidOperationException("discover_project_resources 参数Schema缺少查询项结构。");
-            queryObject["additionalProperties"] = false;
-            queryObject["required"] = new JsonArray("kind", "keywords");
-            if (queryProperties["kind"] is JsonObject kind)
-                kind["enum"] = new JsonArray(
-                    "process", "io", "variable", "station", "point", "data_struct",
-                    "alarm", "communication", "plc");
-            if (queryProperties["keywords"] is JsonObject keywords)
-            {
-                keywords["minItems"] = 1;
-                keywords["maxItems"] = 6;
-                keywords["uniqueItems"] = true;
-                if (keywords["items"] is JsonObject keyword)
-                {
-                    keyword["minLength"] = 1;
-                    keyword["maxLength"] = 100;
-                    keyword["pattern"] = "^(?!\\*$).*\\S.*$";
-                }
-            }
-            if (queryProperties["ioType"] is JsonObject ioType)
-                ioType["enum"] = new JsonArray("通用输入", "通用输出");
-            if (queryProperties["stationIndex"] is JsonObject stationIndex)
-                stationIndex["minimum"] = 0;
-            queryObject["allOf"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["if"] = new JsonObject
-                    {
-                        ["properties"] = new JsonObject
-                        {
-                            ["kind"] = new JsonObject { ["const"] = "io" }
-                        },
-                        ["required"] = new JsonArray("kind")
-                    },
-                    ["else"] = new JsonObject
-                    {
-                        ["not"] = new JsonObject { ["required"] = new JsonArray("ioType") }
-                    }
-                },
-                new JsonObject
-                {
-                    ["if"] = new JsonObject
-                    {
-                        ["properties"] = new JsonObject
-                        {
-                            ["kind"] = new JsonObject { ["const"] = "point" }
-                        },
-                        ["required"] = new JsonArray("kind")
-                    },
-                    ["then"] = new JsonObject { ["required"] = new JsonArray("stationIndex") },
-                    ["else"] = new JsonObject
-                    {
-                        ["not"] = new JsonObject { ["required"] = new JsonArray("stationIndex") }
-                    }
-                }
-            };
-            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
-        }
-
-        private static void ApplyAuthoringInputResolutionSchema(McpServerTool tool)
-        {
-            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
-            if (root?["properties"] is not JsonObject rootProperties
-                || rootProperties["requirements"] is not JsonObject requirements)
-            {
-                throw new InvalidOperationException("resolve_authoring_inputs 参数Schema缺少requirements。");
-            }
-            requirements["minItems"] = 1;
-            requirements["maxItems"] = 20;
+            requests["minItems"] = 1;
+            requests["maxItems"] = 9;
+            requests["uniqueItems"] = true;
             JsonObject? item = FindObjectSchemaWithProperties(
-                requirements, "key", "kind", "names", "purpose", "ioType",
-                "requiredType", "requiredScope", "ownerProcId", "stationIndex");
+                requests, "type", "nameLike", "offset");
             if (item?["properties"] is not JsonObject properties)
-                throw new InvalidOperationException("resolve_authoring_inputs 缺少绑定意图结构。");
+                throw new InvalidOperationException("list_authoring_resources 缺少资源类别结构。");
             item["additionalProperties"] = false;
-            item["required"] = new JsonArray("key", "kind", "names", "purpose");
-            if (properties["key"] is JsonObject key)
+            item["required"] = new JsonArray("type");
+            if (properties["type"] is JsonObject type)
+                type["enum"] = new JsonArray(
+                    "motion", "io_input", "io_output", "variable", "communication",
+                    "plc", "alarm", "process", "data_struct");
+            if (properties["nameLike"] is JsonObject nameLike)
             {
-                key["minLength"] = 1;
-                key["maxLength"] = 80;
+                nameLike["minLength"] = 1;
+                nameLike["maxLength"] = 100;
             }
-            if (properties["kind"] is JsonObject kind)
-                kind["enum"] = new JsonArray(
-                    "process", "io", "variable", "station", "point", "data_struct",
-                    "alarm", "communication", "plc");
-            if (properties["names"] is JsonObject names)
-            {
-                names["minItems"] = 1;
-                names["maxItems"] = 4;
-                names["uniqueItems"] = true;
-                if (names["items"] is JsonObject name)
-                {
-                    name["minLength"] = 1;
-                    name["maxLength"] = 100;
-                    name["pattern"] = "^(?!\\*$).*\\S.*$";
-                }
-            }
-            if (properties["purpose"] is JsonObject purpose)
-            {
-                purpose["minLength"] = 1;
-                purpose["maxLength"] = 200;
-            }
-            if (properties["ioType"] is JsonObject ioType)
-                ioType["enum"] = new JsonArray("通用输入", "通用输出");
-            if (properties["requiredType"] is JsonObject requiredType)
-                requiredType["enum"] = new JsonArray("double", "string");
-            if (properties["requiredScope"] is JsonObject requiredScope)
-                requiredScope["enum"] = new JsonArray(
-                    VariableScopeContract.Public,
-                    VariableScopeContract.Process,
-                    VariableScopeContract.System);
-            if (properties["stationIndex"] is JsonObject stationIndex)
-                stationIndex["minimum"] = 0;
+            if (properties["offset"] is JsonObject offset)
+                offset["minimum"] = 0;
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 
@@ -756,7 +657,10 @@ namespace Automation.McpServer
             bool createProfile = string.Equals(
                 profile, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal);
             string[] actionTypes = createProfile
-                ? new[] { "process.create", "step.append", "operation.append" }
+                ? ChangeSetActionTypes.SupportedTypes.Split('、')
+                    .Where(value => !string.Equals(value, "process.delete", StringComparison.Ordinal)
+                        && !string.Equals(value, "process.delete_all", StringComparison.Ordinal))
+                    .ToArray()
                 : ChangeSetActionTypes.SupportedTypes.Split('、');
             if (actionProperties["type"] is not JsonObject typeSchema)
                 throw new InvalidOperationException("preview_change_set 动作Schema缺少type。");
@@ -770,12 +674,23 @@ namespace Automation.McpServer
             actionSchema["required"] = new JsonArray("type");
             actionSchema["additionalProperties"] = false;
             actionSchema["x-localKeyScope"] = "current_change_set";
+            actionSchema["x-localKeyContract"] = "局部key只在当前changeSet内有效；已提交对象使用apply结果中的稳定ID。";
             actionSchema["x-fieldsByType"] = createProfile
                 ? new JsonObject
                 {
                     ["process.create"] = "required:process",
+                    ["process.update"] = "required:targetProcess,process",
                     ["step.append"] = "required:targetProcess,step",
-                    ["operation.append"] = "required:targetProcess,targetStep,operation"
+                    ["step.insert"] = "required:targetProcess,position,step",
+                    ["step.update"] = "required:targetProcess,targetStep,step",
+                    ["step.delete"] = "required:targetProcess,targetStep",
+                    ["step.move"] = "required:targetProcess,targetStep,position",
+                    ["operation.append"] = "required:targetProcess,targetStep,operation",
+                    ["operation.insert"] = "required:targetProcess,targetStep,position,operation",
+                    ["operation.update"] = "required:targetProcess,targetOperation,operation;targetStep:required with targetOperation.key, optional with opId",
+                    ["operation.replace"] = "required:targetProcess,targetOperation.opId,operation;optional:targetStep",
+                    ["operation.delete"] = "required:targetProcess,targetOperation;targetStep:required with targetOperation.key, optional with opId",
+                    ["operation.move"] = "required:targetProcess,targetOperation,position;targetStep:required with targetOperation.key, optional with opId"
                 }
                 : new JsonObject
                 {
@@ -797,12 +712,21 @@ namespace Automation.McpServer
                 };
             if (createProfile)
             {
-                foreach (string field in new[] { "targetOperation", "position" })
-                    actionProperties.Remove(field);
-                RequireNestedFields(actionSchema, "process", "key", "name");
-                RestrictSelectorToLocalKey(actionSchema, "targetProcess", "procId", "name");
-                RequireNestedFields(actionSchema, "step", "key", "name");
-                RestrictSelectorToLocalKey(actionSchema, "targetStep", "stepId");
+                changeSetSchema["x-processCreateModes"] = new JsonObject
+                {
+                    ["initial"] = "省略authoringLeaseId；必须且只能创建一个流程，使用流程/步骤局部key在本阶段追加安全骨架。",
+                    ["continuation"] = "传首次apply返回的authoringLeaseId；不得再次创建或删除流程，所有targetProcess和流程变量ownerProcess必须使用凭据中的稳定procId，可分阶段增删改步骤和指令。"
+                };
+                if (rootProperties["authoringLeaseId"] is JsonObject leaseSchema)
+                {
+                    leaseSchema["minLength"] = 32;
+                    leaseSchema["maxLength"] = 32;
+                    leaseSchema["pattern"] = "^[0-9a-f]{32}$";
+                }
+            }
+            else
+            {
+                rootProperties.Remove("authoringLeaseId");
             }
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
@@ -838,7 +762,8 @@ namespace Automation.McpServer
             operationSchema["x-fieldsByKind"] = new JsonObject
             {
                 ["variable.set"] = "required:variable,value",
-                ["variable.clear"] = "required:variable",
+                ["string.clear"] = "required:variable",
+                ["number.zero"] = "required:variable",
                 ["variable.copy"] = "required:sourceVariable,targetVariable",
                 ["variable.add"] = "required:variable,amount",
                 ["variable.compute"] = "required:sourceVariable,operator,outputVariable;optional:operandValue,operandVariable",

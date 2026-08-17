@@ -380,7 +380,7 @@ namespace Automation
                 .Replace("get_proc_overview", "获取流程概览")
                 .Replace("get_proc_detail", "获取流程详情")
                 .Replace("resolve_proc_target", "定位流程目标")
-                .Replace("discover_project_resources", "批量发现项目资源")
+                .Replace("list_authoring_resources", "查看流程编写资源")
                 .Replace("list_procs", "列出流程")
                 .Replace("get_variable_by_name", "按名称获取变量")
                 .Replace("get_variable_by_index", "按索引获取变量")

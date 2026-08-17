@@ -362,6 +362,21 @@ namespace Automation.McpServer
             return PostAsync("/bridge/point/get", payload);
         }
 
+        public Task<string> PlanMotionPointsAsync(int stationIndex, IReadOnlyList<string> pointNames)
+        {
+            var names = new JsonArray();
+            foreach (string pointName in pointNames ?? Array.Empty<string>())
+            {
+                names.Add(pointName);
+            }
+            JsonObject payload = new JsonObject
+            {
+                ["stationIndex"] = stationIndex,
+                ["pointNames"] = names
+            };
+            return PostAsync("/bridge/point/plan", payload);
+        }
+
         // ---------- alarm 拆分（4 个） ----------
 
         public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike,

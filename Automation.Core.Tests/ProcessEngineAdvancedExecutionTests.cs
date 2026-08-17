@@ -27,6 +27,19 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void MotionBehaviorCatalog_ProvidesNaturalLanguageDiscoveryAliases()
+        {
+            JObject contract = OperationBehaviorCatalog.BuildContract(new StationRunPos());
+            JArray aliases = contract?["intentAliases"] as JArray;
+
+            Assert.IsNotNull(aliases);
+            Assert.IsTrue(aliases.Any(value =>
+                string.Equals(value?.Value<string>(), "移动到取料位", StringComparison.Ordinal)));
+            Assert.AreEqual(OperationBehaviorCatalog.ContractVersion,
+                contract?["contractVersion"]?.Value<int>());
+        }
+
+        [TestMethod]
         public void CycleTimeProbe_FastProcess_PublishesEveryExplicitProbeAndRetainsLatestSample()
         {
             using (var directory = new TemporaryDirectory())

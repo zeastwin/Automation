@@ -13,9 +13,66 @@ namespace Automation
 {
     public sealed class AiIoResource
     {
+        public string Name { get; set; }
+        public string ResourceRef { get; set; }
         public string IoType { get; set; }
         public int CardNum { get; set; }
+        public int Module { get; set; }
         public string IoIndex { get; set; }
+    }
+
+    public sealed class AiResourceBindingCandidate
+    {
+        public string ResourceRef { get; set; }
+        public string Name { get; set; }
+        public string ResourceType { get; set; }
+    }
+
+    public sealed class AiResourceBindingException : InvalidOperationException
+    {
+        public AiResourceBindingException(
+            string path,
+            string requestedValue,
+            string requiredResourceType,
+            IReadOnlyList<AiResourceBindingCandidate> candidates,
+            string reason = "not_found",
+            string actualResourceType = null)
+            : base(BuildMessage(
+                path, requestedValue, requiredResourceType, reason, actualResourceType))
+        {
+            Path = path ?? string.Empty;
+            RequestedValue = requestedValue ?? string.Empty;
+            RequiredResourceType = requiredResourceType ?? string.Empty;
+            Candidates = candidates ?? Array.Empty<AiResourceBindingCandidate>();
+            Reason = reason ?? "not_found";
+            ActualResourceType = actualResourceType ?? string.Empty;
+        }
+
+        public string Path { get; }
+        public string RequestedValue { get; }
+        public string RequiredResourceType { get; }
+        public IReadOnlyList<AiResourceBindingCandidate> Candidates { get; }
+        public string Reason { get; }
+        public string ActualResourceType { get; }
+
+        private static string BuildMessage(
+            string path,
+            string requestedValue,
+            string requiredResourceType,
+            string reason,
+            string actualResourceType)
+        {
+            if (string.Equals(reason, "type_mismatch", StringComparison.Ordinal))
+            {
+                string requiredLabel = string.Equals(requiredResourceType, "io_input", StringComparison.Ordinal)
+                    ? "通用输入"
+                    : string.Equals(requiredResourceType, "io_output", StringComparison.Ordinal)
+                        ? "通用输出"
+                        : requiredResourceType;
+                return $"{path} 只能引用{requiredLabel}：{requestedValue} 当前类型为 {actualResourceType}";
+            }
+            return $"{path} 引用的资源不存在：{requestedValue}";
+        }
     }
 
     public sealed class AiResourceSnapshot
@@ -76,18 +133,27 @@ namespace Automation
 
         public string RequireIo(string name, string path, string requiredIoType = null)
         {
-            string exactName = RequireText(name, path);
-            if (!_resources.IoResources.TryGetValue(exactName, out AiIoResource io))
+            string selector = RequireText(name, path);
+            if (!_resources.IoResources.TryGetValue(selector, out AiIoResource io))
             {
-                throw new InvalidOperationException($"{path} 引用的IO不存在：{exactName}");
+                throw new AiResourceBindingException(
+                    path,
+                    selector,
+                    ToAuthoringResourceType(requiredIoType),
+                    RankIoCandidates(selector, requiredIoType));
             }
             if (!string.IsNullOrEmpty(requiredIoType)
                 && !string.Equals(io.IoType, requiredIoType, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException(
-                    $"{path} 只能引用{requiredIoType}：{exactName} 当前类型为 {io.IoType}");
+                throw new AiResourceBindingException(
+                    path,
+                    selector,
+                    ToAuthoringResourceType(requiredIoType),
+                    RankIoCandidates(selector, requiredIoType),
+                    "type_mismatch",
+                    ToAuthoringResourceType(io.IoType));
             }
-            return exactName;
+            return string.IsNullOrWhiteSpace(io.Name) ? selector : io.Name;
         }
 
         public AiIoResource RequireIoResource(
@@ -95,8 +161,71 @@ namespace Automation
             string path,
             string requiredIoType = null)
         {
-            string exactName = RequireIo(name, path, requiredIoType);
-            return _resources.IoResources[exactName];
+            string selector = RequireText(name, path);
+            RequireIo(selector, path, requiredIoType);
+            return _resources.IoResources[selector];
+        }
+
+        private IReadOnlyList<AiResourceBindingCandidate> RankIoCandidates(
+            string selector,
+            string requiredIoType)
+        {
+            return _resources.IoResources.Values
+                .Where(item => item != null
+                    && !string.IsNullOrWhiteSpace(item.Name)
+                    && (string.IsNullOrWhiteSpace(requiredIoType)
+                        || string.Equals(item.IoType, requiredIoType, StringComparison.Ordinal)))
+                .GroupBy(item => item.ResourceRef ?? item.Name, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(item => EditDistance(selector, item.Name))
+                .ThenByDescending(item => CommonPrefixLength(selector, item.Name))
+                .ThenBy(item => item.Name, StringComparer.Ordinal)
+                .Take(3)
+                .Select(item => new AiResourceBindingCandidate
+                {
+                    ResourceRef = item.ResourceRef ?? string.Empty,
+                    Name = item.Name,
+                    ResourceType = ToAuthoringResourceType(item.IoType)
+                })
+                .ToArray();
+        }
+
+        private static string ToAuthoringResourceType(string ioType)
+        {
+            if (string.Equals(ioType, "通用输入", StringComparison.Ordinal)) return "io_input";
+            if (string.Equals(ioType, "通用输出", StringComparison.Ordinal)) return "io_output";
+            return "io";
+        }
+
+        private static int CommonPrefixLength(string left, string right)
+        {
+            left = left ?? string.Empty;
+            right = right ?? string.Empty;
+            int length = Math.Min(left.Length, right.Length);
+            int index = 0;
+            while (index < length && left[index] == right[index]) index++;
+            return index;
+        }
+
+        private static int EditDistance(string left, string right)
+        {
+            left = left ?? string.Empty;
+            right = right ?? string.Empty;
+            var previous = Enumerable.Range(0, right.Length + 1).ToArray();
+            var current = new int[right.Length + 1];
+            for (int i = 1; i <= left.Length; i++)
+            {
+                current[0] = i;
+                for (int j = 1; j <= right.Length; j++)
+                {
+                    int replace = previous[j - 1] + (left[i - 1] == right[j - 1] ? 0 : 1);
+                    current[j] = Math.Min(Math.Min(previous[j] + 1, current[j - 1] + 1), replace);
+                }
+                int[] swap = previous;
+                previous = current;
+                current = swap;
+            }
+            return previous[right.Length];
         }
 
         public DicValue RequireVariable(string name, string path, string requiredType = null)
@@ -306,7 +435,8 @@ namespace Automation
             = new IAiOperationCompiler[]
             {
                 new VariableSetCompiler(),
-                new VariableClearCompiler(),
+                new StringClearCompiler(),
+                new NumberZeroCompiler(),
                 new VariableCopyCompiler(),
                 new VariableAddCompiler(),
                 new VariableComputeCompiler(),
@@ -600,11 +730,11 @@ namespace Automation
             public override string DefaultName => "变量累加";
         }
 
-        private sealed class VariableClearCompiler : IAiOperationCompiler
+        private sealed class StringClearCompiler : IAiOperationCompiler
         {
-            public string Kind => "variable.clear";
+            public string Kind => "string.clear";
 
-            public string DefaultName => "清空变量";
+            public string DefaultName => "清空字符串";
 
             public JObject BuildContract() => Contract(
                 "显式清空 string 变量；这不是缺失 value，也不与 variable.set 空字面量混用",
@@ -615,13 +745,40 @@ namespace Automation
             public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
             {
                 string variableName = AiOperationCompileContext.RequireText(
-                    definition.Variable, "variable.clear.variable");
-                context.RequireVariable(variableName, "variable.clear.variable", "string");
+                    definition.Variable, "string.clear.variable");
+                context.RequireVariable(variableName, "string.clear.variable", "string");
                 return new ModifyValue
                 {
                     ModifyType = "替换",
                     ClearOutput = true,
                     ValueSourceName = variableName,
+                    OutputValueName = variableName
+                };
+            }
+        }
+
+        private sealed class NumberZeroCompiler : IAiOperationCompiler
+        {
+            public string Kind => "number.zero";
+
+            public string DefaultName => "数值清零";
+
+            public JObject BuildContract() => Contract(
+                "把 double 变量明确重置为数值0",
+                new[] { "kind", "variable" },
+                new[] { "name" },
+                new JProperty("typeRule", "目标变量必须是 double；字符串置空使用string.clear"));
+
+            public OperationType Compile(SemanticOperation definition, AiOperationCompileContext context)
+            {
+                string variableName = AiOperationCompileContext.RequireText(
+                    definition.Variable, "number.zero.variable");
+                context.RequireVariable(variableName, "number.zero.variable", "double");
+                return new ModifyValue
+                {
+                    ModifyType = "替换",
+                    ValueSourceName = variableName,
+                    ChangeValue = "0",
                     OutputValueName = variableName
                 };
             }
@@ -1193,7 +1350,9 @@ namespace Automation
                         output.Io,
                         $"io.write.outputs[{index}].io",
                         "通用输出");
-                    string io = output.Io.Trim();
+                    string io = string.IsNullOrWhiteSpace(ioResource.Name)
+                        ? output.Io.Trim()
+                        : ioResource.Name;
                     if (!output.State.HasValue)
                         throw new InvalidOperationException($"io.write.outputs[{index}].state 必填。");
                     if (!names.Add(io))

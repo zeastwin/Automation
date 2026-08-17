@@ -697,6 +697,8 @@ namespace Automation
     }
     public class DataStation
     {
+        public const int PointCapacity = 400;
+
         [DisplayName("站名"), Category("A基本参数"), Description(""), ReadOnly(false)]
         public string Name { get; set; }
 
@@ -745,7 +747,7 @@ namespace Automation
 
             if (isnull == false)
             {
-                for (int i = 0; i < 400; i++)
+                for (int i = 0; i < PointCapacity; i++)
                 {
                     DataPos dataPos = dicDataPos.Values.FirstOrDefault(item => item.Index == i);
                     if (dataPos != null)
@@ -769,6 +771,27 @@ namespace Automation
     {
         public int Index { get; set; }
         public string Name { get; set; }
+        /// <summary>
+        /// 点位坐标是否已由人工编辑、取点或运行时真实采集确认。
+        /// null 表示旧版本数据；为兼容既有已用点位，旧数据按已示教处理。
+        /// AI 只登记名称时写入 false，不能据此执行运动。
+        /// </summary>
+        [Browsable(false)]
+        public bool? IsTaught { get; set; }
+
+        [Browsable(false), JsonIgnore]
+        public bool IsMotionReady => !string.IsNullOrWhiteSpace(Name) && IsTaught != false;
+
+        [Browsable(false), JsonIgnore]
+        public string TeachingState => string.IsNullOrWhiteSpace(Name)
+            ? "empty"
+            : IsTaught == false ? "planned" : "taught";
+
+        [Browsable(false), JsonIgnore]
+        public string TeachingStateDisplay => string.IsNullOrWhiteSpace(Name)
+            ? string.Empty
+            : IsTaught == false ? "待示教" : "已示教";
+
         public double X { get; set; }
         public double Y { get; set; }
         public double Z { get; set; }

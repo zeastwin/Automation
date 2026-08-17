@@ -120,7 +120,7 @@ namespace Automation.Protocol
         [Description("固定为run_stage；该工具只用于切换到一个下一能力。完成或需要用户补充时不要调用，直接正常回复。")]
         public string Action { get; set; }
 
-        [Description("action=run_stage时必填的单个能力包。用户目标是创建流程时直接选择ProcessCreate，它可读取设计知识、发现资源并创建完整简单流程或安全骨架；复杂骨架提交后用ProcessEdit按稳定ID分阶段补齐。ProcessDesign只用于纯方案输出或写入前必须先让用户做设计取舍的阶段。")]
+        [Description("action=run_stage时必填的单个能力包。用户目标是创建流程时直接选择ProcessCreate，它可读取设计知识、发现资源，并用提交返回的创建工作区凭据按稳定ID连续搭建同一个新流程；目标是独立既有流程时才选择ProcessEdit。ProcessDesign只用于纯方案输出或写入前必须先让用户做设计取舍的阶段。")]
         public string Capability { get; set; }
 
         [Description("action=run_stage时必填；只描述当前能力处理的对象和业务结果，不评价简单/复杂，不规定一次完成整个用户目标，也不提交后续完整计划。")]

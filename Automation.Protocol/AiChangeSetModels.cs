@@ -9,7 +9,7 @@ namespace Automation.Protocol
     public static class SemanticOperationKinds
     {
         public const string SupportedKinds =
-            "variable.set、variable.clear、variable.copy、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、branch.io、alarm.raise、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
+            "variable.set、string.clear、number.zero、variable.copy、variable.add、variable.compute、wait、flow.goto、flow.end、branch.number_compare、branch.number_range、branch.io、alarm.raise、popup.message、popup.variable、config.placeholder、io.write、io.wait、process.control、process.wait、native.operation";
     }
 
     /// <summary>
@@ -194,7 +194,7 @@ namespace Automation.Protocol
 
         public string Variable { get; set; }
 
-        [Description("variable.set 的固定字面量；double 变量填写数字文本。清空字符串必须使用 variable.clear，避免空值被误判为缺参。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
+        [Description("variable.set 的固定字面量；double 变量填写数字文本。字符串置空使用 string.clear，double 清零优先使用 number.zero，避免空值或自然语言清零被误判。这里不解析变量引用、算式或模板，变量运算使用 variable.add/variable.compute。")]
         public string Value { get; set; }
 
         [Description("variable.add 对 double 变量累加的固定数值。")]
@@ -254,10 +254,10 @@ namespace Automation.Protocol
         [Description("弹框自动关闭时间，范围 1..3600000 毫秒；不需要自动关闭时省略，不能填0。")]
         public int? AutoCloseMs { get; set; }
 
-        [Description("io.write 的同一卡输出集合；至少一项，每项包含输出IO精确名称及运行时逻辑目标值，全部输出通过一次端口写入同步切换。")]
+        [Description("io.write 的同一卡输出集合；至少一项，每项包含作者资源目录返回的IO resourceRef（推荐）或精确名称及运行时逻辑目标值，全部输出通过一次端口写入同步切换。")]
         public List<IoOutputState> Outputs { get; set; }
 
-        [Description("branch.io/io.wait 的强类型输入IO条件集合；每项包含通用输入IO精确名称及期望的运行时逻辑值。机构完成证据可在同一集合中同时声明目标反馈和对向反馈。")]
+        [Description("branch.io/io.wait 的强类型输入IO条件集合；每项包含作者资源目录返回的IO resourceRef（推荐）或精确名称及期望的运行时逻辑值。机构完成证据可在同一集合中同时声明目标反馈和对向反馈。")]
         public List<IoStateCondition> Conditions { get; set; }
 
         [Description("branch.io 的条件组合方式：all 表示全部条件成立，any 表示任一条件成立；省略时为 all。")]
@@ -293,7 +293,7 @@ namespace Automation.Protocol
 
     public sealed class IoStateCondition
     {
-        [Description("通用输入IO精确名称；branch.io/io.wait只读取输入IO的运行时逻辑状态。")]
+        [Description("通用输入IO的resourceRef（推荐）或精确名称；resourceRef直接复制list_authoring_resources结果，不改写；branch.io/io.wait只读取输入IO运行时逻辑状态。")]
         public string Io { get; set; }
 
         [Description("期望的IO运行时逻辑目标值。true表示该精确IO或传感器条件成立，false表示不成立；它不统一表示安全位或工作位。")]
@@ -302,7 +302,7 @@ namespace Automation.Protocol
 
     public sealed class IoOutputState
     {
-        [Description("通用输出IO精确名称；同一io.write内的全部IO必须位于同一张控制卡。")]
+        [Description("通用输出IO的resourceRef（推荐）或精确名称；resourceRef直接复制list_authoring_resources结果，不改写；同一io.write内的全部IO必须位于同一张控制卡。")]
         public string Io { get; set; }
 
         [Description("输出IO运行时逻辑目标值。true表示该精确输出IO逻辑激活，false表示逻辑未激活；它不统一表示安全位或工作位。")]

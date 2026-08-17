@@ -49,9 +49,9 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站点位列表未初始化。");
             }
-            if (index < 0 || index >= DataStationPointCapacity)
+            if (index < 0 || index >= DataStation.PointCapacity)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出范围 [0, {DataStationPointCapacity})。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出范围 [0, {DataStation.PointCapacity})。");
             }
             // 旧数据可能未填满 400 个槽位，按实际容量防御
             if (index >= station.ListDataPos.Count)
@@ -92,6 +92,8 @@ namespace Automation.Bridge
             {
                 ["index"] = pos.Index,
                 ["name"] = pos.Name ?? string.Empty,
+                ["teachingState"] = pos.TeachingState,
+                ["taught"] = pos.IsMotionReady,
                 ["x"] = pos.X,
                 ["y"] = pos.Y,
                 ["z"] = pos.Z,
@@ -101,10 +103,27 @@ namespace Automation.Bridge
             };
         }
 
+        private static IEnumerable<DataPos> EnumerateNamedPoints(DataStation station)
+        {
+            return (station?.ListDataPos ?? new List<DataPos>())
+                .Where(point => point != null && !string.IsNullOrWhiteSpace(point.Name))
+                .OrderBy(point => point.Index);
+        }
+
+        private static void RebuildStationPointDictionary(DataStation station)
+        {
+            if (station == null) return;
+            station.dicDataPos = EnumerateNamedPoints(station)
+                .GroupBy(point => point.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        }
+
         private void SaveStationAndRefresh()
         {
             StationDefinitionStore store = runtime.Stores.Stations;
-            if (!store.TryCommit(runtime.Paths.ConfigPath, store.Items, out string error))
+            List<DataStation> candidate = store.Items.Select(ObjectGraphCloner.Clone).ToList();
+            foreach (DataStation station in candidate) RebuildStationPointDictionary(station);
+            if (!store.TryCommit(runtime.Paths.ConfigPath, candidate, out string error))
             {
                 if (!store.Load(runtime.Paths.ConfigPath, out string restoreError))
                 {
@@ -130,20 +149,26 @@ namespace Automation.Bridge
                 DataStation station = list[i];
                 if (station == null) continue;
                 int namedCount = 0;
-                if (station.dicDataPos != null)
+                int taughtCount = 0;
+                int plannedCount = 0;
+                foreach (DataPos point in EnumerateNamedPoints(station))
                 {
-                    foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
-                    {
-                        if (kv.Value != null && !string.IsNullOrEmpty(kv.Value.Name)) namedCount++;
-                    }
+                    namedCount++;
+                    if (point.IsMotionReady) taughtCount++;
+                    else plannedCount++;
                 }
+                JArray axes = BuildStationAxes(station);
                 array.Add(new JObject
                 {
                     ["stationIndex"] = i,
                     ["name"] = station.Name ?? string.Empty,
                     ["coordinateSystem"] = station.CoordinateSystem,
                     ["manualSpeedPercent"] = station.ManualSpeedPercent,
-                    ["pointCount"] = namedCount
+                    ["axisCount"] = axes.Count,
+                    ["axes"] = axes,
+                    ["pointCount"] = namedCount,
+                    ["taughtPointCount"] = taughtCount,
+                    ["plannedPointCount"] = plannedCount
                 });
             }
             return new JObject
@@ -160,22 +185,45 @@ namespace Automation.Bridge
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
             JArray points = new JArray();
-            if (station.dicDataPos != null)
+            foreach (DataPos point in EnumerateNamedPoints(station))
             {
-                foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
-                {
-                    if (kv.Value == null) continue;
-                    points.Add(BuildPointJObject(kv.Value));
-                }
+                points.Add(BuildPointJObject(point));
             }
+            JArray axes = BuildStationAxes(station);
             return new JObject
             {
                 ["stationIndex"] = stationIndex,
                 ["name"] = station.Name ?? string.Empty,
                 ["coordinateSystem"] = station.CoordinateSystem,
                 ["manualSpeedPercent"] = station.ManualSpeedPercent,
+                ["axisCount"] = axes.Count,
+                ["axes"] = axes,
                 ["points"] = points
             };
+        }
+
+        private static JArray BuildStationAxes(DataStation station)
+        {
+            var axes = new JArray();
+            List<AxisConfig> configurations = station?.dataAxis?.axisConfigs;
+            if (configurations == null) return axes;
+            for (int i = 0; i < configurations.Count; i++)
+            {
+                AxisConfig configuration = configurations[i];
+                if (configuration == null
+                    || string.IsNullOrWhiteSpace(configuration.AxisName)
+                    || string.Equals(configuration.AxisName, "-1", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                axes.Add(new JObject
+                {
+                    ["slotIndex"] = i,
+                    ["cardNum"] = configuration.CardNum ?? string.Empty,
+                    ["axisName"] = configuration.AxisName
+                });
+            }
+            return axes;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -307,13 +355,9 @@ namespace Automation.Bridge
             int stationIndex = ReadRequiredInt(request, "stationIndex");
             DataStation station = ResolveStation(stationIndex);
             JArray array = new JArray();
-            if (station.dicDataPos != null)
+            foreach (DataPos point in EnumerateNamedPoints(station))
             {
-                foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
-                {
-                    if (kv.Value == null) continue;
-                    array.Add(BuildPointJObject(kv.Value));
-                }
+                array.Add(BuildPointJObject(point));
             }
             return new JObject
             {
@@ -339,6 +383,111 @@ namespace Automation.Bridge
             };
         }
 
+        private JObject HandlePlanMotionPoints(JObject request)
+        {
+            EnsureRuntimeReady();
+            int stationIndex = ReadRequiredInt(request, "stationIndex");
+            if (!(request["pointNames"] is JArray pointNamesToken)
+                || pointNamesToken.Count < 1 || pointNamesToken.Count > 20)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", "pointNames 必须包含1到20个点位名称。");
+            }
+
+            var pointNames = new List<string>();
+            foreach (JToken token in pointNamesToken)
+            {
+                string name = token?.Value<string>()?.Trim();
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 100)
+                {
+                    throw new BridgeRequestException(400, "INVALID_ARGUMENT", "点位名称不能为空且长度不能超过100。");
+                }
+                if (pointNames.Contains(name, StringComparer.Ordinal))
+                {
+                    throw new BridgeRequestException(400, "DUPLICATE_NAME", $"pointNames 包含重复名称：{name}。");
+                }
+                pointNames.Add(name);
+            }
+
+            StationDefinitionStore store = runtime.Stores.Stations;
+            if (store?.Items == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站存储未初始化。");
+            }
+            if (stationIndex < 0 || stationIndex >= store.Items.Count)
+            {
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"stationIndex 超出范围 [0, {store.Items.Count})。");
+            }
+            List<DataStation> candidate = store.Items.Select(ObjectGraphCloner.Clone).ToList();
+            DataStation station = candidate[stationIndex];
+            if (station?.ListDataPos == null)
+            {
+                throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站点位列表未初始化。");
+            }
+            RebuildStationPointDictionary(station);
+
+            var existingByName = station.ListDataPos
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
+                .GroupBy(item => item.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            int requiredSlots = pointNames.Count(name => !existingByName.ContainsKey(name));
+            List<DataPos> emptySlots = station.ListDataPos
+                .Where(item => item != null && string.IsNullOrWhiteSpace(item.Name))
+                .OrderBy(item => item.Index)
+                .ToList();
+            if (emptySlots.Count < requiredSlots)
+            {
+                throw new BridgeRequestException(409, "POINT_CAPACITY_EXCEEDED",
+                    $"工站仅剩 {emptySlots.Count} 个空点位槽，无法新增 {requiredSlots} 个规划点位。");
+            }
+
+            var planned = new JArray();
+            int createdCount = 0;
+            foreach (string name in pointNames)
+            {
+                bool created = !existingByName.TryGetValue(name, out DataPos point);
+                if (created)
+                {
+                    point = emptySlots[createdCount];
+                    point.Name = name;
+                    point.IsTaught = false;
+                    station.dicDataPos[name] = point;
+                    existingByName[name] = point;
+                    createdCount++;
+                }
+                planned.Add(new JObject
+                {
+                    ["index"] = point.Index,
+                    ["name"] = point.Name,
+                    ["teachingState"] = point.TeachingState,
+                    ["taught"] = point.IsMotionReady,
+                    ["created"] = created,
+                    ["resourceRef"] = $"motion_point:{stationIndex}:{point.Index}"
+                });
+            }
+            RebuildStationPointDictionary(station);
+
+            if (createdCount > 0)
+            {
+                EnsureAllProcsInactiveForAiStructureCommit("规划运动点位");
+                if (!store.TryCommit(runtime.Paths.ConfigPath, candidate, out string error))
+                {
+                    throw new BridgeRequestException(500, "STATION_COMMIT_FAILED", error);
+                }
+            }
+            if (createdCount > 0) runtime.EditorUi?.RefreshStations();
+            return new JObject
+            {
+                ["ok"] = true,
+                ["configurationSaved"] = true,
+                ["stationIndex"] = stationIndex,
+                ["stationName"] = station.Name ?? string.Empty,
+                ["createdCount"] = createdCount,
+                ["existingCount"] = pointNames.Count - createdCount,
+                ["points"] = planned,
+                ["nextStep"] = "这些点位名称现在可被流程引用；新建点位仍需人工编辑坐标或在工站界面取点，未示教前启动校验会阻止相关运动。"
+            };
+        }
+
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleSetPoint(JObject request)
         {
@@ -355,6 +504,7 @@ namespace Automation.Bridge
             double? u = request["u"]?.Value<double>();
             double? v = request["v"]?.Value<double>();
             double? w = request["w"]?.Value<double>();
+            bool wasUnnamed = string.IsNullOrWhiteSpace(pos.Name);
 
             bool changed = false;
             if (!string.IsNullOrWhiteSpace(name)
@@ -391,6 +541,17 @@ namespace Automation.Bridge
             if (u.HasValue) { pos.U = u.Value; changed = true; }
             if (v.HasValue) { pos.V = v.Value; changed = true; }
             if (w.HasValue) { pos.W = w.Value; changed = true; }
+            bool coordinatesChanged = x.HasValue || y.HasValue || z.HasValue
+                || u.HasValue || v.HasValue || w.HasValue;
+            if (coordinatesChanged)
+            {
+                pos.IsTaught = true;
+            }
+            else if (changed && wasUnnamed && !string.IsNullOrWhiteSpace(pos.Name))
+            {
+                // 原空槽位只有名称时属于规划状态；既有点位改名不降低旧数据的兼容状态。
+                pos.IsTaught = false;
+            }
             if (!changed)
             {
                 return BridgeError(400, "INVALID_ARGUMENT", "至少提供一个可修改字段（name/x/y/z/u/v/w）。");
@@ -430,6 +591,7 @@ namespace Automation.Bridge
             }
             // 清空点位数据（Index 保持不变，固定槽位）
             pos.Name = null;
+            pos.IsTaught = null;
             pos.X = 0;
             pos.Y = 0;
             pos.Z = 0;

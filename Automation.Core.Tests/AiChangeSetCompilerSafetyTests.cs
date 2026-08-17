@@ -389,7 +389,7 @@ namespace Automation.Core.Tests
                     }),
                     Append("result_clear", new SemanticOperation
                     {
-                        Kind = "variable.clear", Variable = "扫码结果"
+                        Kind = "string.clear", Variable = "扫码结果"
                     }),
                     Append("attempt", new SemanticOperation
                     {

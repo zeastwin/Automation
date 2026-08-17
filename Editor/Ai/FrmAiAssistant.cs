@@ -1647,7 +1647,9 @@ namespace Automation
                 standardTestStopRequested = true;
             }
             AiTaskRuntime runtime = ActiveTaskRuntime;
-            conversationCoordinator.Cancel(runtime);
+            conversationCoordinator.Cancel(
+                runtime,
+                standardTestRunning ? "standard_test_user_stop" : "user_stop");
         }
 
         private static bool TryReadStandardTestPromptSets(

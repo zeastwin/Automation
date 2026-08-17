@@ -740,13 +740,34 @@ namespace Automation
                         Workspace.Control.temp.dicDataPos.Remove(oldName);
                     }
                     dataPos.Name = newName;
+                    if (string.IsNullOrEmpty(oldName))
+                    {
+                        // 只录入名称是在规划点位；坐标列编辑或“取点”后才成为已示教点位。
+                        dataPos.IsTaught = false;
+                    }
                     Workspace.Control.temp.dicDataPos[newName] = dataPos;
+                }
+                else if (e.ColumnIndex >= 2 && e.ColumnIndex <= 7
+                    && !string.IsNullOrWhiteSpace(dataPos.Name))
+                {
+                    string coordinateText = Convert.ToString(
+                        editedRow.Cells[e.ColumnIndex].Value,
+                        System.Globalization.CultureInfo.CurrentCulture);
+                    if (double.TryParse(coordinateText,
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            out double coordinate)
+                        && !double.IsNaN(coordinate) && !double.IsInfinity(coordinate))
+                    {
+                        dataPos.IsTaught = true;
+                    }
                 }
 
                 if (dataPos.Index >= 0 && dataPos.Index < Workspace.Control.temp.ListDataPos.Count)
                 {
                     Workspace.Control.temp.ListDataPos[dataPos.Index] = dataPos;
                 }
+                dataGridView.InvalidateRow(e.RowIndex);
             }
         }
 
@@ -801,10 +822,22 @@ namespace Automation
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            if (positions.Count == 0)
+            {
+                MessageBox.Show("工站没有已配置的有效轴，无法完成取点。", "工站取点",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             foreach (var position in positions)
             {
                 dataGridView1.Rows[iSelectedRow].Cells[position.columnIndex].Value =
                     position.value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (dataGridView1.Rows[iSelectedRow].DataBoundItem is DataPos taughtPoint
+                && !string.IsNullOrWhiteSpace(taughtPoint.Name))
+            {
+                taughtPoint.IsTaught = true;
+                dataGridView1.Refresh();
             }
         }
 
@@ -822,6 +855,13 @@ namespace Automation
             if (dataGridView1.Rows[iSelectedRow].Cells[1].Value == null || string.IsNullOrWhiteSpace(dataGridView1.Rows[iSelectedRow].Cells[1].Value.ToString()))
             {
                 MessageBox.Show("点位名称为空，无法移动。");
+                return;
+            }
+            if (dataGridView1.Rows[iSelectedRow].DataBoundItem is DataPos selectedPoint
+                && selectedPoint.IsTaught == false)
+            {
+                MessageBox.Show("该点位仅完成名称规划，尚未人工示教坐标，不能执行移动。", "点位未示教",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             var commands = new List<(ushort card, ushort axis, double target, Axis config)>();
@@ -911,6 +951,7 @@ namespace Automation
                     Workspace.Control.temp.dicDataPos.Remove(oldName);
                 }
                 dataPos.Name = string.Empty;
+                dataPos.IsTaught = null;
                 dataPos.X = -1;
                 dataPos.Y = -1;
                 dataPos.Z = -1;

@@ -548,9 +548,5 @@ namespace Automation.Bridge
             };
         }
 
-        // ===================== 工站/点位操作 =====================
-
-        private const int DataStationPointCapacity = 400;
-
     }
 }

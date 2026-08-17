@@ -14,7 +14,7 @@ namespace Automation.Core.Tests
     public sealed class InstructionExecutionOptimizationTests
     {
         [TestMethod]
-        public void VariableClear_CompilesAndWritesEmptyStringWithoutBecomingIncomplete()
+        public void ExplicitClearKinds_CompileForTheirDeclaredVariableTypes()
         {
             var variables = new Dictionary<string, DicValue>(StringComparer.Ordinal)
             {
@@ -37,10 +37,10 @@ namespace Automation.Core.Tests
             };
             var context = new AiOperationCompileContext(
                 0, variables, new AiResourceSnapshot());
-            var operation = (ModifyValue)AiOperationCompilerRegistry.Get("variable.clear")
+            var operation = (ModifyValue)AiOperationCompilerRegistry.Get("string.clear")
                 .Compile(new SemanticOperation
                 {
-                    Kind = "variable.clear",
+                    Kind = "string.clear",
                     Variable = "扫码结果"
                 }, context);
 
@@ -48,8 +48,20 @@ namespace Automation.Core.Tests
             Assert.AreEqual("替换", operation.ModifyType);
             Assert.IsTrue(string.IsNullOrEmpty(operation.ChangeValue));
             Assert.ThrowsExactly<InvalidOperationException>(() =>
-                AiOperationCompilerRegistry.Get("variable.clear").Compile(
-                    new SemanticOperation { Kind = "variable.clear", Variable = "计数" },
+                AiOperationCompilerRegistry.Get("string.clear").Compile(
+                    new SemanticOperation { Kind = "string.clear", Variable = "计数" },
+                    context));
+            var zero = (ModifyValue)AiOperationCompilerRegistry.Get("number.zero")
+                .Compile(new SemanticOperation
+                {
+                    Kind = "number.zero",
+                    Variable = "计数"
+                }, context);
+            Assert.AreEqual("0", zero.ChangeValue);
+            Assert.IsFalse(zero.ClearOutput);
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                AiOperationCompilerRegistry.Get("number.zero").Compile(
+                    new SemanticOperation { Kind = "number.zero", Variable = "扫码结果" },
                     context));
 
             var process = TestProcessFactory.CreateEndingProcess("清空测试");
