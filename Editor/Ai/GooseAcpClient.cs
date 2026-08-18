@@ -77,8 +77,10 @@ namespace Automation
             { "developer", "skills", "tom" };
 
         private static readonly string executionLogRoot = Path.Combine(@"D:\AutomationLogs", "AIExecution");
-        private static readonly string structuredExecutionLogRoot = Path.Combine(executionLogRoot, "Structured");
+        // 与 McpServer 侧统一为小写 structured，两进程写同一目录时不再出现大小写漂移。
+        private static readonly string structuredExecutionLogRoot = Path.Combine(executionLogRoot, "structured");
         private static readonly Mutex executionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
+        private static readonly Mutex structuredLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog.Structured");
 
         private readonly GooseConfig config;
         private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> pendingRequests =
@@ -443,7 +445,8 @@ namespace Automation
         public async Task<JObject> PromptAsync(
             string prompt,
             IReadOnlyList<GooseFileAttachment> fileAttachments,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string userGoal = null)
         {
             if (string.IsNullOrWhiteSpace(prompt) && (fileAttachments == null || fileAttachments.Count == 0))
             {
@@ -578,6 +581,8 @@ namespace Automation
             }
             WriteAnalysisEvent("turn.started", new JObject
             {
+                ["userGoal"] = TruncateUserGoal(userGoal),
+                ["promptKind"] = string.IsNullOrWhiteSpace(userGoal) ? "system" : "user_input",
                 ["request"] = AiAnalysisLogger.SummarizePayload(new JValue(prompt), 8 * 1024),
                 ["toolProfile"] = config.ToolProfile ?? string.Empty,
                 ["provider"] = GooseConfigStorage.FindModelService(config) == null
@@ -2402,11 +2407,13 @@ namespace Automation
             }
             if (!string.Equals(status, "ok", StringComparison.Ordinal))
             {
+                string errorCodeValue = parameterGenerationFailed
+                    ? "PROVIDER_TOOL_ARGUMENTS_NOT_FORMED"
+                    : resultObject?["errorCode"]?.Value<string>() ?? transportCode;
                 data["error"] = new JObject
                 {
-                    ["code"] = parameterGenerationFailed
-                        ? "PROVIDER_TOOL_ARGUMENTS_NOT_FORMED"
-                        : resultObject?["errorCode"]?.Value<string>() ?? transportCode,
+                    ["kind"] = AiLogErrorKind.Classify(errorCodeValue),
+                    ["code"] = errorCodeValue,
                     ["message"] = parameterGenerationFailed
                         ? "模型未形成可调度的工具名称或参数。"
                         : resultObject?["message"]?.Value<string>()
@@ -3013,6 +3020,14 @@ namespace Automation
             {
                 WriteAnalysisEventLocked(eventName, data, eventUtc);
             }
+        }
+
+        // 用户原始输入截断后进入 turn.started 顶层，排查时一步 grep userGoal 即可还原各轮用户目标。
+        private static string TruncateUserGoal(string userGoal)
+        {
+            string text = (userGoal ?? string.Empty).Trim();
+            if (text.Length <= 2048) return text;
+            return text.Substring(0, 2048) + "…[truncated]";
         }
 
         private void WriteAnalysisEventLocked(string eventName, JObject data, DateTime? eventUtc = null)
@@ -3962,6 +3977,8 @@ namespace Automation
                 lockTaken = executionLogMutex.WaitOne(TimeSpan.FromSeconds(2));
                 if (!lockTaken)
                 {
+                    // 主日志互斥体被长时间占用时至少保留 structured 失败审计，不再整条丢弃。
+                    WriteStructuredExecutionRecordIndependent(record);
                     return;
                 }
                 Directory.CreateDirectory(executionLogRoot);
@@ -4004,33 +4021,6 @@ namespace Automation
                 {
                     writer.Write(content);
                 }
-
-                string kind = record["kind"]?.Value<string>() ?? string.Empty;
-                if (string.Equals(kind, "diagnostic_error", StringComparison.Ordinal)
-                    || string.Equals(kind, "prompt_failed", StringComparison.Ordinal))
-                {
-                    JObject structuredRecord = CreateStructuredExecutionRecord(record);
-                    string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
-                    Directory.CreateDirectory(structuredExecutionLogRoot);
-                    int structuredIndex = 0;
-                    string structuredPath;
-                    while (true)
-                    {
-                        structuredPath = Path.Combine(
-                            structuredExecutionLogRoot,
-                            $"{datePrefix}_{structuredIndex:000}.jsonl");
-                        if (!File.Exists(structuredPath)
-                            || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
-                        {
-                            break;
-                        }
-                        structuredIndex++;
-                    }
-                    using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
-                    {
-                        writer.Write(structuredContent);
-                    }
-                }
             }
             catch (AbandonedMutexException)
             {
@@ -4046,6 +4036,70 @@ namespace Automation
                     try
                     {
                         executionLogMutex.ReleaseMutex();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            WriteStructuredExecutionRecordIndependent(record);
+        }
+
+        // structured 失败审计与主日志分锁写入：主日志互斥体被高频占用时不丢失败事件，
+        // 与 McpServer 侧共用 AutomationAIExecutionAuditLog.Structured 互斥体保证跨进程追加互斥。
+        private static void WriteStructuredExecutionRecordIndependent(JObject record)
+        {
+            string kind = record["kind"]?.Value<string>() ?? string.Empty;
+            if (!string.Equals(kind, "diagnostic_error", StringComparison.Ordinal)
+                && !string.Equals(kind, "prompt_failed", StringComparison.Ordinal))
+            {
+                return;
+            }
+            bool lockTaken = false;
+            try
+            {
+                lockTaken = structuredLogMutex.WaitOne(TimeSpan.FromSeconds(2));
+                if (!lockTaken)
+                {
+                    return;
+                }
+                JObject structuredRecord = CreateStructuredExecutionRecord(record);
+                string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
+                Directory.CreateDirectory(structuredExecutionLogRoot);
+                string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
+                int structuredIndex = 0;
+                string structuredPath;
+                while (true)
+                {
+                    structuredPath = Path.Combine(
+                        structuredExecutionLogRoot,
+                        $"{datePrefix}_{structuredIndex:000}.jsonl");
+                    if (!File.Exists(structuredPath)
+                        || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
+                    {
+                        break;
+                    }
+                    structuredIndex++;
+                }
+                using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
+                {
+                    writer.Write(structuredContent);
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                lockTaken = true;
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    try
+                    {
+                        structuredLogMutex.ReleaseMutex();
                     }
                     catch
                     {

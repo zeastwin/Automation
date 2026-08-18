@@ -188,6 +188,7 @@
   <ItemGroup>
     <Compile Include="Application\Program.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.AiTests.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.AuditDiagnostics.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ChangeSet.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.DataStructures.cs" />
@@ -228,6 +229,15 @@
       <DependentUpon>FrmAiAssistant.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Editor\Ai\FrmAiAssistant.Headless.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Ai\FrmAiAssistant.Zoom.cs">
+      <DependentUpon>FrmAiAssistant.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\Ai\HeadlessAiTestOptions.cs" />
     <Compile Include="Editor\Ai\GooseAcpClient.cs" />
     <Compile Include="Editor\Common\EditorUiInfrastructure.cs">
       <SubType>Component</SubType>

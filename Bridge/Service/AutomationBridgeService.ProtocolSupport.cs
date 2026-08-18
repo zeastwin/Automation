@@ -278,8 +278,96 @@ namespace Automation.Bridge
             }
             catch (KeyNotFoundException)
             {
-                throw new BridgeRequestException(404, "OPERA_TYPE_NOT_FOUND", $"未找到指令类型：{operaType}");
+                throw new BridgeRequestException(
+                    404,
+                    "OPERA_TYPE_NOT_FOUND",
+                    $"未找到指令类型：{operaType}",
+                    BuildOperaTypeNotFoundDetails(operaType));
             }
+        }
+
+        // 指令类型未命中时附相近注册类型，让模型一轮纠正而不是反复猜测类型名。
+        internal static string BuildOperaTypeNotFoundDetails(string requestedOperaType)
+        {
+            JArray suggestions = BuildOperaTypeSuggestions(requestedOperaType);
+            string repair = suggestions.Count > 0
+                ? "采用 suggestions 中精确注册类型重试；完整类型目录见 list_operation_types。"
+                : "调用 list_operation_types 查看全部注册类型；平台没有对应指令时才使用 config.placeholder。";
+            return new JObject
+            {
+                ["issues"] = new JArray(new JObject
+                {
+                    ["path"] = "$.operaTypes",
+                    ["rule"] = "opera_type_not_found",
+                    ["message"] = $"未找到指令类型：{requestedOperaType}",
+                    ["suggestedRepair"] = repair
+                }),
+                ["suggestions"] = suggestions,
+                ["sideEffects"] = "none",
+                ["safeToRetry"] = true
+            }.ToString(Formatting.None);
+        }
+
+        // 按包含关系与共享二元组从注册指令中选取最相近的类型名；
+        // 同时匹配行为目录声明的 intentAliases，让"运动到点位"这类常用说法命中"工站走点"。
+        private static JArray BuildOperaTypeSuggestions(string requestedOperaType)
+        {
+            string target = (requestedOperaType ?? string.Empty).Trim();
+            if (target.Length == 0) return new JArray();
+            return new JArray(OperationDefinitionRegistry.CreateAll()
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.OperaType))
+                .Select(item => new { operaType = item.OperaType!, score = ScoreOperaTypeAffinity(target, item) })
+                .Where(entry => entry.score > 0)
+                .OrderByDescending(entry => entry.score)
+                .ThenBy(entry => entry.operaType, StringComparer.Ordinal)
+                .Take(3)
+                .Select(entry => (JToken)new JValue(entry.operaType)));
+        }
+
+        private static int ScoreOperaTypeAffinity(string target, OperationType operation)
+        {
+            string operaType = operation.OperaType ?? string.Empty;
+            if (string.Equals(target, operaType, StringComparison.Ordinal)) return 0;
+            int score = ScoreTextAffinity(target, operaType);
+            if (!string.IsNullOrWhiteSpace(operation.Name))
+                score = Math.Max(score, ScoreTextAffinity(target, operation.Name));
+            JObject behavior = OperationBehaviorCatalog.BuildContract(operation);
+            if (behavior?["intentAliases"] is JArray aliases)
+            {
+                foreach (JToken alias in aliases)
+                {
+                    string aliasText = alias?.Value<string>();
+                    if (string.IsNullOrWhiteSpace(aliasText)) continue;
+                    score = Math.Max(score, ScoreTextAffinity(target, aliasText));
+                }
+            }
+            return score;
+        }
+
+        private static int ScoreTextAffinity(string target, string text)
+        {
+            if (string.Equals(target, text, StringComparison.Ordinal)) return 0;
+            int bigrams = CountSharedBigrams(target, text);
+            bool contains = text.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0
+                || target.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (contains) return 100 + bigrams;
+            return bigrams >= 2 ? bigrams : 0;
+        }
+
+        private static int CountSharedBigrams(string left, string right)
+        {
+            if (left == null || right == null || left.Length < 2 || right.Length < 2) return 0;
+            // 统计 left 中去重后仍出现在 right 的二元组数量
+            var seen = new HashSet<string>();
+            int count = 0;
+            for (int i = 0; i < left.Length - 1; i++)
+            {
+                string gram = left.Substring(i, 2);
+                if (seen.Contains(gram)) continue;
+                seen.Add(gram);
+                if (right.IndexOf(gram, StringComparison.Ordinal) >= 0) count++;
+            }
+            return count;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

@@ -168,6 +168,11 @@ namespace Automation
                         {
                             incomplete = true;
                         }
+                        if (AddDataStructReferenceBlockers(
+                            operation, validationContext, location, blockers))
+                        {
+                            incomplete = true;
+                        }
                         IReadOnlyList<string> runtimeErrors =
                             ProcessDefinitionService.ValidateOperationRuntimeConfiguration(
                                 operation, location, validationContext);
@@ -179,6 +184,8 @@ namespace Automation
                     }
                 }
             }
+
+            AddActuatorMotionTimingWarnings(proc, warnings);
 
             if (enabledOperationCount == 0)
             {
@@ -206,6 +213,80 @@ namespace Automation
                 }
             }
             return Build(warnings, blockers, invalid ? "invalid" : incomplete ? "incomplete" : "ready");
+        }
+
+        // 机构激活态与轴运动的相邻关系只做警告不下发阻断：夹爪/真空夹持随行移动是合法工艺，
+        // 推料/顶升类机构不复位就移动则可能撞击；机械上无法单侧判定时把时序决策交给模型与用户确认。
+        // 按步骤与指令的线性顺序近似执行序，分支和跳转下的精确顺序不在此推导。
+        private static void AddActuatorMotionTimingWarnings(Proc proc, ICollection<string> warnings)
+        {
+            var activeOutputs = new Dictionary<string, string>(StringComparer.Ordinal);
+            var warnedOutputs = new HashSet<string>(StringComparer.Ordinal);
+            for (int stepIndex = 0; stepIndex < proc.steps.Count; stepIndex++)
+            {
+                Step step = proc.steps[stepIndex];
+                if (step == null || step.Disable || step.Ops == null) continue;
+                for (int operationIndex = 0; operationIndex < step.Ops.Count; operationIndex++)
+                {
+                    OperationType operation = step.Ops[operationIndex];
+                    if (operation == null || operation.Disable) continue;
+                    string location = $"步骤 {stepIndex} 指令 {operationIndex} [{operation.Name}]";
+                    foreach (IoOutParam output in EnumerateOutputWrites(operation))
+                    {
+                        if (string.IsNullOrWhiteSpace(output.IoName)) continue;
+                        if (output.TargetState)
+                        {
+                            activeOutputs[output.IoName] = location;
+                            warnedOutputs.Remove(output.IoName);
+                        }
+                        else
+                        {
+                            activeOutputs.Remove(output.IoName);
+                        }
+                    }
+                    if (!IsAxisMotionOperation(operation)) continue;
+                    foreach (KeyValuePair<string, string> active in activeOutputs)
+                    {
+                        if (!warnedOutputs.Add(active.Key)) continue;
+                        warnings.Add(
+                            $"{location} 在输出IO [{active.Key}] 保持激活（{active.Value} 置 true）时执行轴运动：" +
+                            "若该机构需复位后才能移动（防撞击时序），在运动前写回 false 或等待复位反馈；" +
+                            "若为夹持随行移动则属正常取放，在答复中标注该假设即可。");
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<IoOutParam> EnumerateOutputWrites(OperationType operation)
+        {
+            if (operation is IoOperate ioOperate && ioOperate.IoParams != null)
+            {
+                foreach (IoOutParam item in ioOperate.IoParams)
+                {
+                    yield return item;
+                }
+            }
+            else if (operation is IoGroup ioGroup && ioGroup.OutIoParams != null)
+            {
+                foreach (IoOutParam item in ioGroup.OutIoParams)
+                {
+                    yield return item;
+                }
+            }
+        }
+
+        private static bool IsAxisMotionOperation(OperationType operation)
+        {
+            switch (operation.OperaType)
+            {
+                case "工站走点":
+                case "走料盘点":
+                case "偏移量":
+                case "回原":
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool AddVariableReferenceBlockers(
@@ -287,7 +368,18 @@ namespace Automation
                 && string.Equals(item.Name, stationName, StringComparison.Ordinal));
             if (station == null)
             {
-                blockers.Add($"{location} 引用的工站不存在：{stationName ?? string.Empty}。");
+                // 工站不能由流程创建，名称未命中即转写错误；附相近工站名帮助一轮修正。
+                string[] similar = stations
+                    .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
+                    .Select(item => item.Name)
+                    .Where(name => !string.IsNullOrEmpty(stationName)
+                        && (name.IndexOf(stationName, StringComparison.OrdinalIgnoreCase) >= 0
+                            || stationName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
+                    .Take(3)
+                    .ToArray();
+                blockers.Add(similar.Length > 0
+                    ? $"{location} 引用的工站不存在：{stationName ?? string.Empty}。相近工站：{string.Join("、", similar)}。"
+                    : $"{location} 引用的工站不存在：{stationName ?? string.Empty}。");
                 return true;
             }
 
@@ -357,6 +449,63 @@ namespace Automation
                     // 目标槽位只需已规划；本指令会从真实来源写入坐标并转为已示教。
                     RequirePoint(getStationPos.TargetPosName, "保存目标点位", false);
                 }
+            }
+            return incomplete;
+        }
+
+        // 数据结构不能由流程变更集创建：结构体名称未命中属于悬空引用，
+        // 在预演 runBlockers 与启动闸门拦截并附相近名称；名称为空且索引有效时按索引模式跳过。
+        private static bool AddDataStructReferenceBlockers(
+            OperationType operation,
+            ProcessDefinitionValidationContext validationContext,
+            string location,
+            ICollection<string> blockers)
+        {
+            if (operation == null) return false;
+            List<string> structNames = validationContext?.Runtime?.Stores.DataStructures?.GetStructNames();
+            if (structNames == null || structNames.Count == 0) return false;
+
+            bool incomplete = false;
+            void RequireStruct(string name, int index, string field)
+            {
+                if (index >= 0 || string.IsNullOrWhiteSpace(name)) return;
+                if (structNames.Contains(name, StringComparer.Ordinal)) return;
+                string[] similar = structNames
+                    .Where(item => !string.IsNullOrWhiteSpace(item)
+                        && (item.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0
+                            || name.IndexOf(item, StringComparison.OrdinalIgnoreCase) >= 0))
+                    .Take(3)
+                    .ToArray();
+                blockers.Add(similar.Length > 0
+                    ? $"{location} 引用的{field}不存在：{name}。相近结构体：{string.Join("、", similar)}。"
+                    : $"{location} 引用的{field}不存在：{name}。");
+                incomplete = true;
+            }
+
+            switch (operation)
+            {
+                case SetDataStructItem setStruct:
+                    RequireStruct(setStruct.StructName, setStruct.StructIndex, "结构体");
+                    break;
+                case GetDataStructItem getStruct:
+                    RequireStruct(getStruct.StructName, getStruct.StructIndex, "结构体");
+                    break;
+                case CopyDataStructItem copyStruct:
+                    RequireStruct(copyStruct.SourceStructName, copyStruct.SourceStructIndex, "源结构体");
+                    RequireStruct(copyStruct.TargetStructName, copyStruct.TargetStructIndex, "目标结构体");
+                    break;
+                case InsertDataStructItem insertStruct:
+                    RequireStruct(insertStruct.TargetStructName, insertStruct.TargetStructIndex, "目标结构体");
+                    break;
+                case DelDataStructItem delStruct:
+                    RequireStruct(delStruct.TargetStructName, delStruct.TargetStructIndex, "目标结构体");
+                    break;
+                case FindDataStructItem findStruct:
+                    RequireStruct(findStruct.TargetStructName, findStruct.TargetStructIndex, "目标结构体");
+                    break;
+                case GetDataStructCount countStruct:
+                    RequireStruct(countStruct.TargetStructName, countStruct.TargetStructIndex, "目标结构体");
+                    break;
             }
             return incomplete;
         }
@@ -623,7 +772,14 @@ namespace Automation
             string target = index.HasValue ? "索引" + index.Value : name ?? string.Empty;
             if (!exists)
             {
-                error = $"引用的变量不存在：{target}。";
+                // 与工站/数据结构 blocker 一致：变量未命中时附相近候选，模型一轮纠正。
+                IEnumerable<string> knownNames = validationContext != null
+                    ? validationContext.VariableDefinitions.Keys
+                    : valueStore?.BuildSaveData()?.Keys;
+                var ranked = AiOperationCompileContext.RankNameCandidates(name ?? string.Empty, knownNames);
+                error = ranked.Count > 0
+                    ? $"引用的变量不存在：{target}。相近变量：{string.Join("、", ranked.Select(item => item.Name))}。"
+                    : $"引用的变量不存在：{target}。";
                 return false;
             }
             if (!accessible)

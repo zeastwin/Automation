@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Text;
@@ -1234,6 +1234,35 @@ namespace Automation.McpServer
                 registered, "调用扫码枪读取条码");
             if (unrelated.Count != 0)
                 throw new InvalidOperationException("原生能力解析不得用空名称匹配所有注册指令。");
+
+            // 换述措辞必须通过共享二元组命中别名，避免模型猜类型名试错。
+            JsonArray paraphrased = AutomationMcpTools.RankNativeOperationCandidates(
+                new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["operaType"] = "工站走点",
+                        ["name"] = "工站走点",
+                        ["intentAliases"] = new JsonArray("移动到点位", "运动到点位")
+                    }
+                },
+                "将工站运动到指定命名点位");
+            if (paraphrased.Count != 1
+                || paraphrased[0]?["operaType"]?.GetValue<string>() != "工站走点")
+            {
+                throw new InvalidOperationException("换述的运动意图未能按共享二元组命中权威原生别名。");
+            }
+            JsonObject missing = AutomationMcpTools.BuildOperationCapabilityResolutionItem(
+                "move", "抓取工件放到料盒", Array.Empty<string>(), new JsonArray(),
+                new JsonArray("工站走点", "偏移量"));
+            if (!string.Equals(
+                    missing["resolutionStatus"]?.GetValue<string>(), "missing", StringComparison.Ordinal)
+                || (missing["nearbyTypes"] as JsonArray)?.Count != 2
+                || !(missing["recommendedFallback"]?.GetValue<string>() ?? string.Empty)
+                    .Contains("list_operation_types", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("missing 结果必须附相近注册类型，不得裸推荐占位。");
+            }
         }
 
         private static string[] ToolNames(string profile)

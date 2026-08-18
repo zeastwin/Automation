@@ -564,18 +564,27 @@ namespace Automation
                 throw new InvalidOperationException("平台编辑器必须在创建它的 UI 线程附加运行时。");
             }
             platformInitializationStarted = true;
+            RefreshConfigurationPagesFromStore();
+            frmCommunication.RefreshSocketMap();
+            frmCommunication.RefreshSerialPortInfo();
+            frmControl?.RefreshMotionControlAvailability();
+            platformInitialized = true;
+            QueueEditorCachePrewarm();
+        }
+
+        /// <summary>
+        /// 版本还原免重启生效后，各配置页从 Store 重建显示。
+        /// 与首次装配刷新同一套入口；通讯与 PLC 在免重启路径下未变化，不刷新。
+        /// </summary>
+        internal void RefreshConfigurationPagesFromStore()
+        {
             frmProc.RefreshProcListFromStore();
             frmIO.RefreshIODgv();
             frmCard.RefreshStationTree();
             frmdataStruct.RefreshDataSturctList();
             frmIODebug.RefreshIODebugMapFromStore();
-            frmCommunication.RefreshSocketMap();
-            frmCommunication.RefreshSerialPortInfo();
             frmAlarmConfig.RefreshAlarmInfoFromStore();
             frmIODebug.RefleshIODebug();
-            frmControl?.RefreshMotionControlAvailability();
-            platformInitialized = true;
-            QueueEditorCachePrewarm();
         }
 
         /// <summary>

@@ -188,7 +188,8 @@ namespace Automation
             }
             if (MessageBox.Show("确认将项目配置还原到所选快照？\r\n"
                     + "系统会先自动保存当前配置为“还原前保护点”。\r\n"
-                    + "还原成功后程序将立即进入安全重启流程。",
+                    + "改动仅涉及流程、变量、数据结构、IO、工站、报警等编辑态配置时，还原后直接生效；\r\n"
+                    + "涉及控制卡、PLC、通讯、应用配置或 HMI 源码时，还原后需要重启程序。",
                 "确认还原", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 return;
@@ -200,18 +201,18 @@ namespace Automation
             try
             {
                 string commitId = selectedCommitId;
-                string error = null;
+                string diffError = null;
                 bool hmiChanged = false;
+                ConfigurationRestoreResult result = null;
                 bool success = await Task.Run(() =>
                 {
                     IReadOnlyList<ConfigurationVersionDiffEntry> pendingDiff =
                         Workspace.Runtime.VersionService.GetStructuredDiff(
                             commitId,
                             false,
-                            out string diffError);
+                            out diffError);
                     if (!string.IsNullOrWhiteSpace(diffError))
                     {
-                        error = diffError;
                         return false;
                     }
                     hmiChanged = pendingDiff.Any(item =>
@@ -219,45 +220,55 @@ namespace Automation
                             item.Category,
                             "HMI 代码",
                             StringComparison.Ordinal));
-                    return Workspace.Runtime.VersionService.Restore(
+                    result = Workspace.Runtime.VersionService.Restore(
                         commitId,
                         () => (bool)Workspace.Main.Invoke(
                             new Func<bool>(Workspace.Main.AreAllProcessesStopped)),
                         () => Workspace.Main.Invoke(
                             new Action(Workspace.Main.RequireRestartAfterVersionRestore)),
-                        out error);
+                        () => PlatformRuntimeInitializer.TryApplyRestoredEditStateConfiguration(
+                            Workspace.Runtime,
+                            out _));
+                    return result.Success;
                 });
                 if (!success)
                 {
-                    PushToast(error, true);
+                    PushToast(result?.Error ?? diffError, true);
                     return;
                 }
-                if (!string.IsNullOrWhiteSpace(error))
+                if (!string.IsNullOrWhiteSpace(result.Error))
                 {
                     MessageBox.Show(
                         this,
-                        error,
-                        "还原完成，但历史维护异常",
+                        result.Error,
+                        "还原完成，但存在告警",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                 }
-                if (hmiChanged)
+                if (result.RestartRequired)
                 {
+                    if (hmiChanged)
+                    {
+                        MessageBox.Show(
+                            this,
+                            "检测到 HMI 源码已还原。\r\n"
+                                + "请现在手动完成项目编译；确认编译完成后，点击“确定”继续。",
+                            "请先手动编译",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                    }
                     MessageBox.Show(
                         this,
-                        "检测到 HMI 源码已还原。\r\n"
-                            + "请现在手动完成项目编译；确认编译完成后，点击“确定”继续。",
-                        "请先手动编译",
+                        "项目配置已还原。\r\n点击“确定”后，程序将安全停止设备、释放运行资源并自动重启。",
+                        "还原成功，需要重启",
                         MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                        MessageBoxIcon.Information);
+                    Workspace.Main.RestartAfterVersionRestore();
+                    return;
                 }
-                MessageBox.Show(
-                    this,
-                    "项目配置已还原。\r\n点击“确定”后，程序将安全停止设备、释放运行资源并自动重启。",
-                    "还原成功，需要重启",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                Workspace.Main.RestartAfterVersionRestore();
+                Workspace.Main.RefreshConfigurationPagesFromStore();
+                PushToast("项目配置已还原并立即生效，无需重启。", false);
+                await PushStateAsync();
             }
             finally
             {

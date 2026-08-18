@@ -151,32 +151,60 @@ namespace Automation
 
         private static void EnsureSystemValues(PlatformRuntime runtime)
         {
+            if (!TryEnsureSystemValues(runtime, out string error))
+            {
+                runtime.Safety.Lock(error);
+                Log(runtime, error, LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// 系统保留变量不变量的严格版本：失败只返回错误，不产生安全锁副作用。
+        /// 启动路径与版本还原免重启生效共用同一实现。
+        /// </summary>
+        private static bool TryEnsureSystemValues(PlatformRuntime runtime, out string error)
+        {
+            error = null;
             if (runtime.Stores.Values.ConfigurationFaulted)
             {
-                string error = "变量配置格式或归属校验失败，已保留原文件；删除或修复 value.json 后再重新加载。";
-                runtime.Safety.Lock(error);
-                Log(runtime, error, LogLevel.Error);
-                return;
+                error = "变量配置格式或归属校验失败，已保留原文件；删除或修复 value.json 后再重新加载。";
+                return false;
             }
-            bool changed = EnsureSystemValue(runtime, ResetStatusValueName, ResetStatusValueNote);
-            changed = EnsureSystemValue(runtime, SystemStatusValueName, SystemStatusValueNote)
-                || changed;
-            if (changed && !runtime.Stores.Values.Save(runtime.Paths.ConfigPath))
+            bool resetModified = TryEnsureSystemValue(
+                runtime,
+                ResetStatusValueName,
+                ResetStatusValueNote,
+                out string resetError);
+            if (resetError != null)
             {
-                string error = "系统保留变量保存失败。";
-                runtime.Safety.Lock(error);
-                Log(runtime, error, LogLevel.Error);
-                return;
+                error = resetError;
+                return false;
             }
-            string resetError;
-            string systemError = null;
-            if (!TryValidateSystemValue(runtime, ResetStatusValueName, out resetError)
-                || !TryValidateSystemValue(runtime, SystemStatusValueName, out systemError))
+            bool systemModified = TryEnsureSystemValue(
+                runtime,
+                SystemStatusValueName,
+                SystemStatusValueNote,
+                out string systemError);
+            if (systemError != null)
             {
-                string error = resetError ?? systemError;
-                runtime.Safety.Lock(error);
-                Log(runtime, error, LogLevel.Error);
-                return;
+                error = systemError;
+                return false;
+            }
+            if ((resetModified || systemModified)
+                && !runtime.Stores.Values.Save(runtime.Paths.ConfigPath))
+            {
+                error = "系统保留变量保存失败。";
+                return false;
+            }
+            if (!TryValidateSystemValue(runtime, ResetStatusValueName, out string resetValidateError))
+            {
+                error = resetValidateError;
+                return false;
+            }
+            if (!TryValidateSystemValue(runtime, SystemStatusValueName, out string systemValidateError))
+            {
+                error = systemValidateError;
+                return false;
             }
             if (!runtime.Stores.Values.setValueByName(ResetStatusValueName, 0d, "复位状态初始化")
                 || !runtime.Stores.Values.setValueByName(
@@ -184,25 +212,29 @@ namespace Automation
                     (double)SystemStatus.Uninitialized,
                     "系统状态初始化"))
             {
-                string error = "系统状态变量初始化失败。";
-                runtime.Safety.Lock(error);
-                Log(runtime, error, LogLevel.Error);
+                error = "系统状态变量初始化失败。";
+                return false;
             }
+            return true;
         }
 
-        private static bool EnsureSystemValue(
+        /// <summary>
+        /// 返回值仅表示是否修改了配置；失败通过 error 返回，不在此处加安全锁。
+        /// </summary>
+        private static bool TryEnsureSystemValue(
             PlatformRuntime runtime,
             string name,
-            string note)
+            string note,
+            out string error)
         {
+            error = null;
             if (runtime.Stores.Values.TryGetValueByName(name, out DicValue existing) && existing != null)
             {
                 if (!ValueConfigStore.IsSystemValueIndex(existing.Index))
                 {
-                    string error = $"系统保留变量“{name}”必须位于索引范围 "
+                    error = $"系统保留变量“{name}”必须位于索引范围 "
                         + $"[{ValueConfigStore.SystemValueStartIndex}, {ValueConfigStore.ValueCapacity})。";
-                    runtime.Safety.Lock(error);
-                    Log(runtime, error, LogLevel.Error);
+                    return false;
                 }
                 string oldDefaultNote = $"系统保留变量：{name}";
                 if (string.Equals(existing.Note, oldDefaultNote, StringComparison.Ordinal))
@@ -227,18 +259,130 @@ namespace Automation
                     note,
                     "系统保留变量初始化"))
                 {
-                    string error = $"创建系统保留变量失败：{name}";
-                    runtime.Safety.Lock(error);
-                    Log(runtime, error, LogLevel.Error);
+                    error = $"创建系统保留变量失败：{name}";
                     return false;
                 }
                 Log(runtime, $"已补齐系统保留变量：{name}", LogLevel.Normal);
                 return true;
             }
-            string fullError = $"系统变量区已满（{ValueConfigStore.SystemValueCapacity} 个槽位），无法创建系统保留变量：{name}";
-            runtime.Safety.Lock(fullError);
-            Log(runtime, fullError, LogLevel.Error);
+            error = $"系统变量区已满（{ValueConfigStore.SystemValueCapacity} 个槽位），无法创建系统保留变量：{name}";
             return false;
+        }
+
+        /// <summary>
+        /// 版本还原后的免重启生效：按启动序列的依赖序重载编辑态配置 Store。
+        /// 前置条件：磁盘已被还原事务替换、所有流程已停止。
+        /// 任一环节失败都返回 false，由调用方升级为重启闸门；失败前的部分内存更新
+        /// 不早于现行“重启前陈旧内存”状态，统一由重启闸门兜底。
+        /// </summary>
+        internal static bool TryApplyRestoredEditStateConfiguration(
+            PlatformRuntime runtime,
+            out string error)
+        {
+            error = null;
+            if (runtime.ProcessEngine == null || runtime.ProcessEngine.Context == null)
+            {
+                error = "平台内核尚未完成组合，无法免重启生效。";
+                return false;
+            }
+            ProcessEngine engine = runtime.ProcessEngine;
+            int runtimeCount = engine.Context.Procs?.Count ?? 0;
+            for (int index = 0; index < runtimeCount; index++)
+            {
+                EngineSnapshot snapshot = engine.GetSnapshot(index);
+                if (snapshot != null && !snapshot.State.IsInactive())
+                {
+                    error = "存在未结束的流程，无法免重启生效。";
+                    return false;
+                }
+            }
+
+            runtime.Readiness.ProcConfigFaulted = false;
+            List<Proc> processes = ProcessWorkDirectoryTransaction.Load(
+                runtime.Paths.WorkPath,
+                runtime.CreateProcessValidationContext(),
+                out List<string> loadErrors,
+                out string recoveryMessage);
+            if (!string.IsNullOrWhiteSpace(recoveryMessage))
+            {
+                Log(runtime, recoveryMessage, LogLevel.Error);
+            }
+            if (loadErrors.Count > 0)
+            {
+                error = "流程配置加载失败：" + string.Join("；", loadErrors.Distinct());
+                return false;
+            }
+            runtime.Stores.Processes.ReplaceAll(processes);
+            engine.Context.Procs = processes
+                .Select(ObjectGraphCloner.Clone)
+                .ToList();
+            engine.ClearPendingProcUpdates();
+
+            if (!runtime.Stores.Values.Load(runtime.Paths.ConfigPath, processes)
+                || runtime.Stores.Values.ConfigurationFaulted)
+            {
+                error = "变量配置加载失败。";
+                return false;
+            }
+            if (!TryEnsureSystemValues(runtime, out error))
+            {
+                return false;
+            }
+            if (!runtime.Stores.IoConfiguration.Load(
+                    runtime.Paths.ConfigPath,
+                    out string ioError))
+            {
+                error = "IO 配置加载失败：" + ioError;
+                return false;
+            }
+            if (!runtime.Stores.Stations.Load(
+                    runtime.Paths.ConfigPath,
+                    out string stationError))
+            {
+                error = "工站配置加载失败：" + stationError;
+                return false;
+            }
+            if (!runtime.Stores.Cards.TryValidateStations(
+                    runtime.Stores.Stations.Items,
+                    out List<string> stationErrors))
+            {
+                // 与启动序列一致：工站与控制卡的不一致降级为告警，不阻塞其余配置生效。
+                Log(
+                    runtime,
+                    "工站配置加载校验失败：" + string.Join("；", stationErrors),
+                    LogLevel.Error);
+            }
+            if (!runtime.Stores.DataStructures.Load(runtime.Paths.ConfigPath))
+            {
+                error = "数据结构配置加载失败。";
+                return false;
+            }
+            if (!runtime.Stores.IoDebug.Load(
+                    runtime.Paths.ConfigPath,
+                    out string ioDebugError))
+            {
+                error = "IO 调试配置加载失败：" + ioDebugError;
+                return false;
+            }
+            if (!runtime.Stores.ValueDebug.Load(
+                    runtime.Paths.ConfigPath,
+                    runtime.Stores.Values,
+                    out string valueDebugError))
+            {
+                error = "变量调试配置加载失败：" + valueDebugError;
+                return false;
+            }
+            if (!runtime.Stores.Alarms.Load(runtime.Paths.ConfigPath))
+            {
+                error = "报警配置加载失败。";
+                return false;
+            }
+            PublishResourceState(runtime);
+            Log(
+                runtime,
+                "版本还原已免重启生效：流程、变量、数据结构、IO、工站和报警等编辑态配置已按磁盘快照重载。",
+                LogLevel.Normal);
+            return true;
         }
 
         private static bool TryValidateSystemValue(

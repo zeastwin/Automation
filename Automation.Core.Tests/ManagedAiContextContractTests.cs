@@ -37,7 +37,9 @@ namespace Automation.Core.Tests
             StringAssert.Contains(automation, "list_authoring_resources");
             StringAssert.Contains(automation, "不预猜名称");
             StringAssert.Contains(automation, "禁用本身不自动等于 Bug");
-            StringAssert.Contains(automation, "不为了利用现有资源推导额外副作用");
+            StringAssert.Contains(automation, "不为利用现有资源而追加用户目标之外的绑定");
+            StringAssert.Contains(automation, "标准工艺时序中的复位、反馈验证和安全过渡");
+            StringAssert.Contains(automation, "两种解读机械后果相反");
             StringAssert.Contains(automation, "具体创建、评审和修改步骤由对应 Skill 提供");
             StringAssert.Contains(automation, "safeToRetry=true");
             StringAssert.Contains(automation, "不是已实现结构");

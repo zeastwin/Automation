@@ -191,6 +191,7 @@ namespace Automation
             webViewClosing = true;
             webDocumentReady = false;
             DisposeGooseClient();
+            flowZoomWindow?.Close();
         }
 
         protected override void Dispose(bool disposing)
@@ -553,11 +554,14 @@ namespace Automation
             PushWebAppState();
         }
 
-        private void LoadConfig()
+        private void LoadConfig(bool silentLoadFailure = false)
         {
             if (!GooseConfigStorage.TryLoad(out GooseConfig config, out string error))
             {
-                MessageBox.Show(error, "EW-AI 配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!silentLoadFailure)
+                {
+                    MessageBox.Show(error, "EW-AI 配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 config = GooseConfigStorage.CreateDefaultConfig();
             }
 
@@ -650,6 +654,9 @@ namespace Automation
                     break;
                 case "chooseFile":
                     ChooseFileAttachments();
+                    break;
+                case "openFlowZoom":
+                    OpenFlowZoomWindow(message["html"]?.Value<string>());
                     break;
                 case "dropFile":
                     AddDroppedFile(message);
@@ -1117,6 +1124,8 @@ namespace Automation
 
         private void ShowWebToast(string text)
         {
+            // headless 无 WebView：失败原因仍需留给测试事件，不随 UI 静默丢弃。
+            HeadlessLastFailure = text ?? string.Empty;
             if (!webDocumentReady)
             {
                 return;
@@ -1197,6 +1206,7 @@ namespace Automation
             }
             if (runtime == null || runtime.Running)
             {
+                HeadlessLastFailure = "任务会话不可用或仍在运行。";
                 return false;
             }
             if (!TryBuildConfig(out GooseConfig config, out string error))
@@ -1302,6 +1312,7 @@ namespace Automation
                 }
                 if (executionResult.Status == AiTaskExecutionStatus.Failed)
                 {
+                    HeadlessLastFailure = executionResult.Error ?? "任务执行失败。";
                     bool hasCompletedStage = (executionResult.CompletedStageProfiles?.Count ?? 0) > 0;
                     if (!conversationCoordinator.TaskHomeVisible
                         && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
@@ -1358,11 +1369,14 @@ namespace Automation
                         : persistedAssistantText.TrimEnd() + "\n\n" + stageNotice;
                 }
                 conversationCoordinator.CompleteTask(runtime, persistedAssistantText, visualizationJson);
+                HeadlessLastAssistantText = persistedAssistantText;
+                HeadlessLastFailure = string.Empty;
                 SaveConversationHistory();
                 return true;
             }
             catch (Exception ex)
             {
+                HeadlessLastFailure = ex.Message;
                 if (!conversationCoordinator.TaskHomeVisible
                     && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation))
                 {

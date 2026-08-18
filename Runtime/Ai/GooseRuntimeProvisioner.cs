@@ -12,7 +12,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 21;
-        public const int IntegrationContextVersion = 60;
+        public const int IntegrationContextVersion = 61;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         public const string ProcessReviewSkillName = "automation-process-review";
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(

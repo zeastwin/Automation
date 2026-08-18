@@ -207,6 +207,11 @@ namespace Automation.Bridge
                         return WrapResponse("preview.confirm", ExecuteOnUiThread(() => HandleConfirmPreview(request)));
                     case "/bridge/previews/reject":
                         return WrapResponse("preview.reject", HandleRejectPreview(request));
+                    // ---------- AI headless 回归测试 ----------
+                    case "/bridge/ai-test/start":
+                        return WrapResponse("ai_test.start", ExecuteOnUiThread(() => HandleStartAiTest(request)));
+                    case "/bridge/ai-test/status":
+                        return WrapResponse("ai_test.status", ExecuteOnUiThread(() => HandleAiTestStatus()));
                     default:
                         throw new BridgeRequestException(404, "NOT_FOUND", $"未知的 Bridge 端点：{normalizedPath}");
                 }

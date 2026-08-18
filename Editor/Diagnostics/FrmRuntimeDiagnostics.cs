@@ -306,7 +306,8 @@ namespace Automation
                 await client.PromptAsync(
                     BuildDiagnosticPrompt(procIndex, symptom),
                     Array.Empty<GooseFileAttachment>(),
-                    analysisCts.Token).ConfigureAwait(true);
+                    analysisCts.Token,
+                    "运行诊断：" + (symptom ?? string.Empty)).ConfigureAwait(true);
                 string finalResponse = client.LastAssistantResponse;
                 if (!reportHasContent && !string.IsNullOrWhiteSpace(finalResponse))
                 {

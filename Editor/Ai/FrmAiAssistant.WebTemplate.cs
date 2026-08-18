@@ -15,7 +15,207 @@ namespace Automation
 
         private static string BuildBaseConversationHtml()
         {
-            return BaseConversationHtmlTemplate.Replace("__CHICK_AVATAR__", ChickAvatarDataUri);
+            return BaseConversationHtmlTemplate
+                .Replace("__CHICK_AVATAR__", ChickAvatarDataUri)
+                .Replace("__FLOW_VISUAL_CSS__", FlowVisualizationCss);
+        }
+
+        // 流程结构独立放大页：在 FrmFlowZoom 的最大化窗口内整屏横跨显示，缩放与适应宽度由页面自身提供。
+        internal static string BuildFlowZoomPageHtml(string flowCardsHtml)
+        {
+            string template = @"<!DOCTYPE html>
+<html>
+<head>
+<meta charset=""utf-8"">
+<style>
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+    margin:0;
+    color:#172033;
+    background:linear-gradient(165deg,#f8fafd 0%,#f1f5fa 55%,#edf2f8 100%);
+    font:14px/1.5 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    border:1px solid #c9d4e2;
+}
+.zoom-toolbar{
+    flex:0 0 auto;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 14px;
+    background:rgba(255,255,255,.92);
+    border-bottom:1px solid #e5ebf3;
+}
+.zoom-title{font-size:14px;font-weight:650;color:#172033;margin-right:auto;}
+.zoom-group{display:flex;align-items:center;gap:4px;}
+.icon-button{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#526071;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
+.icon-button svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+.icon-button:hover{background:#eef3f9;color:#1f5f99;}
+.icon-button:active{transform:scale(.94);}
+.zoom-scale{min-width:48px;text-align:center;font-size:12px;color:#526071;font-variant-numeric:tabular-nums;}
+.text-button{height:30px;border:1px solid #d8e0ea;border-radius:8px;background:#fff;color:#35445a;padding:0 12px;font:12px ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;cursor:pointer;}
+.text-button:hover{background:#f3f7fb;}
+.text-button:active{transform:scale(.97);}
+#flowZoomStage{
+    flex:1 1 auto;
+    overflow:hidden;
+    position:relative;
+    min-height:0;
+    background:
+        linear-gradient(rgba(248,250,253,.55),rgba(248,250,253,.55)),
+        repeating-linear-gradient(45deg,#f7fafc 0,#f7fafc 14px,#f2f6fa 14px,#f2f6fa 28px);
+    cursor:grab;
+    user-select:none;
+}
+#flowZoomStage.panning{cursor:grabbing;}
+#canvasInner{
+    position:absolute;
+    left:0;
+    top:0;
+}
+#canvasInner .automation-flow-visual{width:max-content;margin:0;}
+#canvasInner .flow-track{overflow:visible!important;}
+#canvasInner .flow-step{flex-basis:clamp(340px,30vw,560px);}
+.zoom-hint{font-size:11px;color:#9aa7b8;margin-right:6px;white-space:nowrap;}
+__FLOW_VISUAL_CSS__
+</style>
+<script>
+var flowZoomScale=1,flowPanX=0,flowPanY=0;
+function post(type,payload){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(Object.assign({type:type},payload||{}));}}
+function clampFlowScale(scale){return Math.min(4,Math.max(.15,scale));}
+// 应用画布视图：缩放用 CSS zoom（布局级缩放，浏览器按最终尺寸重新排版，文字矢量清晰），
+// 平移用 left/top（不受内部 zoom 影响）。不得用 transform:scale()+will-change，那会把内容
+// 提升为合成器纹理位图，放大时位图拉伸发糊。
+function applyCanvasTransform(){
+    var inner=document.getElementById('canvasInner');
+    if(inner){
+        inner.style.zoom=flowZoomScale;
+        inner.style.left=flowPanX+'px';
+        inner.style.top=flowPanY+'px';
+    }
+    var label=document.getElementById('zoomScaleLabel');
+    if(label){label.textContent=Math.round(flowZoomScale*100)+'%';}
+}
+// 锚点缩放：保持画布中 (cx,cy) 点在缩放前后位于同一屏幕位置，滚轮缩放因此以鼠标为中心。
+function flowZoomAt(cx,cy,nextScale){
+    nextScale=clampFlowScale(nextScale);
+    var ratio=nextScale/flowZoomScale;
+    flowPanX=cx-(cx-flowPanX)*ratio;
+    flowPanY=cy-(cy-flowPanY)*ratio;
+    flowZoomScale=nextScale;
+    applyCanvasTransform();
+}
+// 以画布中心为锚的绝对缩放（工具栏按钮使用）。
+function applyFlowZoom(scale){
+    var stage=document.getElementById('flowZoomStage');
+    if(!stage){return;}
+    flowZoomAt(stage.clientWidth/2,stage.clientHeight/2,scale);
+}
+// 基准内容尺寸（zoom=1 时的布局尺寸）：用屏幕矩形除以当前缩放反推。
+function canvasBaseSize(){
+    var stage=document.getElementById('flowZoomStage');
+    var visual=stage&&stage.querySelector('.automation-flow-visual');
+    if(!visual){return null;}
+    var rect=visual.getBoundingClientRect();
+    var scale=flowZoomScale||1;
+    return {width:rect.width/scale,height:rect.height/scale};
+}
+// 复位视图：完整可见（适应宽高取小者，上限 1.5）并居中；双击与""复位视图""按钮共用。
+function flowZoomFit(capScale){
+    var stage=document.getElementById('flowZoomStage');
+    var size=canvasBaseSize();
+    if(!stage||!size||!size.width){return;}
+    var scale=Math.min((stage.clientWidth-56)/size.width,(stage.clientHeight-56)/size.height);
+    if(capScale&&scale>capScale){scale=capScale;}
+    flowZoomScale=clampFlowScale(scale);
+    flowPanX=(stage.clientWidth-size.width*flowZoomScale)/2;
+    flowPanY=(stage.clientHeight-size.height*flowZoomScale)/2;
+    applyCanvasTransform();
+}
+// 原始大小：100% 并居中。
+function flowZoomActual(){
+    var stage=document.getElementById('flowZoomStage');
+    var size=canvasBaseSize();
+    if(!stage||!size){return;}
+    flowZoomScale=1;
+    flowPanX=(stage.clientWidth-size.width)/2;
+    flowPanY=(stage.clientHeight-size.height)/2;
+    applyCanvasTransform();
+}
+document.addEventListener('DOMContentLoaded',function(){
+    var stage=document.getElementById('flowZoomStage');
+    document.getElementById('zoomIn').addEventListener('click',function(){applyFlowZoom(flowZoomScale*1.25);});
+    document.getElementById('zoomOut').addEventListener('click',function(){applyFlowZoom(flowZoomScale/1.25);});
+    document.getElementById('zoomReset').addEventListener('click',flowZoomActual);
+    document.getElementById('zoomFit').addEventListener('click',function(){flowZoomFit(1.5);});
+    document.getElementById('zoomClose').addEventListener('click',function(){post('closeFlowZoom');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){post('closeFlowZoom');}});
+    // 画布滚轮缩放：以鼠标位置为锚。
+    stage.addEventListener('wheel',function(e){
+        e.preventDefault();
+        var rect=stage.getBoundingClientRect();
+        flowZoomAt(e.clientX-rect.left,e.clientY-rect.top,flowZoomScale*Math.exp(-e.deltaY*0.0016));
+    },{passive:false});
+    // 画布按住拖动平移。
+    var panning=false,panStartX=0,panStartY=0,panOriginX=0,panOriginY=0;
+    stage.addEventListener('mousedown',function(e){
+        if(e.button!==0){return;}
+        panning=true;
+        stage.classList.add('panning');
+        panStartX=e.clientX;panStartY=e.clientY;
+        panOriginX=flowPanX;panOriginY=flowPanY;
+        e.preventDefault();
+    });
+    window.addEventListener('mousemove',function(e){
+        if(!panning){return;}
+        flowPanX=panOriginX+(e.clientX-panStartX);
+        flowPanY=panOriginY+(e.clientY-panStartY);
+        applyCanvasTransform();
+    });
+    window.addEventListener('mouseup',function(){
+        if(panning){panning=false;stage.classList.remove('panning');}
+    });
+    // 双击复位视图。
+    stage.addEventListener('dblclick',function(){flowZoomFit(1.5);});
+    // 无边框窗口：按住工具栏空白处拖动整窗（Win32 标题栏拖动循环）。
+    var toolbar=document.querySelector('.zoom-toolbar');
+    if(toolbar){
+        toolbar.addEventListener('mousedown',function(e){
+            if(e.button!==0){return;}
+            var node=e.target;
+            while(node&&node!==toolbar){
+                if(node.tagName==='BUTTON'||node.classList.contains('zoom-scale')){return;}
+                node=node.parentElement;
+            }
+            if(node===toolbar){post('dragFlowZoom');}
+        });
+    }
+    window.requestAnimationFrame(function(){flowZoomFit(1.5);});
+});
+</script>
+</head>
+<body>
+<div class=""zoom-toolbar"">
+  <span class=""zoom-title"">流程结构</span>
+  <span class=""zoom-hint"">滚轮缩放 · 按住拖动 · 双击复位</span>
+  <div class=""zoom-group"">
+    <button class=""icon-button"" id=""zoomOut"" title=""缩小"" aria-label=""缩小""><svg viewBox=""0 0 24 24""><circle cx=""11"" cy=""11"" r=""7""/><path d=""m21 21-4.3-4.3""/><path d=""M8 11h6""/></svg></button>
+    <span class=""zoom-scale"" id=""zoomScaleLabel"">100%</span>
+    <button class=""icon-button"" id=""zoomIn"" title=""放大"" aria-label=""放大""><svg viewBox=""0 0 24 24""><circle cx=""11"" cy=""11"" r=""7""/><path d=""m21 21-4.3-4.3""/><path d=""M11 8v6""/><path d=""M8 11h6""/></svg></button>
+    <button class=""text-button"" id=""zoomFit"" type=""button"">复位视图</button>
+    <button class=""text-button"" id=""zoomReset"" type=""button"">原始大小</button>
+    <button class=""icon-button"" id=""zoomClose"" title=""关闭"" aria-label=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button>
+  </div>
+</div>
+<div id=""flowZoomStage""><div id=""canvasInner"">__FLOW_CARDS__</div></div>
+</body>
+</html>";
+            return template
+                .Replace("__FLOW_VISUAL_CSS__", FlowVisualizationCss)
+                .Replace("__FLOW_CARDS__", flowCardsHtml ?? string.Empty);
         }
 
         private static string LoadChickAvatarDataUri()
@@ -35,6 +235,87 @@ namespace Automation
             return string.Empty;
         }
 
+        // 流程结构卡片样式：对话内卡片与独立放大大页面共用，避免两份样式漂移。
+        private const string FlowVisualizationCss = @"
+.automation-flow-visual{
+    border:1px solid #d8e2ee;
+    border-radius:12px;
+    background:rgba(248,250,252,.92);
+    overflow:hidden;
+    box-shadow:0 2px 10px rgba(31,45,61,.05);
+}
+.flow-visual-title{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:7px 12px;
+    color:#203047;
+    background:linear-gradient(180deg,#f0f6fb,#eaf2f9);
+    border-bottom:1px solid #d8e2ee;
+    font-size:13px;
+    font-weight:650;
+}
+.flow-badge{
+    display:inline-flex;
+    align-items:center;
+    height:20px;
+    padding:0 7px;
+    border-radius:10px;
+    color:#526071;
+    background:#e9eef5;
+    font-size:11px;
+    white-space:nowrap;
+}
+.flow-badge.loop{color:#8a4b08;background:#fff0d9;}
+.flow-process{padding:8px 10px 10px;}
+.flow-process + .flow-process{border-top:1px solid #dfe7f1;}
+.flow-process-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px;}
+.flow-process-name{font-weight:650;color:#102033;}
+.flow-track{
+    display:flex;
+    align-items:stretch;
+    gap:0;
+    overflow-x:auto;
+    padding:1px 1px 5px;
+}
+.flow-track.single-step{overflow-x:hidden;}
+.flow-step{
+    flex:0 0 clamp(300px,44vw,480px);
+    min-width:300px;
+    max-width:480px;
+    border:1px solid #cfdae7;
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 1px 4px rgba(31,45,61,.05);
+}
+.flow-track.single-step .flow-step{flex:1 1 100%;min-width:0;max-width:none;}
+.flow-step-head{padding:6px 8px;border-bottom:1px solid #e3e9f1;background:#f7f9fc;border-radius:8px 8px 0 0;}
+.flow-step-index{color:#6f7f92;font-size:11px;margin-right:5px;}
+.flow-step-name{color:#203047;font-weight:650;}
+.flow-step-key{color:#7b8798;font:11px Consolas,""Cascadia Mono"",monospace;margin-left:5px;}
+.flow-ops{padding:3px 7px 6px;}
+.flow-op{padding:5px 1px;border-bottom:1px dashed #e4e9f0;}
+.flow-op:last-child{border-bottom:0;}
+.flow-op-line{display:flex;align-items:flex-start;gap:5px;}
+.flow-op-index{flex:0 0 18px;color:#7b8798;font-size:11px;line-height:20px;text-align:center;}
+.flow-op-text{min-width:0;color:#27364a;line-height:20px;overflow-wrap:anywhere;word-break:break-word;}
+.flow-paths{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0 0 23px;}
+.flow-path{
+    display:inline-flex;
+    align-items:center;
+    min-height:19px;
+    padding:1px 6px;
+    border-radius:9px;
+    color:#285f46;
+    background:#e7f5ed;
+    font-size:11px;
+}
+.flow-path.false{color:#87500e;background:#fff1dc;}
+.flow-arrow{flex:0 0 30px;align-self:center;color:#7f91a7;text-align:center;font-size:20px;}
+.flow-empty{padding:8px;color:#7b8798;text-align:center;}
+";
+
         private const string BaseConversationHtmlTemplate = @"<!DOCTYPE html>
 <html>
 <head>
@@ -45,14 +326,15 @@ html,body{height:100%;}
 body{
     margin:0;
     color:#172033;
-    background:#f5f7fb;
+    background:linear-gradient(165deg,#f8fafd 0%,#f1f5fa 55%,#edf2f8 100%);
+    background-attachment:fixed;
     font:14px/1.5 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
     overflow:hidden;
 }
 .scrollable::-webkit-scrollbar,.thinking-box::-webkit-scrollbar{width:8px;height:8px;}
-.scrollable::-webkit-scrollbar-thumb,.thinking-box::-webkit-scrollbar-thumb{background:#c9d3e2;border-radius:8px;border:2px solid #f5f7fb;}
-.scrollable::-webkit-scrollbar-track,.thinking-box::-webkit-scrollbar-track{background:#eef2f7;}
-.app-shell{height:100%;display:flex;flex-direction:column;background:#f5f7fb;}
+.scrollable::-webkit-scrollbar-thumb,.thinking-box::-webkit-scrollbar-thumb{background:#c5d0e0;border-radius:8px;border:2px solid #f4f6fa;}
+.scrollable::-webkit-scrollbar-track,.thinking-box::-webkit-scrollbar-track{background:transparent;}
+.app-shell{height:100%;display:flex;flex-direction:column;background:transparent;}
 .topbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:rgba(255,255,255,.92);border-bottom:1px solid #e5ebf3;}
 .topbar-left{display:flex;align-items:center;min-width:0;}
 .brand{display:flex;align-items:center;gap:10px;min-width:0;}
@@ -83,11 +365,11 @@ body{
 #fullPermissionButton.active{border-color:#df9b46;background:#fff4e6;color:#9a4f00;box-shadow:0 0 0 2px rgba(223,155,70,.12);}
 .chat-area{flex:1;min-height:0;overflow-y:auto;}
 #messages{
-    max-width:1120px;
+    max-width:1320px;
     margin:0 auto;
     padding:5px 10px;
 }
-.task-home{position:relative;min-height:100%;max-width:1120px;margin:0 auto;padding:18px 18px 120px;}
+.task-home{position:relative;min-height:100%;max-width:1320px;margin:0 auto;padding:18px 18px 120px;}
 .task-home.hidden,#messages.hidden{display:none;}
 .task-home-title{font-size:14px;color:#667085;margin-bottom:8px;}
 .task-list{display:flex;flex-direction:column;gap:2px;}
@@ -105,15 +387,20 @@ body{
     display:flex;
     flex-direction:column;
     gap:1px;
-    margin:0 0 4px;
+    margin:0 0 11px;
+    animation:message-in .12s ease-out both;
+}
+@keyframes message-in{
+    from{opacity:.72;transform:translateY(3px);}
+    to{opacity:1;transform:translateY(0);}
 }
 .msg.user{align-items:flex-end;}
 .msg.assistant{align-items:flex-start;margin-left:4px;}
 .msg.error{align-items:flex-start;margin-left:12px;}
 .msg-head{display:flex;align-items:center;gap:5px;padding:0 2px;min-height:22px;}
 .msg.user .msg-head{justify-content:flex-end;}
-.msg-time{font-size:10px;color:#7b8798;line-height:1.2;}
-.avatar{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;color:#fff;font-size:9px;font-weight:700;letter-spacing:.2px;}
+.msg-time{font-size:10.5px;color:#8b96a8;line-height:1.2;letter-spacing:.2px;}
+.avatar{width:24px;height:24px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;color:#fff;font-size:9px;font-weight:700;letter-spacing:.2px;box-shadow:0 1px 4px rgba(31,45,61,.10);}
 .avatar-image{display:block;object-fit:contain;background:transparent;}
 .system-avatar{background:#9a4f00;}
 .copy-message{width:20px;height:20px;border:0;background:transparent;color:#8a96a7;cursor:pointer;padding:3px;border-radius:5px;opacity:.35;display:inline-flex;align-items:center;justify-content:center;}
@@ -132,22 +419,25 @@ body{
     max-width:72%;
     margin-left:0;
     margin-right:12px;
-    color:#102033;
-    background:#dceeff;
-    border:1px solid #bad9f6;
-    border-radius:14px 14px 4px 14px;
-    padding:2px 6px;
+    color:#13293f;
+    background:linear-gradient(145deg,#e9f4ff 0%,#d7ebfd 100%);
+    border:1px solid rgba(36,111,181,.16);
+    border-radius:15px 5px 15px 15px;
+    padding:6px 11px;
+    box-shadow:0 4px 14px rgba(36,111,181,.10);
+    white-space:pre-wrap;
 }
 .msg.assistant .content{
-    max-width:calc(92% - 30px);
-    margin-left:30px;
-    color:#182434;
-    background:#ffffff;
-    border:1px solid #dfe6ef;
-    border-radius:8px;
-    padding:6px 9px;
-    line-height:1.55;
-    box-shadow:0 2px 8px rgba(31,45,61,.05);
+    max-width:calc(98% - 14px);
+    margin-left:14px;
+    margin-right:2px;
+    color:#1b2839;
+    background:transparent;
+    border:0;
+    border-radius:0;
+    padding:0;
+    font-size:15px;
+    line-height:1.62;
 }
 .msg.assistant.final-reveal{isolation:isolate;}
 .msg.assistant.final-reveal .msg-head{
@@ -198,9 +488,8 @@ body{
     to{opacity:1;transform:translate3d(0,0,0);}
 }
 @keyframes final-answer-card-in{
-    0%{opacity:0;transform:translate3d(0,10px,0) scale(.992);border-color:rgba(120,169,214,.25);box-shadow:0 10px 26px rgba(31,83,132,.03);}
-    58%{opacity:1;border-color:rgba(120,169,214,.48);box-shadow:0 10px 24px rgba(31,83,132,.10);}
-    100%{opacity:1;transform:translate3d(0,0,0) scale(1);border-color:#dfe6ef;box-shadow:0 2px 8px rgba(31,45,61,.05);}
+    0%{opacity:0;transform:translate3d(0,10px,0) scale(.992);}
+    100%{opacity:1;transform:translate3d(0,0,0) scale(1);}
 }
 @keyframes final-answer-accent{
     0%{opacity:0;transform:scaleY(0);}
@@ -220,170 +509,129 @@ body{
     color:#8f1d1d;
     background:#fff5f5;
     border:1px solid #f0caca;
-    border-radius:8px;
-    padding:2px 6px;
+    border-radius:12px 4px 12px 12px;
+    padding:5px 10px;
 }
 .content>*:first-child{margin-top:0;}
 .content>*:last-child{margin-bottom:0;}
-p{margin:1px 0;}
-ul,ol{margin:1px 0;padding-left:19px;}
-li{margin:1px 0;}
-.msg.assistant .content p{margin:5px 0;}
-.msg.assistant .content ul,.msg.assistant .content ol{margin:4px 0 7px;padding-left:21px;}
-.msg.assistant .content li{margin:2px 0;}
-.msg.assistant .content li + li{margin-top:4px;}
-.msg.assistant .content li>p{margin:2px 0;}
-.merged-part + .merged-part{margin-top:2px;}
-.automation-flow-visual{
-    margin:8px 0 4px;
-    border:1px solid #d8e2ee;
-    border-radius:10px;
-    background:#f8fafc;
-    overflow:hidden;
-}
-.flow-visual-title{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:8px;
-    padding:7px 10px;
-    color:#203047;
-    background:#eef4fa;
-    border-bottom:1px solid #d8e2ee;
-    font-size:13px;
-    font-weight:650;
-}
-.flow-process{padding:8px 10px 10px;}
-.flow-process + .flow-process{border-top:1px solid #dfe7f1;}
-.flow-process-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px;}
-.flow-process-name{font-weight:650;color:#102033;}
-.flow-badge{
-    display:inline-flex;
-    align-items:center;
-    height:20px;
-    padding:0 7px;
-    border-radius:10px;
-    color:#526071;
-    background:#e9eef5;
-    font-size:11px;
-    white-space:nowrap;
-}
-.flow-badge.loop{color:#8a4b08;background:#fff0d9;}
-.flow-track{
-    display:flex;
-    align-items:stretch;
-    gap:0;
-    overflow-x:auto;
-    padding:1px 1px 5px;
-}
-.flow-track.single-step{overflow-x:hidden;}
-.flow-step{
-    flex:0 0 clamp(300px,44vw,480px);
-    min-width:300px;
-    max-width:480px;
-    border:1px solid #cfdae7;
-    border-radius:8px;
-    background:#fff;
-    box-shadow:0 1px 4px rgba(31,45,61,.05);
-}
-.flow-track.single-step .flow-step{flex:1 1 100%;min-width:0;max-width:none;}
-.flow-step-head{padding:6px 8px;border-bottom:1px solid #e3e9f1;background:#f7f9fc;border-radius:8px 8px 0 0;}
-.flow-step-index{color:#6f7f92;font-size:11px;margin-right:5px;}
-.flow-step-name{color:#203047;font-weight:650;}
-.flow-step-key{color:#7b8798;font:11px Consolas,""Cascadia Mono"",monospace;margin-left:5px;}
-.flow-ops{padding:3px 7px 6px;}
-.flow-op{padding:5px 1px;border-bottom:1px dashed #e4e9f0;}
-.flow-op:last-child{border-bottom:0;}
-.flow-op-line{display:flex;align-items:flex-start;gap:5px;}
-.flow-op-index{flex:0 0 18px;color:#7b8798;font-size:11px;line-height:20px;text-align:center;}
-.flow-op-text{min-width:0;color:#27364a;line-height:20px;overflow-wrap:anywhere;word-break:break-word;}
-.flow-paths{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0 0 23px;}
-.flow-path{
-    display:inline-flex;
-    align-items:center;
-    min-height:19px;
-    padding:1px 6px;
-    border-radius:9px;
-    color:#285f46;
-    background:#e7f5ed;
-    font-size:11px;
-}
-.flow-path.false{color:#87500e;background:#fff1dc;}
-.flow-arrow{flex:0 0 30px;align-self:center;color:#7f91a7;text-align:center;font-size:20px;}
-.flow-empty{padding:8px;color:#7b8798;text-align:center;}
-blockquote{
-    margin:6px 0;
-    padding:6px 10px;
-    color:#526071;
-    background:#f7f9fc;
-    border-left:4px solid #9fb6d3;
+a{color:#1f6fb2;text-decoration:none;}
+a:hover{text-decoration:underline;}
+p{margin:.4em 0;}
+ul,ol{margin:.4em 0;padding-left:1.45em;}
+li{margin:.18em 0;}
+li + li{margin-top:.34em;}
+li>p{margin:.2em 0;}
+.msg.assistant .content p{margin:.42em 0;}
+.msg.assistant .content ul,.msg.assistant .content ol{margin:.42em 0 .62em;padding-left:1.45em;}
+.msg.assistant .content li{margin:.18em 0;}
+.msg.assistant .content li + li{margin-top:.34em;}
+.msg.assistant .content li>p{margin:.2em 0;}
+.merged-part + .merged-part{margin-top:.52em;}
+__FLOW_VISUAL_CSS__
+.automation-flow-visual{margin:8px 0 4px;}
+.flow-expand-button{
+    width:24px;
+    height:24px;
+    flex:0 0 24px;
+    margin-left:auto;
+    border:1px solid #cfdce9;
     border-radius:6px;
+    background:#fff;
+    color:#526071;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+    transition:color .14s ease,background .14s ease,border-color .14s ease;
+}
+.flow-expand-button svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+.flow-expand-button:hover{color:#1f5f99;background:#eef5fc;border-color:#9cc4ea;}
+.flow-expand-button:active{transform:scale(.94);}
+blockquote{
+    margin:8px 0;
+    padding:7px 12px;
+    color:#48586e;
+    background:#f2f7fc;
+    border:0;
+    border-left:3px solid #7fb3e0;
+    border-radius:4px 8px 8px 4px;
 }
 h1,h2,h3{
-    color:#102033;
-    line-height:1.28;
+    color:#101f31;
+    line-height:1.3;
     font-weight:650;
-    margin:10px 0 6px;
+    margin:.85em 0 .3em;
 }
-h1{font-size:22px;}
-h2{font-size:18px;padding-bottom:4px;border-bottom:1px solid #e5ebf3;}
+h1{font-size:21px;}
+h2{font-size:18px;padding-bottom:3px;border-bottom:1px solid #e3eaf3;}
 h3{font-size:16px;}
 table{
     width:100%;
-    margin:7px 0 10px;
-    border-collapse:collapse;
+    margin:8px 0 10px;
+    border-collapse:separate;
+    border-spacing:0;
     table-layout:auto;
-    border:1px solid #d5deea;
-    border-radius:6px;
+    border:1px solid #d9e3ef;
+    border-radius:10px;
     overflow:hidden;
+    background:rgba(255,255,255,.72);
+    font-size:13.5px;
 }
 th,td{
-    border:1px solid #d5deea;
-    padding:5px 8px;
+    border:0;
+    border-right:1px solid #e6ecf4;
+    border-bottom:1px solid #e6ecf4;
+    padding:7px 10px;
     vertical-align:top;
+    text-align:left;
     word-break:break-word;
     overflow-wrap:anywhere;
 }
+th:last-child,td:last-child{border-right:0;}
+tbody tr:last-child td{border-bottom:0;}
 th{
-    color:#203047;
-    background:#edf3fa;
+    color:#28425f;
+    background:#eff5fb;
     font-weight:650;
 }
-tr:nth-child(even) td{background:#fbfdff;}
+tr:nth-child(even) td{background:#f7fbfe;}
 pre{
-    margin:6px 0;
-    padding:8px 10px;
-    color:#101828;
-    background:#f1f5f9;
-    border:1px solid #d9e2ec;
-    border-radius:8px;
+    margin:8px 0;
+    padding:12px 14px;
+    color:#e7edf6;
+    background:#222b3a;
+    border:1px solid rgba(255,255,255,.05);
+    border-radius:10px;
     overflow-x:auto;
     white-space:pre;
     overflow-wrap:normal;
     word-break:normal;
     tab-size:4;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 2px 8px rgba(20,28,42,.12);
 }
 code{
-    color:#26374d;
-    background:#eef2f7;
-    border:1px solid #d8e0ea;
+    color:#1d5c9c;
+    background:#e9f2fb;
+    border:1px solid #d3e4f3;
     border-radius:5px;
-    padding:1px 4px;
+    padding:1px 5px;
     font:13px/1.4 Consolas,""Cascadia Mono"",monospace;
 }
-pre code{background:transparent;border:0;padding:0;font-variant-ligatures:none;}
+pre code{color:inherit;background:transparent;border:0;padding:0;font-variant-ligatures:none;}
 img{max-width:100%;border-radius:8px;}
 hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box{
     width:100%;
     max-height:calc(100vh - 150px);
     overflow-y:auto;
-    background:#ffffff;
-    border:1px solid #d7e1ee;
-    border-radius:8px;
+    background:rgba(255,255,255,.82);
+    border:1px solid #e2eaf4;
+    border-radius:10px;
     margin:4px 0 8px;
     padding:0;
-    box-shadow:0 3px 10px rgba(31,45,61,.04);
+    box-shadow:0 4px 18px rgba(31,45,61,.06);
+    backdrop-filter:blur(10px);
 }
 .thinking-box.collapsed{max-height:32px;overflow:hidden;}
 .thinking-box .reasoning-text{margin:6px 10px;color:#445268;font-size:13px;line-height:1.55;}
@@ -392,7 +640,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
     top:0;
     z-index:1;
     color:#526071;
-    background:#f7f9fc;
+    background:#f4f7fb;
     font-size:12px;
     cursor:pointer;
     padding:7px 10px;
@@ -405,9 +653,9 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .thinking-box.collapsed .toggle-bar::before{content:'▶ ';font-size:10px;}
 .tool-call,.tool-result,.tool-business-failure,.tool-error{
     min-height:22px;
-    margin:1px 6px;
-    padding:2px 6px;
-    border-radius:4px;
+    margin:2px 6px;
+    padding:2px 8px;
+    border-radius:6px;
     display:flex;
     align-items:center;
     gap:6px;
@@ -426,9 +674,32 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .streaming-segment{
     padding:6px 10px;
     color:#334155;
+    font-size:15px;
+    line-height:1.62;
 }
-.composer-wrap{padding:8px 14px 10px;background:#f5f7fb;}
-.composer{max-width:1120px;margin:0 auto;background:#fff;border:1px solid #e2e7ef;border-radius:16px;min-height:92px;box-shadow:0 6px 16px rgba(16,24,40,.06);position:relative;padding:10px 50px 34px 12px;}
+.stream-markdown>*:first-child{margin-top:0;}
+.stream-markdown>*:last-child{margin-bottom:0;}
+.stream-markdown p{margin:.42em 0;}
+.stream-markdown ul,.stream-markdown ol{margin:.42em 0 .62em;padding-left:1.45em;}
+.stream-markdown li{margin:.18em 0;}
+.stream-markdown li + li{margin-top:.34em;}
+.stream-markdown li>p{margin:.2em 0;}
+.stream-raw{white-space:pre-wrap;}
+.streaming-segment.is-streaming::after{
+    content:"";
+    display:inline-block;
+    width:5px;
+    height:13px;
+    margin-left:2px;
+    vertical-align:-2px;
+    border-radius:2px;
+    background:#246fb5;
+    animation:cursor-blink .8s infinite;
+}
+@keyframes cursor-blink{50%{opacity:.18;}}
+.composer-wrap{padding:8px 14px 10px;background:linear-gradient(to top,rgba(241,245,250,.98) 62%,rgba(241,245,250,0));}
+.composer{max-width:1320px;margin:0 auto;background:rgba(255,255,255,.92);border:1px solid #e2e7ef;border-radius:16px;min-height:92px;box-shadow:0 6px 16px rgba(16,24,40,.06);position:relative;padding:10px 50px 34px 12px;backdrop-filter:blur(14px);transition:border-color .18s ease,box-shadow .18s ease;}
+.composer:focus-within{border-color:#9cc4ea;box-shadow:0 8px 22px rgba(16,24,40,.08),0 0 0 3px rgba(36,111,181,.10);}
 .composer.drag-over{border-color:#5b9bd5;box-shadow:0 0 0 3px rgba(91,155,213,.16),0 6px 16px rgba(16,24,40,.06);}
 .prompt-input{width:100%;height:48px;min-height:48px;max-height:140px;border:0;padding:0;outline:none;resize:none;overflow-y:hidden;background:transparent;color:#172033;font:14px/1.45 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;transition:height .12s ease;}
 .prompt-input::placeholder{color:#b6bcc5;}
@@ -513,6 +784,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .toast.show{display:block;}
 @media (max-width:720px){.settings-grid{grid-template-columns:1fr}.composer-wrap{padding:10px}.topbar{padding:0 12px}.brand-subtitle{display:none}}
 @media (prefers-reduced-motion:reduce){
+    .msg,
     .msg.assistant.final-reveal .msg-head,
     .msg.assistant.final-reveal .content,
     .msg.assistant.final-reveal .content::before,
@@ -522,6 +794,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
         opacity:1!important;
         transform:none!important;
     }
+    .streaming-segment.is-streaming::after{animation:none;}
 }
 </style>
 <script>
@@ -576,13 +849,161 @@ function resizeThinkingBox(box){
     box.style.maxHeight=available+'px';
 }
 var messageScrollFrame=0;
-function scrollMessagesToBottom(){
+// 智能跟随：只有视口本身就在底部附近时才滚动，用户上翻阅读历史时不打断。
+function scrollMessagesToBottom(force){
     if(messageScrollFrame){window.cancelAnimationFrame(messageScrollFrame);}
     messageScrollFrame=window.requestAnimationFrame(function(){
         messageScrollFrame=0;
         var m=byId('messagesScroll');
-        if(m){m.scrollTop=m.scrollHeight;}
+        if(!m){return;}
+        if(force||m.scrollHeight-m.scrollTop-m.clientHeight<140){m.scrollTop=m.scrollHeight;}
     });
+}
+function commonPrefix(left,right){
+    var limit=Math.min(left.length,right.length),index=0;
+    while(index<limit&&left.charAt(index)===right.charAt(index)){index++;}
+    return left.slice(0,index);
+}
+// 流式打字机：宿主按节流帧推送目标文本（稳定 Markdown + 未完成尾部），
+// 前端 18ms 一帧逐字消耗尾部增量，落后时按剩余量加大步长平滑追赶。
+var streamTypewriters={};
+function ensureStreamSlots(id){
+    var el=document.getElementById(id);
+    if(!el){return null;}
+    var md=el.querySelector(':scope > .stream-markdown');
+    var raw=el.querySelector(':scope > .stream-raw');
+    if(!md||!raw){
+        el.innerHTML='<div class=""stream-markdown""></div><span class=""stream-raw""></span>';
+        md=el.querySelector(':scope > .stream-markdown');
+        raw=el.querySelector(':scope > .stream-raw');
+    }
+    return {el:el,md:md,raw:raw};
+}
+function followStreamScroll(el){
+    if(!el||!el.isConnected){return;}
+    var box=el.closest('.thinking-box');
+    if(box&&!box.classList.contains('collapsed')&&box.scrollHeight-box.scrollTop-box.clientHeight<140){
+        box.scrollTop=box.scrollHeight;
+    }
+    var m=byId('messagesScroll');
+    if(m&&m.scrollHeight-m.scrollTop-m.clientHeight<140){m.scrollTop=m.scrollHeight;}
+}
+function updateStreamSegment(id,stableSource,markdownHtml,rawTarget,instant){
+    var slots=ensureStreamSlots(id);
+    if(!slots){return false;}
+    var state=streamTypewriters[id];
+    if(!state){
+        state=streamTypewriters[id]={displayed:'',target:'',frame:0,pendingFinal:null,pendingPromote:null,stableSource:null};
+    }
+    if(state.stableSource!==stableSource){
+        slots.md.innerHTML=markdownHtml||'';
+        state.stableSource=stableSource;
+    }
+    state.target=rawTarget||'';
+    if(instant){state.displayed=state.target;}
+    if(state.target.indexOf(state.displayed)!==0){
+        state.displayed=commonPrefix(state.displayed,state.target);
+    }
+    slots.raw.textContent=state.displayed;
+    slots.el.classList.add('is-streaming');
+    if(!state.frame&&state.displayed.length<state.target.length){
+        state.frame=window.setTimeout(function(){runStreamTypewriter(id);},18);
+    }else if(!state.frame){
+        settleStreamSegment(id,state,slots);
+    }
+    return true;
+}
+function runStreamTypewriter(id){
+    var state=streamTypewriters[id];
+    if(!state){return;}
+    state.frame=0;
+    var target=state.target||'';
+    var displayed=state.displayed||'';
+    if(target.indexOf(displayed)!==0){displayed=commonPrefix(displayed,target);}
+    var remaining=target.slice(displayed.length);
+    var slots=ensureStreamSlots(id);
+    if(!slots){delete streamTypewriters[id];return;}
+    if(!remaining){
+        state.displayed=displayed;
+        slots.raw.textContent=displayed;
+        settleStreamSegment(id,state,slots);
+        return;
+    }
+    var chars=Array.from(remaining);
+    var count=chars.length>120?3:chars.length>48?2:1;
+    displayed+=chars.slice(0,count).join('');
+    state.displayed=displayed;
+    slots.raw.textContent=displayed;
+    followStreamScroll(slots.el);
+    state.frame=window.setTimeout(function(){runStreamTypewriter(id);},18);
+}
+// 打字机追平目标后按待办收尾：优先提升为正式气泡（内含完整最终 HTML），否则应用段内最终 Markdown。
+function settleStreamSegment(id,state,slots){
+    if(state.pendingPromote!==null){
+        var messageHtml=state.pendingPromote;
+        state.pendingPromote=null;
+        delete streamTypewriters[id];
+        promoteStreamSegmentNow(id,messageHtml);
+        return;
+    }
+    if(state.pendingFinal!==null){
+        var finalHtml=state.pendingFinal;
+        state.pendingFinal=null;
+        delete streamTypewriters[id];
+        slots.el.classList.remove('is-streaming');
+        slots.el.innerHTML=finalHtml;
+        followStreamScroll(slots.el);
+    }
+}
+function finalizeStreamSegment(id,stableSource,markdownHtml,rawTarget,finalHtml,instant){
+    var state=streamTypewriters[id];
+    if(!state){
+        var slots=ensureStreamSlots(id);
+        if(slots){
+            slots.el.classList.remove('is-streaming');
+            slots.el.innerHTML=finalHtml;
+            followStreamScroll(slots.el);
+        }
+        return;
+    }
+    state.pendingFinal=finalHtml;
+    updateStreamSegment(id,stableSource,markdownHtml,rawTarget,instant);
+}
+function promoteStreamSegment(id,messageHtml){
+    var state=streamTypewriters[id];
+    if(!state){
+        promoteStreamSegmentNow(id,messageHtml);
+        return;
+    }
+    state.pendingPromote=messageHtml;
+    if(!state.frame){
+        var slots=ensureStreamSlots(id);
+        if(!slots){
+            delete streamTypewriters[id];
+            promoteStreamSegmentNow(id,messageHtml);
+            return;
+        }
+        settleStreamSegment(id,state,slots);
+    }
+}
+function promoteStreamSegmentNow(id,messageHtml){
+    var el=document.getElementById(id);
+    var box=el&&el.closest('.thinking-box');
+    if(el){el.remove();}
+    var messages=document.getElementById('messages'),finalMessage=null;
+    if(messages){messages.insertAdjacentHTML('beforeend',messageHtml);finalMessage=messages.lastElementChild;}
+    if(box&&box.querySelectorAll(':scope > :not(.toggle-bar)').length===0){box.remove();}
+    if(window.revealFinalAnswer){revealFinalAnswer(finalMessage);}
+    if(window.scrollMessagesToBottom){scrollMessagesToBottom();}
+}
+// 流程结构放大查看：WebView 视口被限制在助手面板内，真正的大页面由宿主打开独立最大化窗口（FrmFlowZoom）。
+function openFlowZoom(button){
+    var visual=button.closest('.automation-flow-visual');
+    if(!visual){return;}
+    var clone=visual.cloneNode(true);
+    var cloneButton=clone.querySelector('.flow-expand-button');
+    if(cloneButton){cloneButton.remove();}
+    post('openFlowZoom',{html:clone.outerHTML});
 }
 function revealFinalAnswer(message){
     if(!message){return;}
@@ -618,9 +1039,9 @@ function scrollThinkingBoxToBottom(boxId){
         box._scrollFrame=0;
         if(!box.isConnected||box.classList.contains('collapsed')){return;}
         resizeThinkingBox(box);
-        box.scrollTop=box.scrollHeight;
+        if(box.scrollHeight-box.scrollTop-box.clientHeight<140){box.scrollTop=box.scrollHeight;}
         var messages=byId('messagesScroll');
-        if(messages){messages.scrollTop=messages.scrollHeight;}
+        if(messages&&messages.scrollHeight-messages.scrollTop-messages.clientHeight<140){messages.scrollTop=messages.scrollHeight;}
     });
 }
 var forcedStreamScrollFrame=0;
@@ -628,10 +1049,10 @@ var forcedStreamScrollActive=false;
 function runForcedStreamScroll(){
     if(!forcedStreamScrollActive){forcedStreamScrollFrame=0;return;}
     document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(function(box){
-        box.scrollTop=box.scrollHeight;
+        if(box.scrollHeight-box.scrollTop-box.clientHeight<140){box.scrollTop=box.scrollHeight;}
     });
     var messages=byId('messagesScroll');
-    if(messages){messages.scrollTop=messages.scrollHeight;}
+    if(messages&&messages.scrollHeight-messages.scrollTop-messages.clientHeight<140){messages.scrollTop=messages.scrollHeight;}
     forcedStreamScrollFrame=window.requestAnimationFrame(runForcedStreamScroll);
 }
 function startForcedStreamScroll(){
@@ -979,6 +1400,7 @@ function sendPrompt(){
     var text=input.value.trim();
     if(!text&&(appState.attachments||[]).length===0){return;}
     post('send',{prompt:text});
+    scrollMessagesToBottom(true);
     input.value='';
     autoGrowPrompt();
 }

@@ -69,6 +69,30 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void HighRiskSideEffectCapability_RejectsTooShortAuthorizationQuote()
+        {
+            var decision = new TaskCapabilityDecisionDefinition
+            {
+                Version = 1,
+                Action = "run_stage",
+                Capability = AutomationToolProfiles.RuntimeControl,
+                Objective = "启动流程",
+                AuthorizationQuote = "执行"
+            };
+
+            AiTaskDecisionValidation result = AiTaskCapabilityPolicy.Validate(
+                decision,
+                "请执行这个任务",
+                AutomationToolProfiles.Editor,
+                false,
+                new AiDynamicTaskState());
+
+            // 过短片段即使逐字命中当前消息也不能证明授权语义。
+            Assert.AreEqual(AiTaskDecisionKind.Invalid, result.Kind);
+            StringAssert.Contains(result.Message, "不少于4个字符");
+        }
+
+        [TestMethod]
         public void OrdinaryProcessMutation_DoesNotRequireLiteralAuthorizationQuote()
         {
             var decision = new TaskCapabilityDecisionDefinition
@@ -732,7 +756,7 @@ namespace Automation.Core.Tests
                         ? "检查当前流程事实"
                         : string.Empty,
                     AuthorizationQuote = AiTaskCapabilityPolicy.RequiresExplicitAuthorizationQuote(capability)
-                        ? "执行"
+                        ? "执行这个任务"
                         : string.Empty,
                     Basis = string.Equals(capability, AutomationToolProfiles.ProcessEdit, System.StringComparison.Ordinal)
                         ? TaskDecisionBases.DirectUserChange

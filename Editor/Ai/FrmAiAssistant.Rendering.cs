@@ -419,7 +419,10 @@ namespace Automation
 
                 var html = new StringBuilder();
                 html.Append("<div class=\"automation-flow-visual\"><div class=\"flow-visual-title\"><span>流程结构</span><span class=\"flow-badge\">")
-                    .Append(processes.Count).Append(" 个流程</span></div>");
+                    .Append(processes.Count).Append(" 个流程</span>")
+                    .Append("<button class=\"flow-expand-button\" type=\"button\" onclick=\"openFlowZoom(this)\" title=\"放大查看流程结构\" aria-label=\"放大查看流程结构\">")
+                    .Append("<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m21 21-4.3-4.3\"/><path d=\"M11 8v6\"/><path d=\"M8 11h6\"/></svg>")
+                    .Append("</button></div>");
                 foreach (JObject process in processes.OfType<JObject>())
                 {
                     AppendProcessFlowHtml(html, process);
@@ -686,7 +689,8 @@ namespace Automation
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
                 AppendToThinkingBox("<div class=\"analysis-segment streaming-segment\" id=\""
-                    + streamingDivId + "\">" + StreamingTextToHtml(streamingMarkdown.ToString()) + "</div>");
+                    + streamingDivId + "\"></div>");
+                PushStreamSegmentFrame(streamingDivId, streamingMarkdown.ToString(), replayingTaskEvents);
             }
             else
             {
@@ -702,19 +706,26 @@ namespace Automation
             }
         }
 
-        // 结束正式助手流式段：用最终 Markdown 替换对话区中的临时 HTML。
+        // 结束正式助手流式段：前端打字机消耗完剩余文本后，用最终 Markdown 替换段内容。
         private void FinishStreaming()
         {
             if (!streamingAssistant)
             {
                 return;
             }
-            string renderedHtml = MarkdownToHtml(streamingMarkdown.ToString());
-            string htmlJson = JsonConvert.SerializeObject(renderedHtml);
-            string idJson = JsonConvert.SerializeObject(streamingDivId);
-            string js = "var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson + ";}if(window.scrollMessagesToBottom){scrollMessagesToBottom();}";
+            string finalText = streamingMarkdown.ToString();
+            string finalHtml = MarkdownToHtml(finalText);
+            (string stable, string raw) = SplitStreamingMarkdown(finalText);
+            string stableHtml = stable.Length == 0 ? string.Empty : MarkdownToHtml(stable);
+            string js = "finalizeStreamSegment("
+                + JsonConvert.SerializeObject(streamingDivId)
+                + "," + JsonConvert.SerializeObject(stable)
+                + "," + JsonConvert.SerializeObject(stableHtml)
+                + "," + JsonConvert.SerializeObject(raw)
+                + "," + JsonConvert.SerializeObject(finalHtml)
+                + "," + (replayingTaskEvents ? "true" : "false") + ")";
             EnqueueScript(js);
-            latestAssistantSegmentText = streamingMarkdown.ToString();
+            latestAssistantSegmentText = finalText;
             latestAssistantSegmentDivId = streamingDivId;
             streamingAssistant = false;
             streamingDivId = null;
@@ -745,14 +756,10 @@ namespace Automation
                     + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">"
                     + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                     + CopyButtonHtml + "</div><div class=\"content\">" + finalHtml + "</div></div>";
-                EnqueueScript("var el=document.getElementById("
+                // 前端打字机可能尚未打完剩余文本；由 promoteStreamSegment 等待追平后再移除流式段并插入正式气泡。
+                EnqueueScript("promoteStreamSegment("
                     + JsonConvert.SerializeObject(latestAssistantSegmentDivId)
-                    + ");var box=el&&el.closest('.thinking-box');if(el){el.remove();}"
-                    + "var messages=document.getElementById('messages'),finalMessage=null;if(messages){messages.insertAdjacentHTML('beforeend',"
-                    + JsonConvert.SerializeObject(messageHtml) + ");finalMessage=messages.lastElementChild;}"
-                    + "if(box&&box.querySelectorAll(':scope > :not(.toggle-bar)').length===0){box.remove();}"
-                    + "if(window.revealFinalAnswer){revealFinalAnswer(finalMessage);}"
-                    + "if(window.scrollMessagesToBottom){scrollMessagesToBottom();}");
+                    + "," + JsonConvert.SerializeObject(messageHtml) + ")");
             }
             else if (!string.IsNullOrWhiteSpace(finalText))
             {
@@ -780,8 +787,8 @@ namespace Automation
                 streamingThoughtMarkdown.Append(text);
                 streamingThought = true;
                 lastThoughtRender = DateTime.Now;
-                AppendToThinkingBox("<div class=\"streaming-segment\" id=\"" + streamingThoughtDivId + "\">"
-                    + StreamingTextToHtml(streamingThoughtMarkdown.ToString()) + "</div>");
+                AppendToThinkingBox("<div class=\"streaming-segment\" id=\"" + streamingThoughtDivId + "\"></div>");
+                PushStreamSegmentFrame(streamingThoughtDivId, streamingThoughtMarkdown.ToString(), replayingTaskEvents);
                 return;
             }
 
@@ -801,11 +808,17 @@ namespace Automation
                 return;
             }
 
-            string htmlJson = JsonConvert.SerializeObject(MarkdownToHtml(streamingThoughtMarkdown.ToString()));
-            string idJson = JsonConvert.SerializeObject(streamingThoughtDivId);
-            string boxId = currentThinkingBoxId ?? string.Empty;
-            EnqueueScript("var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson
-                + ";}scrollThinkingBoxToBottom('" + boxId + "');");
+            string finalText = streamingThoughtMarkdown.ToString();
+            (string stable, string raw) = SplitStreamingMarkdown(finalText);
+            string stableHtml = stable.Length == 0 ? string.Empty : MarkdownToHtml(stable);
+            string js = "finalizeStreamSegment("
+                + JsonConvert.SerializeObject(streamingThoughtDivId)
+                + "," + JsonConvert.SerializeObject(stable)
+                + "," + JsonConvert.SerializeObject(stableHtml)
+                + "," + JsonConvert.SerializeObject(raw)
+                + "," + JsonConvert.SerializeObject(MarkdownToHtml(finalText))
+                + "," + (replayingTaskEvents ? "true" : "false") + ")";
+            EnqueueScript(js);
             streamingThought = false;
             streamingThoughtDivId = null;
         }
@@ -817,11 +830,7 @@ namespace Automation
                 return;
             }
 
-            string htmlJson = JsonConvert.SerializeObject(StreamingTextToHtml(streamingThoughtMarkdown.ToString()));
-            string idJson = JsonConvert.SerializeObject(streamingThoughtDivId);
-            string boxId = currentThinkingBoxId ?? string.Empty;
-            EnqueueScript("var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson
-                + ";}scrollThinkingBoxToBottom('" + boxId + "');");
+            PushStreamSegmentFrame(streamingThoughtDivId, streamingThoughtMarkdown.ToString(), replayingTaskEvents);
         }
 
         // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
@@ -865,18 +874,14 @@ namespace Automation
             EnqueueAppendHtml(html);
         }
 
-        // 更新对话区正式回复的流式 HTML，并滚动到最新结果。
+        // 更新对话区正式回复的流式帧：稳定 Markdown 实时渲染 + 未完成尾部由前端打字机逐字显示。
         private void UpdateStreamingPreview()
         {
             if (string.IsNullOrEmpty(streamingDivId))
             {
                 return;
             }
-            string html = StreamingTextToHtml(streamingMarkdown.ToString());
-            string htmlJson = JsonConvert.SerializeObject(html);
-            string idJson = JsonConvert.SerializeObject(streamingDivId);
-            string js = "var el=document.getElementById(" + idJson + ");if(el){el.innerHTML=" + htmlJson + ";}if(window.scrollMessagesToBottom){scrollMessagesToBottom();}";
-            EnqueueScript(js);
+            PushStreamSegmentFrame(streamingDivId, streamingMarkdown.ToString(), replayingTaskEvents);
         }
 
         // 向 #messages 容器追加 HTML 片段并滚动到底部。
@@ -1224,10 +1229,84 @@ namespace Automation
             return builder.ToString();
         }
 
-        // 流式片段可能尚未闭合 Markdown 块，只做安全文本预览，结束后再由 MarkdownToHtml 正式渲染。
-        private static string StreamingTextToHtml(string text)
+        // 流式帧：按安全块边界切分为稳定 Markdown 与未完成尾部。
+        // 稳定部分实时交给 Markdig 渲染（块已完整，不会随后续 token 重排），
+        // 尾部由前端打字机逐字显示；回放历史事件时直接全量显示，不重打一遍。
+        private void PushStreamSegmentFrame(string divId, string markdownSource, bool instant)
         {
-            return HtmlEncode(text).Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "<br>");
+            (string stable, string raw) = SplitStreamingMarkdown(markdownSource);
+            string stableHtml = stable.Length == 0 ? string.Empty : MarkdownToHtml(stable);
+            string js = "updateStreamSegment("
+                + JsonConvert.SerializeObject(divId)
+                + "," + JsonConvert.SerializeObject(stable)
+                + "," + JsonConvert.SerializeObject(stableHtml)
+                + "," + JsonConvert.SerializeObject(raw)
+                + "," + (instant ? "true" : "false") + ")";
+            EnqueueScript(js);
+        }
+
+        // 安全块边界匹配：空行、ATX 标题、水平分隔线、setext 下划线之后，以及代码围栏闭合之后。
+        // 与前端打字机的显示约定保持一致，避免未闭合块在流式期间反复重排闪烁。
+        private static readonly Regex StreamingOpeningFenceRegex =
+            new Regex(@"^\s{0,3}(`{3,}|~{3,})", RegexOptions.Compiled);
+        private static readonly Regex StreamingClosingFenceRegex =
+            new Regex(@"^\s{0,3}([`~]{3,})\s*$", RegexOptions.Compiled);
+        private static readonly Regex StreamingAtxHeadingRegex =
+            new Regex(@"^\s{0,3}#{1,6}(?:\s|$)", RegexOptions.Compiled);
+        private static readonly Regex StreamingHorizontalRuleRegex =
+            new Regex(@"^\s{0,3}(?:[-*_]\s*){3,}$", RegexOptions.Compiled);
+        private static readonly Regex StreamingSetextUnderlineRegex =
+            new Regex(@"^\s{0,3}(?:=+|-+)\s*$", RegexOptions.Compiled);
+
+        private static (string Stable, string Raw) SplitStreamingMarkdown(string value)
+        {
+            string source = (value ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
+            int boundary = 0;
+            int cursor = 0;
+            char fenceCharacter = '\0';
+            int fenceLength = 0;
+            while (cursor < source.Length)
+            {
+                int newline = source.IndexOf('\n', cursor);
+                bool hasNewline = newline >= 0;
+                int lineEnd = hasNewline ? newline + 1 : source.Length;
+                string line = source.Substring(cursor, (hasNewline ? newline : source.Length) - cursor);
+
+                if (fenceCharacter != '\0')
+                {
+                    Match closingFence = StreamingClosingFenceRegex.Match(line);
+                    if (closingFence.Success
+                        && closingFence.Groups[1].Value[0] == fenceCharacter
+                        && closingFence.Groups[1].Value.Length >= fenceLength)
+                    {
+                        fenceCharacter = '\0';
+                        fenceLength = 0;
+                        boundary = lineEnd;
+                    }
+                }
+                else
+                {
+                    Match openingFence = StreamingOpeningFenceRegex.Match(line);
+                    if (openingFence.Success)
+                    {
+                        string fence = openingFence.Groups[1].Value;
+                        fenceCharacter = fence[0];
+                        fenceLength = fence.Length;
+                    }
+                    else if (hasNewline
+                        && (line.Trim().Length == 0
+                            || StreamingAtxHeadingRegex.IsMatch(line)
+                            || StreamingHorizontalRuleRegex.IsMatch(line)
+                            || StreamingSetextUnderlineRegex.IsMatch(line)))
+                    {
+                        boundary = lineEnd;
+                    }
+                }
+
+                cursor = lineEnd;
+            }
+
+            return (source.Substring(0, boundary), source.Substring(boundary));
         }
     }
 }

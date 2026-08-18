@@ -85,7 +85,7 @@ namespace Automation.Core.Tests
                     JObject replacement = PreviewProcess(service, "最终流程", firstPreviewId);
                     string replacementPreviewId = replacement["previewId"]?.Value<string>();
                     AssertExactProperties(replacement,
-                        "previewId", "confirmed", "status", "allowedTransitions", "expiresAt",
+                        "previewId", "confirmed", "status", "nextStep", "allowedTransitions", "expiresAt",
                         "summary", "variableResolutions", "changes", "readinessStatus", "runnable",
                         "warnings", "runBlockers", "stageIssues", "messages");
 

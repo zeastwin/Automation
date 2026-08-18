@@ -1560,8 +1560,35 @@ namespace Automation.McpServer
                         JsonArray nativeCandidates = semanticCandidates.Length > 0
                             ? new JsonArray()
                             : RankNativeOperationCandidates(registered, intent.Intent);
+                        // 未命中时附最相近注册类型，模型据此一轮纠正措辞，
+                        // 而不是把"没有候选"误读为"平台没有该能力"进而占位删减用户目标。
+                        JsonArray? nearbyTypes = null;
+                        if (semanticCandidates.Length == 0 && nativeCandidates.Count == 0)
+                        {
+                            string normalizedIntent = intent.Intent
+                                .Replace("操作", string.Empty).Replace("动作", string.Empty).Trim();
+                            var rankedNearby = registered.OfType<JsonObject>()
+                                .Select(item => new
+                                {
+                                    operaType = item["operaType"]?.GetValue<string>() ?? string.Empty,
+                                    score = normalizedIntent.Length == 0
+                                        ? 0
+                                        : ScoreOperationAffinity(normalizedIntent, item)
+                                })
+                                .Where(entry => entry.operaType.Length > 0 && entry.score > 0)
+                                .OrderByDescending(entry => entry.score)
+                                .ThenBy(entry => entry.operaType, StringComparer.Ordinal)
+                                .Take(5)
+                                .ToArray();
+                            if (rankedNearby.Length > 0)
+                            {
+                                nearbyTypes = new JsonArray();
+                                foreach (var entry in rankedNearby)
+                                    nearbyTypes.Add(JsonValue.Create(entry.operaType));
+                            }
+                        }
                         results.Add(BuildOperationCapabilityResolutionItem(
-                            intent.Key, intent.Intent, semanticCandidates, nativeCandidates));
+                            intent.Key, intent.Intent, semanticCandidates, nativeCandidates, nearbyTypes));
                     }
                     string[] exactSemanticKinds = results.OfType<JsonObject>()
                         .Select(item => item["resolved"] as JsonObject)
@@ -1617,7 +1644,8 @@ namespace Automation.McpServer
             string key,
             string intent,
             string[] semanticCandidates,
-            JsonArray nativeCandidates)
+            JsonArray nativeCandidates,
+            JsonArray? nearbyTypes = null)
         {
             semanticCandidates = semanticCandidates ?? Array.Empty<string>();
             nativeCandidates = nativeCandidates ?? new JsonArray();
@@ -1660,11 +1688,13 @@ namespace Automation.McpServer
                         ? "native." + exactNativeType
                         : null,
                 ["contractIncluded"] = exact,
-                ["recommendedFallback"] = resolved ? null : "config.placeholder",
+                ["nearbyTypes"] = resolved ? null : nearbyTypes,
+                ["recommendedFallback"] = resolved ? null
+                    : "先核对 nearbyTypes 与 list_operation_types 确认平台没有对应指令，才使用 config.placeholder",
                 ["fallbackCapabilities"] = resolved ? null : new JsonObject
                 {
                     ["plannedBranches"] = true,
-                    ["rule"] = "占位只替代未决动作或结果条件；已知分支、回跳、计数和出口继续使用ChangeSet语义指令表达。"
+                    ["rule"] = "占位只替代未决动作或结果条件；已知分支、回跳、计数和出口继续使用ChangeSet语义指令表达。missing只证明当前措辞没有命中，不证明平台缺少该能力。"
                 }
             };
         }
@@ -1842,6 +1872,9 @@ namespace Automation.McpServer
                 await client.ListStationsAsync().ConfigureAwait(false));
             EnsureBridgeSuccess(stationResponse);
             JsonArray stationCatalog = CloneItems(stationResponse);
+            // 工站范围原生指令来自注册目录的 stationScoped 标记；
+            // 让模型在看到工站的同时拿到精确运动指令名，不再靠猜类型名试错。
+            JsonArray motionOperations = await ListStationScopedOperationsAsync(client).ConfigureAwait(false);
             var stations = new JsonArray();
             int returnedPointCount = 0;
             int skippedPointCount = 0;
@@ -1870,6 +1903,7 @@ namespace Automation.McpServer
                 string stationResourceRef = AuthoringResourceRefs.ForStableId(
                     "motion_station", stationIndex.ToString(CultureInfo.InvariantCulture));
                 selectedStation["resourceRef"] = stationResourceRef;
+                selectedStation["motionOperations"] = (JsonArray)motionOperations.DeepClone();
                 int taughtPointCount = allPoints.Count(point =>
                     point["taught"]?.GetValue<bool>() == true);
                 int plannedPointCount = allPoints.Length - taughtPointCount;
@@ -1931,8 +1965,28 @@ namespace Automation.McpServer
                 ["nextOffset"] = hasMore ? offset + returnedPointCount : null,
                 ["items"] = stations,
                 ["authoringGaps"] = authoringGaps,
-                ["note"] = "每个工站项同时包含实际轴配置与已规划/已示教点位；流程可以先引用有业务含义的规划点位名，但planned坐标不能执行运动。resourceRef用于稳定识别，authoringGaps只暴露事实缺口和可选下一步，不强制固定工作流。"
+                ["note"] = "每个工站项同时包含实际轴配置、已规划/已示教点位和 motionOperations 工站范围原生指令（如工站走点、回原）；流程可以先引用有业务含义的规划点位名，但planned坐标不能执行运动。resourceRef用于稳定识别，authoringGaps只暴露事实缺口和可选下一步，不强制固定工作流。"
             };
+        }
+
+        private static async Task<JsonArray> ListStationScopedOperationsAsync(
+            AutomationBridgeClient client)
+        {
+            JsonObject typesResponse = ParseBridgeResponse(
+                await client.OpMetaAsync("list_types", new JsonObject()).ConfigureAwait(false));
+            EnsureBridgeSuccess(typesResponse);
+            var operations = new JsonArray();
+            foreach (JsonObject item in (typesResponse["data"]?["items"] as JsonArray
+                ?? new JsonArray()).OfType<JsonObject>())
+            {
+                if (item["stationScoped"]?.GetValue<bool>() != true) continue;
+                operations.Add(new JsonObject
+                {
+                    ["operaType"] = item["operaType"]?.DeepClone(),
+                    ["name"] = item["name"]?.DeepClone()
+                });
+            }
+            return operations;
         }
 
         internal static JsonObject BuildAuthoringResourceEvidenceBoundaries()
@@ -2153,27 +2207,63 @@ namespace Automation.McpServer
         internal static JsonArray RankNativeOperationCandidates(JsonArray registered, string intent)
         {
             string normalized = intent.Replace("操作", string.Empty).Replace("动作", string.Empty).Trim();
-            IEnumerable<JsonObject> candidates = registered.OfType<JsonObject>()
-                .Where(item =>
+            if (normalized.Length == 0) return new JsonArray();
+            var candidates = registered.OfType<JsonObject>()
+                .Select(item => new { item, score = ScoreOperationAffinity(normalized, item) })
+                .Where(entry => entry.score > 0)
+                .OrderByDescending(entry => entry.score)
+                .ThenBy(entry => entry.item["operaType"]?.GetValue<string>() ?? string.Empty, StringComparer.Ordinal)
+                .Take(8)
+                .ToArray();
+            var result = new JsonArray();
+            foreach (var entry in candidates)
+                result.Add((JsonNode)entry.item.DeepClone());
+            return result;
+        }
+
+        // 评分覆盖类型名、显示名与 intentAliases：
+        // 连续包含记高分；否则按共享二元组数量衡量措辞重合度，
+        // 使"运动到指定命名点位"这类换述也能命中"移动到点位"别名。
+        internal static int ScoreOperationAffinity(string normalized, JsonObject item)
+        {
+            string type = item["operaType"]?.GetValue<string>() ?? string.Empty;
+            string name = item["name"]?.GetValue<string>() ?? string.Empty;
+            int score = ScoreTextAffinity(normalized, type);
+            if (name.Length > 0) score = Math.Max(score, ScoreTextAffinity(normalized, name));
+            if (item["intentAliases"] is JsonArray aliases)
+            {
+                foreach (JsonNode? alias in aliases)
                 {
-                    string type = item["operaType"]?.GetValue<string>() ?? string.Empty;
-                    string name = item["name"]?.GetValue<string>() ?? string.Empty;
-                    JsonArray aliases = item["intentAliases"] as JsonArray ?? new JsonArray();
-                    bool typeMatches = !string.IsNullOrWhiteSpace(type)
-                        && (type.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
-                            || intent.IndexOf(type, StringComparison.OrdinalIgnoreCase) >= 0);
-                    bool nameMatches = !string.IsNullOrWhiteSpace(name)
-                        && (name.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0
-                            || intent.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
-                    bool aliasMatches = aliases
-                        .Select(alias => alias?.GetValue<string>() ?? string.Empty)
-                        .Any(alias => alias.Length > 0
-                            && (normalized.IndexOf(alias, StringComparison.OrdinalIgnoreCase) >= 0
-                                || alias.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0));
-                    return normalized.Length > 0 && (typeMatches || nameMatches || aliasMatches);
-                })
-                .Take(8);
-            return ToJsonArray(candidates);
+                    string aliasText = alias?.GetValue<string>() ?? string.Empty;
+                    if (aliasText.Length > 0) score = Math.Max(score, ScoreTextAffinity(normalized, aliasText));
+                }
+            }
+            return score;
+        }
+
+        internal static int ScoreTextAffinity(string left, string right)
+        {
+            if (string.Equals(left, right, StringComparison.Ordinal)) return 0;
+            int bigrams = CountSharedBigrams(left, right);
+            bool contains = right.IndexOf(left, StringComparison.OrdinalIgnoreCase) >= 0
+                || left.IndexOf(right, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (contains) return 100 + bigrams;
+            return bigrams >= 2 ? bigrams : 0;
+        }
+
+        internal static int CountSharedBigrams(string left, string right)
+        {
+            if (left == null || right == null || left.Length < 2 || right.Length < 2) return 0;
+            var seen = new HashSet<string>();
+            int count = 0;
+            for (int i = 0; i < left.Length - 1; i++)
+            {
+                string gram = left.Substring(i, 2);
+                if (seen.Contains(gram)) continue;
+                seen.Add(gram);
+                if (right.IndexOf(gram, StringComparison.Ordinal) >= 0) count++;
+            }
+            return count;
         }
 
         private static string? NullIfWhiteSpace(string? value)

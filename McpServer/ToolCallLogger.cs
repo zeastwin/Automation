@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
+using Automation.Protocol;
 // 模块：MCP / 工具调用审计。
 // 职责范围：记录工具开始、结束、耗时与脱敏摘要，供 turnId/seq 串联 AI 执行链。
 // 排查入口：优先看 D:\AutomationLogs\AIExecution\Analysis；完整报文仅用于底层取证。
@@ -20,6 +21,8 @@ namespace Automation.McpServer
         private static readonly object SyncRoot = new object();
         private static readonly AsyncLocal<string?> CurrentCallId = new AsyncLocal<string?>();
         private static readonly Mutex ExecutionLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog");
+        // structured 失败审计独立互斥体：主日志互斥体被 Editor 高频占用时不再连带丢弃失败事件。
+        private static readonly Mutex StructuredLogMutex = new Mutex(false, "AutomationAIExecutionAuditLog.Structured");
         private static readonly JsonSerializerOptions PrettyJsonOptions = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -118,6 +121,7 @@ namespace Automation.McpServer
                 transportStatus = transportSucceeded ? "success" : "failed",
                 businessStatus,
                 errorCode = business.ErrorCode,
+                errorKind = AiLogErrorKind.Classify(business.ErrorCode),
                 payloadBytes = completedPayload.OriginalBytes,
                 payloadSha256 = completedPayload.Sha256,
                 payloadTruncated = completedPayload.Truncated,
@@ -205,6 +209,7 @@ namespace Automation.McpServer
                 transportStatus = "failed",
                 businessStatus = "failed",
                 errorCode = "TOOL_INVOCATION_FAILED",
+                errorKind = "tool_invocation",
                 payloadBytes = errorSnapshot.OriginalBytes,
                 payloadSha256 = errorSnapshot.Sha256,
                 payloadTruncated = errorSnapshot.Truncated,
@@ -233,6 +238,8 @@ namespace Automation.McpServer
                     lockTaken = ExecutionLogMutex.WaitOne(TimeSpan.FromSeconds(2));
                     if (!lockTaken)
                     {
+                        // 主日志被 Editor 进程高频占用时至少保留 structured 失败审计，不再整条丢弃。
+                        WriteStructuredRecord(root, structuredRecord);
                         return;
                     }
 
@@ -240,17 +247,6 @@ namespace Automation.McpServer
                     string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
                     string path = FindRollingPath(root, datePrefix, ".log", content, false);
                     File.AppendAllText(path, content, new UTF8Encoding(false));
-
-                    if (ShouldWriteStructured(structuredRecord))
-                    {
-                        string structuredContent = JsonSerializer.Serialize(
-                            structuredRecord, CompactJsonOptions) + Environment.NewLine;
-                        string structuredRoot = Path.Combine(root, "structured");
-                        Directory.CreateDirectory(structuredRoot);
-                        string structuredPath = FindRollingPath(
-                            structuredRoot, datePrefix, ".jsonl", structuredContent, true);
-                        File.AppendAllText(structuredPath, structuredContent, new UTF8Encoding(false));
-                    }
                 }
                 catch (AbandonedMutexException)
                 {
@@ -263,10 +259,48 @@ namespace Automation.McpServer
                         ExecutionLogMutex.ReleaseMutex();
                     }
                 }
+                WriteStructuredRecord(root, structuredRecord);
             }
             catch
             {
                 // 日志失败不影响主流程。
+            }
+        }
+
+        // structured 与主日志分锁：只有失败事件进入 structured（见 ShouldWriteStructured），
+        // 独立互斥体与 Editor 侧共用，跨进程追加互斥且不受主日志锁竞争影响。
+        private static void WriteStructuredRecord(string root, object? structuredRecord)
+        {
+            if (!ShouldWriteStructured(structuredRecord))
+            {
+                return;
+            }
+            bool lockTaken = false;
+            try
+            {
+                lockTaken = StructuredLogMutex.WaitOne(TimeSpan.FromSeconds(2));
+                if (!lockTaken)
+                {
+                    return;
+                }
+                string structuredContent = JsonSerializer.Serialize(
+                    structuredRecord, CompactJsonOptions) + Environment.NewLine;
+                string structuredRoot = Path.Combine(root, "structured");
+                Directory.CreateDirectory(structuredRoot);
+                string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
+                string structuredPath = FindRollingPath(
+                    structuredRoot, datePrefix, ".jsonl", structuredContent, true);
+                File.AppendAllText(structuredPath, structuredContent, new UTF8Encoding(false));
+            }
+            catch (AbandonedMutexException)
+            {
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    StructuredLogMutex.ReleaseMutex();
+                }
             }
         }
 

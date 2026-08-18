@@ -105,6 +105,71 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void Analyze_WhenOutputStaysActiveAcrossAxisMotion_WarnsActuatorTimingOnce()
+        {
+            Proc process = TestProcessFactory.CreateEndingProcess("机构时序流程");
+            process.steps[0].Ops.Insert(0, new IoOperate
+            {
+                Id = Guid.NewGuid(),
+                Name = "取料夹持",
+                IoParams = new OperationTypePartial.CustomList<IoOutParam>
+                {
+                    new IoOutParam { IoName = "搬运气缸1", TargetState = true }
+                }
+            });
+            process.steps[0].Ops.Insert(1, BuildMotionOperation("走点到放料位"));
+            process.steps[0].Ops.Insert(2, BuildMotionOperation("走点到安全位"));
+
+            ProcessReadinessAnalysis analysis = ProcessReadinessService.Analyze(
+                0, process, new[] { process });
+
+            Assert.AreEqual(1, analysis.Warnings.Count(item =>
+                item.Contains("保持激活") && item.Contains("搬运气缸1")));
+        }
+
+        [TestMethod]
+        public void Analyze_WhenOutputReleasedBeforeAxisMotion_HasNoActuatorTimingWarning()
+        {
+            Proc process = TestProcessFactory.CreateEndingProcess("复位后移动流程");
+            process.steps[0].Ops.Insert(0, new IoOperate
+            {
+                Id = Guid.NewGuid(),
+                Name = "取料夹持",
+                IoParams = new OperationTypePartial.CustomList<IoOutParam>
+                {
+                    new IoOutParam { IoName = "搬运气缸1", TargetState = true }
+                }
+            });
+            process.steps[0].Ops.Insert(1, new IoOperate
+            {
+                Id = Guid.NewGuid(),
+                Name = "气缸复位",
+                IoParams = new OperationTypePartial.CustomList<IoOutParam>
+                {
+                    new IoOutParam { IoName = "搬运气缸1", TargetState = false }
+                }
+            });
+            process.steps[0].Ops.Insert(2, BuildMotionOperation("走点到放料位"));
+
+            ProcessReadinessAnalysis analysis = ProcessReadinessService.Analyze(
+                0, process, new[] { process });
+
+            Assert.IsFalse(analysis.Warnings.Any(item => item.Contains("保持激活")));
+        }
+
+        private static StationRunPos BuildMotionOperation(string name)
+        {
+            return new StationRunPos
+            {
+                Id = Guid.NewGuid(),
+                Name = name,
+                StationName = "搬运工站",
+                PosName = "放料位",
+                PosIndex = -1
+            };
+        }
+
+        [TestMethod]
         public void StationStore_PreservesPlannedStateAndRebindsPointDictionary()
         {
             using (var directory = new TemporaryDirectory())

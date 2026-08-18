@@ -220,6 +220,8 @@ namespace Automation.Bridge
                 {
                     ["operaType"] = template.OperaType ?? string.Empty,
                     ["name"] = template.Name ?? string.Empty,
+                    // 工站范围指令：行为契约要求 StationName，或用途/执行步骤明确面向工站。
+                    ["stationScoped"] = IsStationScopedOperation(behavior),
                     ["intentAliases"] = behavior?["intentAliases"]?.DeepClone() ?? new JArray()
                 });
             }
@@ -228,6 +230,17 @@ namespace Automation.Bridge
             {
                 ["items"] = items
             };
+        }
+
+        private static bool IsStationScopedOperation(JObject behavior)
+        {
+            if (behavior == null) return false;
+            if (behavior["fieldRules"]?["StationName"]?["requiredForRun"]?.Value<bool>() == true)
+                return true;
+            string purpose = behavior["purpose"]?.Value<string>() ?? string.Empty;
+            if (purpose.Contains("工站", StringComparison.Ordinal)) return true;
+            return behavior["execution"] is JArray execution
+                && execution.Any(step => (step?.Value<string>() ?? string.Empty).Contains("工站", StringComparison.Ordinal));
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

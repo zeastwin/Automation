@@ -45,12 +45,14 @@ namespace Automation
             if (RequiresExplicitAuthorizationQuote(capability))
             {
                 string quote = (decision.AuthorizationQuote ?? string.Empty).Trim();
+                // 最小长度防止过短子串（如单字）形式上命中却无法证明授权语义。
                 if (string.IsNullOrWhiteSpace(quote)
+                    || quote.Length < 4
                     || string.IsNullOrWhiteSpace(currentUserRequest)
                     || currentUserRequest.IndexOf(quote, StringComparison.Ordinal) < 0)
                 {
                     return AiTaskDecisionValidation.Invalid(
-                        $"{capability} 是高风险副作用能力，authorizationQuote 必须逐字来自当前用户消息。");
+                        $"{capability} 是高风险副作用能力，authorizationQuote 必须逐字来自当前用户消息且不少于4个字符。");
                 }
             }
 

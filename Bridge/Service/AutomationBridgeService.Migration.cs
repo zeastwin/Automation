@@ -313,10 +313,38 @@ namespace Automation.Bridge
                 record.MigrationConfigurationPreview = draft;
                 record.BaseStateHash = draft.BaseStateHash;
             }
+            // 与 ChangeSet 预演一致：机械反馈下一步与过期时间，避免确认后不提交导致预演悬挂。
+            var migrationAllowedTransitions = new JArray();
+            if (record.Confirmed)
+            {
+                migrationAllowedTransitions.Add(new JObject
+                {
+                    ["tool"] = "apply_migration_configuration",
+                    ["arguments"] = new JObject { ["previewId"] = previewId }
+                });
+            }
+            else
+            {
+                migrationAllowedTransitions.Add(new JObject
+                {
+                    ["state"] = "awaiting_foreground_confirmation"
+                });
+            }
+            migrationAllowedTransitions.Add(new JObject
+            {
+                ["tool"] = "discard_migration_configuration",
+                ["arguments"] = new JObject { ["previewId"] = previewId }
+            });
             return new JObject
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
+                ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
+                ["nextStep"] = record.Confirmed
+                    ? "该迁移预演已确认（含前台自动批准）；必须在同一请求内用 apply_migration_configuration(previewId) 提交，或用 discard_migration_configuration(previewId) 明确放弃。"
+                    : "等待前台确认结果；确认后仅用同一 previewId 提交，不修改已预演内容；放弃时用 discard_migration_configuration(previewId)。",
+                ["allowedTransitions"] = migrationAllowedTransitions,
+                ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 ["committed"] = false,
                 ["configurationSaved"] = false,
                 ["domain"] = draft.Kind,
@@ -348,6 +376,29 @@ namespace Automation.Bridge
                 draft = record.MigrationConfigurationPreview;
             }
             EnsureAllProcsInactiveForAiStructureCommit("提交迁移平台配置");
+            // 与 ChangeSet 提交闸门一致：维护模式、安全锁定和编辑会话期间禁止写配置文件。
+            if (runtime.Maintenance.Active)
+            {
+                throw new BridgeRequestException(423, "CONFIG_MAINTENANCE_ACTIVE",
+                    string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)
+                        ? "系统正在执行配置维护。"
+                        : $"系统正在执行配置维护：{runtime.Maintenance.Reason}");
+            }
+            if (runtime.Safety.IsLocked)
+            {
+                throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
+            }
+            if (runtime.Editor.ActiveSession != null)
+            {
+                throw new BridgeRequestException(409, "EDITOR_SESSION_ACTIVE",
+                    $"当前存在未完成的编辑会话：{runtime.Editor.ActiveSession.Name}。请先保存或取消，再提交迁移配置。",
+                    new JObject
+                    {
+                        ["reason"] = "editor_session_active",
+                        ["retryableWhen"] = "editor_session_saved_or_canceled",
+                        ["sideEffects"] = "none"
+                    }.ToString(Formatting.None));
+            }
             if (!string.Equals(draft.BaseStateHash, ComputeMigrationStateHash(draft.Kind), StringComparison.Ordinal))
             {
                 throw new BridgeRequestException(409, "PREVIEW_BASE_CHANGED",
@@ -360,7 +411,17 @@ namespace Automation.Bridge
                     }.ToString(Formatting.None));
             }
 
-            ApplyMigrationConfiguration(draft);
+            try
+            {
+                ApplyMigrationConfiguration(draft);
+            }
+            catch
+            {
+                // 提交失败时同样移除预演记录：失败后基础配置可能已部分写盘，
+                // 保留记录只会让后续重新预演被 PREVIEW_IN_FLIGHT 阻塞。
+                RemovePreview(previewId);
+                throw;
+            }
             RemovePreview(previewId);
             return new JObject
             {
@@ -385,6 +446,16 @@ namespace Automation.Bridge
                     if (!runtime.Stores.Cards.Load(runtime.Paths.ConfigPath, out string cardLoadError))
                     {
                         runtime.Safety.Lock("迁移后的控制卡配置加载失败：" + cardLoadError);
+                        // 写盘成功但内存未生效：必须以失败响应暴露，不能返回 configurationSaved=true
+                        // 掩盖“磁盘与运行时分叉”的事实。
+                        throw new BridgeRequestException(500, "MIGRATION_CONFIG_LOAD_FAILED",
+                            "迁移后的控制卡配置已写入磁盘但加载失败，平台已安全锁定，本次提交未生效：" + cardLoadError,
+                            new JObject
+                            {
+                                ["reason"] = "config_written_but_load_failed",
+                                ["sideEffects"] = "config_file_written_platform_locked",
+                                ["nextAction"] = "修复配置后重新预演提交；平台锁定需人工解锁。"
+                            }.ToString(Formatting.None));
                     }
                     runtime.EditorUi?.RefreshMotionIo();
                     if (runtime.ProcessEngine?.Context != null) runtime.ProcessEngine.Context.IoMap = runtime.Stores.IoConfiguration.ByName;
@@ -404,7 +475,16 @@ namespace Automation.Bridge
                     }
                     if (runtime.PlcRuntime != null && !runtime.PlcRuntime.ReloadConfiguration(true, out string reloadError))
                     {
-                        runtime.ProcessEngine?.Logger?.Log(reloadError, LogLevel.Error);
+                        runtime.Safety.Lock("迁移后的PLC配置运行时重载失败：" + reloadError);
+                        // 磁盘已保存新配置但运行时仍用旧配置：静默分叉比失败更危险，必须锁定并失败。
+                        throw new BridgeRequestException(500, "MIGRATION_CONFIG_RELOAD_FAILED",
+                            "迁移后的PLC配置已保存到磁盘但运行时重载失败，平台已安全锁定，磁盘与运行时配置不一致：" + reloadError,
+                            new JObject
+                            {
+                                ["reason"] = "config_saved_but_runtime_reload_failed",
+                                ["sideEffects"] = "config_file_written_platform_locked",
+                                ["nextAction"] = "排查PLC配置后重新预演提交；平台锁定需人工解锁。"
+                            }.ToString(Formatting.None));
                     }
                     break;
                 case "communication":
@@ -420,7 +500,16 @@ namespace Automation.Bridge
                         draft.SerialPorts, out string serialError);
                     if (!socketsLoaded || !serialPortsLoaded)
                     {
-                        runtime.Safety.Lock(socketError ?? serialError ?? "迁移后的通讯配置加载失败。");
+                        string commLoadError = socketError ?? serialError ?? "迁移后的通讯配置加载失败。";
+                        runtime.Safety.Lock(commLoadError);
+                        throw new BridgeRequestException(500, "MIGRATION_CONFIG_LOAD_FAILED",
+                            "迁移后的通讯配置已写入磁盘但加载失败，平台已安全锁定，本次提交未生效：" + commLoadError,
+                            new JObject
+                            {
+                                ["reason"] = "config_written_but_load_failed",
+                                ["sideEffects"] = "config_file_written_platform_locked",
+                                ["nextAction"] = "修复配置后重新预演提交；平台锁定需人工解锁。"
+                            }.ToString(Formatting.None));
                     }
                     runtime.EditorUi?.RefreshCommunication();
                     if (runtime.ProcessEngine?.Context != null)
@@ -636,11 +725,24 @@ namespace Automation.Bridge
                     || !string.Equals(io.IOType, expectedType, StringComparison.Ordinal))
                 {
                     throw new BridgeRequestException(400, "IO_DEBUG_CONFIG_INVALID",
-                        $"IO调试配置引用无效或重复的{expectedType}：{name}");
+                        $"IO调试配置引用无效或重复的{expectedType}：{name}"
+                        + BuildIoNameHint(name, expectedType, ioByName));
                 }
                 result.Add(io.CloneForDebug());
             }
             return result;
+        }
+
+        // 名称引用未命中时附同类型相近候选，模型一轮纠正而不是反复猜名。
+        private static string BuildIoNameHint(string requested, string expectedType, Dictionary<string, IO> ioByName)
+        {
+            var ranked = AiOperationCompileContext.RankNameCandidates(
+                (requested ?? string.Empty).Trim(),
+                ioByName.Keys.Where(key => ioByName.TryGetValue(key, out IO io) && io != null
+                    && string.Equals(io.IOType, expectedType, StringComparison.Ordinal)));
+            return ranked.Count == 0
+                ? string.Empty
+                : $"。相近{expectedType}：{string.Join("、", ranked.Select(item => item.Name))}";
         }
 
         private static List<IOConnect> BuildIoConnections(
@@ -663,7 +765,8 @@ namespace Automation.Bridge
             if (!ioByName.TryGetValue(name.Trim(), out IO io) || io == null
                 || !string.Equals(io.IOType, expectedType, StringComparison.Ordinal))
             {
-                throw new BridgeRequestException(400, "IO_DEBUG_CONFIG_INVALID", $"IO关联引用无效：{name}");
+                throw new BridgeRequestException(400, "IO_DEBUG_CONFIG_INVALID",
+                    $"IO关联引用无效：{name}" + BuildIoNameHint(name, expectedType, ioByName));
             }
             return io.CloneForDebug();
         }

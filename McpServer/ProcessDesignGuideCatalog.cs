@@ -237,7 +237,7 @@ namespace Automation.McpServer
                             Slot("acquire", "取得工件", "required", "夹持或真空命令及可用反馈"),
                             Slot("place_motion", "进入放料位置", "required", "放料工站与真实运动动作；缺少现成点位时规划放料点名，坐标留给人工示教"),
                             Slot("release", "释放工件", "required", "释放命令及可用反馈"),
-                            Slot("safe_transition", "安全过渡", "when_required_by_mechanism", "明确的安全点或机构互锁事实")
+                            Slot("safe_transition", "安全过渡与机构复位时序", "required_when_actuator_and_motion_interleave", "机构动作与轴运动相邻时必须确立先后：复位后移动（防撞击）或夹持随行移载；缺工艺事实时询问用户或按标准时序实现并标注假设")
                         }
                     };
                 case "transfer":

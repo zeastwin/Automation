@@ -147,21 +147,21 @@ namespace Automation.Bridge
                 case "stop":
                     if (currentState.IsInactive())
                     {
-                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行。");
+                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 未在运行，当前状态为 {currentState}。");
                     }
                     runtime.ProcessEngine.Stop(procIndex);
                     break;
                 case "pause":
                     if (currentState != ProcRunState.Running)
                     {
-                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 不在运行状态，无法暂停。");
+                        return BridgeError(409, "PROC_NOT_RUNNING", $"流程 {procIndex} 不在运行状态，无法暂停，当前状态为 {currentState}。");
                     }
                     runtime.ProcessEngine.Pause(procIndex);
                     break;
                 case "resume":
                     if (currentState != ProcRunState.Paused)
                     {
-                        return BridgeError(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复。");
+                        return BridgeError(409, "PROC_NOT_PAUSED", $"流程 {procIndex} 不在暂停状态，无法恢复，当前状态为 {currentState}。");
                     }
                     if (!runtime.ProcessEngine.Resume(procIndex))
                     {

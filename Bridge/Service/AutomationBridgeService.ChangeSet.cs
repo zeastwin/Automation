@@ -75,9 +75,14 @@ namespace Automation.Bridge
                 return StructuredOperationCompiler.BuildContract(operaType);
             }
             catch (Exception ex) when (ex is InvalidOperationException
-                || ex is ArgumentException || ex is KeyNotFoundException)
+                || ex is ArgumentException)
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                throw new BridgeRequestException(
+                    400, "OPERA_TYPE_NOT_FOUND", ex.Message, BuildOperaTypeNotFoundDetails(operaType));
             }
         }
 
@@ -99,9 +104,20 @@ namespace Automation.Bridge
                 return BuildNativeOperationContractsWithRoute(distinct);
             }
             catch (Exception ex) when (ex is InvalidOperationException
-                || ex is ArgumentException || ex is KeyNotFoundException)
+                || ex is ArgumentException)
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", ex.Message);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                // 找出未注册的类型并附相近候选，模型一轮即可纠正而不是逐个猜名。
+                string missing = distinct.FirstOrDefault(type =>
+                {
+                    try { OperationDefinitionRegistry.Create(type); return false; }
+                    catch (KeyNotFoundException) { return true; }
+                }) ?? operaTypes.Values<string>().First();
+                throw new BridgeRequestException(
+                    400, "OPERA_TYPE_NOT_FOUND", ex.Message, BuildOperaTypeNotFoundDetails(missing));
             }
         }
 
@@ -340,6 +356,8 @@ namespace Automation.Bridge
                         scopeRecovery.ToString(Formatting.None));
                 }
                 AiResourceBindingException bindingError = ex as AiResourceBindingException;
+                bool candidatesCarryRefs = bindingError?.Candidates.Any(candidate =>
+                    !string.IsNullOrEmpty(candidate.ResourceRef)) == true;
                 JArray issues = bindingError != null
                     ? new JArray(new JObject
                     {
@@ -347,8 +365,12 @@ namespace Automation.Bridge
                         ["rule"] = "resource_binding",
                         ["message"] = bindingError.Message,
                         ["suggestedRepair"] = bindingError.Candidates.Count > 0
-                            ? "直接采用 recovery.bindingRepair.candidates 中同类型资源的 resourceRef，不改写展示名称。"
-                            : "重新读取对应资源类别；没有合法对象时保留占位或询问用户。"
+                            ? (candidatesCarryRefs
+                                ? "直接采用 recovery.bindingRepair.candidates 中同类型资源的 resourceRef，不改写展示名称。"
+                                : "直接采用 recovery.bindingRepair.candidates 中的精确名称重试；该引用按名称消费。")
+                            : string.Equals(bindingError.RequiredResourceType, "variable", StringComparison.Ordinal)
+                                ? "确认是新建变量时在同一 changeSet.variables 中声明资源策略；否则重新读取变量目录。"
+                                : "重新读取对应资源类别；没有合法对象时保留占位或询问用户。"
                     })
                     : ex is AiChangeSetValidationException validation
                     ? new JArray(validation.Issues.Select(issue => new JObject
@@ -408,6 +430,9 @@ namespace Automation.Bridge
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
+                ["nextStep"] = record.Confirmed
+                    ? "该预演事务已确认（含前台自动批准）；必须在同一请求内用 apply_change_set(previewId) 提交，不得以存在业务假设为由跳过已确认的提交。机构角色、极性等假设在提交后的答复中声明，并可用提交返回的 authoringLease 或稳定 ID 修正。"
+                    : "等待前台确认结果；确认后仅用同一 previewId 提交，不修改已预演内容。",
                 ["allowedTransitions"] = allowedTransitions,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 ["summary"] = new JObject
@@ -777,6 +802,8 @@ namespace Automation.Bridge
             string[] plcNames = (runtime.Stores.Plc?.GetSnapshot().Devices ?? new List<PlcDeviceConfig>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .Select(item => item.Name).Distinct(StringComparer.Ordinal).ToArray();
+            // 工站/点位/数据结构/流程/自定义函数引用保持晚绑定：允许缺少运行资源保存为 incomplete，
+            // 由 ProcessReadinessService 在预演 runBlockers 与启动闸门拦截并附相近候选。
             var references = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
             {
                 ["comm.tcp"] = tcpNames,

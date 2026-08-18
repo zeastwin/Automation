@@ -297,7 +297,11 @@ namespace Automation.McpServer
                     objective["maxLength"] = 500;
                 }
                 if (runProperties["authorizationQuote"] is JsonObject authorizationQuote)
+                {
+                    // 过短片段（如单字）无法证明授权语义，与代码侧长度校验保持一致。
+                    authorizationQuote["minLength"] = 4;
                     authorizationQuote["maxLength"] = 300;
+                }
                 if (runProperties["basis"] is JsonObject basis)
                     basis["enum"] = new JsonArray(
                         TaskDecisionBases.DirectUserChange,

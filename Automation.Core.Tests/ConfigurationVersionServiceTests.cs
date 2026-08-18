@@ -5,6 +5,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 
@@ -51,20 +53,28 @@ namespace Automation.Core.Tests
                     "public class TestHmi { public const int Value = 2; }\r\n",
                     new UTF8Encoding(false));
                 bool restartRequired = false;
+                bool applyInvoked = false;
 
-                Assert.IsTrue(
-                    runtime.VersionService.Restore(
-                        target.CommitId,
-                        () => true,
-                        () =>
-                        {
-                            restartRequired = true;
-                            runtime.Readiness.VersionRestartRequired = true;
-                        },
-                        out string restoreError),
-                    restoreError);
+                ConfigurationRestoreResult restoreResult = runtime.VersionService.Restore(
+                    target.CommitId,
+                    () => true,
+                    () =>
+                    {
+                        restartRequired = true;
+                        runtime.Readiness.VersionRestartRequired = true;
+                    },
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return false;
+                    });
+                Assert.IsTrue(restoreResult.Success, restoreResult.Error);
 
                 Assert.IsTrue(restartRequired);
+                Assert.IsFalse(
+                    applyInvoked,
+                    "HMI 源码变更属于重启档，不得尝试免重启生效。");
+                Assert.IsTrue(restoreResult.RestartRequired);
                 Assert.IsTrue(runtime.Readiness.VersionRestartRequired);
                 Assert.AreEqual(
                     originalConfiguration,
@@ -92,6 +102,194 @@ namespace Automation.Core.Tests
                 Assert.IsTrue(string.IsNullOrEmpty(diffError), diffError);
                 Assert.IsTrue(protectionDiff.Any(item => item.Category == "IO"));
                 Assert.IsTrue(protectionDiff.Any(item => item.Category == "HMI 代码"));
+            }
+        }
+
+        [TestMethod]
+        public void Restore_WhenOnlyEditStateFilesChanged_AppliesInPlaceWithoutRestart()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                var runtime = new PlatformRuntime(directory.FullPath);
+                ComposeOfflineEngine(runtime);
+
+                Assert.IsTrue(
+                    runtime.Stores.Values.TrySetValue(
+                        0,
+                        "测试变量",
+                        "double",
+                        "0",
+                        "测试用途",
+                        "测试初始化"),
+                    "测试准备失败：无法创建测试变量。");
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot("原始版本", "测试", out string snapshotError),
+                    snapshotError);
+                string commitId = runtime.VersionService
+                    .GetHistory(out _, out _)
+                    .Single()
+                    .CommitId;
+                Assert.IsTrue(
+                    runtime.Stores.Values.setValueByName("测试变量", "5"),
+                    "测试准备失败：无法修改变量运行值。");
+                Assert.IsTrue(
+                    runtime.Stores.Values.Save(runtime.Paths.ConfigPath),
+                    "测试准备失败：无法保存变量运行值。");
+
+                bool applyInvoked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    commitId,
+                    () => true,
+                    () => runtime.Readiness.VersionRestartRequired = true,
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return PlatformRuntimeInitializer.TryApplyRestoredEditStateConfiguration(
+                            runtime,
+                            out _);
+                    });
+
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsTrue(applyInvoked, "仅编辑态配置变化时必须尝试免重启生效。");
+                Assert.IsFalse(result.RestartRequired);
+                Assert.IsFalse(runtime.Readiness.VersionRestartRequired);
+            }
+        }
+
+        [TestMethod]
+        public void Restore_WhenRestartTierFileChanged_DoesNotAttemptInPlaceApply()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                string cardPath = Path.Combine(directory.FullPath, "card.json");
+                File.WriteAllText(
+                    cardPath,
+                    "{\"Revision\":1}",
+                    new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot("原始版本", "测试", out string snapshotError),
+                    snapshotError);
+                string commitId = runtime.VersionService
+                    .GetHistory(out _, out _)
+                    .Single()
+                    .CommitId;
+
+                File.WriteAllText(
+                    cardPath,
+                    "{\"Revision\":2}",
+                    new UTF8Encoding(false));
+                bool applyInvoked = false;
+                bool restartMarked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    commitId,
+                    () => true,
+                    () =>
+                    {
+                        restartMarked = true;
+                        runtime.Readiness.VersionRestartRequired = true;
+                    },
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return true;
+                    });
+
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsFalse(applyInvoked, "控制卡变更属于重启档，不得尝试免重启生效。");
+                Assert.IsTrue(result.RestartRequired);
+                Assert.IsTrue(restartMarked);
+                Assert.IsTrue(runtime.Readiness.VersionRestartRequired);
+            }
+        }
+
+        [TestMethod]
+        public void Restore_WhenApplyFails_FallsBackToRestartGate()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                // 快照内携带无法解析的 IO 配置：还原后磁盘合法替换，但内存重载必须失败。
+                string ioMapPath = Path.Combine(directory.FullPath, "IOMap.json");
+                File.WriteAllText(
+                    ioMapPath,
+                    "{\"Name\":\"损坏的IO配置\"}",
+                    new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                ComposeOfflineEngine(runtime);
+
+                Assert.IsTrue(
+                    runtime.Stores.Values.TrySetValue(
+                        0,
+                        "测试变量",
+                        "double",
+                        "0",
+                        "测试用途",
+                        "测试初始化"),
+                    "测试准备失败：无法创建测试变量。");
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot("原始版本", "测试", out string snapshotError),
+                    snapshotError);
+                string commitId = runtime.VersionService
+                    .GetHistory(out _, out _)
+                    .Single()
+                    .CommitId;
+
+                // 修改变量运行值制造仅“变量”分类的还原差异，触发免重启生效路径。
+                Assert.IsTrue(
+                    runtime.Stores.Values.setValueByName("测试变量", "5"),
+                    "测试准备失败：无法修改变量运行值。");
+                Assert.IsTrue(
+                    runtime.Stores.Values.Save(runtime.Paths.ConfigPath),
+                    "测试准备失败：无法保存变量运行值。");
+
+                bool applyInvoked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    commitId,
+                    () => true,
+                    () => runtime.Readiness.VersionRestartRequired = true,
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return PlatformRuntimeInitializer.TryApplyRestoredEditStateConfiguration(
+                            runtime,
+                            out _);
+                    });
+
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsTrue(applyInvoked);
+                Assert.IsTrue(result.RestartRequired);
+                Assert.IsTrue(runtime.Readiness.VersionRestartRequired);
+                StringAssert.Contains(result.Error, "免重启生效失败");
+            }
+        }
+
+        private static void ComposeOfflineEngine(PlatformRuntime runtime)
+        {
+            PlatformRuntimeComposer.Compose(
+                runtime,
+                new StubInteractionPort(),
+                new StubInteractionPort(),
+                new StubLogger());
+        }
+
+        private sealed class StubInteractionPort : IAlarmHandler, IProcessPopupService
+        {
+            public Task<AlarmDecision> HandleAsync(AlarmContext context)
+                => Task.FromResult(AlarmDecision.Ignore);
+
+            public Task<AlarmDecision> ShowAsync(
+                ProcessPopupRequest request,
+                CancellationToken cancellationToken)
+                => Task.FromResult(AlarmDecision.Ignore);
+        }
+
+        private sealed class StubLogger : ILogger
+        {
+            public void Log(string message, LogLevel level)
+            {
             }
         }
 
@@ -488,13 +686,16 @@ namespace Automation.Core.Tests
                     ioMapPath,
                     "{\"Revision\":2}",
                     new UTF8Encoding(false));
-                Assert.IsTrue(
-                    runtime.VersionService.Restore(
-                        originalCommitId,
-                        () => true,
-                        () => runtime.Readiness.VersionRestartRequired = true,
-                        out string firstRestoreError),
-                    firstRestoreError);
+                ConfigurationRestoreResult firstRestore = runtime.VersionService.Restore(
+                    originalCommitId,
+                    () => true,
+                    () => runtime.Readiness.VersionRestartRequired = true,
+                    () => PlatformRuntimeInitializer.TryApplyRestoredEditStateConfiguration(
+                        runtime,
+                        out _));
+                Assert.IsTrue(firstRestore.Success, firstRestore.Error);
+                // 裸 PlatformRuntime 未组合内核，免重启生效失败必须回退重启闸门。
+                Assert.IsTrue(firstRestore.RestartRequired);
                 ConfigurationVersionRecord firstResult =
                     runtime.VersionService.GetHistory(out _, out _)
                         .First();
@@ -503,13 +704,15 @@ namespace Automation.Core.Tests
                     ioMapPath,
                     "{\"Revision\":3}",
                     new UTF8Encoding(false));
-                Assert.IsTrue(
-                    runtime.VersionService.Restore(
-                        firstResult.CommitId,
-                        () => true,
-                        () => runtime.Readiness.VersionRestartRequired = true,
-                        out string secondRestoreError),
-                    secondRestoreError);
+                ConfigurationRestoreResult secondRestore = runtime.VersionService.Restore(
+                    firstResult.CommitId,
+                    () => true,
+                    () => runtime.Readiness.VersionRestartRequired = true,
+                    () => PlatformRuntimeInitializer.TryApplyRestoredEditStateConfiguration(
+                        runtime,
+                        out _));
+                Assert.IsTrue(secondRestore.Success, secondRestore.Error);
+                Assert.IsTrue(secondRestore.RestartRequired);
                 string latestMessage = runtime.VersionService
                     .GetHistory(out _, out _)
                     .First()

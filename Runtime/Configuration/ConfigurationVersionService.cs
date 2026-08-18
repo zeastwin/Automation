@@ -49,6 +49,17 @@ namespace Automation
     }
 
     /// <summary>
+    /// 版本还原结果。RestartRequired 为 true 时调用方必须走重启流程；
+    /// 为 false 表示改动仅涉及编辑态配置且已在内存中重载生效。
+    /// </summary>
+    public sealed class ConfigurationRestoreResult
+    {
+        public bool Success { get; internal set; }
+        public bool RestartRequired { get; internal set; }
+        public string Error { get; internal set; }
+    }
+
+    /// <summary>
     /// 运行时项目配置的私有 Git 版本服务。流程、设备、运行值和 HMI 源码共享一条历史主链。
     /// </summary>
     public sealed class ConfigurationVersionService
@@ -296,15 +307,17 @@ namespace Automation
             }
         }
 
-        public bool Restore(
+        public ConfigurationRestoreResult Restore(
             string commitId,
             Func<bool> allStopped,
             Action markRestartRequired,
-            out string error)
+            Func<bool> applyRestoredConfiguration)
         {
-            if (!runtime.Maintenance.TryBegin("正在还原项目配置", out IDisposable maintenanceLease, out error))
+            var result = new ConfigurationRestoreResult();
+            if (!runtime.Maintenance.TryBegin("正在还原项目配置", out IDisposable maintenanceLease, out string beginError))
             {
-                return false;
+                result.Error = beginError;
+                return result;
             }
             using (maintenanceLease)
             {
@@ -320,8 +333,8 @@ namespace Automation
                     {
                         if (allStopped == null || !allStopped())
                         {
-                            error = "存在未停止、暂停或报警中的流程，拒绝还原版本。";
-                            return false;
+                            result.Error = "存在未停止、暂停或报警中的流程，拒绝还原版本。";
+                            return result;
                         }
                         // 保护点必须包含停机时刻的持久化运行值，不能只复制上一次落盘值。
                         PersistRuntimeBackedConfiguration();
@@ -331,8 +344,8 @@ namespace Automation
                             SnapshotCommit selected = FindVisibleSnapshot(repository, commitId);
                             if (selected == null)
                             {
-                                error = "找不到选中的版本。";
-                                return false;
+                                result.Error = "找不到选中的版本。";
+                                return result;
                             }
 
                             Dictionary<string, string> selectedFiles =
@@ -341,9 +354,14 @@ namespace Automation
                                 ReadCurrentFiles();
                             if (AreFileSetsEquivalent(selectedFiles, currentFiles))
                             {
-                                error = "当前配置已经与所选快照一致，无需还原。";
-                                return false;
+                                result.Error = "当前配置已经与所选快照一致，无需还原。";
+                                return result;
                             }
+                            // 判档必须基于替换前的真实差异：只有全部落在编辑态分类时才允许免重启生效。
+                            // 已有待重启闸门时，上一次还原的设备级变更仍未进入内存，必须继续走重启。
+                            bool inPlaceEligible = !runtime.Readiness.VersionRestartRequired
+                                && IsEligibleForInPlaceRestore(
+                                    GetChangedRelativePaths(selectedFiles, currentFiles));
 
                             operationRoot = Path.Combine(
                                 GetVersionRoot(),
@@ -377,8 +395,8 @@ namespace Automation
                                         + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                                     out string protectionError))
                             {
-                                error = "创建还原前保护点失败：" + protectionError;
-                                return false;
+                                result.Error = "创建还原前保护点失败：" + protectionError;
+                                return result;
                             }
                             versionHistoryChanged =
                                 !currentAlreadyProtected;
@@ -400,14 +418,27 @@ namespace Automation
                             {
                                 throw new InvalidOperationException("版本还原重启锁定入口未配置。");
                             }
-                            // 版本还原会替换一组相互引用的配置。无论所属分类，
-                            // 都保持磁盘快照为唯一权威，并通过完整重启重建运行时对象图。
-                            markRestartRequired();
-
+                            // 磁盘替换在事务状态写入 Completed 前仍是可回滚事务；
+                            // 免重启生效只重载内存，发生在事务完成之后，失败时统一回退重启闸门。
                             transactionState.Status = "Completed";
                             WriteRestoreTransactionState(
                                 operationRoot,
                                 transactionState);
+
+                            bool appliedInPlace = inPlaceEligible
+                                && applyRestoredConfiguration != null
+                                && applyRestoredConfiguration();
+                            if (!appliedInPlace)
+                            {
+                                // 版本还原替换了一组相互引用的配置；无法在内存中完整重建时，
+                                // 保持磁盘快照为唯一权威，通过完整重启重建运行时对象图。
+                                markRestartRequired();
+                                result.RestartRequired = true;
+                                if (inPlaceEligible && applyRestoredConfiguration != null)
+                                {
+                                    result.Error = "配置已还原到磁盘，但免重启生效失败，必须重启程序后才能继续。";
+                                }
+                            }
 
                             if (!CreateRestoreResultSnapshot(
                                     repository,
@@ -417,13 +448,12 @@ namespace Automation
                                 LogVersionMaintenanceFailure(
                                     "记录还原结果失败："
                                     + auditError);
-                                error = "配置已还原，但记录还原结果失败："
+                                result.Error = "配置已还原，但记录还原结果失败："
                                     + auditError;
                             }
                             else
                             {
                                 versionHistoryChanged = true;
-                                error = null;
                             }
                             try
                             {
@@ -435,7 +465,8 @@ namespace Automation
                                     "清理编辑历史失败："
                                     + historyError.Message);
                             }
-                            return true;
+                            result.Success = true;
+                            return result;
                         }
                     }
                     catch (Exception ex)
@@ -477,8 +508,8 @@ namespace Automation
                             reason += "；恢复原文件失败：" + restoreError;
                         }
                         runtime.Safety.Lock(reason);
-                        error = reason;
-                        return false;
+                        result.Error = reason;
+                        return result;
                     }
                     finally
                     {
@@ -498,6 +529,52 @@ namespace Automation
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 还原差异中允许免重启生效的分类。这些配置全部是编辑态/数据态 Store，
+        /// 可按启动序列在内存中重载；其余分类（控制卡、PLC、通讯、应用、AI、HMI）
+        /// 依赖设备运行时或启动期消费，必须完整重启。
+        /// </summary>
+        private static readonly HashSet<string> InPlaceRestorableCategories =
+            new HashSet<string>(new[]
+            {
+                "流程",
+                "变量",
+                "变量调试值",
+                "数据结构",
+                "工站点位",
+                "IO",
+                "报警"
+            }, StringComparer.Ordinal);
+
+        private static List<string> GetChangedRelativePaths(
+            Dictionary<string, string> snapshotFiles,
+            Dictionary<string, string> currentFiles)
+        {
+            List<string> changed = new List<string>();
+            foreach (KeyValuePair<string, string> item in snapshotFiles)
+            {
+                if (!currentFiles.TryGetValue(item.Key, out string currentText)
+                    || !AreTextsEquivalent(item.Key, item.Value, currentText))
+                {
+                    changed.Add(item.Key);
+                }
+            }
+            foreach (string path in currentFiles.Keys)
+            {
+                if (!snapshotFiles.ContainsKey(path))
+                {
+                    changed.Add(path);
+                }
+            }
+            return changed;
+        }
+
+        private static bool IsEligibleForInPlaceRestore(IEnumerable<string> changedRelativePaths)
+        {
+            return changedRelativePaths.All(path =>
+                InPlaceRestorableCategories.Contains(GetCategory(path)));
         }
 
         private Repository OpenRepository()

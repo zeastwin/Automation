@@ -122,7 +122,7 @@ stateDiagram-v2
 
 当前 ChangeSet 内的符号跳转使用 `operationKey`：先在当前步骤解析，跨步骤全局唯一时直接解析，只有同名歧义时才要求附加 `stepId/stepKey`；提交后优先使用稳定 `operationId`，即使同时提供冗余步骤信息也以该 ID 为权威。重试优先使用真实指令已有的 `RetryCount`；需要流程级重试时，模型直接用变量复位/累加、结果分支、成功/耗尽出口和回跳表达。平台不提供重试宏，也不根据表面回环形状自动分类或改写。用户只要求成功/失败出口不等于授权报警、停机、复位、重试或提示等额外副作用。结果条件未决时可使用一等 `config.placeholder` 保留计划出口，但不伪造结果。入口不可达等尚未完成的控制流进入 Readiness：允许以 `incomplete` 保存并返回警告，但启动闸门阻止运行；悬空目标或无法编译的引用仍拒绝预演。
 
-预演阶段由 `AiChangeSetCompiler` 在流程、变量和资源快照上编译语义或原生指令，计算可保存性和 readiness，并冻结编译结果与基础状态哈希。前台确认只更新预演记录的确认状态。
+预演阶段由 `AiChangeSetCompiler` 在流程、变量和资源快照上编译语义或原生指令，计算可保存性和 readiness，并冻结编译结果与基础状态哈希。前台确认只更新预演记录的确认状态。预演响应带 `nextStep` 机械反馈：`confirmed=true`（含前台自动批准）时明确"必须用同一 previewId 提交"，已确认的预演不得以存在业务假设为由跳过，事务悬挂由预演过期机制回收；`confirmed=false` 时等待前台确认结果。
 
 `apply_change_set` 只接受 `previewId`。Bridge 再检查确认状态、过期时间和基础状态哈希，然后把冻结的流程与变量快照交给 `ProcessVariableConfigurationService`；它与手工编辑复用同一刷新、失败回滚和底层事务，不在 apply 时重新接收或重新编译模型生成的 ChangeSet。提交结果返回稳定对象身份和受影响流程，供下一阶段精确读取。
 
@@ -187,6 +187,8 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 
 验证优化时先从分析日志还原 `request_capability`、事实读取、解析、预演、提交和回读的真实阶段轨迹，再判断瓶颈属于模型、上下文、工具契约、知识数据还是运行实现。短测试验证直接改动的契约；真实 AI 标准测试由用户显式启动并记录准确开始时间，不在构建或普通回归中自动执行。设计目标不是消灭模型的一切错误，而是在机械安全边界内提供可恢复、可分阶段、低试错成本的自主工作路径。
 
+无人值守回归由已运行的正常平台实例通过 Bridge 管道触发：`POST /bridge/ai-test/start`（body `{autoApprove:true, prompts:[...], turnTimeoutMinutes:N}`，缺 autoApprove 直接拒绝；1..12 轮、单句 ≤4000 字符）在 UI 线程异步执行 `FrmAiAssistant` 完整能力切换与发送链路，`POST /bridge/ai-test/status` 轮询 `runId/running/completedPrompts/passedCount/failedCount/reportPath` 快照；测试进行中或 AI 助手有任务时 start 返回 409。配套客户端脚本 `Tools/AiHeadlessTest/Invoke-AiHeadlessTest.ps1` 封装管道帧协议（触发、轮询、摘要输出），示例语句见同目录 `prompts-sample.json`。该模式开启预演自动批准（`ai_headless_test.prepared` 事件显式记录 `autoApprove=true`，等价于前台逐次确认）、同一会话连续对话、每句独立超时并按 `conversationCoordinator.Cancel` 停止。过程事件 `ai_headless_test.run_started/prompt_started/prompt_completed/run_completed` 写入 `D:\AutomationLogs\AIExecution\Analysis`，Markdown 报告写 `D:\AutomationLogs\AIExecution\HeadlessTests`。语句内容自动批准后会产生真实配置写入与真实运行风险，语句来源必须与手工测试同样经过用户确认。
+
 ## 上下文与 Prompt 分层
 
 - `Assets/Goose/system.md` 以 Goose 官方 `crates/goose/src/prompts/system.md` 为功能规则基底，只替换 EW-AI 品牌身份并追加真实性、工业安全等跨任务约束。修改前先对照官方当前模板；同步官方变化后重新应用自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
@@ -229,7 +231,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 
 - 一个 ChangeSet 是可独立审查和保存的阶段，不要求一次完成用户的全部目标。分阶段读取、提交、回读和修正是正常路径，不重新引入会话外草稿缓存或大而全的单次协议。
 - 目标流程名称不确定时使用 `resolve_proc_target` 一次提交多个线索。流程编写所需现场对象未明确时，使用唯一的 `list_authoring_resources` 按 `motion/io_input/io_output/variable/communication/plc/alarm/process/data_struct` 查看当前目录；设计指南已有 `goalCoverage.resourceRequests` 时可原样作为类别请求，名称过滤只在目录较大或已看到目标后收窄。`motion` 聚合工站、实际轴配置以及 `planned/taught` 点位，底层 `list_stations/list_points/list_io` 等继续服务其他权限面与实现复用，不在创建/编辑工具面形成重叠入口。目录项返回类型化 `resourceRef`；运动工站缺少命名点位时，`authoringGaps` 明确允许模型从业务目标规划点位名并先用于流程。流程经预演确认并提交后，模型可切到 `ResourceEdit` 调用批量 `plan_motion_points`，只登记固定槽位和名称；它不接收坐标，也不执行运动。新点位以 `IsTaught=false` 持久化，流程可保持 `incomplete` 保存，人工编辑坐标、工站取点或真实采集后转为已示教，Readiness 和运行时防线在此之前拒绝相关运动；旧命名点位没有该字段时按已示教兼容。语义 IO 编译同时接受稳定引用和精确名称，并在落入运行模型前解析为当前规范名称。新流程私有变量直接在当前 ChangeSet 使用 `ownerProcess.key` 声明，既有流程变量通过稳定 `ownerProcess.procId` 归属。目录项证明资源存在及其配置字段，不自动证明气缸方向、安全位或业务角色；单个输入未激活不证明相反机械终态。
-- 作者资源目录的请求类别、可选名称过滤和返回边界由 Schema 约束；默认只返回创建决策需要的紧凑身份、类型、作用域和绑定字段，引用影响、运行值等编辑详情不混入创建目录。无效参数在 MCP 内返回结构化 `INVALID_ARGUMENT`，不把普通错误升级成 ACP 传输失败。资源绑定失败返回路径、所需资源类型和最多三个带 `resourceRef` 的相近候选，不重复返回动作 Schema。熟悉且基础 Schema 足够的语义 kind 可直接预演；陌生、歧义或原生业务动作再用 `resolve_operation_capability` 一次提交多个意图。语义动作别名来自协议目录，原生动作别名来自 `OperationBehaviorCatalog`；`resolutionStatus=exact` 的作用域仅为动作类型和字段契约，响应必须明确 `resourceBindingValidation=not_performed`，不能暗示意图文字中的 IO、变量、工站或点位已验证。既有原生指令做少量同类型字段修改时使用 `get_native_operation_field_contract` 获取紧凑字段契约，只有改类型或递归结构不明确时才读取完整原生契约。
+- 作者资源目录的请求类别、可选名称过滤和返回边界由 Schema 约束；默认只返回创建决策需要的紧凑身份、类型、作用域和绑定字段，引用影响、运行值等编辑详情不混入创建目录。无效参数在 MCP 内返回结构化 `INVALID_ARGUMENT`，不把普通错误升级成 ACP 传输失败。资源绑定失败返回路径、所需资源类型和最多三个带 `resourceRef` 的相近候选，不重复返回动作 Schema。`motion` 目录的每个工站项附 `motionOperations`（来自 `list_operation_types` 的 `stationScoped` 标记），给出工站范围原生指令精确 operaType，模型不再猜测运动指令类型名。原生指令类型未命中时，`get_native_operation_schemas` 等入口返回 `OPERA_TYPE_NOT_FOUND` 并附按类型名/显示名/`intentAliases` 包含与共享二元组排序的最多三个 `suggestions`。熟悉且基础 Schema 足够的语义 kind 可直接预演；陌生、歧义或原生业务动作再用 `resolve_operation_capability` 一次提交多个意图。语义动作别名来自协议目录，原生动作别名来自 `OperationBehaviorCatalog`；别名匹配按连续包含与共享二元组评分，`resolutionStatus=missing` 时附最多五个 `nearbyTypes` 相近注册类型并明确"missing 只证明措辞未命中，不证明平台缺少该能力"。`resolutionStatus=exact` 的作用域仅为动作类型和字段契约，响应必须明确 `resourceBindingValidation=not_performed`，不能暗示意图文字中的 IO、变量、工站或点位已验证。既有原生指令做少量同类型字段修改时使用 `get_native_operation_field_contract` 获取紧凑字段契约，只有改类型或递归结构不明确时才读取完整原生契约。
 - 新建与修改共用一套 ChangeSet V2 DTO、编译、预演、确认和提交链；不为创建再定义一套需要翻译的中间 DSL。
 - 配置保存只硬拦截 Schema、重复身份、悬空引用、不可编译控制流、原子一致性等结构/`saveRequired` 确定性不变量；缺少 `runRequired`、晚绑定资源、占位功能块或尚未完成整个业务目标可以保存为 `incomplete`。启动闸门再检查资源就绪、设备状态、完整运行闭环和安全条件。不能通过放松结构错误让坏流程落盘，也不能把仅影响运行的缺口提前升级成保存失败。
 - 用户要求占位或骨架时，未知动作或真实结果条件使用一等 `config.placeholder`，可声明仅用于设计期的计划出口；Readiness 保持 `incomplete` 并阻止启动。固定延时、普通弹框、猜测变量和常量状态不能作为缺失能力的替代品。

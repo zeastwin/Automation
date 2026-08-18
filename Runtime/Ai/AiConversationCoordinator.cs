@@ -240,7 +240,7 @@ namespace Automation
                 selected.Add(Select(item,
                     "key", "intent", "semanticCandidates", "nativeCandidates",
                     "resolutionStatus", "resolutionScope", "resourceBindingValidation",
-                    "resolved", "contractRef",
+                    "resolved", "contractRef", "nearbyTypes",
                     "recommendedFallback", "fallbackCapabilities"));
             }
             return selected;
@@ -451,7 +451,8 @@ namespace Automation
                     Newtonsoft.Json.Linq.JObject promptResult = await client.PromptAsync(
                         nextPrompt,
                         promptAttachments,
-                        runtime.Cancellation.Token).ConfigureAwait(false);
+                        runtime.Cancellation.Token,
+                        originalRequest).ConfigureAwait(false);
                     attachmentsSent = true;
                     previousClient = client;
 

@@ -233,7 +233,12 @@ namespace Automation
             string exactName = RequireText(name, path);
             if (!_variables.TryGetValue(exactName, out DicValue variable))
             {
-                throw new InvalidOperationException($"{path} 引用的变量不存在：{exactName}。请在同一 changeSet.variables 中声明资源策略。");
+                // 变量目录数量大、转写风险高：未命中时附相近候选，模型一轮纠正而不是反复猜名。
+                throw new AiResourceBindingException(
+                    path,
+                    exactName,
+                    "variable",
+                    RankNameCandidates(exactName, _variables.Keys));
             }
             if (!string.IsNullOrEmpty(requiredType)
                 && !string.Equals(variable?.Type, requiredType, StringComparison.Ordinal))
@@ -287,8 +292,43 @@ namespace Automation
             if (!_resources.References.TryGetValue(referenceType, out IReadOnlyCollection<string> candidates)) return;
             if (!candidates.Contains(text, StringComparer.Ordinal))
             {
-                throw new InvalidOperationException($"{path} 引用的{referenceType}资源不存在：{text}");
+                // 通讯、工站、数据结构等名称引用未命中时同样附相近候选，保持与IO一致的修复体验。
+                throw new AiResourceBindingException(
+                    path,
+                    text,
+                    referenceType,
+                    RankNameCandidates(text, candidates));
             }
+        }
+
+        // 按编辑距离与前缀为名称类引用排序最多三个相近候选；
+        // 变量/工站/数据结构引用按名称消费，不带 resourceRef。
+        internal static IReadOnlyList<AiResourceBindingCandidate> RankNameCandidates(
+            string requested,
+            IEnumerable<string> names)
+        {
+            string target = requested ?? string.Empty;
+            return (names ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.Ordinal)
+                .Select(name => new
+                {
+                    Name = name,
+                    Score = string.Equals(name, target, StringComparison.Ordinal)
+                        ? 0
+                        : CommonPrefixLength(target, name) * 2 - EditDistance(target, name)
+                })
+                .Where(entry => entry.Score > 0)
+                .OrderByDescending(entry => entry.Score)
+                .ThenBy(entry => entry.Name, StringComparer.Ordinal)
+                .Take(3)
+                .Select(entry => new AiResourceBindingCandidate
+                {
+                    ResourceRef = null,
+                    Name = entry.Name,
+                    ResourceType = "name"
+                })
+                .ToArray();
         }
 
         public string ResolveTarget(OperationTarget target, string path)
