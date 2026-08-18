@@ -1873,7 +1873,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 DisposeAiClient();
             }
+            // 自动批准是运行期开关，LoadConfig 会重置为关闭；保存配置（含开关切换自身）时保留当前状态。
+            bool autoApprove = autoApproveMode;
             LoadConfig();
+            autoApproveMode = autoApprove;
             PushWebAppState();
             if (closeConfigAfterSave)
             {
