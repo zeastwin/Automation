@@ -1352,7 +1352,7 @@ namespace Automation
             if (file.IndexOf("Plc", StringComparison.OrdinalIgnoreCase) >= 0) return "PLC";
             if (file.IndexOf("Socket", StringComparison.OrdinalIgnoreCase) >= 0 || file.IndexOf("Serial", StringComparison.OrdinalIgnoreCase) >= 0) return "通讯";
             if (string.Equals(file, "AppConfig.json", StringComparison.OrdinalIgnoreCase)) return "应用配置";
-            if (string.Equals(file, "GooseConfig.json", StringComparison.OrdinalIgnoreCase)) return "AI 配置";
+            if (string.Equals(file, "AiConfig.json", StringComparison.OrdinalIgnoreCase)) return "AI 配置";
             return "设备配置";
         }
 

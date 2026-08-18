@@ -10,10 +10,10 @@
 2. [配置与持久化](02-配置与持久化.md)
 3. [流程编辑与运行](03-流程编辑与运行.md)
 4. [平台编辑器](04-平台编辑器.md)
-5. [EW-AI、MCP 与 Bridge](05-AI与Bridge.md)
+5. [EW-AI、ToolCli 与 Bridge](05-AI与Bridge.md)
 6. [运动控制与安全](06-运动与安全.md)
 7. [技术债清单](07-技术债清单.md)和[重整路线图](08-重整路线图.md)
-8. [MCP CLI 工具接入模式](09-MCP-CLI工具接入模式.md)（`ToolMode` 双模式，2026-07-22 新增）
+8. [ToolCli 工具接入模式](09-ToolCli工具接入模式.md)（Pi 链路的唯一工具通道，2026-08 由 Goose+MCP 双模式收敛而来）
 
 ## 当前系统全景
 
@@ -33,9 +33,9 @@ flowchart TD
     Host --> Sdk["IAutomationPlatform\nHMI 公开 SDK"]
     Sdk --> Hmi["内置 HMI / DeviceProject HMI"]
     Editor --> Bridge["AutomationBridgeHost\nNamed Pipe"]
-    Bridge --> Mcp["Automation.McpServer\nHTTP MCP"]
-    Mcp --> Goose["Goose ACP"]
-    Goose --> AiUi["FrmAiAssistant"]
+    Bridge --> Cli["Automation.ToolCli\ncli list/schema/call"]
+    Cli --> Pi["pi --mode rpc"]
+    Pi --> AiUi["FrmAiAssistant"]
 ```
 
 `PlatformRuntime` 已替代旧的进程级 `SF` 全局容器；每个宿主实例显式拥有 Store、引擎、设备运行时和平台服务。`PlatformRuntimeComposer` 负责内核组合，`PlatformRuntimeInitializer` 负责配置加载与发布，`PlatformDeviceCoordinator` 负责设备和轴监视，`PlatformSystemStatusService` 维护系统状态。HMI 启动不创建隐藏编辑器；用户打开平台编辑器时，`FrmMain` 才按需创建并附加到已经运行的同一实例。
@@ -51,7 +51,7 @@ flowchart TD
 | 流程内核 | [`Engine/`](../../Engine) | 流程定义、就绪分析、执行、状态快照 | 编辑器布局 |
 | 设备适配 | [`MotionControl/`](../../MotionControl)、[`PLC/`](../../PLC)、[`Communication/`](../../Communication) | 对接硬件或仿真实现 | 读取平台窗体 |
 | 平台编辑器 | [`FrmMain.cs`](../../FrmMain.cs)、[`EditorWorkspace.cs`](../../EditorWorkspace.cs) | 组合 WinForms 页面、编辑会话和用户交互 | 作为非 UI 模块的服务定位器 |
-| AI 接入 | [`Bridge/`](../../Bridge)、[`McpServer/`](../../McpServer)、[`FrmAiAssistant.cs`](../../FrmAiAssistant.cs) | 精确读取、预演确认、提交和诊断 | 绕过正式配置与运行门禁 |
+| AI 接入 | [`Bridge/`](../../Bridge)、[`ToolCli/`](../../ToolCli)、[`FrmAiAssistant.cs`](../../FrmAiAssistant.cs) | 精确读取、预演确认、提交和诊断 | 绕过正式配置与运行门禁 |
 | 设备工程 SDK | [`Automation.DeviceSdk/`](../../Automation.DeviceSdk) | 向独立 HMI 暴露稳定平台能力 | 暴露 `PlatformRuntime` 或平台窗体 |
 
 ## 入口索引
@@ -63,7 +63,7 @@ flowchart TD
 | 流程如何启动 | `AutomationPlatformHost.TryStartProcess` | `ProcessReadinessService.Analyze`、`ProcessEngine.StartProcAt` |
 | 一次编辑如何保存 | `EditorSessionCoordinator` | `ProcessEditingService.TryCommitProcDraft` |
 | 运行中流程修改何时生效 | `ProcessEngine.PublishProc` | `ApplyPendingUpdateAfterStop` |
-| AI 如何修改流程 | `AutomationMcpTools.PreviewChangeSet` | `AutomationBridgeService.HandlePreviewChangeSet/HandleApplyChangeSet` |
+| AI 如何修改流程 | `AiPlatformTools.PreviewChangeSet` | `AutomationBridgeService.HandlePreviewChangeSet/HandleApplyChangeSet` |
 | 运动为什么被拒绝 | `ManualMotionService.TryValidateGate` | `MotionCtrl.ValidateAxesForCommand`、`ProcessEngine.TryValidateMotionResetGate` |
 | 异常时为什么会停流程 | `PlatformSafetyCoordinator` | `PlatformDeviceCoordinator`、`RuntimeExceptionLogger` |
 | 关闭时卡在哪里 | `AutomationPlatformHost.Shutdown` | `ShutdownRuntimeCore`、`FrmMain.ShutdownPlatform` |
@@ -89,7 +89,7 @@ flowchart TD
 
 | 事实 | 权威来源 |
 | --- | --- |
-| MCP 当前工具集合 | [`McpServer/McpToolProfile.cs`](../../McpServer/McpToolProfile.cs) |
+| AI 当前工具集合 | [`ToolCli/AiToolProfile.cs`](../../ToolCli/AiToolProfile.cs) |
 | 原生指令类型和字段 | [`Engine/OperationDefinitionRegistry.cs`](../../Engine/OperationDefinitionRegistry.cs)、[`Engine/StructuredOperationCompiler.cs`](../../Engine/StructuredOperationCompiler.cs) |
 | 指令行为 | [`Engine/OperationBehaviorCatalog.cs`](../../Engine/OperationBehaviorCatalog.cs)、`ProcessEngine.Operations.*` |
 | 语义指令编译 | [`Engine/AiOperationCompilerRegistry.cs`](../../Engine/AiOperationCompilerRegistry.cs)及各编译器 |

@@ -51,7 +51,7 @@ namespace Automation
             "<button class=\"copy-message\" type=\"button\" onclick=\"copyMessage(this)\" title=\"复制本条文字\" aria-label=\"复制本条文字\">"
             + "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/>"
             + "<path d=\"M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3\"/></svg></button>";
-        // Markdig 管道（表格、任务列表等高级扩展），用于 Goose 回复 Markdown→HTML。
+        // Markdig 管道（表格、任务列表等高级扩展），用于 AI 回复 Markdown→HTML。
         private static readonly MarkdownPipeline markdownPipeline =
             new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
         // 流式渲染节流：记录上次实时渲染 HTML 的时间，避免每个 token 都执行 Markdig 转换导致卡顿。
@@ -61,40 +61,31 @@ namespace Automation
         private string currentThinkingBoxId;
         private int thinkingBoxIndex;
         private readonly TextBox txtPrompt = new TextBox();
-        private readonly TextBox txtGooseExecutable = new TextBox();
+        private readonly TextBox txtAgentExecutable = new TextBox();
         private readonly TextBox txtWorkingDirectory = new TextBox();
-        private readonly TextBox txtMcpUri = new TextBox();
         private readonly TextBox txtSessionName = new TextBox();
         private readonly ComboBox cboProvider = new ComboBox();
-        // 从 Goose config.yaml 读取的已注册 provider 列表，供 Provider/Model 下拉框使用。
-        private List<GooseProviderInfo> gooseProviders = new List<GooseProviderInfo>();
         private readonly ComboBox cboModel = new ComboBox();
-        private readonly NumericUpDown nudMaxTurns = new NumericUpDown();
         private readonly NumericUpDown nudMaxOutputTokens = new NumericUpDown();
-        private readonly NumericUpDown nudTemperature = new NumericUpDown();
         private List<AiModelServiceConfig> modelServices = new List<AiModelServiceConfig>();
         private string modelServiceId = string.Empty;
-        // 内置 Provider 的工具调用保留条数；null = 不配置，由 Goose 使用自身默认值。
-        private int? toolCallCutoff;
-        private string toolProfile = GooseConfigStorage.DefaultToolProfile;
-        // 工具接入模式（Tools/Cli）不进设置界面，只随配置文件往返。
-        private string toolMode = GooseConfigStorage.DefaultToolMode;
-        private GooseConfig appliedConfig;
+        private string toolProfile = AiConfigStorage.DefaultToolProfile;
+        private AiConfig appliedConfig;
         private readonly HashSet<string> promptedPreviewIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly object clientLock = new object();
 
         private sealed class AiTaskRuntime
         {
             public AiConversation Conversation { get; set; }
-            public GooseAcpClient Client { get; set; }
+            public PiRpcClient Client { get; set; }
             public CancellationTokenSource Cancellation { get; set; }
-            public List<GooseAcpEvent> PendingEvents { get; } = new List<GooseAcpEvent>();
+            public List<PiRpcEvent> PendingEvents { get; } = new List<PiRpcEvent>();
             public bool Running { get; set; }
             public string Status { get; set; } = "已完成";
             public string RestoredContext { get; set; }
         }
 
-        private GooseAcpClient gooseClient;
+        private PiRpcClient aiClient;
         private CancellationTokenSource promptCts;
         private bool sending;
         private bool standardTestRunning;
@@ -103,7 +94,7 @@ namespace Automation
         private bool fullPermissionEnabled;
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
-        private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
+        private readonly List<AiFileAttachment> pendingFileAttachments = new List<AiFileAttachment>();
         private readonly Dictionary<string, string> fileAttachmentPreviews = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly List<AiConversation> conversations = new List<AiConversation>();
         private readonly Dictionary<string, AiTaskRuntime> taskRuntimes =
@@ -135,13 +126,11 @@ namespace Automation
             bool busy = HasRunningTasks;
             txtPrompt.Enabled = true;
             txtPrompt.ReadOnly = IsActiveTaskRunning || standardTestRunning;
-            txtGooseExecutable.ReadOnly = busy;
+            txtAgentExecutable.ReadOnly = busy;
             txtWorkingDirectory.ReadOnly = busy;
-            txtMcpUri.ReadOnly = busy;
             txtSessionName.ReadOnly = busy;
             cboProvider.Enabled = !busy;
             cboModel.Enabled = !busy;
-            nudMaxTurns.Enabled = !busy;
             PushWebAppState();
         }
 
@@ -776,39 +765,30 @@ function refreshModelServiceState(){
     if(summary){
         var service=selectedModelService();
         summary.textContent=service
-            ? service.name+'｜'+service.baseUrl+'｜'+service.model+(service.contextLimit?'｜上下文 '+service.contextLimit:'')+(service.toolCallCutoff?'｜工具保留 '+service.toolCallCutoff:'')
+            ? service.name+'｜'+service.baseUrl+'｜'+service.model+(service.contextLimit?'｜上下文 '+service.contextLimit:'')
             : '使用下方内置 Provider、模型和 API Key。';
     }
 }
 function collectConfig(){
-    var cutoff=parseInt(byId('cfgToolCallCutoff').value||'0',10);
     return {
-        gooseExecutablePath:byId('cfgGoose').value,
+        agentExecutablePath:byId('cfgAgent').value,
         workingDirectory:byId('cfgWorkdir').value,
-        mcpUri:byId('cfgMcp').value,
         sessionName:byId('cfgSession').value,
         provider:byId('cfgProvider').value,
         model:byId('cfgModel').value,
         modelServiceId:byId('cfgModelService').value,
-        temperature:parseFloat(byId('cfgTemperature').value||'0.7'),
         apiKey:byId('cfgApiKey').value,
-        maxTurns:parseInt(byId('cfgTurns').value||'1',10),
         maxOutputTokens:parseInt(byId('cfgOutputTokens').value||'8192',10),
-        toolCallCutoff:cutoff>0?cutoff:null,
         toolProfile:(appState.config||{}).toolProfile||'Diagnostic',
         autoApproveMode:!!(appState.config||{}).autoApproveMode
     };
 }
 function fillConfig(){
     var c=appState.config||{};
-    byId('cfgGoose').value=c.gooseExecutablePath||'';
+    byId('cfgAgent').value=c.agentExecutablePath||'';
     byId('cfgWorkdir').value=c.workingDirectory||'';
-    byId('cfgMcp').value=c.mcpUri||'';
     byId('cfgSession').value=c.sessionName||'';
-    byId('cfgTurns').value=c.maxTurns||20;
     byId('cfgOutputTokens').value=c.maxOutputTokens||8192;
-    byId('cfgToolCallCutoff').value=typeof c.toolCallCutoff==='number'?c.toolCallCutoff:'';
-    byId('cfgTemperature').value=typeof c.temperature==='number'?c.temperature:0.7;
     setModelServiceOptions(byId('cfgModelService'),appState.modelServices||[],c.modelServiceId||'');
     setOptions(byId('cfgProvider'),appState.providerOptions||[],c.provider||'deepseek');
     setOptions(byId('cfgModel'),appState.modelOptions||[],c.model||'deepseek-v4-pro');
@@ -863,7 +843,7 @@ function automationSetState(state){
     fillConfig();
     refreshToolbar();
     var lock=!appState.canEditConfig||appState.sending;
-    ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','cfgToolCallCutoff','cfgTemperature','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
+    ['cfgAgent','cfgWorkdir','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgOutputTokens','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     refreshModelServiceState();
     byId('reloadConfig').disabled=appState.sending;
     byId('checkConfig').disabled=appState.sending||!appState.canAccess;
@@ -976,13 +956,12 @@ function fillModelServiceEditor(id){
     byId('svcBaseUrl').value=item?item.baseUrl:'http://127.0.0.1:8080/v1';
     byId('svcModel').value=item?item.model:'';
     byId('svcContextLimit').value=item&&item.contextLimit?item.contextLimit:'';
-    byId('svcToolCallCutoff').value=item&&item.toolCallCutoff?item.toolCallCutoff:'';
     byId('svcSupportsVision').checked=!!(item&&item.supportsVision);
     byId('svcRequiresApiKey').checked=!!(item&&item.requiresApiKey);
     byId('svcApiKey').value='';
     byId('svcApiKey').placeholder=item&&item.hasApiKey?'本机已保存，留空则保持不变':'可选；仅使用 Windows 当前用户加密保存';
     var lock=!appState.canEditConfig||appState.sending;
-    ['svcPicker','newModelService','svcName','svcBaseUrl','svcModel','svcContextLimit','svcToolCallCutoff','svcSupportsVision','svcRequiresApiKey','svcApiKey','saveModelService'].forEach(function(controlId){byId(controlId).disabled=lock;});
+    ['svcPicker','newModelService','svcName','svcBaseUrl','svcModel','svcContextLimit','svcSupportsVision','svcRequiresApiKey','svcApiKey','saveModelService'].forEach(function(controlId){byId(controlId).disabled=lock;});
     byId('deleteModelService').disabled=lock||!item;
     byId('clearModelServiceApiKey').disabled=lock||!item||!item.hasApiKey;
 }
@@ -997,10 +976,8 @@ function openModelServices(){renderModelServicePicker();byId('modelServiceOverla
 function closeModelServices(){byId('modelServiceOverlay').classList.remove('open');}
 function collectModelService(){
     var context=parseInt(byId('svcContextLimit').value||'0',10);
-    var cutoff=parseInt(byId('svcToolCallCutoff').value||'0',10);
     return {id:byId('svcId').value,name:byId('svcName').value,baseUrl:byId('svcBaseUrl').value,
         model:byId('svcModel').value,contextLimit:context>0?context:null,
-        toolCallCutoff:cutoff>0?cutoff:null,
         supportsVision:byId('svcSupportsVision').checked,requiresApiKey:byId('svcRequiresApiKey').checked,
         apiKey:byId('svcApiKey').value};
 }
@@ -1159,14 +1136,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
     <div class=""modal-head""><div><div class=""modal-title"">AI 助手配置</div><div class=""modal-desc"">选择常用 AI 服务、模型并配置本机 API Key。</div></div><button class=""icon-button"" id=""closeConfig"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
     <div class=""modal-body scrollable"">
       <div class=""settings-grid"">
-        <div class=""field field-wide""><label>AI 运行组件路径</label><input id=""cfgGoose"" autocomplete=""off""></div>
+        <div class=""field field-wide""><label>AI 运行组件路径</label><input id=""cfgAgent"" autocomplete=""off""></div>
         <div class=""field""><label>工作目录<span class=""field-hint"">自动跟随程序目录</span></label><input id=""cfgWorkdir"" readonly autocomplete=""off""></div>
-        <div class=""field""><label>MCP 地址</label><input id=""cfgMcp"" autocomplete=""off""></div>
         <div class=""field""><label>会话名</label><input id=""cfgSession"" autocomplete=""off""></div>
-        <div class=""field""><label>最大轮次</label><input id=""cfgTurns"" type=""number"" min=""1"" max=""200""></div>
         <div class=""field""><label>单次输出 Token</label><input id=""cfgOutputTokens"" type=""number"" min=""1024"" max=""65536"" step=""1024""></div>
-        <div class=""field""><label>工具调用保留条数<span class=""field-hint"">留空则由 Goose 按上下文自动计算</span></label><input id=""cfgToolCallCutoff"" type=""number"" min=""1"" placeholder=""自动""></div>
-        <div class=""field""><label>温度</label><input id=""cfgTemperature"" type=""number"" min=""0"" max=""1"" step=""0.05""></div>
         <div class=""field field-wide""><label>模型来源</label><div class=""field-line""><select id=""cfgModelService""></select><button class=""text-button"" id=""manageModelServices"" type=""button"">管理自定义服务</button></div><div class=""service-summary"" id=""modelServiceSummary""></div></div>
         <div class=""field""><label>Provider</label><select id=""cfgProvider""></select></div>
         <div class=""field""><label>模型</label><select id=""cfgModel""></select></div>
@@ -1177,7 +1150,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
   </section>
 </div>
 <div class=""modal-backdrop"" id=""modelServiceOverlay""><section class=""config-modal"" style=""width:min(760px,96vw)""><div class=""modal-head""><div><div class=""modal-title"">自定义模型服务</div><div class=""modal-desc"">配置 llama.cpp、vLLM、LM Studio 等 OpenAI 兼容服务；配置只注入当前 EW-AI 进程。</div></div><button class=""icon-button"" id=""closeModelServices"" title=""关闭""><svg viewBox=""0 0 24 24""><path d=""M18 6 6 18""/><path d=""M6 6l12 12""/></svg></button></div>
-  <div class=""modal-body scrollable""><div class=""settings-grid""><div class=""field field-wide""><label>已配置服务</label><div class=""field-line""><select id=""svcPicker""></select><button class=""text-button"" id=""newModelService"" type=""button"">新增</button></div></div><input id=""svcId"" type=""hidden""><div class=""field""><label>服务名称</label><input id=""svcName"" autocomplete=""off"" placeholder=""例如：车间 llama.cpp""></div><div class=""field""><label>模型 ID</label><input id=""svcModel"" autocomplete=""off"" placeholder=""服务 /v1/models 返回的 id""></div><div class=""field field-wide""><label>OpenAI Base URL</label><input id=""svcBaseUrl"" autocomplete=""off"" placeholder=""http://172.16.50.172:8080/v1""></div><div class=""field""><label>上下文长度<span class=""field-hint"">留空则由 Goose 判断</span></label><input id=""svcContextLimit"" type=""number"" min=""1"" step=""1024"" placeholder=""例如 131072""></div><div class=""field""><label>工具调用保留条数<span class=""field-hint"">留空则由 Goose 自动计算</span></label><input id=""svcToolCallCutoff"" type=""number"" min=""1"" placeholder=""自动""></div><div class=""field""><label>模型能力</label><label class=""check-line""><input id=""svcSupportsVision"" type=""checkbox"">支持图片输入</label></div><div class=""field""><label>鉴权</label><label class=""check-line""><input id=""svcRequiresApiKey"" type=""checkbox"">服务要求 API Key</label></div><div class=""field field-wide""><label>API Key（Windows 当前用户加密）</label><input id=""svcApiKey"" type=""password"" autocomplete=""new-password""></div></div></div>
+  <div class=""modal-body scrollable""><div class=""settings-grid""><div class=""field field-wide""><label>已配置服务</label><div class=""field-line""><select id=""svcPicker""></select><button class=""text-button"" id=""newModelService"" type=""button"">新增</button></div></div><input id=""svcId"" type=""hidden""><div class=""field""><label>服务名称</label><input id=""svcName"" autocomplete=""off"" placeholder=""例如：车间 llama.cpp""></div><div class=""field""><label>模型 ID</label><input id=""svcModel"" autocomplete=""off"" placeholder=""服务 /v1/models 返回的 id""></div><div class=""field field-wide""><label>OpenAI Base URL</label><input id=""svcBaseUrl"" autocomplete=""off"" placeholder=""http://172.16.50.172:8080/v1""></div><div class=""field""><label>上下文长度<span class=""field-hint"">留空则由 Pi 判断</span></label><input id=""svcContextLimit"" type=""number"" min=""1"" step=""1024"" placeholder=""例如 131072""></div><div class=""field""><label>模型能力</label><label class=""check-line""><input id=""svcSupportsVision"" type=""checkbox"">支持图片输入</label></div><div class=""field""><label>鉴权</label><label class=""check-line""><input id=""svcRequiresApiKey"" type=""checkbox"">服务要求 API Key</label></div><div class=""field field-wide""><label>API Key（Windows 当前用户加密）</label><input id=""svcApiKey"" type=""password"" autocomplete=""new-password""></div></div></div>
   <div class=""modal-foot""><div class=""foot-left""><button class=""text-button"" id=""clearModelServiceApiKey"">清除密钥</button><button class=""text-button"" id=""deleteModelService"">删除服务</button></div><div class=""foot-right""><button class=""text-button"" id=""doneModelServices"">完成</button><button class=""primary-button"" id=""saveModelService"">保存并选中</button></div></div></section></div>
 <div class=""toast"" id=""toast""></div>
 </body>
@@ -1187,7 +1160,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             webViewClosing = true;
             webDocumentReady = false;
-            DisposeGooseClient();
+            DisposeAiClient();
         }
 
         protected override void Dispose(bool disposing)
@@ -1196,7 +1169,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 webViewClosing = true;
                 webDocumentReady = false;
-                DisposeGooseClient();
+                DisposeAiClient();
                 promptCts?.Dispose();
                 webViewConversation?.Dispose();
                 webViewConversation = null;
@@ -1228,18 +1201,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private void BuildConfigLayout()
         {
             InitializeProviderModelDropdowns();
-            nudMaxTurns.Minimum = 1;
-            nudMaxTurns.Maximum = 200;
-            nudMaxTurns.Value = GooseConfigStorage.DefaultMaxTurns;
             nudMaxOutputTokens.Minimum = 1024;
             nudMaxOutputTokens.Maximum = 65536;
             nudMaxOutputTokens.Increment = 1024;
-            nudMaxOutputTokens.Value = GooseConfigStorage.DefaultMaxOutputTokens;
-            nudTemperature.Minimum = 0;
-            nudTemperature.Maximum = 1;
-            nudTemperature.DecimalPlaces = 2;
-            nudTemperature.Increment = 0.05m;
-            nudTemperature.Value = (decimal)GooseConfigStorage.DefaultTemperature;
+            nudMaxOutputTokens.Value = AiConfigStorage.DefaultMaxOutputTokens;
         }
 
         private void BuildMainLayout()
@@ -1261,11 +1226,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void InitializeProviderModelDropdowns()
         {
-            gooseProviders = GooseConfigStorage.TryLoadGooseProviders();
-
             cboProvider.BeginUpdate();
             cboProvider.Items.Clear();
-            string[] standardProviders = { "deepseek", "openai", "anthropic", "google", "openrouter", "ollama", "azure_openai" };
+            // Pi 内置 provider（docs/providers.md），API Key 经 AiProviderSecretStorage 注入子进程环境变量。
+            string[] standardProviders = { "deepseek", "kimi-coding", "openai", "anthropic", "google", "openrouter" };
             foreach (string std in standardProviders)
             {
                 cboProvider.Items.Add(std);
@@ -1274,38 +1238,19 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             cboProvider.SelectedIndex = 0;
             cboProvider.SelectedIndexChanged += CboProvider_SelectedIndexChanged;
 
-            RefreshModelOptions(GooseConfigStorage.DefaultProvider, GooseConfigStorage.DefaultModel);
+            RefreshModelOptions(AiConfigStorage.DefaultProvider, AiConfigStorage.DefaultModel);
         }
 
         private void CboProvider_SelectedIndexChanged(object sender, EventArgs e)
         {
-            RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), cboModel.Text);
+            RefreshModelOptions(NormalizeModelOption(cboProvider.Text), cboModel.Text);
         }
 
         private void RefreshModelOptions(string provider, string currentModel)
         {
-            string normalizedCurrentModel = NormalizeGooseOverride(currentModel);
+            string normalizedCurrentModel = NormalizeModelOption(currentModel);
             var models = new List<string>();
 
-            // 优先：若选中的 provider 在 Goose config 里有配 model，显示该 model。
-            if (!string.IsNullOrWhiteSpace(provider))
-            {
-                GooseProviderInfo match = null;
-                foreach (GooseProviderInfo info in gooseProviders)
-                {
-                    if (string.Equals(info.Name, provider, StringComparison.OrdinalIgnoreCase))
-                    {
-                        match = info;
-                        break;
-                    }
-                }
-                if (match != null && !string.IsNullOrWhiteSpace(match.Model))
-                {
-                    models.Add(match.Model);
-                }
-            }
-
-            // 追加：标准 provider 的预设模型列表。
             foreach (string m in GetModelOptions(provider))
             {
                 if (!models.Contains(m))
@@ -1337,6 +1282,8 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 case "deepseek":
                     return new[] { "deepseek-v4-pro", "deepseek-v4-flash" };
+                case "kimi-coding":
+                    return new[] { "kimi-k2.5" };
                 case "openai":
                     return new[] { "gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini" };
                 case "anthropic":
@@ -1345,16 +1292,12 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     return new[] { "gemini-2.5-pro", "gemini-2.5-flash" };
                 case "openrouter":
                     return new[] { "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5", "deepseek/deepseek-chat" };
-                case "ollama":
-                    return new[] { "qwen2.5-coder", "deepseek-r1", "llama3.1" };
-                case "azure_openai":
-                    return new[] { "gpt-5", "gpt-4.1", "gpt-4.1-mini" };
                 default:
                     return new string[0];
             }
         }
 
-        private static string NormalizeGooseOverride(string value)
+        private static string NormalizeModelOption(string value)
         {
             string trimmed = (value ?? string.Empty).Trim();
             return trimmed;
@@ -1492,7 +1435,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 preparation.Error = "图片文件损坏、尺寸过大或格式与扩展名不匹配。";
             }
-            pendingFileAttachments.Add(new GooseFileAttachment(
+            pendingFileAttachments.Add(new AiFileAttachment(
                 id,
                 fileName,
                 preparation.MimeType,
@@ -1553,44 +1496,37 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void LoadConfig()
         {
-            if (!GooseConfigStorage.TryLoad(out GooseConfig config, out string error))
+            if (!AiConfigStorage.TryLoad(out AiConfig config, out string error))
             {
                 MessageBox.Show(error, "EW-AI 配置读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                config = GooseConfigStorage.CreateDefaultConfig();
+                config = AiConfigStorage.CreateDefaultConfig();
             }
 
-            txtGooseExecutable.Text = config.GooseExecutablePath;
-            TryResolveGooseExecutablePath(txtGooseExecutable.Text, out string resolvedGoosePath);
-            if (!string.IsNullOrWhiteSpace(resolvedGoosePath))
+            txtAgentExecutable.Text = config.AgentExecutablePath;
+            TryResolveAgentExecutablePath(txtAgentExecutable.Text, out string resolvedAgentPath);
+            if (!string.IsNullOrWhiteSpace(resolvedAgentPath))
             {
-                txtGooseExecutable.Text = resolvedGoosePath;
-                config.GooseExecutablePath = resolvedGoosePath;
+                txtAgentExecutable.Text = resolvedAgentPath;
+                config.AgentExecutablePath = resolvedAgentPath;
             }
             txtWorkingDirectory.Text = AppDomain.CurrentDomain.BaseDirectory;
-            txtMcpUri.Text = config.McpUri;
             txtSessionName.Text = config.SessionName;
-            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? GooseConfigStorage.DefaultProvider : config.Provider;
-            RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? GooseConfigStorage.DefaultModel : config.Model);
-            modelServices = GooseConfigStorage.CloneModelServices(config.ModelServices);
+            cboProvider.Text = string.IsNullOrWhiteSpace(config.Provider) ? AiConfigStorage.DefaultProvider : config.Provider;
+            RefreshModelOptions(cboProvider.Text, string.IsNullOrWhiteSpace(config.Model) ? AiConfigStorage.DefaultModel : config.Model);
+            modelServices = AiConfigStorage.CloneModelServices(config.ModelServices);
             modelServiceId = config.ModelServiceId ?? string.Empty;
-            nudTemperature.Value = Math.Max(nudTemperature.Minimum,
-                Math.Min(nudTemperature.Maximum, (decimal)config.Temperature));
-            nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, config.MaxTurns));
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
-            toolCallCutoff = config.ToolCallCutoff;
             toolProfile = config.ToolProfile;
-            toolMode = string.IsNullOrWhiteSpace(config.ToolMode)
-                ? GooseConfigStorage.DefaultToolMode
-                : config.ToolMode;
             if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
                 fullPermissionEnabled = false;
             }
-            autoApproveMode = config.AutoApproveMode;
+            // 自动批准是运行期开关，不持久化；每次加载配置回到安全的关闭状态。
+            autoApproveMode = false;
             // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
-            // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Goose 会话。
-            appliedConfig = CloneGooseConfig(config);
+            // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Pi 会话。
+            appliedConfig = CloneAiConfig(config);
             PushWebAppState();
         }
 
@@ -1701,8 +1637,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         PushWebAppState();
                         break;
                     }
-                    await SetFullPermissionToolsAsync(message["enabled"]?.Value<bool?>() == true)
-                        .ConfigureAwait(true);
+                    SetFullPermissionTools(message["enabled"]?.Value<bool?>() == true);
                     break;
                 case "setAutoApprove":
                     if (sending)
@@ -1727,7 +1662,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 case "providerChanged":
                     ApplyWebConfig(message["config"] as JObject);
                     cboProvider.Text = message["provider"]?.Value<string>() ?? "deepseek";
-                    RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), string.Empty);
+                    RefreshModelOptions(NormalizeModelOption(cboProvider.Text), string.Empty);
                     PushWebAppState();
                     break;
                 case "reloadConfig":
@@ -1738,7 +1673,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 case "saveConfig":
                     ApplyWebConfig(message["config"] as JObject);
                     string apiKey = message["config"]?["apiKey"]?.Value<string>();
-                    string secretProvider = NormalizeGooseOverride(cboProvider.Text);
+                    string secretProvider = NormalizeModelOption(cboProvider.Text);
                     if (!string.IsNullOrWhiteSpace(apiKey)
                         && !AiProviderSecretStorage.TrySaveSecret(secretProvider, apiKey, out string secretSaveError))
                     {
@@ -1746,11 +1681,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         PushWebAppState();
                         break;
                     }
-                    if (!string.IsNullOrWhiteSpace(apiKey)) DisposeGooseClient();
+                    if (!string.IsNullOrWhiteSpace(apiKey)) DisposeAiClient();
                     SaveWebConfig();
                     break;
                 case "clearApiKey":
-                    string clearProvider = NormalizeGooseOverride(message["provider"]?.Value<string>());
+                    string clearProvider = NormalizeModelOption(message["provider"]?.Value<string>());
                     if (string.IsNullOrWhiteSpace(clearProvider))
                     {
                         ShowWebToast("请先选择具体 Provider。");
@@ -1761,7 +1696,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     }
                     else
                     {
-                        DisposeGooseClient();
+                        DisposeAiClient();
                         ShowWebToast("已清除当前 Provider 的本机 API Key。");
                     }
                     PushWebAppState();
@@ -1775,9 +1710,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private JObject BuildWebAppState()
         {
-            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? GooseConfigStorage.DefaultProvider : cboProvider.Text;
-            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? GooseConfigStorage.DefaultModel : cboModel.Text;
-            string normalizedProvider = NormalizeGooseOverride(providerText);
+            string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? AiConfigStorage.DefaultProvider : cboProvider.Text;
+            string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? AiConfigStorage.DefaultModel : cboModel.Text;
+            string normalizedProvider = NormalizeModelOption(providerText);
             return new JObject
             {
                 ["sending"] = IsActiveTaskRunning || standardTestRunning,
@@ -1786,19 +1721,15 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 ["canEditConfig"] = !HasRunningTasks,
                 ["config"] = new JObject
                 {
-                    ["gooseExecutablePath"] = txtGooseExecutable.Text,
+                    ["agentExecutablePath"] = txtAgentExecutable.Text,
                     ["workingDirectory"] = txtWorkingDirectory.Text,
-                    ["mcpUri"] = txtMcpUri.Text,
                     ["sessionName"] = txtSessionName.Text,
                     ["provider"] = providerText,
                     ["model"] = modelText,
                     ["modelServiceId"] = modelServiceId,
-                    ["temperature"] = (double)nudTemperature.Value,
                     ["hasApiKey"] = !string.IsNullOrWhiteSpace(normalizedProvider)
                         && AiProviderSecretStorage.HasSecret(normalizedProvider),
-                    ["maxTurns"] = (int)nudMaxTurns.Value,
                     ["maxOutputTokens"] = (int)nudMaxOutputTokens.Value,
-                    ["toolCallCutoff"] = toolCallCutoff,
                     ["toolProfile"] = toolProfile,
                     ["fullPermissionEnabled"] = fullPermissionEnabled,
                     ["autoApproveMode"] = autoApproveMode
@@ -1812,7 +1743,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ["baseUrl"] = item.BaseUrl,
                     ["model"] = item.Model,
                     ["contextLimit"] = item.ContextLimit,
-                    ["toolCallCutoff"] = item.ToolCallCutoff,
                     ["supportsVision"] = item.SupportsVision,
                     ["requiresApiKey"] = item.RequiresApiKey,
                     ["hasApiKey"] = AiProviderSecretStorage.HasSecret(
@@ -1880,177 +1810,68 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
 
-            txtGooseExecutable.Text = config["gooseExecutablePath"]?.Value<string>() ?? string.Empty;
+            txtAgentExecutable.Text = config["agentExecutablePath"]?.Value<string>() ?? string.Empty;
             txtWorkingDirectory.Text = config["workingDirectory"]?.Value<string>() ?? string.Empty;
-            txtMcpUri.Text = config["mcpUri"]?.Value<string>() ?? string.Empty;
             txtSessionName.Text = config["sessionName"]?.Value<string>() ?? string.Empty;
 
-            string provider = config["provider"]?.Value<string>() ?? GooseConfigStorage.DefaultProvider;
-            string model = config["model"]?.Value<string>() ?? GooseConfigStorage.DefaultModel;
+            string provider = config["provider"]?.Value<string>() ?? AiConfigStorage.DefaultProvider;
+            string model = config["model"]?.Value<string>() ?? AiConfigStorage.DefaultModel;
             modelServiceId = config["modelServiceId"]?.Value<string>() ?? string.Empty;
-            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? GooseConfigStorage.DefaultProvider : provider;
-            RefreshModelOptions(NormalizeGooseOverride(cboProvider.Text), model);
-            cboModel.Text = string.IsNullOrWhiteSpace(model) ? GooseConfigStorage.DefaultModel : model;
+            cboProvider.Text = string.IsNullOrWhiteSpace(provider) ? AiConfigStorage.DefaultProvider : provider;
+            RefreshModelOptions(NormalizeModelOption(cboProvider.Text), model);
+            cboModel.Text = string.IsNullOrWhiteSpace(model) ? AiConfigStorage.DefaultModel : model;
 
-            int maxTurns = config["maxTurns"]?.Value<int?>() ?? GooseConfigStorage.DefaultMaxTurns;
-            nudMaxTurns.Value = Math.Max(nudMaxTurns.Minimum, Math.Min(nudMaxTurns.Maximum, maxTurns));
             int maxOutputTokens = config["maxOutputTokens"]?.Value<int?>()
-                ?? GooseConfigStorage.DefaultMaxOutputTokens;
+                ?? AiConfigStorage.DefaultMaxOutputTokens;
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, maxOutputTokens));
-            int? parsedCutoff = config["toolCallCutoff"]?.Value<int?>();
-            toolCallCutoff = parsedCutoff.HasValue && parsedCutoff.Value > 0 ? parsedCutoff : null;
-            double temperature = config["temperature"]?.Value<double?>() ?? GooseConfigStorage.DefaultTemperature;
-            nudTemperature.Value = Math.Max(nudTemperature.Minimum,
-                Math.Min(nudTemperature.Maximum, (decimal)temperature));
-            toolProfile = config["toolProfile"]?.Value<string>() ?? GooseConfigStorage.DefaultToolProfile;
+            toolProfile = config["toolProfile"]?.Value<string>() ?? AiConfigStorage.DefaultToolProfile;
             autoApproveMode = config["autoApproveMode"]?.Value<bool?>() ?? false;
         }
 
-        private async void SaveWebConfig(string successMessage = null, bool closeConfigAfterSave = true)
+        private void SaveWebConfig(string successMessage = null, bool closeConfigAfterSave = true)
         {
-            GooseConfig oldConfig = CloneGooseConfig(appliedConfig);
+            AiConfig oldConfig = CloneAiConfig(appliedConfig);
             if (oldConfig == null)
             {
-                GooseConfigStorage.TryGetCached(out oldConfig, out _);
+                AiConfigStorage.TryGetCached(out oldConfig, out _);
             }
-            if (!TryBuildConfig(out GooseConfig config, out string error))
+            if (!TryBuildConfig(out AiConfig config, out string error))
             {
                 if (oldConfig != null)
                 {
                     toolProfile = oldConfig.ToolProfile;
-                    autoApproveMode = oldConfig.AutoApproveMode;
                 }
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
                 return;
             }
 
-            bool requiresGooseProcessRestart = oldConfig == null
-                || !string.Equals(oldConfig.GooseExecutablePath, config.GooseExecutablePath, StringComparison.Ordinal)
+            // Profile、可执行文件、模型服务等均固定在 Pi 子进程启动参数与环境变量中，
+            // 变化后必须重建 Pi 进程，下次会话按新配置装配。
+            bool requiresProcessRestart = oldConfig == null
+                || !string.Equals(oldConfig.AgentExecutablePath, config.AgentExecutablePath, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.WorkingDirectory, config.WorkingDirectory, StringComparison.Ordinal)
-                || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.SessionName, config.SessionName, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Provider, config.Provider, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.Model, config.Model, StringComparison.Ordinal)
                 || !string.Equals(oldConfig.ModelServiceId, config.ModelServiceId, StringComparison.OrdinalIgnoreCase)
                 || !SelectedModelServiceEqual(oldConfig, config)
-                || Math.Abs(oldConfig.Temperature - config.Temperature) > 0.0001d
-                || oldConfig.MaxTurns != config.MaxTurns
                 || oldConfig.MaxOutputTokens != config.MaxOutputTokens
-                // ToolCallCutoff 在 Goose 子进程启动时装配为环境变量，变化必须重建进程。
-                || oldConfig.ToolCallCutoff != config.ToolCallCutoff
-                || !string.Equals(
-                    oldConfig.ToolMode ?? GooseConfigStorage.DefaultToolMode,
-                    config.ToolMode,
-                    StringComparison.Ordinal)
-                // SkillsProjectOnly 在 Goose 子进程启动时装配为环境变量，变化必须重建进程。
-                || oldConfig.SkillsProjectOnly != config.SkillsProjectOnly;
-            bool cliToolMode = string.Equals(
-                config.ToolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
-            bool uriChanged = oldConfig == null
-                || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
-            bool profileChanged = oldConfig == null
                 || !string.Equals(oldConfig.ToolProfile, config.ToolProfile, StringComparison.Ordinal);
-            // Cli 模式的工具 Profile 固定在 Goose 子进程环境变量（AUTOMATION_MCP_PROFILE）中，
-            // 没有 HTTP 热切换通道，切换 Profile 必须重建 Goose 进程。
-            if (cliToolMode && profileChanged)
+            if (!AiConfigStorage.TrySave(config, out error))
             {
-                requiresGooseProcessRestart = true;
-            }
-            GooseAcpClient activeClient;
-            bool sessionToolsReloaded = false;
-            lock (clientLock)
-            {
-                activeClient = gooseClient;
-            }
-            // Cli 模式不启动也不热切换 MCP HTTP 实例；会话经 shell 直连 Bridge。
-            if (!cliToolMode && (uriChanged || profileChanged))
-            {
-                try
+                if (oldConfig != null)
                 {
-                    if (Workspace.Main?.McpServerManager == null)
-                    {
-                        throw new InvalidOperationException("MCP Server管理器未初始化");
-                    }
-                    if (uriChanged)
-                    {
-                        await Workspace.Main.McpServerManager.EnsureStartedAsync(config.McpUri, config.ToolProfile)
-                            .ConfigureAwait(true);
-                        await AutomationMcpServerManager.SetToolProfileAsync(
-                            config.McpUri, config.ToolProfile,
-                            fullPermissionEnabled && string.Equals(
-                                config.ToolProfile, "Editor", StringComparison.Ordinal)).ConfigureAwait(true);
-                    }
-                    else
-                    {
-                        await AutomationMcpServerManager.SetToolProfileAsync(
-                            config.McpUri, config.ToolProfile,
-                            fullPermissionEnabled && string.Equals(
-                                config.ToolProfile, "Editor", StringComparison.Ordinal))
-                            .ConfigureAwait(true);
-                    }
-
-                    // 仅切换工具模式时保留当前 Goose 会话，通过 ACP 会话扩展接口强制重新读取 tools/list。
-                    if (profileChanged && !uriChanged && !requiresGooseProcessRestart && activeClient != null)
-                    {
-                        sessionToolsReloaded = await activeClient.ReloadAutomationExtensionAsync(config.McpUri, CancellationToken.None)
-                            .ConfigureAwait(true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (oldConfig != null)
-                    {
-                        try
-                        {
-                            await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
-                                .ConfigureAwait(true);
-                            if (!uriChanged && activeClient != null)
-                            {
-                                await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
-                                    .ConfigureAwait(true);
-                            }
-                        }
-                        catch
-                        {
-                            // 保留原始切换异常；当前会话仍保留，用户可修复 Goose 版本或 MCP 状态后重试。
-                        }
-                        toolProfile = oldConfig.ToolProfile;
-                        autoApproveMode = oldConfig.AutoApproveMode;
-                    }
-                    ShowWebToast("MCP模式切换失败:" + ex.Message);
-                    PushWebAppState();
-                    return;
-                }
-            }
-            if (!GooseConfigStorage.TrySave(config, out error))
-            {
-                if (oldConfig != null && profileChanged && !uriChanged)
-                {
-                    try
-                    {
-                        await AutomationMcpServerManager.SetToolProfileAsync(oldConfig.McpUri, oldConfig.ToolProfile)
-                            .ConfigureAwait(true);
-                        if (activeClient != null)
-                        {
-                            await activeClient.ReloadAutomationExtensionAsync(oldConfig.McpUri, CancellationToken.None)
-                                .ConfigureAwait(true);
-                        }
-                    }
-                    catch
-                    {
-                    }
                     toolProfile = oldConfig.ToolProfile;
-                    autoApproveMode = oldConfig.AutoApproveMode;
                 }
                 ShowWebToast("保存失败：" + error);
                 PushWebAppState();
                 return;
             }
-            if (requiresGooseProcessRestart)
+            if (requiresProcessRestart)
             {
-                DisposeGooseClient();
+                DisposeAiClient();
             }
             LoadConfig();
             PushWebAppState();
@@ -2058,12 +1879,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 EnqueueScript("closeConfig();");
             }
-            ShowWebToast(sessionToolsReloaded
-                ? "工具模式切换成功，当前对话已保留。"
-                : successMessage ?? "配置保存成功。");
+            ShowWebToast(successMessage ?? "配置保存成功。");
         }
 
-        private async Task SetFullPermissionToolsAsync(bool enabled)
+        private void SetFullPermissionTools(bool enabled)
         {
             if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
             {
@@ -2078,66 +1897,19 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
 
-            // Cli 模式没有 HTTP 热切换；完全权限固定在 Goose 子进程环境变量
-            // （AUTOMATION_MCP_FULL_PERMISSION）中，切换后重建 Goose 进程生效。
-            if (string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal))
-            {
-                fullPermissionEnabled = enabled;
-                DisposeGooseClient();
-                ShowWebToast(enabled
-                    ? "完全权限已开启，新的 AI 对话生效。"
-                    : "完全权限已关闭，新的 AI 对话生效。");
-                PushWebAppState();
-                return;
-            }
-
-            bool previous = fullPermissionEnabled;
-            GooseAcpClient activeClient;
-            lock (clientLock)
-            {
-                activeClient = gooseClient;
-            }
-            try
-            {
-                if (Workspace.Main?.McpServerManager == null)
-                {
-                    throw new InvalidOperationException("MCP Server管理器未初始化");
-                }
-                string mcpUri = txtMcpUri.Text.Trim();
-                await AutomationMcpServerManager.SetToolProfileAsync(mcpUri, toolProfile, enabled)
-                    .ConfigureAwait(true);
-                bool reloaded = activeClient != null
-                    && await activeClient.ReloadAutomationExtensionAsync(mcpUri, CancellationToken.None)
-                        .ConfigureAwait(true);
-                fullPermissionEnabled = enabled;
-                ShowWebToast(enabled
-                    ? reloaded ? "完全权限已开启，当前对话已保留。" : "完全权限已开启。"
-                    : reloaded ? "完全权限已关闭，当前对话已保留。" : "完全权限已关闭。");
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    await AutomationMcpServerManager.SetToolProfileAsync(
-                        txtMcpUri.Text.Trim(), toolProfile, previous).ConfigureAwait(true);
-                    if (activeClient != null)
-                    {
-                        await activeClient.ReloadAutomationExtensionAsync(
-                            txtMcpUri.Text.Trim(), CancellationToken.None).ConfigureAwait(true);
-                    }
-                }
-                catch
-                {
-                }
-                fullPermissionEnabled = previous;
-                ShowWebToast("完全权限切换失败：" + ex.Message);
-            }
+            // 完全权限固定在 Pi 子进程环境变量（AUTOMATION_TOOL_FULL_PERMISSION）中，
+            // 切换后重建 Pi 进程生效。
+            fullPermissionEnabled = enabled;
+            DisposeAiClient();
+            ShowWebToast(enabled
+                ? "完全权限已开启，新的 AI 对话生效。"
+                : "完全权限已关闭，新的 AI 对话生效。");
             PushWebAppState();
         }
 
         private async Task CheckWebConfigAsync()
         {
-            if (!TryBuildConfig(out GooseConfig config, out string error))
+            if (!TryBuildConfig(out AiConfig config, out string error))
             {
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
@@ -2145,7 +1917,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
 
             ShowWebToast("正在检查 AI 运行组件...");
-            string result = await Task.Run(() => CheckGooseCore(Workspace.Runtime, config)).ConfigureAwait(true);
+            string result = await Task.Run(() => CheckAiCore(Workspace.Runtime, config)).ConfigureAwait(true);
             AppendConversation("系统", result, UiPalette.TextPrimary);
             ShowWebToast("检查完成，结果已写入对话。");
             PushWebAppState();
@@ -2160,36 +1932,25 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             EnqueueScript("if(window.showToast){window.showToast(" + JsonConvert.SerializeObject(text ?? string.Empty) + ");}");
         }
 
-        private bool TryBuildConfig(out GooseConfig config, out string error)
+        private bool TryBuildConfig(out AiConfig config, out string error)
         {
-            config = new GooseConfig
+            config = new AiConfig
             {
-                GooseExecutablePath = txtGooseExecutable.Text.Trim(),
+                AgentExecutablePath = txtAgentExecutable.Text.Trim(),
                 WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                McpUri = txtMcpUri.Text.Trim(),
                 SessionName = txtSessionName.Text.Trim(),
-                Provider = NormalizeGooseOverride(cboProvider.Text),
-                Model = NormalizeGooseOverride(cboModel.Text),
+                Provider = NormalizeModelOption(cboProvider.Text),
+                Model = NormalizeModelOption(cboModel.Text),
                 ModelServiceId = modelServiceId ?? string.Empty,
-                ModelServices = GooseConfigStorage.CloneModelServices(modelServices),
-                Temperature = (double)nudTemperature.Value,
-                MaxTurns = (int)nudMaxTurns.Value,
+                ModelServices = AiConfigStorage.CloneModelServices(modelServices),
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
-                ToolCallCutoff = toolCallCutoff,
-                ToolProfile = toolProfile,
-                ToolMode = string.IsNullOrWhiteSpace(toolMode)
-                    ? GooseConfigStorage.DefaultToolMode
-                    : toolMode,
-                AutoApproveMode = autoApproveMode,
-                // 设置页不提供该开关，保留文件中的当前值。
-                SkillsProjectOnly = appliedConfig?.SkillsProjectOnly
-                    ?? GooseConfigStorage.DefaultSkillsProjectOnly
+                ToolProfile = toolProfile
             };
 
-            if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
+            if (TryResolveAgentExecutablePath(config.AgentExecutablePath, out string resolvedAgentPath))
             {
-                config.GooseExecutablePath = resolvedGoosePath;
-                txtGooseExecutable.Text = resolvedGoosePath;
+                config.AgentExecutablePath = resolvedAgentPath;
+                txtAgentExecutable.Text = resolvedAgentPath;
             }
 
             if (string.IsNullOrWhiteSpace(config.ModelServiceId)
@@ -2200,40 +1961,33 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return false;
             }
 
-            return GooseConfigStorage.TryValidate(config, out error);
+            return AiConfigStorage.TryValidate(config, out error);
         }
 
-        private static GooseConfig CloneGooseConfig(GooseConfig config)
+        private static AiConfig CloneAiConfig(AiConfig config)
         {
             if (config == null)
             {
                 return null;
             }
-            return new GooseConfig
+            return new AiConfig
             {
-                GooseExecutablePath = config.GooseExecutablePath,
+                AgentExecutablePath = config.AgentExecutablePath,
                 WorkingDirectory = config.WorkingDirectory,
-                McpUri = config.McpUri,
                 SessionName = config.SessionName,
                 Provider = config.Provider,
                 Model = config.Model,
                 ModelServiceId = config.ModelServiceId,
-                ModelServices = GooseConfigStorage.CloneModelServices(config.ModelServices),
-                Temperature = config.Temperature,
-                MaxTurns = config.MaxTurns,
+                ModelServices = AiConfigStorage.CloneModelServices(config.ModelServices),
                 MaxOutputTokens = config.MaxOutputTokens,
-                ToolCallCutoff = config.ToolCallCutoff,
-                ToolProfile = config.ToolProfile,
-                ToolMode = config.ToolMode,
-                AutoApproveMode = config.AutoApproveMode,
-                SkillsProjectOnly = config.SkillsProjectOnly
+                ToolProfile = config.ToolProfile
             };
         }
 
-        private static bool SelectedModelServiceEqual(GooseConfig left, GooseConfig right)
+        private static bool SelectedModelServiceEqual(AiConfig left, AiConfig right)
         {
-            string leftJson = JsonConvert.SerializeObject(GooseConfigStorage.FindModelService(left));
-            string rightJson = JsonConvert.SerializeObject(GooseConfigStorage.FindModelService(right));
+            string leftJson = JsonConvert.SerializeObject(AiConfigStorage.FindModelService(left));
+            string rightJson = JsonConvert.SerializeObject(AiConfigStorage.FindModelService(right));
             return string.Equals(leftJson, rightJson, StringComparison.Ordinal);
         }
 
@@ -2256,11 +2010,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private async Task<bool> SendPromptAsync(
             AiTaskRuntime runtime,
             string enteredPrompt,
-            List<GooseFileAttachment> fileAttachments,
+            List<AiFileAttachment> fileAttachments,
             bool restoreComposerOnFailure)
         {
             string prompt = (enteredPrompt ?? string.Empty).Trim();
-            fileAttachments = fileAttachments ?? new List<GooseFileAttachment>();
+            fileAttachments = fileAttachments ?? new List<AiFileAttachment>();
 
             if (string.IsNullOrWhiteSpace(prompt) && fileAttachments.Count == 0)
             {
@@ -2274,20 +2028,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 prompt = "请分析我上传的文件。";
             }
-            if (!TryBuildConfig(out GooseConfig config, out string error))
+            if (!TryBuildConfig(out AiConfig config, out string error))
             {
                 ShowWebToast("配置无效：" + error);
                 PushWebAppState();
                 return false;
             }
-            if (!GooseRuntimeEnvironment.TryValidate(config.GooseExecutablePath, out error))
+            if (!PiRuntimeEnvironment.TryValidate(config.AgentExecutablePath, out error))
             {
                 ShowWebToast(error);
                 PushWebAppState();
                 return false;
             }
 
-            GooseFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
+            AiFileAttachment invalidAttachment = fileAttachments.FirstOrDefault(item =>
                 !string.IsNullOrWhiteSpace(item.Error)
                 || (item.IsImage && IsTextOnlyConfiguration(config)));
             if (invalidAttachment != null)
@@ -2346,7 +2100,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             try
             {
-                GooseAcpClient client = EnsureTaskClient(runtime, config);
+                PiRpcClient client = EnsureTaskClient(runtime, config);
                 await client.PromptAsync(prompt, fileAttachments, runtime.Cancellation.Token).ConfigureAwait(true);
                 DateTime completedAt = DateTime.Now;
                 HashSet<string> sentAttachmentIds = new HashSet<string>(fileAttachments.Select(item => item.Id), StringComparer.Ordinal);
@@ -2446,7 +2200,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             string id = value["id"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(id)) id = Guid.NewGuid().ToString("D");
             int? contextLimit = value["contextLimit"]?.Value<int?>();
-            int? cutoff = value["toolCallCutoff"]?.Value<int?>();
             var service = new AiModelServiceConfig
             {
                 Id = id.Trim(),
@@ -2454,11 +2207,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 BaseUrl = value["baseUrl"]?.Value<string>()?.Trim(),
                 Model = value["model"]?.Value<string>()?.Trim(),
                 ContextLimit = contextLimit.HasValue && contextLimit.Value > 0 ? contextLimit : null,
-                ToolCallCutoff = cutoff.HasValue && cutoff.Value > 0 ? cutoff : null,
                 SupportsVision = value["supportsVision"]?.Value<bool?>() ?? false,
                 RequiresApiKey = value["requiresApiKey"]?.Value<bool?>() ?? false
             };
-            if (!GooseConfigStorage.ValidateModelService(service, out string error))
+            if (!AiConfigStorage.ValidateModelService(service, out string error))
             {
                 ShowWebToast(error);
                 PushWebAppState();
@@ -2493,7 +2245,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             if (index >= 0) modelServices[index] = service;
             else modelServices.Add(service);
             modelServiceId = service.Id;
-            if (!string.IsNullOrWhiteSpace(apiKey)) DisposeGooseClient();
+            if (!string.IsNullOrWhiteSpace(apiKey)) DisposeAiClient();
             SaveWebConfig("自定义模型服务已保存并选中。", false);
         }
 
@@ -2544,7 +2296,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else
             {
-                DisposeGooseClient();
+                DisposeAiClient();
                 ShowWebToast("已清除该模型服务的本机 API Key。");
             }
             PushWebAppState();
@@ -2639,7 +2391,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                         bool completed = await SendPromptAsync(
                             ActiveTaskRuntime,
                             prompt,
-                            new List<GooseFileAttachment>(),
+                            new List<AiFileAttachment>(),
                             false).ConfigureAwait(true);
                         if (!completed)
                         {
@@ -2756,13 +2508,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             };
         }
 
-        private JObject BuildAttachmentWebState(GooseFileAttachment attachment)
+        private JObject BuildAttachmentWebState(AiFileAttachment attachment)
         {
             string error = attachment.Error;
-            TryBuildConfig(out GooseConfig currentConfig, out _);
+            TryBuildConfig(out AiConfig currentConfig, out _);
             if (string.IsNullOrWhiteSpace(error) && attachment.IsImage && IsTextOnlyConfiguration(currentConfig))
             {
-                AiModelServiceConfig service = GooseConfigStorage.FindModelService(currentConfig);
+                AiModelServiceConfig service = AiConfigStorage.FindModelService(currentConfig);
                 string modelLabel = service == null
                     ? cboProvider.Text + "/" + cboModel.Text
                     : service.Name + "/" + service.Model;
@@ -2780,13 +2532,13 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             };
         }
 
-        private static bool IsTextOnlyConfiguration(GooseConfig config)
+        private static bool IsTextOnlyConfiguration(AiConfig config)
         {
             if (config == null) return false;
-            AiModelServiceConfig service = GooseConfigStorage.FindModelService(config);
+            AiModelServiceConfig service = AiConfigStorage.FindModelService(config);
             return service != null
                 ? !service.SupportsVision
-                : GooseAcpClient.IsKnownTextOnlyImageConfiguration(config.Provider, config.Model);
+                : PiRpcClient.IsKnownTextOnlyImageConfiguration(config.Provider, config.Model);
         }
 
         private void StartNewConversation()
@@ -2856,7 +2608,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 };
                 taskRuntimes[target.Id] = runtime;
             }
-            gooseClient = runtime.Client;
+            aiClient = runtime.Client;
             promptCts = runtime.Cancellation;
             restoredConversationContext = runtime.RestoredContext;
             sending = runtime.Running;
@@ -2868,7 +2620,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         {
             taskHomeVisible = true;
             activeConversation = null;
-            gooseClient = null;
+            aiClient = null;
             promptCts = null;
             sending = false;
             ResetConversationViewState();
@@ -2876,7 +2628,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         private void ResetConversationSessionState()
         {
-            DisposeGooseClient();
+            DisposeAiClient();
             ResetConversationViewState();
             txtSessionName.Text = "automation_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
         }
@@ -2962,9 +2714,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             replayingTaskEvents = true;
             try
             {
-                foreach (GooseAcpEvent item in runtime.PendingEvents.ToList())
+                foreach (PiRpcEvent item in runtime.PendingEvents.ToList())
                 {
-                    GooseClient_EventReceived(item);
+                    PiClient_EventReceived(item);
                 }
             }
             finally
@@ -2985,7 +2737,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             webViewConversation.CoreWebView2.NavigateToString(BaseConversationHtml);
         }
 
-        private GooseAcpClient EnsureTaskClient(AiTaskRuntime runtime, GooseConfig config)
+        private PiRpcClient EnsureTaskClient(AiTaskRuntime runtime, AiConfig config)
         {
             lock (clientLock)
             {
@@ -2994,21 +2746,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     return runtime.Client;
                 }
 
-                runtime.Client = new GooseAcpClient(Workspace.Runtime, config, runtime.RestoredContext);
+                runtime.Client = new PiRpcClient(Workspace.Runtime, config, runtime.RestoredContext);
                 runtime.Client.FullPermissionEnabled = fullPermissionEnabled;
                 runtime.RestoredContext = null;
                 runtime.Client.EventReceived += item => TaskClient_EventReceived(runtime, item);
-                runtime.Client.PermissionRequestHandler = HandlePermissionRequest;
                 if (ReferenceEquals(ActiveTaskRuntime, runtime))
                 {
-                    gooseClient = runtime.Client;
+                    aiClient = runtime.Client;
                     restoredConversationContext = null;
                 }
                 return runtime.Client;
             }
         }
 
-        private void TaskClient_EventReceived(AiTaskRuntime runtime, GooseAcpEvent item)
+        private void TaskClient_EventReceived(AiTaskRuntime runtime, PiRpcEvent item)
         {
             if (IsDisposed)
             {
@@ -3018,7 +2769,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 try
                 {
-                    BeginInvoke(new Action<AiTaskRuntime, GooseAcpEvent>(TaskClient_EventReceived), runtime, item);
+                    BeginInvoke(new Action<AiTaskRuntime, PiRpcEvent>(TaskClient_EventReceived), runtime, item);
                 }
                 catch (InvalidOperationException)
                 {
@@ -3032,7 +2783,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             // 直接渲染会让后台到达的思维链脚本先于用户气泡落入新文档，造成消息顺序错乱。
             if (isActive && webDocumentReady && !replayingTaskEvents)
             {
-                GooseClient_EventReceived(item);
+                PiClient_EventReceived(item);
             }
             else if (string.Equals(item.Kind, "tool_result", StringComparison.Ordinal))
             {
@@ -3041,11 +2792,11 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             PushWebAppState();
         }
 
-        private static string ExtractLatestAssistantText(IEnumerable<GooseAcpEvent> events, string fallback)
+        private static string ExtractLatestAssistantText(IEnumerable<PiRpcEvent> events, string fallback)
         {
             var current = new StringBuilder();
             string latest = null;
-            foreach (GooseAcpEvent item in events ?? Enumerable.Empty<GooseAcpEvent>())
+            foreach (PiRpcEvent item in events ?? Enumerable.Empty<PiRpcEvent>())
             {
                 if (string.Equals(item.Kind, "assistant_chunk", StringComparison.Ordinal))
                 {
@@ -3378,165 +3129,6 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        // 工具调用权限对话框：展示工具名和参数，让用户决定是否允许执行。
-        private DialogResult ShowPermissionApprovalDialog(string toolName, string toolTitle, JObject arguments)
-        {
-            using (Form dlg = new Form())
-            {
-                dlg.Text = "EW-AI 工具调用确认";
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.Width = 600;
-                dlg.Height = 400;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
-                dlg.MinimizeBox = false;
-                dlg.BackColor = UiPalette.SurfaceStrong;
-                dlg.Font = new Font("微软雅黑", 9F);
-
-                // 标题栏
-                Panel headerPanel = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = UiPalette.BrandPressed };
-                headerPanel.Controls.Add(new Label
-                {
-                    Text = "  EW-AI 请求执行工具",
-                    Font = new Font("微软雅黑", 11F, FontStyle.Bold),
-                    ForeColor = UiPalette.TextInverse,
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft
-                });
-
-                // 工具信息
-                Panel infoPanel = new Panel { Dock = DockStyle.Top, Height = 60, Padding = new Padding(12, 8, 12, 8) };
-                Label lblToolName = new Label
-                {
-                    Text = $"工具：{toolName}",
-                    Font = new Font("Consolas", 10F, FontStyle.Bold),
-                    ForeColor = UiPalette.TextPrimary,
-                    Dock = DockStyle.Top,
-                    Height = 22
-                };
-                Label lblToolTitle = new Label
-                {
-                    Text = string.IsNullOrWhiteSpace(toolTitle) ? "" : $"说明：{toolTitle}",
-                    Font = new Font("微软雅黑", 9F),
-                    ForeColor = UiPalette.TextSecondary,
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft
-                };
-                infoPanel.Controls.Add(lblToolTitle);
-                infoPanel.Controls.Add(lblToolName);
-
-                // 参数表格
-                DataGridView dgv = new DataGridView
-                {
-                    Dock = DockStyle.Fill,
-                    AllowUserToAddRows = false,
-                    ReadOnly = true,
-                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                    BackgroundColor = UiPalette.SurfaceStrong,
-                    BorderStyle = BorderStyle.None,
-                    ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-                    {
-                        BackColor = UiPalette.SurfaceSubtle,
-                        Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                        Alignment = DataGridViewContentAlignment.MiddleCenter
-                    },
-                    DefaultCellStyle = new DataGridViewCellStyle
-                    {
-                        Font = new Font("Consolas", 9F),
-                        WrapMode = DataGridViewTriState.True
-                    },
-                    RowHeadersVisible = false,
-                    GridColor = UiPalette.Stroke
-                };
-                dgv.Columns.Add("colKey", "参数名");
-                dgv.Columns.Add("colVal", "值");
-                dgv.Columns["colKey"].DefaultCellStyle.BackColor = UiPalette.Input;
-
-                if (arguments != null)
-                {
-                    FlattenArguments(dgv, arguments, "");
-                }
-
-                // 按钮区
-                Panel btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = UiPalette.Background };
-                Button btnReject = new Button
-                {
-                    Text = "✗ 拒绝",
-                    DialogResult = DialogResult.No,
-                    Size = new Size(100, 32),
-                    BackColor = UiPalette.Danger,
-                    ForeColor = UiPalette.TextInverse,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font("微软雅黑", 9F),
-                    Anchor = AnchorStyles.Right
-                };
-                btnReject.FlatAppearance.BorderSize = 0;
-                Button btnAllow = new Button
-                {
-                    Text = "✓ 允许执行",
-                    DialogResult = DialogResult.Yes,
-                    Size = new Size(120, 32),
-                    BackColor = UiPalette.Success,
-                    ForeColor = UiPalette.TextInverse,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                    Anchor = AnchorStyles.Right
-                };
-                btnAllow.FlatAppearance.BorderSize = 0;
-                btnPanel.Controls.Add(btnAllow);
-                btnPanel.Controls.Add(btnReject);
-
-                dlg.Controls.Add(dgv);
-                dlg.Controls.Add(btnPanel);
-                dlg.Controls.Add(infoPanel);
-                dlg.Controls.Add(headerPanel);
-
-                dlg.Resize += (s, e) =>
-                {
-                    btnAllow.Location = new Point(btnPanel.Width - btnAllow.Width - 16, 7);
-                    btnReject.Location = new Point(btnAllow.Left - btnReject.Width - 10, 7);
-                };
-                dlg.Shown += (s, e) =>
-                {
-                    btnAllow.Location = new Point(btnPanel.Width - btnAllow.Width - 16, 7);
-                    btnReject.Location = new Point(btnAllow.Left - btnReject.Width - 10, 7);
-                };
-
-                return dlg.ShowDialog(this);
-            }
-        }
-
-        // 将嵌套的 JSON 参数展平到 DataGridView 中（递归）。
-        private static void FlattenArguments(DataGridView dgv, JToken token, string prefix)
-        {
-            if (token is JObject obj)
-            {
-                foreach (var prop in obj.Properties())
-                {
-                    string key = string.IsNullOrEmpty(prefix) ? prop.Name : prefix + "." + prop.Name;
-                    if (prop.Value is JObject || prop.Value is JArray)
-                    {
-                        FlattenArguments(dgv, prop.Value, key);
-                    }
-                    else
-                    {
-                        dgv.Rows.Add(key, FormatJsonValue(prop.Value));
-                    }
-                }
-            }
-            else if (token is JArray arr)
-            {
-                for (int i = 0; i < arr.Count; i++)
-                {
-                    FlattenArguments(dgv, arr[i], $"{prefix}[{i}]");
-                }
-            }
-            else
-            {
-                dgv.Rows.Add(prefix, FormatJsonValue(token));
-            }
-        }
-
         // 格式化 JSON 值为可读字符串。
         private static string FormatJsonValue(JToken token)
         {
@@ -3550,206 +3142,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
         #endregion
 
-        private JObject HandlePermissionRequest(JObject request)
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                return BuildPermissionCancelled();
-            }
-            if (InvokeRequired)
-            {
-                JObject response = null;
-                Exception dispatchError = null;
-                using (var completed = new ManualResetEventSlim(false))
-                {
-                    try
-                    {
-                        BeginInvoke((Action)(() =>
-                        {
-                            try
-                            {
-                                response = HandlePermissionRequest(request);
-                            }
-                            catch (Exception ex)
-                            {
-                                dispatchError = ex;
-                            }
-                            finally
-                            {
-                                completed.Set();
-                            }
-                        }));
-                    }
-                    catch
-                    {
-                        return BuildPermissionCancelled();
-                    }
-                    if (!completed.Wait(TimeSpan.FromMinutes(2)) || IsDisposed || Disposing)
-                    {
-                        return BuildPermissionCancelled();
-                    }
-                }
-                if (dispatchError != null)
-                {
-                    throw dispatchError;
-                }
-                return response ?? BuildPermissionCancelled();
-            }
-
-            string title = request["toolCall"]?["title"]?.Value<string>()
-                ?? request["toolCall"]?["name"]?.Value<string>()
-                ?? "EW-AI 权限请求";
-
-            string toolName = request["toolCall"]?["name"]?.Value<string>() ?? "";
-            JObject arguments = request["toolCall"]?["arguments"] as JObject;
-            if (IsDeveloperWriteOutsideHmi(toolName, arguments, out string rejectedPath))
-            {
-                AppendConversation(
-                    "系统",
-                    "⛔ 已拒绝修改 Hmi 目录之外的文件：" + rejectedPath,
-                    UiPalette.Danger);
-                return BuildPermissionCancelled();
-            }
-
-            if (autoApproveMode)
-            {
-                // 自动批准模式：把工具调用信息显示到聊天区，让用户看到批准了什么
-                AppendConversation("系统", "✅ 自动批准：" + title, UiPalette.SuccessHover);
-
-                // 预演确认在 tool_result 事件中自动完成（TryPromptPreviewConfirmation），
-                // 权限请求本身不含 previewId（previewId 由 Bridge 在工具执行后生成）。
-
-                JArray fullOptions = request["options"] as JArray;
-                string fullOptionId = FindAllowOptionId(fullOptions);
-                if (string.IsNullOrWhiteSpace(fullOptionId))
-                {
-                    return new JObject { ["outcome"] = new JObject { ["outcome"] = "allowed" } };
-                }
-                return new JObject { ["outcome"] = new JObject { ["outcome"] = "selected", ["optionId"] = fullOptionId } };
-            }
-
-            DialogResult dialogResult = ShowPermissionApprovalDialog(toolName, title, arguments);
-            if (dialogResult != DialogResult.Yes)
-            {
-                return BuildPermissionCancelled();
-            }
-
-            // 用户批准后，在 options 中查找 "allow" 类选项（optionId 或 title 含 allow），
-            // 避免盲目取 options[0] 导致选中 "deny"/"modify" 等非执行选项。
-            JArray options = request["options"] as JArray;
-            string optionId = FindAllowOptionId(options);
-            if (string.IsNullOrWhiteSpace(optionId))
-            {
-                // 无选项或未找到 allow 选项：直接返回 allowed，允许工具执行。
-                return new JObject
-                {
-                    ["outcome"] = new JObject
-                    {
-                        ["outcome"] = "allowed"
-                    }
-                };
-            }
-
-            return new JObject
-            {
-                ["outcome"] = new JObject
-                {
-                    ["outcome"] = "selected",
-                    ["optionId"] = optionId
-                }
-            };
-        }
-
-        private static bool IsDeveloperWriteOutsideHmi(
-            string toolName,
-            JObject arguments,
-            out string rejectedPath)
-        {
-            rejectedPath = null;
-            if (!string.Equals(toolName, "write", StringComparison.Ordinal)
-                && !string.Equals(toolName, "edit", StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            string path = arguments?["path"]?.Value<string>();
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                rejectedPath = "(路径为空)";
-                return true;
-            }
-
-            string hmiDirectory = ResolveHmiSourceDirectory();
-            string fullPath = Path.GetFullPath(
-                Path.IsPathRooted(path) ? path : Path.Combine(hmiDirectory, path));
-            string boundary = hmiDirectory.TrimEnd(
-                Path.DirectorySeparatorChar,
-                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            if (!fullPath.StartsWith(boundary, StringComparison.OrdinalIgnoreCase))
-            {
-                rejectedPath = fullPath;
-                return true;
-            }
-            return false;
-        }
-
-        private static string ResolveHmiSourceDirectory()
-        {
-            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-            while (directory != null)
-            {
-                string projectFile = Path.Combine(directory.FullName, "Automation.csproj");
-                string hmiDirectory = Path.Combine(directory.FullName, "Hmi");
-                if (File.Exists(projectFile) && Directory.Exists(hmiDirectory))
-                {
-                    return Path.GetFullPath(hmiDirectory);
-                }
-                directory = directory.Parent;
-            }
-            return Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Hmi"));
-        }
-
-        // 在权限请求的 options 数组中查找 "allow" 类选项。
-        // Goose ACP 的 options 顺序不保证 allow 在第一位，盲目取 [0] 可能选中 deny/modify。
-        private static string FindAllowOptionId(JArray options)
-        {
-            if (options == null || options.Count == 0)
-            {
-                return null;
-            }
-            // 优先匹配 optionId 或 title 中含 "allow" 的选项
-            foreach (JToken opt in options)
-            {
-                string oid = opt["optionId"]?.Value<string>() ?? opt["id"]?.Value<string>();
-                if (string.IsNullOrWhiteSpace(oid))
-                {
-                    continue;
-                }
-                string optTitle = opt["title"]?.Value<string>() ?? string.Empty;
-                if (oid.IndexOf("allow", StringComparison.OrdinalIgnoreCase) >= 0
-                    || optTitle.IndexOf("allow", StringComparison.OrdinalIgnoreCase) >= 0
-                    || optTitle.IndexOf("允许", StringComparison.Ordinal) >= 0
-                    || optTitle.IndexOf("通过", StringComparison.Ordinal) >= 0)
-                {
-                    return oid;
-                }
-            }
-            // 回退：取第一个选项（多数情况下第一个是 allow）
-            return options[0]?["optionId"]?.Value<string>() ?? options[0]?["id"]?.Value<string>();
-        }
-
-        private static JObject BuildPermissionCancelled()
-        {
-            return new JObject
-            {
-                ["outcome"] = new JObject
-                {
-                    ["outcome"] = "cancelled"
-                }
-            };
-        }
-
-        private void GooseClient_EventReceived(GooseAcpEvent item)
+        private void PiClient_EventReceived(PiRpcEvent item)
         {
             if (IsDisposed)
             {
@@ -3759,7 +3152,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             {
                 try
                 {
-                    BeginInvoke(new Action<GooseAcpEvent>(GooseClient_EventReceived), item);
+                    BeginInvoke(new Action<PiRpcEvent>(PiClient_EventReceived), item);
                 }
                 catch (InvalidOperationException)
                 {
@@ -3816,7 +3209,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             else if (string.Equals(item.Kind, "status_message", StringComparison.Ordinal))
             {
-                // Goose 状态消息（上下文压缩开始/完成等），作为系统提示展示。
+                // Pi 状态消息（上下文压缩开始/完成、自动重试等），作为系统提示展示。
                 AppendConversation("系统", item.Text, UiPalette.WarningHover);
             }
             else if (string.Equals(item.Kind, "error", StringComparison.Ordinal)
@@ -3835,26 +3228,23 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         }
 
         // 聊天卡片统一消费图快照；旧流程读取和提交结果也先转为同一快照，避免重复推断线性结构。
-        private void CaptureFlowVisualizationEvent(GooseAcpEvent item)
+        // Pi 链路下平台工具经 bash 的 `cli call <name>` 调用，工具名从命令文本提取；
+        // 非平台工具（纯 shell、文件读写）不参与流程可视化。
+        private void CaptureFlowVisualizationEvent(PiRpcEvent item)
         {
-            JObject update = item?.Raw?["params"]?["update"] as JObject
-                ?? item?.Raw?["params"] as JObject;
-            string callId = update?["toolCallId"]?.Value<string>();
+            JObject raw = item?.Raw;
+            string callId = raw?["toolCallId"]?.Value<string>();
             if (string.Equals(item?.Kind, "tool_call", StringComparison.Ordinal))
             {
-                JObject toolCall = update?["_meta"]?["goose"]?["toolCall"] as JObject;
-                string extensionName = toolCall?["extensionName"]?.Value<string>();
-                string toolName = toolCall?["toolName"]?.Value<string>();
-                int toolPrefixSeparator = toolName?.LastIndexOf("__", StringComparison.Ordinal) ?? -1;
-                if (toolPrefixSeparator >= 0)
+                string toolName = raw?["toolName"]?.Value<string>();
+                if (string.Equals(toolName, "bash", StringComparison.Ordinal))
                 {
-                    toolName = toolName.Substring(toolPrefixSeparator + 2);
+                    toolName = PiRpcClient.ExtractPlatformToolName(raw?["args"]?["command"]?.Value<string>());
                 }
-                bool capturesFlow = string.Equals(extensionName, "automation", StringComparison.OrdinalIgnoreCase)
-                    && (string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
-                        || string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
-                        || string.Equals(toolName, "get_flow_graph", StringComparison.Ordinal)
-                        || string.Equals(toolName, "apply_change_set", StringComparison.Ordinal));
+                bool capturesFlow = string.Equals(toolName, "get_proc_overview", StringComparison.Ordinal)
+                    || string.Equals(toolName, "get_proc_detail", StringComparison.Ordinal)
+                    || string.Equals(toolName, "get_flow_graph", StringComparison.Ordinal)
+                    || string.Equals(toolName, "apply_change_set", StringComparison.Ordinal);
                 if (string.IsNullOrWhiteSpace(callId) || !capturesFlow)
                 {
                     return;
@@ -4072,10 +3462,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
             bool isSystemError = !isCall && (normalizedText.StartsWith("×", StringComparison.Ordinal)
-                || string.Equals(
-                    raw?["params"]?["update"]?["status"]?.Value<string>(),
-                    "failed",
-                    StringComparison.OrdinalIgnoreCase));
+                || raw?["isError"]?.Value<bool>() == true);
             bool isBusinessFailure = false;
             string resultLabel = isSystemError ? "异常" : "结果";
             if (!isCall)
@@ -4098,7 +3485,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     }
                     else
                     {
-                        // MCP/Bridge 已正常返回结果；不能沿用 ACP 摘要中的“×”误报系统异常。
+                        // ToolCli/Bridge 已正常返回结果；不能沿用流式摘要中的“×”误报系统异常。
                         isSystemError = false;
                         isBusinessFailure = false;
                         resultLabel = "结果";
@@ -4114,9 +3501,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     ? "tool-error"
                     : isBusinessFailure ? "tool-business-failure" : "tool-result";
             string display = isCall ? "调用" : resultLabel;
-            string callId = raw?["params"]?["update"]?["toolCallId"]?.Value<string>()
-                ?? raw?["params"]?["toolCallId"]?.Value<string>()
-                ?? string.Empty;
+            string callId = raw?["toolCallId"]?.Value<string>() ?? string.Empty;
             string html = "<div class=\"tool-entry " + cls + "\" title=\"" + HtmlEncode(normalizedText) + "\">"
                 + "<span class=\"tool-entry-label\">" + display + "</span>"
                 + "<span class=\"tool-entry-text\">" + HtmlEncode(normalizedText) + "</span>"
@@ -4632,7 +4017,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 + ";}scrollThinkingBoxToBottom('" + boxId + "');");
         }
 
-        // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
+        // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，AI 消息走 Markdown→HTML。
         private void AppendConversation(string role, string text, Color color, DateTime? messageTime = null,
             string visualizationJson = null)
         {
@@ -5038,39 +4423,20 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return HtmlEncode(text).Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "<br>");
         }
 
-        // 从 ACP tool_call_update 完成通知中提取工具返回的 JSON 文本。
-        // ACP 通知结构：message.params.update.content[0].text 或 message.params.content[0].text
-        // text 字段是 MCP 工具返回的 JSON 字符串，例如 {"ok":true,"type":"intent.preview","data":{"previewId":"..."}}
+        // 从 Pi tool_execution_end 事件中提取工具返回的文本。
+        // 事件结构：raw.result.content[].text；平台工具经 bash cli call 调用时，
+        // text 是 ToolCli 输出的 JSON 字符串，例如 {"ok":true,"type":"change_set.preview","data":{"previewId":"..."}}
         private static string ExtractToolResultText(JObject raw)
         {
-            JToken parameters = raw?["params"];
-            JToken update = parameters?["update"] ?? parameters;
-            JToken content = update?["content"];
-            if (content is JArray arr && arr.Count > 0)
-            {
-                JToken first = arr[0];
-                JToken textToken = first["text"] ?? first?["content"]?["text"];
-                if (textToken != null && textToken.Type == JTokenType.String)
-                {
-                    return textToken.Value<string>();
-                }
-            }
-            return null;
-        }
-
-        // Cli 模式专用：拼接 tool_result 全部 content 项中的文本，兼容 shell 输出所在位置。
-        private static string ExtractAllToolResultText(JObject raw)
-        {
-            JToken parameters = raw?["params"];
-            JToken update = parameters?["update"] ?? parameters;
-            if (!(update?["content"] is JArray arr))
+            JToken content = raw?["result"]?["content"];
+            if (!(content is JArray arr))
             {
                 return null;
             }
             var builder = new StringBuilder();
             foreach (JToken entry in arr)
             {
-                JToken textToken = entry?["text"] ?? entry?["content"]?["text"];
+                JToken textToken = entry?["text"];
                 if (textToken != null && textToken.Type == JTokenType.String)
                 {
                     if (builder.Length > 0)
@@ -5083,49 +4449,10 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return builder.Length == 0 ? null : builder.ToString();
         }
 
-        // Cli 模式专用：shell 输出可能夹带非 JSON 文本，从后往前尝试各 '{' 起点，
-        // 只接受包含 data.previewId 的完整 JSON 对象。
-        private static JObject TryExtractPreviewJsonObject(string text)
-        {
-            int searchFrom = text.Length;
-            while (searchFrom > 0)
-            {
-                int start = text.LastIndexOf('{', searchFrom - 1);
-                if (start < 0)
-                {
-                    return null;
-                }
-                try
-                {
-                    using (var reader = new JsonTextReader(new StringReader(text.Substring(start))))
-                    {
-                        JObject candidate = JObject.Load(reader);
-                        if (!string.IsNullOrWhiteSpace(
-                            candidate["data"]?["previewId"]?.Value<string>()))
-                        {
-                            return candidate;
-                        }
-                    }
-                }
-                catch
-                {
-                    // 该起点不是完整 JSON 对象，继续向前搜索。
-                }
-                searchFrom = start;
-            }
-            return null;
-        }
-
         private async void TryPromptPreviewConfirmation(JObject raw)
         {
             // 从预演工具的字符串结果中提取 previewId；普通工具结果没有该字段。
             string resultText = ExtractToolResultText(raw);
-            bool cliToolMode = string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal);
-            if (string.IsNullOrWhiteSpace(resultText) && cliToolMode)
-            {
-                // Cli 模式预演结果来自 developer shell 输出，文本可能不在 content[0]。
-                resultText = ExtractAllToolResultText(raw);
-            }
             if (string.IsNullOrWhiteSpace(resultText))
             {
                 return;
@@ -5138,12 +4465,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             catch
             {
-                // Cli 模式 shell 输出可能在 JSON 前后带有附加文本，按 data.previewId 定位其中的预演 JSON。
-                resultObj = cliToolMode ? TryExtractPreviewJsonObject(resultText) : null;
-                if (resultObj == null)
-                {
-                    return;
-                }
+                return;
             }
 
             // Bridge 的预演类型不只有 intent.preview / patch.preview，流程结构操作还会
@@ -5168,7 +4490,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
 
             if (committed || string.Equals(mode, "apply", StringComparison.Ordinal))
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
+                aiClient?.LogFrontendAnalysisEvent("preview.applied", new JObject
                 {
                     ["previewId"] = previewId,
                     ["resultType"] = resultType
@@ -5177,7 +4499,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             if (rejected)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                aiClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
                 {
                     ["previewId"] = previewId,
                     ["decision"] = "rejected",
@@ -5187,7 +4509,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
             if (confirmed)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+                aiClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
                 {
                     ["previewId"] = previewId,
                     ["decision"] = "confirmed",
@@ -5201,7 +4523,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                 return;
             }
             promptedPreviewIds.Add(previewId);
-            gooseClient?.LogFrontendAnalysisEvent("preview.created", new JObject
+            aiClient?.LogFrontendAnalysisEvent("preview.created", new JObject
             {
                 ["previewId"] = previewId,
                 ["status"] = "awaiting_confirmation",
@@ -5211,7 +4533,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             // 自动批准模式下，预演记录已由 Bridge 直接标记为确认；无需弹窗或追加聊天消息。
             if (autoApproveMode)
             {
-                gooseClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
+                aiClient?.LogFrontendAnalysisEvent("preview.state_mismatch", new JObject
                 {
                     ["previewId"] = previewId,
                     ["message"] = "自动批准模式下返回了未确认预演。"
@@ -5222,7 +4544,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             // 正常模式：弹出自定义审核对话框，让用户确认预演结果。
             JArray changes = FindFirstArray(resultObj, "changes") as JArray;
             JArray messages = FindFirstArray(resultObj, "messages") as JArray;
-            gooseClient?.LogFrontendAnalysisEvent("preview.presented", new JObject
+            aiClient?.LogFrontendAnalysisEvent("preview.presented", new JObject
             {
                 ["previewId"] = previewId,
                 ["changeCount"] = changes?.Count ?? 0,
@@ -5231,7 +4553,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             Stopwatch confirmationStopwatch = Stopwatch.StartNew();
             DialogResult result = ShowPreviewApprovalDialog(previewId, changes, messages);
             confirmationStopwatch.Stop();
-            gooseClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
+            aiClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
             {
                 ["previewId"] = previewId,
                 ["decision"] = result == DialogResult.Yes ? "confirmed" : "rejected",
@@ -5420,62 +4742,54 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             }
         }
 
-        private static string CheckGooseCore(PlatformRuntime runtime, GooseConfig config)
+        private static string CheckAiCore(PlatformRuntime runtime, AiConfig config)
         {
             StringBuilder builder = new StringBuilder();
-            string gooseExecutable = ResolveGooseExecutablePath(config.GooseExecutablePath);
-            builder.AppendLine($"EW-AI 可执行文件：{gooseExecutable}");
-            builder.AppendLine(RunProcessCapture(gooseExecutable, "--version", AppDomain.CurrentDomain.BaseDirectory, 10000));
-            builder.AppendLine(RunProcessCapture(gooseExecutable, "info -v", AppDomain.CurrentDomain.BaseDirectory, 15000));
+            string agentExecutable = ResolveAgentExecutablePath(config.AgentExecutablePath);
+            builder.AppendLine($"EW-AI 可执行文件：{agentExecutable}");
+            builder.AppendLine(RunProcessCapture(agentExecutable, "--version", AppDomain.CurrentDomain.BaseDirectory, 10000));
             try
             {
-                GooseConfig resolvedConfig = new GooseConfig
+                AiConfig resolvedConfig = new AiConfig
                 {
-                    GooseExecutablePath = gooseExecutable,
+                    AgentExecutablePath = agentExecutable,
                     WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                    McpUri = config.McpUri,
                     SessionName = config.SessionName,
                     Provider = config.Provider,
                     Model = config.Model,
                     ModelServiceId = config.ModelServiceId,
-                    ModelServices = GooseConfigStorage.CloneModelServices(config.ModelServices),
-                    Temperature = config.Temperature,
-                    MaxTurns = config.MaxTurns,
+                    ModelServices = AiConfigStorage.CloneModelServices(config.ModelServices),
                     MaxOutputTokens = config.MaxOutputTokens,
-                    ToolCallCutoff = config.ToolCallCutoff,
-                    ToolProfile = config.ToolProfile,
-                    ToolMode = config.ToolMode,
-                    AutoApproveMode = config.AutoApproveMode,
-                    SkillsProjectOnly = config.SkillsProjectOnly
+                    ToolProfile = config.ToolProfile
                 };
-                using (GooseAcpClient client = new GooseAcpClient(runtime, resolvedConfig))
+                using (PiRpcClient client = new PiRpcClient(runtime, resolvedConfig))
                 using (CancellationTokenSource cts = new CancellationTokenSource(30000))
                 {
-                    client.InitializeAsync(cts.Token).GetAwaiter().GetResult();
+                    client.EnsureSessionAsync(cts.Token).GetAwaiter().GetResult();
                 }
-                builder.AppendLine("EW-AI ACP 初始化：成功");
+                builder.AppendLine("EW-AI Pi 会话建立：成功");
             }
             catch (Exception ex)
             {
-                builder.AppendLine("EW-AI ACP 初始化：失败");
+                builder.AppendLine("EW-AI Pi 会话建立：失败");
                 builder.AppendLine(ex.Message);
             }
             return builder.ToString();
         }
 
-        private static string ResolveGooseExecutablePath(string configuredPath)
+        private static string ResolveAgentExecutablePath(string configuredPath)
         {
-            return TryResolveGooseExecutablePath(configuredPath, out string resolvedPath)
+            return TryResolveAgentExecutablePath(configuredPath, out string resolvedPath)
                 ? resolvedPath
                 : configuredPath;
         }
 
-        private static bool TryResolveGooseExecutablePath(string configuredPath, out string resolvedPath)
+        private static bool TryResolveAgentExecutablePath(string configuredPath, out string resolvedPath)
         {
             resolvedPath = null;
-            if (File.Exists(GooseRuntimeEnvironment.MachineGooseExecutablePath))
+            if (File.Exists(PiRuntimeEnvironment.MachinePiExecutablePath))
             {
-                resolvedPath = GooseRuntimeEnvironment.MachineGooseExecutablePath;
+                resolvedPath = PiRuntimeEnvironment.MachinePiExecutablePath;
                 return true;
             }
             return false;
@@ -5598,9 +4912,9 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
             return null;
         }
 
-        // 公开以便 FrmMain.FormClosing 早期调用，先 Kill Goose 进程，
-        // 避免后台线程的 HandlePermissionRequest 同步 Invoke 等待已被阻塞的 UI 线程导致死锁。
-        public void DisposeGooseClient()
+        // 公开以便 FrmMain.FormClosing 早期调用，先 Kill Pi 进程，
+        // 避免后台读取线程在 UI 线程阻塞后继续投递事件导致程序关闭卡住。
+        public void DisposeAiClient()
         {
             lock (clientLock)
             {
@@ -5619,7 +4933,7 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
                     runtime.Cancellation = null;
                     runtime.Running = false;
                 }
-                gooseClient = null;
+                aiClient = null;
                 promptCts = null;
             }
         }

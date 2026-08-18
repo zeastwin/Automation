@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Automation.ToolCli</RootNamespace>
+    <AssemblyName>Automation.ToolCli</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Automation.Protocol\Automation.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Guides\ProcessDesignGuide.md">
+      <LogicalName>Automation.ToolCli.Guides.ProcessDesignGuide.md</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    ToolCli 独立生成成功后，同步到 Automation 的可搬运运行目录。
+    必须使用 SDK 计算出的发布清单，禁止扫描整个 TargetDir：命令行共享 OutDir 时，
+    TargetDir 可能同时包含主程序和测试程序，通配复制会污染运行包。
+  -->
+  <Target Name="CopyToolCliToAutomationOutput" AfterTargets="Build" DependsOnTargets="ComputeFilesToPublish">
+    <PropertyGroup>
+      <AutomationToolCliOutputDir Condition="'$(AutomationToolCliOutputDir)' == ''">$(MSBuildProjectDirectory)\..\bin\$(Configuration)\ToolCli\</AutomationToolCliOutputDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <ToolCliRuntimeFile Include="@(ResolvedFileToPublish)" />
+      <ToolCliRuntimeFile Include="$(TargetDir)$(AssemblyName).pdb" Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)$(AssemblyName).pdb')">
+        <RelativePath>$(AssemblyName).pdb</RelativePath>
+      </ToolCliRuntimeFile>
+      <ToolCliRuntimeFile Include="$(TargetDir)Automation.Protocol.pdb" Condition="'$(Configuration)' == 'Debug' and Exists('$(TargetDir)Automation.Protocol.pdb')">
+        <RelativePath>Automation.Protocol.pdb</RelativePath>
+      </ToolCliRuntimeFile>
+    </ItemGroup>
+    <RemoveDir Directories="$(AutomationToolCliOutputDir)" />
+    <MakeDir Directories="$(AutomationToolCliOutputDir)" />
+    <Copy SourceFiles="@(ToolCliRuntimeFile)" DestinationFiles="@(ToolCliRuntimeFile->'$(AutomationToolCliOutputDir)%(RelativePath)')" SkipUnchangedFiles="true" />
+    <ItemGroup Condition="'$(Configuration)' == 'Release'">
+      <ToolCliReleaseSymbolFile Include="$(AutomationToolCliOutputDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(ToolCliReleaseSymbolFile)" Condition="'$(Configuration)' == 'Release'" />
+    <ItemGroup>
+      <ForbiddenToolCliRuntimeArtifact Include="$(AutomationToolCliOutputDir)Logs\**\*" />
+      <ForbiddenToolCliRuntimeArtifact Include="$(AutomationToolCliOutputDir)Config\**\*" />
+      <ForbiddenToolCliRuntimeArtifact Include="$(AutomationToolCliOutputDir)Automation.exe" Condition="Exists('$(AutomationToolCliOutputDir)Automation.exe')" />
+    </ItemGroup>
+    <!-- ComputeFilesToPublish 在普通 Build 中可能留下空 publish 目录，不属于运行输出。 -->
+    <RemoveDir Directories="$(TargetDir)publish" />
+    <Error Condition="'@(ForbiddenToolCliRuntimeArtifact)' != ''" Text="ToolCli运行目录包含禁止复制的日志、配置或主程序：@(ForbiddenToolCliRuntimeArtifact)" />
+  </Target>
+
+</Project>

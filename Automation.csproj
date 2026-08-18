@@ -32,11 +32,6 @@
       <Project>{9B777468-5118-4A4B-AB0E-6D02861C6B5F}</Project>
       <Name>Automation.Protocol</Name>
     </ProjectReference>
-    <ProjectReference Include="GooseShell\GooseShell.csproj">
-      <Project>{D812DDE6-B0F2-4609-9E4E-10D72CD3CB52}</Project>
-      <Name>GooseShell</Name>
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <PlatformTarget>x64</PlatformTarget>
@@ -215,12 +210,12 @@
     <Compile Include="Runtime\\AutomationPlatformBootstrap.cs" />
     <Compile Include="Runtime\\PlatformValueStoreFacade.cs" />
     <Compile Include="Runtime\\PlatformProcessStoreFacade.cs" />
-    <Compile Include="Runtime\\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\\HmiDevelopmentSourceLocator.cs" />
     <Compile Include="Runtime\\AutomationRuntimeOptions.cs" />
-    <Compile Include="Runtime\\GooseConfigStorage.cs" />
-    <Compile Include="Runtime\\GooseRuntimeEnvironment.cs" />
-    <Compile Include="Runtime\\GooseRuntimeProvisioner.cs" />
+    <Compile Include="Runtime\\AiConfigStorage.cs" />
+    <Compile Include="Runtime\\PiRuntimeEnvironment.cs" />
+    <Compile Include="Runtime\\PiContextProvisioner.cs" />
+    <Compile Include="Runtime\\ToolCliPackageLocator.cs" />
     <Compile Include="Runtime\\UiBranding.cs" />
     <Compile Include="UiPalette.cs" />
     <Compile Include="Runtime\\AiProviderSecretStorage.cs" />
@@ -233,7 +228,7 @@
     <Compile Include="Bridge\\AutomationBridgeService.Diagnostics.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.Migration.cs" />
     <Compile Include="Bridge\\AutomationBridgeService.ProcessInspection.cs" />
-    <Compile Include="GooseAcpClient.cs" />
+    <Compile Include="PiRpcClient.cs" />
     <Compile Include="EditorWorkspace.cs" />
     <Compile Include="Hmi\CustomFunctions.cs" />
     <Compile Include="Hmi\\FrmHmiMain.cs">
@@ -534,26 +529,20 @@
     <EmbeddedResource Include="Tool\FrmSearch4Value.resx">
       <DependentUpon>FrmSearch4Value.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\system.md">
-      <LogicalName>Automation.Assets.Goose.system.md</LogicalName>
+    <EmbeddedResource Include="Assets\Pi\automation-cli.md">
+      <LogicalName>Automation.Assets.Pi.automation-cli.md</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\automation.md">
-      <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
+    <EmbeddedResource Include="Assets\Pi\Skills\automation-tools-cli\SKILL.md">
+      <LogicalName>Automation.Assets.Pi.Skills.automation-tools-cli.SKILL.md</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\automation-cli.md">
-      <LogicalName>Automation.Assets.Goose.automation-cli.md</LogicalName>
+    <EmbeddedResource Include="Assets\Pi\Skills\automation-tools-cli\.automation-tools-cli-skill-version">
+      <LogicalName>Automation.Assets.Pi.Skills.automation-tools-cli.skill-version</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-mcp-cli\SKILL.md">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-mcp-cli.SKILL.md</LogicalName>
+    <EmbeddedResource Include="Assets\Pi\Skills\automation-process-authoring\SKILL.md">
+      <LogicalName>Automation.Assets.Pi.Skills.automation-process-authoring.SKILL.md</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-mcp-cli.skill-version</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.SKILL.md</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
-      <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.skill-version</LogicalName>
+    <EmbeddedResource Include="Assets\Pi\Skills\automation-process-authoring\.automation-skill-version">
+      <LogicalName>Automation.Assets.Pi.Skills.automation-process-authoring.skill-version</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\ProcessFlow\index.html">
       <LogicalName>Automation.Assets.ProcessFlow.index.html</LogicalName>
@@ -567,25 +556,19 @@
     <EmbeddedResource Include="Hmi\CustomFunctions.cs">
       <LogicalName>Automation.Hmi.CustomFunctions.Source</LogicalName>
     </EmbeddedResource>
-    <Content Include="Assets\Goose\system.md">
+    <Content Include="Assets\Pi\automation-cli.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Goose\automation.md">
+    <Content Include="Assets\Pi\Skills\automation-tools-cli\SKILL.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Goose\automation-cli.md">
+    <Content Include="Assets\Pi\Skills\automation-tools-cli\.automation-tools-cli-skill-version">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Goose\Skills\automation-mcp-cli\SKILL.md">
+    <Content Include="Assets\Pi\Skills\automation-process-authoring\SKILL.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Goose\Skills\automation-process-authoring\SKILL.md">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
+    <Content Include="Assets\Pi\Skills\automation-process-authoring\.automation-skill-version">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="app.config" />
@@ -624,18 +607,6 @@
     </ItemGroup>
     <Copy Condition="'@(SourceDllFiles)' != ''" SourceFiles="@(SourceDllFiles)" DestinationFiles="@(SourceDllFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="ProvisionProcessAuthoringSkillInOutput" AfterTargets="Build">
-    <PropertyGroup>
-      <ProcessAuthoringSkillOutputDirectory>$(TargetDir).agents\skills\automation-process-authoring</ProcessAuthoringSkillOutputDirectory>
-      <McpCliSkillOutputDirectory>$(TargetDir).agents\skills\automation-mcp-cli</McpCliSkillOutputDirectory>
-    </PropertyGroup>
-    <MakeDir Directories="$(ProcessAuthoringSkillOutputDirectory)" />
-    <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\SKILL.md" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version" DestinationFolder="$(ProcessAuthoringSkillOutputDirectory)" SkipUnchangedFiles="true" />
-    <MakeDir Directories="$(McpCliSkillOutputDirectory)" />
-    <Copy SourceFiles="Assets\Goose\Skills\automation-mcp-cli\SKILL.md" DestinationFolder="$(McpCliSkillOutputDirectory)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="Assets\Goose\Skills\automation-mcp-cli\.automation-cli-skill-version" DestinationFolder="$(McpCliSkillOutputDirectory)" SkipUnchangedFiles="true" />
-  </Target>
   <Target Name="RemoveUnsupportedNativeGitLibraries" AfterTargets="Build">
     <ItemGroup>
       <UnsupportedNativeGitDirectory Include="$(TargetDir)lib\linux-arm" />
@@ -656,7 +627,7 @@
   <Target Name="RemoveLegacySimulationArtifacts" AfterTargets="Build">
     <RemoveDir Directories="$(TargetDir)SimulationRuns;$(TargetDir)SimulationScenarios" />
   </Target>
-  <!-- Goose 受管 Markdown 同时保留程序集资源和程序目录副本；这里只清理根目录冗余文件。 -->
+  <!-- AI 受管 Markdown 与 Skill 同时保留程序集资源和程序目录副本；这里只清理根目录冗余文件。 -->
   <Target Name="RemoveRedundantOutputArtifacts" AfterTargets="Build">
     <ItemGroup>
       <RedundantOutputFile Include="$(TargetDir)*.xml" Exclude="$(TargetDir)Automation.DeviceSdk.xml" />

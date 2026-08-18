@@ -52,18 +52,19 @@ namespace Automation
             return TryWrite(values, out error);
         }
 
+        // Provider → API Key 环境变量映射遵循 Pi 约定（docs/providers.md），
+        // 注入当前 EW-AI 子进程后由 Pi 按内置规则解析。
         public static bool TryGetEnvironmentVariableName(string provider, out string variableName)
         {
             switch (NormalizeProvider(provider))
             {
                 case "openai": variableName = "OPENAI_API_KEY"; return true;
                 case "anthropic": variableName = "ANTHROPIC_API_KEY"; return true;
-                case "google": variableName = "GOOGLE_API_KEY"; return true;
+                case "google": variableName = "GEMINI_API_KEY"; return true;
                 case "openrouter": variableName = "OPENROUTER_API_KEY"; return true;
-                case "azure_openai": variableName = "AZURE_OPENAI_API_KEY"; return true;
-                case "deepseek":
-                case "custom_deepseek": variableName = "DEEPSEEK_API_KEY"; return true;
-                case "ollama": variableName = null; return true;
+                case "deepseek": variableName = "DEEPSEEK_API_KEY"; return true;
+                case "kimi":
+                case "kimi-coding": variableName = "KIMI_API_KEY"; return true;
                 default: variableName = null; return false;
             }
         }

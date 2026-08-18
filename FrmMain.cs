@@ -65,7 +65,6 @@ namespace Automation
         private readonly ProcessTraceAuditSink processTraceAuditSink;
         private readonly DataBreakpointService dataBreakpointService;
         private RuntimeBlackBoxRecorder runtimeBlackBoxRecorder;
-        private readonly AutomationMcpServerManager automationMcpServerManager = new AutomationMcpServerManager();
         private bool platformInitializationStarted;
         private bool platformInitialized;
         private bool allowFinalClose;
@@ -310,8 +309,6 @@ namespace Automation
             ai_panel.Width = Math.Min(Math.Max(minimumAiWidth, preferredWidth), maximumWidth);
         }
 
-        public AutomationMcpServerManager McpServerManager => automationMcpServerManager;
-
         internal RuntimeBlackBoxRecorder RuntimeBlackBoxRecorder => runtimeBlackBoxRecorder;
 
         public void ShowRuntimeDiagnostics()
@@ -380,7 +377,6 @@ namespace Automation
             catch (InvalidOperationException)
             {
             }
-            automationMcpServerManager.StopRuntimeDiagnostic();
             RuntimeBlackBoxRecorder recorder = runtimeBlackBoxRecorder;
             runtimeBlackBoxRecorder = null;
             Runtime.RuntimeBlackBoxRecorder = null;
@@ -443,29 +439,28 @@ namespace Automation
             }
             try
             {
-                if (!GooseConfigStorage.TryLoad(out GooseConfig aiConfig, out string aiConfigError))
+                if (!AiConfigStorage.TryLoad(out AiConfig aiConfig, out string aiConfigError))
                 {
                     ReportAiInfrastructureUnavailable("EW-AI 配置不可用：" + aiConfigError);
                     return;
                 }
-                if (!GooseRuntimeEnvironment.TryValidate(aiConfig.GooseExecutablePath, out string runtimeError))
+                if (!PiRuntimeEnvironment.TryValidate(aiConfig.AgentExecutablePath, out string runtimeError))
                 {
                     ReportAiInfrastructureUnavailable(runtimeError);
                     return;
                 }
-                if (!GooseConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
+                if (!AiConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
                 {
                     ReportAiInfrastructureUnavailable(aiSafetyError);
                     return;
                 }
-                if (!GooseRuntimeProvisioner.IsManagedContextAvailable
-                    && !GooseRuntimeProvisioner.TryEnsureManagedContext(out string contextError))
+                if (!PiContextProvisioner.IsManagedContextAvailable
+                    && !PiContextProvisioner.TryEnsureManagedContext(out string contextError))
                 {
                     ReportAiInfrastructureUnavailable(contextError);
                     return;
                 }
                 automationBridgeHost.Start();
-                StartMcpServerOnStartup();
             }
             catch (Exception ex)
             {
@@ -486,51 +481,7 @@ namespace Automation
                 frmInfo.PrintInfo(scopedMessage, FrmInfo.Level.Error);
             }
         }
-        
-        private async void StartMcpServerOnStartup()
-        {
-            string baseUri = GooseConfigStorage.CreateDefaultConfig().McpUri;
-            string toolProfile = GooseConfigStorage.CreateDefaultConfig().ToolProfile;
-            string toolMode = GooseConfigStorage.DefaultToolMode;
-            if (GooseConfigStorage.TryLoad(out GooseConfig config, out string loadError))
-            {
-                baseUri = config.McpUri;
-                toolProfile = config.ToolProfile;
-                toolMode = config.ToolMode ?? GooseConfigStorage.DefaultToolMode;
-            }
-            else if (frmInfo != null && !frmInfo.IsDisposed)
-            {
-                frmInfo.PrintInfo($"MCP Server：EW-AI 配置读取失败，使用默认 MCP 地址。{loadError}", FrmInfo.Level.Error);
-            }
 
-            // Cli 模式不启动 MCP HTTP 实例；AI 会话经 shell 调用 Automation.McpServer.exe cli 直连 Bridge。
-            if (string.Equals(toolMode, GooseConfigStorage.ToolModeCli, StringComparison.Ordinal))
-            {
-                if (frmInfo != null && !frmInfo.IsDisposed)
-                {
-                    frmInfo.PrintInfo("MCP Server：当前为 Cli 工具接入模式，跳过 MCP HTTP 实例启动。", FrmInfo.Level.Normal);
-                }
-                return;
-            }
-
-            try
-            {
-                string result = await automationMcpServerManager.EnsureStartedAsync(baseUri, toolProfile).ConfigureAwait(true);
-                if (frmInfo != null && !frmInfo.IsDisposed)
-                {
-                    frmInfo.PrintInfo("MCP Server：" + result, FrmInfo.Level.Normal);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (frmInfo != null && !frmInfo.IsDisposed)
-                {
-                    frmInfo.PrintInfo("MCP Server 启动失败：" + ex.Message, FrmInfo.Level.Error);
-                }
-            }
-        }
-
-    
         public void Monitor()
         {
             Runtime.Devices?.StartAxisMonitor();
@@ -1489,22 +1440,14 @@ namespace Automation
             catch
             {
             }
-            // 必须先释放 Goose 客户端：Kill Goose 进程后，后台读取线程不再调用
-            // HandlePermissionRequest 的同步 Invoke，避免与已阻塞的 UI 线程形成死锁导致程序关闭卡住。
+            // 必须先释放 Pi 客户端：Kill Pi 进程后，后台读取线程不再向 UI 线程投递事件，
+            // 避免与关闭中的 UI 线程形成互锁导致程序关闭卡住。
             try
             {
-                frmAiAssistant?.DisposeGooseClient();
+                frmAiAssistant?.DisposeAiClient();
             }
             catch
             {
-            }
-            try
-            {
-                automationMcpServerManager?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                dataRun?.Logger?.Log($"关闭 MCP Server 失败:{ex.Message}", LogLevel.Error);
             }
             try
             {

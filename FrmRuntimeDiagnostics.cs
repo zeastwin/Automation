@@ -29,7 +29,7 @@ namespace Automation
         private readonly Label fallbackMessage;
         private readonly System.Windows.Forms.Timer refreshTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         private CoreWebView2 coreWebView;
-        private GooseAcpClient client;
+        private PiRpcClient client;
         private CancellationTokenSource analysisCts;
         private bool pageReady;
         private bool webAvailable = true;
@@ -288,21 +288,18 @@ namespace Automation
             try
             {
                 owner.EnsureAiInfrastructureStarted();
-                if (!GooseConfigStorage.TryLoad(out GooseConfig stored, out string configError))
+                if (!AiConfigStorage.TryLoad(out AiConfig stored, out string configError))
                 {
                     throw new InvalidOperationException(configError);
                 }
-                string diagnosticMcpUri = await owner.McpServerManager
-                    .EnsureRuntimeDiagnosticStartedAsync().ConfigureAwait(true);
-                GooseConfig config = CreateDiagnosticConfig(stored, diagnosticMcpUri);
+                AiConfig config = CreateDiagnosticConfig(stored);
 
-                client = new GooseAcpClient(owner.Runtime, config);
-                client.PermissionRequestHandler = HandlePermissionRequest;
+                client = new PiRpcClient(owner.Runtime, config);
                 client.EventReceived += HandleAcpEvent;
                 PostAnalysisState(true, "正在分析…", "working", false);
                 await client.PromptAsync(
                     BuildDiagnosticPrompt(procIndex, symptom),
-                    Array.Empty<GooseFileAttachment>(),
+                    Array.Empty<AiFileAttachment>(),
                     analysisCts.Token).ConfigureAwait(true);
                 string finalResponse = client.LastAssistantResponse;
                 if (!reportHasContent && !string.IsNullOrWhiteSpace(finalResponse))
@@ -338,27 +335,21 @@ namespace Automation
             }
         }
 
-        private static GooseConfig CreateDiagnosticConfig(GooseConfig source, string diagnosticMcpUri)
+        // 诊断会话固定 RuntimeDiagnostic Profile；独立 PI_CODING_AGENT_DIR 与
+        // 单 Skill 挂载由 PiRpcClient 按 ToolProfile 装配。
+        private static AiConfig CreateDiagnosticConfig(AiConfig source)
         {
-            return new GooseConfig
+            return new AiConfig
             {
-                GooseExecutablePath = source.GooseExecutablePath,
+                AgentExecutablePath = source.AgentExecutablePath,
                 WorkingDirectory = source.WorkingDirectory,
-                McpUri = diagnosticMcpUri,
                 SessionName = "runtime_diagnostics_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"),
                 Provider = source.Provider,
                 Model = source.Model,
                 ModelServiceId = source.ModelServiceId,
-                ModelServices = GooseConfigStorage.CloneModelServices(source.ModelServices),
-                Temperature = source.Temperature,
-                MaxTurns = source.MaxTurns,
+                ModelServices = AiConfigStorage.CloneModelServices(source.ModelServices),
                 MaxOutputTokens = source.MaxOutputTokens,
-                ToolCallCutoff = source.ToolCallCutoff,
-                AutoApproveMode = false,
-                ToolProfile = "RuntimeDiagnostic",
-                // 运行诊断会话使用独立的 runtime_diagnostic MCP 实例，不随编辑器 ToolMode 切换。
-                ToolMode = GooseConfigStorage.ToolModeTools,
-                SkillsProjectOnly = source.SkillsProjectOnly
+                ToolProfile = "RuntimeDiagnostic"
             };
         }
 
@@ -381,14 +372,14 @@ namespace Automation
 本报告用于工程师定位根因，不提供自动恢复、重新启动、变量写入或配置修改方案。";
         }
 
-        private void HandleAcpEvent(GooseAcpEvent item)
+        private void HandleAcpEvent(PiRpcEvent item)
         {
             if (item == null || IsDisposed) return;
             if (InvokeRequired)
             {
                 try
                 {
-                    BeginInvoke(new Action<GooseAcpEvent>(HandleAcpEvent), item);
+                    BeginInvoke(new Action<PiRpcEvent>(HandleAcpEvent), item);
                 }
                 catch (InvalidOperationException)
                 {
@@ -409,26 +400,6 @@ namespace Automation
             {
                 PostAnalysisState(true, item.Text ?? "AI 运行异常", "danger", false);
             }
-        }
-
-        private static JObject HandlePermissionRequest(JObject request)
-        {
-            JToken toolCall = request?["toolCall"];
-            string extensionName = toolCall?["_meta"]?["goose"]?["toolCall"]?["extensionName"]?.Value<string>()
-                ?? toolCall?["extensionName"]?.Value<string>()
-                ?? string.Empty;
-            string toolName = toolCall?["_meta"]?["goose"]?["toolCall"]?["toolName"]?.Value<string>()
-                ?? toolCall?["name"]?.Value<string>()
-                ?? string.Empty;
-            bool automationTool = string.Equals(extensionName, "automation", StringComparison.OrdinalIgnoreCase)
-                || toolName.IndexOf("automation__", StringComparison.OrdinalIgnoreCase) >= 0;
-            return new JObject
-            {
-                ["outcome"] = new JObject
-                {
-                    ["outcome"] = automationTool ? "allowed" : "cancelled"
-                }
-            };
         }
 
         private void PostAnalysisState(bool running, string status, string tone, bool clearReport)

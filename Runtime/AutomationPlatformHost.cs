@@ -882,9 +882,9 @@ namespace Automation
             {
                 throw new InvalidDataException($"程序配置初始化失败:{appConfigError}");
             }
-            if (!GooseConfigStorage.TryLoad(out _, out string gooseConfigError))
+            if (!AiConfigStorage.TryLoad(out _, out string aiConfigError))
             {
-                throw new InvalidDataException($"AI 配置初始化失败:{gooseConfigError}");
+                throw new InvalidDataException($"AI 配置初始化失败:{aiConfigError}");
             }
 
             string workRoot = Path.Combine(ConfigRoot, "Work");

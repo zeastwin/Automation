@@ -29,27 +29,27 @@ namespace Automation
                 return false;
             }
 
-            // EW-AI 是平台辅助能力。固定 Git 或 Goose 缺失时，
+            // EW-AI 是平台辅助能力。固定 Git 或 Pi 缺失时，
             // 跳过其配置与上下文部署，避免辅助组件影响 HMI 和生产流程启动。
-            if (!System.IO.File.Exists(GooseRuntimeEnvironment.MachineGitExecutablePath)
-                || !System.IO.File.Exists(GooseRuntimeEnvironment.MachineGooseExecutablePath))
+            if (!System.IO.File.Exists(PiRuntimeEnvironment.MachineGitExecutablePath)
+                || !System.IO.File.Exists(PiRuntimeEnvironment.MachinePiExecutablePath))
             {
                 return true;
             }
-            if (!GooseConfigStorage.TryLoad(out GooseConfig aiConfig, out string aiConfigError))
+            if (!AiConfigStorage.TryLoad(out AiConfig aiConfig, out string aiConfigError))
             {
                 startupWarnings.Add(aiConfigError);
                 return true;
             }
-            if (!GooseRuntimeEnvironment.TryValidate(aiConfig.GooseExecutablePath, out _))
+            if (!PiRuntimeEnvironment.TryValidate(aiConfig.AgentExecutablePath, out _))
             {
                 return true;
             }
-            if (!GooseConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
+            if (!AiConfigStorage.TryApplyStartupSafetyDefaults(out string aiSafetyError))
             {
                 startupWarnings.Add(aiSafetyError);
             }
-            if (!GooseRuntimeProvisioner.TryEnsureManagedContext(out string contextMessage))
+            if (!PiContextProvisioner.TryEnsureManagedContext(out string contextMessage))
             {
                 startupWarnings.Add(contextMessage);
             }

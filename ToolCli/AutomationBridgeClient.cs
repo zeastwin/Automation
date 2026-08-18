@@ -1,0 +1,859 @@
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using Automation.Protocol;
+
+namespace Automation.ToolCli
+{
+    internal sealed class AutomationBridgeClient : IDisposable
+    {
+        private const int MaxRequestBytes = 1024 * 1024;
+        private const int MaxResponseBytes = 8 * 1024 * 1024;
+        // 与主程序 Bridge 的固定命名管道契约，超时与原 HTTP 形态默认值一致。
+        private const string BridgePipeName = "AutomationBridgePipe";
+        private const int BridgeTimeoutMs = 120000;
+        private readonly JsonSerializerOptions jsonOptions;
+
+        public AutomationBridgeClient()
+        {
+            jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                WriteIndented = false
+            };
+        }
+
+        // ===================== 工具方法（40 个） =====================
+        // 每个方法对应一个 Bridge 端点，参数即工具结构化参数，不再通过 action+params 路由。
+        // op_meta 和 list_resources 仍为合并工具（通过 action 分发），其余为独立工具。
+
+        // ---------- proc_query 拆分（7 个） ----------
+
+        public Task<string> ListProcsAsync(bool? includeStepSummary = null)
+        {
+            JsonObject payload = new JsonObject();
+            if (includeStepSummary.HasValue) payload["includeStepSummary"] = includeStepSummary.Value;
+            return PostAsync("/bridge/proc/list", payload);
+        }
+
+        public Task<string> SearchProcCatalogAsync(string? keyword, int? offset, int? limit,
+            bool? includeStepSummary)
+        {
+            JsonObject payload = new JsonObject();
+            if (!string.IsNullOrEmpty(keyword)) payload["keyword"] = keyword;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            if (includeStepSummary.HasValue) payload["includeStepSummary"] = includeStepSummary.Value;
+            return PostAsync("/bridge/proc/list", payload);
+        }
+
+        public Task<string> GetProcOverviewAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/overview", payload);
+        }
+
+        public Task<string> GetProcDetailAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/detail", payload);
+        }
+
+        public Task<string> GetFlowGraphAsync(FlowGraphScope scope, int? procIndex)
+        {
+            var payload = new JsonObject
+            {
+                ["scope"] = scope == FlowGraphScope.Project ? "project" : "process"
+            };
+            if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
+            return PostAsync("/bridge/proc/flow_graph", payload);
+        }
+
+        public Task<string> GetOpDetailAsync(int procIndex, int stepIndex, int opIndex)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["stepIndex"] = stepIndex,
+                ["opIndex"] = opIndex
+            };
+            return PostAsync("/bridge/proc/op_detail", payload);
+        }
+
+        public Task<string> GetOpDetailsAsync(int procIndex, IReadOnlyList<string> opIds)
+        {
+            var idArray = new JsonArray();
+            if (opIds != null)
+            {
+                foreach (string opId in opIds)
+                {
+                    idArray.Add(opId);
+                }
+            }
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["opIds"] = idArray
+            };
+            return PostAsync("/bridge/proc/op_details", payload);
+        }
+
+        public Task<string> GetStepDetailAsync(int procIndex, int stepIndex, int? opOffset, int? opLimit)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["stepIndex"] = stepIndex
+            };
+            if (opOffset.HasValue) payload["opOffset"] = opOffset.Value;
+            if (opLimit.HasValue) payload["opLimit"] = opLimit.Value;
+            return PostAsync("/bridge/proc/step_detail", payload);
+        }
+
+        public Task<string> SearchOpsAsync(
+            int? procIndex,
+            string? operaType,
+            string? keyword,
+            int? offset,
+            int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
+            if (!string.IsNullOrEmpty(operaType)) payload["operaType"] = operaType;
+            if (!string.IsNullOrEmpty(keyword)) payload["keyword"] = keyword;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/proc/search", payload);
+        }
+
+        public Task<string> GetSnapshotAsync(int? procIndex, int? offset, int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (procIndex.HasValue) payload["procIndex"] = procIndex.Value;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/proc/snapshot", payload);
+        }
+
+        public Task<string> WaitForProcStateAsync(int procIndex, string[]? states, int? timeoutMs)
+        {
+            var payload = new JsonObject { ["procIndex"] = procIndex };
+            if (states != null)
+            {
+                var values = new JsonArray();
+                foreach (string state in states) values.Add(state);
+                payload["states"] = values;
+            }
+            if (timeoutMs.HasValue) payload["timeoutMs"] = timeoutMs.Value;
+            return PostAsync("/bridge/proc/wait_state", payload);
+        }
+
+        public Task<string> RunProcTestAsync(int procIndex, int? durationMs)
+        {
+            var payload = new JsonObject { ["procIndex"] = procIndex };
+            if (durationMs.HasValue) payload["durationMs"] = durationMs.Value;
+            return PostAsync("/bridge/proc/test_run", payload);
+        }
+
+        // ---------- proc_diagnose 拆分（3 个） ----------
+
+        public Task<string> GetInfoLogTailAsync(int? maxCount)
+        {
+            JsonObject payload = new JsonObject();
+            if (maxCount.HasValue) payload["maxCount"] = maxCount.Value;
+            return PostAsync("/bridge/proc/log_tail", payload);
+        }
+
+        public Task<string> DiagnoseProcAsync(int procIndex, int? findingOffset, int? findingLimit)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (findingOffset.HasValue) payload["findingOffset"] = findingOffset.Value;
+            if (findingLimit.HasValue) payload["findingLimit"] = findingLimit.Value;
+            return PostAsync("/bridge/proc/diagnose", payload);
+        }
+
+        public Task<string> ValidateProcAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/validate", payload);
+        }
+
+        public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet, string? replacePreviewId)
+        {
+            JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
+                ?? throw new ArgumentException("语义变更集不能为 null。", nameof(changeSet));
+            var payload = new JsonObject
+            {
+                ["changeSet"] = changeSetNode
+            };
+            if (!string.IsNullOrWhiteSpace(replacePreviewId))
+            {
+                ValidatePreviewId(replacePreviewId);
+                payload["replacePreviewId"] = replacePreviewId;
+            }
+            return PostAsync("/bridge/change-set/preview", payload);
+        }
+
+        public Task<string> GetNativeOperationContractsAsync(string[] operaTypes)
+        {
+            return PostAsync("/bridge/change-set/native-contracts", new JsonObject
+            {
+                ["operaTypes"] = JsonSerializer.SerializeToNode(operaTypes, jsonOptions)
+            });
+        }
+
+        public Task<string> GetSemanticOperationContractsAsync(string[] kinds)
+        {
+            return PostAsync("/bridge/change-set/contracts", new JsonObject
+            {
+                ["kinds"] = JsonSerializer.SerializeToNode(kinds, jsonOptions)
+            });
+        }
+
+        public Task<string> ApplyChangeSetAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/change-set/apply", new JsonObject
+            {
+                ["previewId"] = previewId
+            });
+        }
+
+        public Task<string> DiscardChangeSetPreviewAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/previews/reject", new JsonObject
+            {
+                ["previewId"] = previewId
+            });
+        }
+
+        // ---------- control_proc 拆分（4 个） ----------
+
+        public Task<string> StartProcAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/start", payload);
+        }
+
+        public Task<string> StopProcAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/stop", payload);
+        }
+
+        public Task<string> PauseProcAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/pause", payload);
+        }
+
+        public Task<string> ResumeProcAsync(int procIndex)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            return PostAsync("/bridge/proc/resume", payload);
+        }
+
+        // ---------- variable 单对象读写 ----------
+
+        public Task<string> ListVariablesAsync(
+            string? type, string? nameLike, string? scope, string? ownerProcId, int? offset, int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (!string.IsNullOrEmpty(type)) payload["type"] = type;
+            if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (!string.IsNullOrEmpty(scope)) payload["scope"] = scope;
+            if (!string.IsNullOrEmpty(ownerProcId)) payload["ownerProcId"] = ownerProcId;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/variable/list", payload);
+        }
+
+        public Task<string> GetVariableAsync(string? name, int? index)
+        {
+            JsonObject payload = new JsonObject();
+            if (!string.IsNullOrEmpty(name)) payload["name"] = name;
+            if (index.HasValue) payload["index"] = index.Value;
+            return PostAsync("/bridge/variable/get", payload);
+        }
+
+        public Task<string> SetVariableAsync(string value, string? name, int? index)
+        {
+            JsonObject payload = new JsonObject { ["value"] = value };
+            if (!string.IsNullOrEmpty(name)) payload["name"] = name;
+            if (index.HasValue) payload["index"] = index.Value;
+            return PostAsync("/bridge/variable/set", payload);
+        }
+
+        public Task<string> DeleteVariableAsync(string name)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            return PostAsync("/bridge/variable/delete", payload);
+        }
+
+        public Task<string> AddVariableAsync(
+            string name, string scope, string? ownerProcId, string type, string? value, string? note, int? index)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name, ["scope"] = scope, ["type"] = type };
+            if (!string.IsNullOrEmpty(ownerProcId)) payload["ownerProcId"] = ownerProcId;
+            if (value != null) payload["value"] = value;
+            if (note != null) payload["note"] = note;
+            if (index.HasValue) payload["index"] = index.Value;
+            return PostAsync("/bridge/variable/add", payload);
+        }
+
+        public Task<string> UpdateVariableAsync(
+            string name,
+            string? newName,
+            string? type,
+            string? value,
+            string? note,
+            string? scope,
+            string? ownerProcId,
+            int? index)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            if (newName != null) payload["newName"] = newName;
+            if (type != null) payload["type"] = type;
+            if (value != null) payload["value"] = value;
+            if (note != null) payload["note"] = note;
+            if (scope != null) payload["scope"] = scope;
+            if (ownerProcId != null) payload["ownerProcId"] = ownerProcId;
+            if (index.HasValue) payload["index"] = index.Value;
+            return PostAsync("/bridge/variable/update", payload);
+        }
+
+        // ---------- station 精确读取（2 个） ----------
+
+        public Task<string> ListStationsAsync()
+        {
+            JsonObject payload = new JsonObject();
+            return PostAsync("/bridge/station/list", payload);
+        }
+
+        public Task<string> GetStationAsync(int stationIndex)
+        {
+            JsonObject payload = new JsonObject { ["stationIndex"] = stationIndex };
+            return PostAsync("/bridge/station/get", payload);
+        }
+
+        // ---------- point 精确读取（2 个） ----------
+
+        public Task<string> ListPointsAsync(int stationIndex)
+        {
+            JsonObject payload = new JsonObject { ["stationIndex"] = stationIndex };
+            return PostAsync("/bridge/point/list", payload);
+        }
+
+        public Task<string> GetPointAsync(int stationIndex, int index)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["stationIndex"] = stationIndex,
+                ["index"] = index
+            };
+            return PostAsync("/bridge/point/get", payload);
+        }
+
+        // ---------- alarm 拆分（4 个） ----------
+
+        public Task<string> ListAlarmsAsync(bool? includeEmpty, string? categoryLike, string? nameLike,
+            int? offset, int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (includeEmpty.HasValue) payload["includeEmpty"] = includeEmpty.Value;
+            if (!string.IsNullOrEmpty(categoryLike)) payload["categoryLike"] = categoryLike;
+            if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/alarm/list", payload);
+        }
+
+        public Task<string> FindReferencesAsync(string referenceType, string value, string? fieldName,
+            int? procOffset, int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["referenceType"] = referenceType,
+                ["value"] = value
+            };
+            if (!string.IsNullOrEmpty(fieldName)) payload["fieldName"] = fieldName;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/references", payload);
+        }
+
+        public Task<string> GetOperationReferencesAsync(int procIndex, string opId, int? procOffset,
+            int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["opId"] = opId
+            };
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/operation_references", payload);
+        }
+
+        public Task<string> GetProcReferencesAsync(int procIndex, int? procOffset, int? procLimit,
+            int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/proc_references", payload);
+        }
+
+        public Task<string> TraceResourceAsync(string name, string? resourceKind, int? procOffset,
+            int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            if (!string.IsNullOrEmpty(resourceKind)) payload["resourceKind"] = resourceKind;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/trace_resource", payload);
+        }
+
+        public Task<string> SearchOperationFieldsAsync(string query, string? matchMode, string? fieldName,
+            string? operaType, int? procOffset, int? procLimit, int? resultLimit)
+        {
+            JsonObject payload = new JsonObject { ["query"] = query };
+            if (!string.IsNullOrEmpty(matchMode)) payload["matchMode"] = matchMode;
+            if (!string.IsNullOrEmpty(fieldName)) payload["fieldName"] = fieldName;
+            if (!string.IsNullOrEmpty(operaType)) payload["operaType"] = operaType;
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (resultLimit.HasValue) payload["resultLimit"] = resultLimit.Value;
+            return PostAsync("/bridge/diagnostics/search_fields", payload);
+        }
+
+        public Task<string> GetOperationContextAsync(int procIndex, int stepIndex, int opIndex, int? radius)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["procIndex"] = procIndex,
+                ["stepIndex"] = stepIndex,
+                ["opIndex"] = opIndex
+            };
+            if (radius.HasValue) payload["radius"] = radius.Value;
+            return PostAsync("/bridge/diagnostics/context", payload);
+        }
+
+        public Task<string> AuditProcBatchAsync(int? procOffset, int? procLimit, int? findingLimit)
+        {
+            JsonObject payload = new JsonObject();
+            if (procOffset.HasValue) payload["procOffset"] = procOffset.Value;
+            if (procLimit.HasValue) payload["procLimit"] = procLimit.Value;
+            if (findingLimit.HasValue) payload["findingLimit"] = findingLimit.Value;
+            return PostAsync("/bridge/diagnostics/audit", payload);
+        }
+
+        public Task<string> DiagnoseIssueAsync(
+            int procIndex,
+            string? symptom,
+            int? stepIndex,
+            int? opIndex,
+            int? evidenceOffset,
+            int? evidenceLimit)
+        {
+            JsonObject payload = new JsonObject { ["procIndex"] = procIndex };
+            if (!string.IsNullOrEmpty(symptom)) payload["symptom"] = symptom;
+            if (stepIndex.HasValue) payload["stepIndex"] = stepIndex.Value;
+            if (opIndex.HasValue) payload["opIndex"] = opIndex.Value;
+            if (evidenceOffset.HasValue) payload["evidenceOffset"] = evidenceOffset.Value;
+            if (evidenceLimit.HasValue) payload["evidenceLimit"] = evidenceLimit.Value;
+            return PostAsync("/bridge/diagnostics/issue", payload);
+        }
+
+        public Task<string> GetAlarmAsync(int index)
+        {
+            JsonObject payload = new JsonObject { ["index"] = index };
+            return PostAsync("/bridge/alarm/get", payload);
+        }
+
+        public Task<string> SetAlarmAsync(int index, string name, string note, string? category, string? btn1,
+            string? btn2, string? btn3, bool? allowOverwrite)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["index"] = index,
+                ["name"] = name,
+                ["note"] = note
+            };
+            if (category != null) payload["category"] = category;
+            if (btn1 != null) payload["btn1"] = btn1;
+            if (btn2 != null) payload["btn2"] = btn2;
+            if (btn3 != null) payload["btn3"] = btn3;
+            if (allowOverwrite.HasValue) payload["allowOverwrite"] = allowOverwrite.Value;
+            return PostAsync("/bridge/alarm/set", payload);
+        }
+
+        public Task<string> SetAlarmAsync(int index, string name, string note, string? category,
+            string? btn1, string? btn2, string? btn3)
+        {
+            return SetAlarmAsync(index, name, note, category, btn1, btn2, btn3, null);
+        }
+
+        public Task<string> DeleteAlarmAsync(int index)
+        {
+            JsonObject payload = new JsonObject { ["index"] = index };
+            return PostAsync("/bridge/alarm/delete", payload);
+        }
+
+        // ---------- data_struct 读取与整对象维护（5 个） ----------
+
+        public Task<string> ListDataStructsAsync()
+        {
+            JsonObject payload = new JsonObject();
+            return PostAsync("/bridge/data_struct/list", payload);
+        }
+
+        public Task<string> GetDataStructAsync(string name)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            return PostAsync("/bridge/data_struct/get", payload);
+        }
+
+        public Task<string> SearchDataStructsAsync(string name, string? itemNameLike, string? strValueLike, double? numValueMin, double? numValueMax, int? limit)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            if (!string.IsNullOrEmpty(itemNameLike)) payload["itemNameLike"] = itemNameLike;
+            if (!string.IsNullOrEmpty(strValueLike)) payload["strValueLike"] = strValueLike;
+            if (numValueMin.HasValue) payload["numValueMin"] = numValueMin.Value;
+            if (numValueMax.HasValue) payload["numValueMax"] = numValueMax.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/data_struct/search", payload);
+        }
+
+        public Task<string> UpsertDataStructAsync(DataStructDefinition definition)
+        {
+            return PostAsync("/bridge/data_struct/upsert", new { definition });
+        }
+
+        public Task<string> DeleteDataStructAsync(string name)
+        {
+            return PostAsync("/bridge/data_struct/delete", new { name });
+        }
+
+        // ---------- migration configuration ----------
+
+        public Task<string> GetMigrationConfigurationAsync(string domain)
+        {
+            return PostAsync("/bridge/migration/get", new { domain });
+        }
+
+        public Task<string> PreviewMotionIoConfigurationAsync(MotionIoMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/motion-io/preview", new { definition });
+        }
+
+        public Task<string> PreviewIoDebugConfigurationAsync(IoDebugMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/io-debug/preview", new { definition });
+        }
+
+        public Task<string> PreviewPlcConfigurationAsync(PlcMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/plc/preview", new { definition });
+        }
+
+        public Task<string> PreviewCommunicationConfigurationAsync(CommunicationMigrationDefinition definition)
+        {
+            return PostAsync("/bridge/migration/communication/preview", new { definition });
+        }
+
+        public Task<string> ApplyMigrationConfigurationAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/migration/apply", new { previewId });
+        }
+
+        public Task<string> DiscardMigrationConfigurationAsync(string previewId)
+        {
+            ValidatePreviewId(previewId);
+            return PostAsync("/bridge/previews/reject", new { previewId });
+        }
+
+        public Task<string> ValidatePlatformConfigurationAsync()
+        {
+            return PostAsync("/bridge/migration/validate", new { });
+        }
+
+        // ---------- io 拆分（4 个） ----------
+
+        public Task<string> ListIoAsync(string? type, string? nameLike, int? offset, int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (!string.IsNullOrEmpty(type)) payload["type"] = type;
+            if (!string.IsNullOrEmpty(nameLike)) payload["nameLike"] = nameLike;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/io/list", payload);
+        }
+
+        public Task<string> GetIoAsync(string name)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            return PostAsync("/bridge/io/get", payload);
+        }
+
+        public Task<string> SearchIoAsync(
+            string? keyword,
+            string? type,
+            int? cardNum,
+            int? offset,
+            int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (keyword != null) payload["keyword"] = keyword;
+            if (!string.IsNullOrEmpty(type)) payload["type"] = type;
+            if (cardNum.HasValue) payload["cardNum"] = cardNum.Value;
+            if (offset.HasValue) payload["offset"] = offset.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/io/search", payload);
+        }
+
+        public Task<string> GetIoStateAsync(string name)
+        {
+            JsonObject payload = new JsonObject { ["name"] = name };
+            return PostAsync("/bridge/io/state", payload);
+        }
+
+        // ---------- 合并工具（保留 2 个） ----------
+
+        public Task<string> OpMetaAsync(string action, JsonNode? parameters = null)
+        {
+            JsonObject payload = new JsonObject { ["action"] = action };
+            if (parameters != null) payload["params"] = parameters;
+            return PostAsync("/bridge/op/meta", payload);
+        }
+
+        public Task<string> ListResourcesAsync(string action, JsonNode? parameters = null)
+        {
+            JsonObject payload = new JsonObject { ["action"] = action };
+            if (parameters != null) payload["params"] = parameters;
+            return PostAsync("/bridge/resources", payload);
+        }
+
+        public Task<string> GetCommunicationAsync(string name, string? kind, bool? includeStatus)
+        {
+            var parameters = new JsonObject { ["name"] = name };
+            if (!string.IsNullOrEmpty(kind)) parameters["kind"] = kind;
+            if (includeStatus.HasValue) parameters["includeStatus"] = includeStatus.Value;
+            return ListResourcesAsync("communications", parameters);
+        }
+
+        public Task<string> ListPlcDevicesAsync()
+        {
+            return ListResourcesAsync("plc", new JsonObject { ["includeMaps"] = false });
+        }
+
+        public Task<string> GetPlcDeviceAsync(string name, bool? includeMaps)
+        {
+            var parameters = new JsonObject { ["name"] = name };
+            if (includeMaps.HasValue) parameters["includeMaps"] = includeMaps.Value;
+            return ListResourcesAsync("plc", parameters);
+        }
+
+        private Task<string> PostAsync(string path, object payload)
+        {
+            string json = JsonSerializer.Serialize(payload, jsonOptions);
+            return SendAsync("POST", path, json);
+        }
+
+        private static void ValidatePreviewId(string previewId)
+        {
+            if (string.IsNullOrWhiteSpace(previewId))
+            {
+                throw new ArgumentException("previewId 需要使用 preview_change_set 返回的32位编号。", nameof(previewId));
+            }
+
+            if (!Guid.TryParseExact(previewId, "N", out _))
+            {
+                throw new ArgumentException($"previewId 不是 preview_change_set 返回的32位编号：{previewId}", nameof(previewId));
+            }
+        }
+
+        private async Task<string> SendAsync(string method, string path, string payloadJson)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(BridgeTimeoutMs));
+            string stage = "connect";
+            string requestId = Guid.NewGuid().ToString("N");
+            ToolCallLogger.LogBridgeDispatch(requestId, method, path);
+            try
+            {
+                using var pipe = new NamedPipeClientStream(
+                    ".",
+                    BridgePipeName,
+                    PipeDirection.InOut,
+                    PipeOptions.Asynchronous);
+
+                await pipe.ConnectAsync(cts.Token).ConfigureAwait(false);
+                stage = "serialize_request";
+                string request = JsonSerializer.Serialize(new PipeRequestMessage
+                {
+                    RequestId = requestId,
+                    Method = method,
+                    Path = path,
+                    BodyJson = payloadJson ?? "{}"
+                }, jsonOptions);
+                if (Encoding.UTF8.GetByteCount(request) > MaxRequestBytes)
+                {
+                    return BuildBridgeError("REQUEST_TOO_LARGE", $"Bridge 请求超过 {MaxRequestBytes / 1024} KB 上限。", details: BuildStageDetails(stage, path, requestId));
+                }
+
+                stage = "write_request";
+                await WriteMessageAsync(pipe, request, cts.Token).ConfigureAwait(false);
+
+                stage = "read_response";
+                string? responseText = await ReadMessageAsync(pipe, cts.Token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(responseText))
+                {
+                    return BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}", details: BuildStageDetails(stage, path, requestId));
+                }
+
+                stage = "deserialize_response";
+                PipeResponseMessage? response = JsonSerializer.Deserialize<PipeResponseMessage>(responseText, jsonOptions);
+                if (response == null)
+                {
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应反序列化失败：{path}", details: BuildStageDetails(stage, path, requestId));
+                }
+
+                if (!string.IsNullOrWhiteSpace(response.RequestId)
+                    && !string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
+                {
+                    return BuildBridgeError("INVALID_RESPONSE", $"Bridge 响应 requestId 不匹配：{path}", details: BuildStageDetails(stage, path, requestId));
+                }
+
+                if (response.StatusCode >= 200 && response.StatusCode < 300)
+                {
+                    return string.IsNullOrWhiteSpace(response.BodyJson)
+                        ? BuildBridgeError("EMPTY_RESPONSE", $"Bridge 返回空响应：{path}", details: BuildStageDetails(stage, path, requestId))
+                        : response.BodyJson;
+                }
+
+                if (!string.IsNullOrWhiteSpace(response.BodyJson))
+                {
+                    return response.BodyJson;
+                }
+
+                return BuildBridgeError(
+                    "BRIDGE_ERROR",
+                    $"Bridge 调用失败：{path}",
+                    response.StatusCode,
+                    BuildStageDetails(stage, path, requestId));
+            }
+            catch (OperationCanceledException)
+            {
+                return BuildBridgeError(
+                    "TIMEOUT",
+                    $"Bridge 调用超时：{path}",
+                    details: $"stage={stage}; requestId={requestId}; pipeName={BridgePipeName}; timeoutMs={BridgeTimeoutMs}");
+            }
+            catch (Exception ex)
+            {
+                return BuildBridgeError(
+                    "REQUEST_ERROR",
+                    $"Bridge 调用异常：{path}",
+                    details: $"{BuildStageDetails(stage, path, requestId)}; error={ex.Message}");
+            }
+        }
+
+        private static async Task WriteMessageAsync(Stream stream, string text, CancellationToken cancellationToken)
+        {
+            byte[] payloadBuffer = Encoding.UTF8.GetBytes(text ?? string.Empty);
+            byte[] lengthBuffer = BitConverter.GetBytes(payloadBuffer.Length);
+            await stream.WriteAsync(lengthBuffer.AsMemory(0, lengthBuffer.Length), cancellationToken).ConfigureAwait(false);
+            if (payloadBuffer.Length > 0)
+            {
+                await stream.WriteAsync(payloadBuffer.AsMemory(0, payloadBuffer.Length), cancellationToken).ConfigureAwait(false);
+            }
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task<string> ReadMessageAsync(Stream stream, CancellationToken cancellationToken)
+        {
+            byte[] lengthBuffer = await ReadExactlyAsync(stream, sizeof(int), cancellationToken).ConfigureAwait(false);
+            int length = BitConverter.ToInt32(lengthBuffer, 0);
+            if (length < 0 || length > MaxResponseBytes)
+            {
+                throw new InvalidDataException($"Bridge 响应长度非法或超过 {MaxResponseBytes / 1024 / 1024} MB 上限。");
+            }
+            if (length == 0)
+            {
+                return string.Empty;
+            }
+
+            byte[] payloadBuffer = await ReadExactlyAsync(stream, length, cancellationToken).ConfigureAwait(false);
+            return Encoding.UTF8.GetString(payloadBuffer);
+        }
+
+        private static async Task<byte[]> ReadExactlyAsync(Stream stream, int length, CancellationToken cancellationToken)
+        {
+            byte[] buffer = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = await stream.ReadAsync(buffer.AsMemory(offset, length - offset), cancellationToken).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    throw new EndOfStreamException("Bridge 连接在读取响应时提前关闭。");
+                }
+                offset += read;
+            }
+            return buffer;
+        }
+
+        private string BuildStageDetails(string stage, string path, string requestId)
+        {
+            return $"stage={stage}; requestId={requestId}; pipeName={BridgePipeName}; path={path}";
+        }
+
+        private string BuildBridgeError(string code, string message, int? statusCode = null, string? details = null)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                ok = false,
+                type = "bridge.error",
+                errorCode = code,
+                message,
+                statusCode,
+                details
+            }, jsonOptions);
+        }
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class PipeRequestMessage
+        {
+            public string RequestId { get; set; } = string.Empty;
+
+            public string Method { get; set; } = string.Empty;
+
+            public string Path { get; set; } = string.Empty;
+
+            public string BodyJson { get; set; } = string.Empty;
+        }
+
+        private sealed class PipeResponseMessage
+        {
+            public string RequestId { get; set; } = string.Empty;
+
+            public int StatusCode { get; set; }
+
+            public string BodyJson { get; set; } = string.Empty;
+        }
+    }
+}
