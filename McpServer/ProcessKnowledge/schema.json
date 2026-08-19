@@ -63,13 +63,16 @@
               "interlock",
               "actuator",
               "motion",
+              "vision",
               "pick-place",
               "transfer",
               "identify",
               "transaction",
               "monitoring",
+              "quality",
               "recovery",
               "custom-function",
+              "composition",
               "review"
             ]
           }

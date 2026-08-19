@@ -161,6 +161,13 @@ namespace Automation
                 : value;
         }
 
+        // UTF-8 字节到 token 的粗估（约 3 字节/token）；仅用于上下文观测与诊断，不参与调度决策。
+        public static long EstimateTokensFromUtf8Bytes(long bytes)
+        {
+            if (bytes <= 0L) return 0L;
+            return (bytes + 2L) / 3L;
+        }
+
         private static JObject BuildShapeSummary(JToken value)
         {
             var shape = new JObject();

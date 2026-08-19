@@ -85,8 +85,10 @@ namespace Automation.Core.Tests
                     JObject replacement = PreviewProcess(service, "最终流程", firstPreviewId);
                     string replacementPreviewId = replacement["previewId"]?.Value<string>();
                     AssertExactProperties(replacement,
-                        "previewId", "confirmed", "status", "nextStep", "allowedTransitions", "expiresAt",
-                        "summary", "variableResolutions", "changes", "readinessStatus", "runnable",
+                        "previewId", "confirmed", "confirmedBy", "amendedPreviewId", "status", "nextStep",
+                        "allowedTransitions", "expiresAt",
+                        "summary", "variableResolutions", "changes", "createdObjects",
+                        "pendingItems", "processSnapshot", "readinessStatus", "runnable",
                         "warnings", "runBlockers", "stageIssues", "messages");
 
                     AutomationBridgeResponse replacedConfirmation = Confirm(service, firstPreviewId);
@@ -107,6 +109,7 @@ namespace Automation.Core.Tests
                     AssertExactProperties(applied,
                         "previewId", "configurationSaved", "status", "summary",
                         "variableResolutions", "affectedProcesses", "createdObjects",
+                        "pendingItems", "processSnapshot",
                         "readinessStatus", "runnable", "warnings", "runBlockers", "message");
                     Assert.AreEqual("最终流程", form.Runtime.Stores.Processes.Items[0].head.Name);
                     Assert.IsTrue(File.Exists(Path.Combine(directory.FullPath, "Work", "0.json")));
@@ -471,6 +474,218 @@ namespace Automation.Core.Tests
             }, TimeSpan.FromSeconds(20));
         }
 
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void PreviewAmend_AppendsIncrementalActionsAndCommitsCumulativeStage()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    var service = new AutomationBridgeService(form);
+                    AutomationBridgeResponse initialResponse = Preview(service, new JArray
+                    {
+                        CreateProcessAction("proc", "追加修正流程"),
+                        AppendStepAction("proc", "s1", "步骤一"),
+                        AppendOperationAction("proc", "s1", new JObject
+                        {
+                            ["key"] = "end",
+                            ["kind"] = "flow.end"
+                        })
+                    });
+                    Assert.AreEqual(200, initialResponse.StatusCode, initialResponse.Body);
+                    JObject initial = ReadData(initialResponse);
+                    string initialPreviewId = initial["previewId"]?.Value<string>();
+                    string procId = initial["createdObjects"]?["processes"]?[0]?["procId"]?.Value<string>();
+                    string stepId = initial["createdObjects"]?["steps"]?[0]?["stepId"]?.Value<string>();
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(procId), "预演响应必须暴露新建流程稳定ID。");
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(stepId), "预演响应必须暴露新建步骤稳定ID。");
+
+                    // 追加修正：只提交增量动作（在已冻结的步骤上追加一条指令），目标用预演返回的稳定ID。
+                    AutomationBridgeResponse amendResponse = service.Handle(
+                        "POST",
+                        "/bridge/change-set/preview",
+                        new JObject
+                        {
+                            ["changeSet"] = new JObject
+                            {
+                                ["version"] = 2,
+                                ["title"] = "追加修正",
+                                ["actions"] = new JArray
+                                {
+                                    AppendOperationAction(procId, stepId, new JObject
+                                    {
+                                        ["key"] = "amended_end",
+                                        ["kind"] = "flow.end"
+                                    }, useStableIds: true)
+                                }
+                            },
+                            ["amendPreviewId"] = initialPreviewId
+                        }.ToString(Formatting.None));
+                    Assert.AreEqual(200, amendResponse.StatusCode, amendResponse.Body);
+                    JObject amended = ReadData(amendResponse);
+                    string amendedPreviewId = amended["previewId"]?.Value<string>();
+                    Assert.AreEqual(initialPreviewId, amended["amendedPreviewId"]?.Value<string>());
+                    Assert.AreEqual(2, amended["createdObjects"]?["operations"]?.Count(),
+                        "追加修正必须继承原阶段全部新建对象。");
+                    Assert.AreEqual(2, amended["processSnapshot"]?[0]?["totalOps"]?.Value<int>(),
+                        "追加修正后的快照必须覆盖整个未提交阶段。");
+                    Assert.AreNotEqual(initialPreviewId, amendedPreviewId);
+
+                    AutomationBridgeResponse staleConfirmation = Confirm(service, initialPreviewId);
+                    Assert.AreEqual(409, staleConfirmation.StatusCode);
+                    Assert.AreEqual("PREVIEW_REJECTED",
+                        JObject.Parse(staleConfirmation.Body)["errorCode"]?.Value<string>());
+
+                    Assert.AreEqual(200, Confirm(service, amendedPreviewId).StatusCode);
+                    AutomationBridgeResponse apply = Apply(service, amendedPreviewId);
+                    Assert.AreEqual(200, apply.StatusCode, apply.Body);
+
+                    Assert.AreEqual(1, form.Runtime.Stores.Processes.Items.Count);
+                    Assert.AreEqual(2, form.Runtime.Stores.Processes.Items[0].steps[0].Ops.Count,
+                        "提交的必须是累积整个未提交阶段的冻结结果。");
+                }
+            }, TimeSpan.FromSeconds(30));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void ContinuationAutoApprove_ScopesToConfirmedProcessBatch()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    var service = new AutomationBridgeService(form);
+                    JObject first = PreviewProcess(service, "续建授权流程");
+                    string firstPreviewId = first["previewId"]?.Value<string>();
+                    AutomationBridgeResponse scopedConfirmation = Confirm(service, firstPreviewId, continueAutoApprove: true);
+                    Assert.AreEqual(200, scopedConfirmation.StatusCode);
+                    Assert.AreEqual(true, ReadData(scopedConfirmation)["continuationAutoApprove"]?.Value<bool>());
+                    AutomationBridgeResponse firstApply = Apply(service, firstPreviewId);
+                    Assert.AreEqual(200, firstApply.StatusCode, firstApply.Body);
+                    string procId = ReadData(firstApply)["createdObjects"]?["processes"]?[0]?["procId"]
+                        ?.Value<string>();
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(procId));
+
+                    // 只触及已授权流程的后续预演自动确认（首阶段无步骤，续建先补一个步骤）。
+                    AutomationBridgeResponse continuation = service.Handle(
+                        "POST",
+                        "/bridge/change-set/preview",
+                        new JObject
+                        {
+                            ["changeSet"] = new JObject
+                            {
+                                ["version"] = 2,
+                                ["title"] = "续建阶段",
+                                ["actions"] = new JArray
+                                {
+                                    new JObject
+                                    {
+                                        ["type"] = "step.append",
+                                        ["targetProcess"] = new JObject { ["procId"] = procId },
+                                        ["step"] = new JObject
+                                        {
+                                            ["key"] = "s2",
+                                            ["name"] = "续建步骤"
+                                        }
+                                    }
+                                }
+                            }
+                        }.ToString(Formatting.None));
+                    Assert.AreEqual(200, continuation.StatusCode, continuation.Body);
+                    JObject continuationData = ReadData(continuation);
+                    Assert.AreEqual(true, continuationData["confirmed"]?.Value<bool>(),
+                        "已授权流程批次内的续建预演必须自动确认。");
+                    Assert.AreEqual("continuation_auto_approve",
+                        continuationData["confirmedBy"]?.Value<string>());
+                    Assert.AreEqual(200, Apply(service, continuationData["previewId"]?.Value<string>()).StatusCode);
+
+                    // 触及授权批次之外的新流程仍需人工确认。
+                    JObject outsider = PreviewProcess(service, "未授权流程");
+                    Assert.AreEqual(false, outsider["confirmed"]?.Value<bool>());
+                    Assert.AreEqual("awaiting_foreground", outsider["confirmedBy"]?.Value<string>());
+
+                    // 手动取消任一预演即收回续建授权。
+                    AutomationBridgeResponse rejection = service.Handle(
+                        "POST", "/bridge/previews/reject",
+                        new JObject { ["previewId"] = outsider["previewId"]?.Value<string>() }
+                            .ToString(Formatting.None));
+                    Assert.AreEqual(200, rejection.StatusCode);
+                    JObject revoked = PreviewProcess(service, "再次新流程");
+                    Assert.AreEqual(false, revoked["confirmed"]?.Value<bool>(),
+                        "取消预演后续建自动确认必须失效。");
+                }
+            }, TimeSpan.FromSeconds(30));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void PendingItems_ExposePlaceholderAndEmptyGotoNavigation()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    var service = new AutomationBridgeService(form);
+                    AutomationBridgeResponse preview = Preview(service, new JArray
+                    {
+                        CreateProcessAction("pending", "待补齐导航流程"),
+                        AppendStepAction("pending", "s1", "步骤"),
+                        AppendOperationAction("pending", "s1", new JObject
+                        {
+                            ["key"] = "open_jump",
+                            ["kind"] = "flow.goto"
+                        }),
+                        AppendOperationAction("pending", "s1", new JObject
+                        {
+                            ["key"] = "unknown_action",
+                            ["kind"] = "config.placeholder",
+                            ["message"] = "等待用户确认气缸极性"
+                        })
+                    });
+                    Assert.AreEqual(200, preview.StatusCode, preview.Body);
+                    JObject data = ReadData(preview);
+
+                    JArray pendingItems = data["pendingItems"] as JArray;
+                    Assert.IsNotNull(pendingItems);
+                    CollectionAssert.AreEquivalent(
+                        new[] { "goto_target", "placeholder" },
+                        pendingItems.Select(item => item?["category"]?.Value<string>()).ToArray(),
+                        "留空跳转和占位指令必须作为结构化待补齐项返回。");
+                    JObject gotoItem = pendingItems.First(item =>
+                        string.Equals(item?["category"]?.Value<string>(), "goto_target")) as JObject;
+                    Assert.AreEqual("defaultGoto", gotoItem?["field"]?.Value<string>());
+                    Assert.AreEqual("operation.update", gotoItem?["repair"]?.Value<string>());
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(gotoItem?["opId"]?.Value<string>()),
+                        "待补齐项必须带稳定 opId 供后续定位。");
+                    JObject placeholderItem = pendingItems.First(item =>
+                        string.Equals(item?["category"]?.Value<string>(), "placeholder")) as JObject;
+                    StringAssert.Contains(
+                        placeholderItem?["reason"]?.Value<string>() ?? string.Empty, "气缸极性");
+
+                    JObject snapshot = (data["processSnapshot"] as JArray)?[0] as JObject;
+                    Assert.IsNotNull(snapshot);
+                    Assert.AreEqual(1, snapshot["totalSteps"]?.Value<int>());
+                    Assert.AreEqual(2, snapshot["totalOps"]?.Value<int>());
+                    Assert.AreEqual(2, (snapshot["steps"]?[0]?["ops"] as JArray)?.Count);
+                    Assert.AreEqual("incomplete", data["readinessStatus"]?.Value<string>());
+
+                    string previewId = data["previewId"]?.Value<string>();
+                    Assert.AreEqual(200, Confirm(service, previewId).StatusCode);
+                    AutomationBridgeResponse apply = Apply(service, previewId);
+                    Assert.AreEqual(200, apply.StatusCode, apply.Body);
+                    JObject applied = ReadData(apply);
+                    Assert.AreEqual(2, (applied["pendingItems"] as JArray)?.Count,
+                        "提交响应必须同样携带待补齐清单驱动下一阶段。");
+                    Assert.AreEqual(2, (applied["processSnapshot"] as JArray)?[0]?["totalOps"]?.Value<int>());
+                }
+            }, TimeSpan.FromSeconds(30));
+        }
+
         private static JObject PreviewProcess(
             AutomationBridgeService service,
             string processName,
@@ -585,10 +800,15 @@ namespace Automation.Core.Tests
 
         private static AutomationBridgeResponse Confirm(
             AutomationBridgeService service,
-            string previewId)
+            string previewId,
+            bool continueAutoApprove = false)
         {
-            return service.Handle("POST", "/bridge/previews/confirm",
-                new JObject { ["previewId"] = previewId }.ToString(Formatting.None));
+            var body = new JObject { ["previewId"] = previewId };
+            if (continueAutoApprove)
+            {
+                body["continueAutoApprove"] = true;
+            }
+            return service.Handle("POST", "/bridge/previews/confirm", body.ToString(Formatting.None));
         }
 
         private static AutomationBridgeResponse Apply(

@@ -116,6 +116,14 @@ namespace Automation
         private Font stepFont;
         private int itemHeight = 25;
 
+        // AI 改动闪烁：按 (procId, stepId) 记录高亮目标，Timer 交替点亮/熄灭背景。
+        private const int FlashMaxCount = 6;
+        private readonly Dictionary<ProcessOutlineStepIdentity, Color> flashTargets =
+            new Dictionary<ProcessOutlineStepIdentity, Color>();
+        private System.Windows.Forms.Timer flashTimer;
+        private int flashCount;
+        private bool flashLit;
+
         public ProcessOutlineList()
         {
             AutoScroll = true;
@@ -215,6 +223,8 @@ namespace Automation
             Guid selectedStepId,
             ProcessOutlineScrollAnchor scrollAnchor)
         {
+            // 列表重建意味着进入新状态，进行中的闪烁提示随之结束，避免旧高亮误导。
+            StopFlash();
             allItems.Clear();
             processItems.Clear();
             stepItems.Clear();
@@ -302,6 +312,141 @@ namespace Automation
         public void ClearSelection()
         {
             SetSelection(null, false, false);
+        }
+
+        /// <summary>
+        /// AI 改动提交后闪烁流程/步骤节点：流程节点始终闪烁；
+        /// 有可定位的步骤目标且流程未展开时先展开，再闪烁步骤节点并滚动到首个目标。
+        /// 不改变用户当前选中。
+        /// </summary>
+        public void FlashIdentities(
+            Guid procId,
+            ProcChangeKind procKind,
+            IReadOnlyList<(Guid stepId, ProcChangeKind kind)> stepChanges)
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+            if (procId == Guid.Empty || !processItems.ContainsKey(procId))
+            {
+                return;
+            }
+            StopFlash();
+
+            bool hasStepTargets = false;
+            foreach ((Guid stepId, ProcChangeKind _) in stepChanges ?? Array.Empty<(Guid, ProcChangeKind)>())
+            {
+                if (stepId != Guid.Empty
+                    && stepItems.ContainsKey(new ProcessOutlineStepIdentity(procId, stepId)))
+                {
+                    hasStepTargets = true;
+                    break;
+                }
+            }
+            if (hasStepTargets && !expandedProcIds.Contains(procId))
+            {
+                ExpandProcess(procId);
+                UpdateScrollExtent();
+                Invalidate();
+            }
+
+            flashTargets[new ProcessOutlineStepIdentity(procId, Guid.Empty)] = ChangeFlashColor(procKind);
+            ProcessOutlineItem scrollTarget = processItems[procId];
+            foreach ((Guid stepId, ProcChangeKind kind) in stepChanges ?? Array.Empty<(Guid, ProcChangeKind)>())
+            {
+                if (stepId == Guid.Empty)
+                {
+                    continue;
+                }
+                var identity = new ProcessOutlineStepIdentity(procId, stepId);
+                if (!stepItems.TryGetValue(identity, out ProcessOutlineItem step))
+                {
+                    continue;
+                }
+                flashTargets[identity] = ChangeFlashColor(kind);
+                if (ReferenceEquals(scrollTarget, processItems[procId]))
+                {
+                    // 优先滚动到第一个步骤目标，让用户直接看到改动的步骤。
+                    scrollTarget = step;
+                }
+            }
+            if (scrollTarget != null)
+            {
+                EnsureItemVisible(scrollTarget);
+            }
+
+            flashLit = true;
+            flashCount = 1;
+            InvalidateFlashTargets();
+            flashTimer = new System.Windows.Forms.Timer();
+            flashTimer.Interval = 300;
+            flashTimer.Tick += FlashTimer_Tick;
+            flashTimer.Start();
+        }
+
+        private void FlashTimer_Tick(object sender, EventArgs e)
+        {
+            if (IsDisposed || flashCount >= FlashMaxCount)
+            {
+                StopFlash();
+                return;
+            }
+            flashLit = !flashLit;
+            InvalidateFlashTargets();
+            flashCount++;
+        }
+
+        private void StopFlash()
+        {
+            flashTimer?.Stop();
+            flashTimer?.Dispose();
+            flashTimer = null;
+            flashCount = 0;
+            flashLit = false;
+            if (flashTargets.Count > 0)
+            {
+                flashTargets.Clear();
+                if (!IsDisposed)
+                {
+                    Invalidate();
+                }
+            }
+        }
+
+        private void InvalidateFlashTargets()
+        {
+            Rectangle invalidBounds = Rectangle.Empty;
+            for (int index = 0; index < visibleItems.Count; index++)
+            {
+                ProcessOutlineItem item = visibleItems[index];
+                if (!flashTargets.ContainsKey(
+                        new ProcessOutlineStepIdentity(item.ProcId, item.StepId)))
+                {
+                    continue;
+                }
+                Rectangle rowBounds = GetItemRectangle(index);
+                if (!rowBounds.IntersectsWith(ClientRectangle))
+                {
+                    continue;
+                }
+                invalidBounds = invalidBounds.IsEmpty
+                    ? rowBounds
+                    : Rectangle.Union(invalidBounds, rowBounds);
+            }
+            if (!invalidBounds.IsEmpty)
+            {
+                Invalidate(Rectangle.Intersect(
+                    invalidBounds,
+                    ClientRectangle));
+            }
+        }
+
+        private static Color ChangeFlashColor(ProcChangeKind kind)
+        {
+            return kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
+                : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
+                : UiPalette.WarningSoft;
         }
 
         public bool TryGetProcess(Guid procId, out ProcessOutlineItem item)
@@ -516,9 +661,15 @@ namespace Automation
             Rectangle bounds,
             bool selected)
         {
-            Color backgroundColor = selected
-                ? UiPalette.Selection
-                : BackColor;
+            // 闪烁高亮优先于普通与选中背景，保证 AI 改动位置醒目；选中态仍保留左侧品牌色条。
+            Color backgroundColor = flashLit
+                && flashTargets.TryGetValue(
+                    new ProcessOutlineStepIdentity(item.ProcId, item.StepId),
+                    out Color flashColor)
+                    ? flashColor
+                    : selected
+                        ? UiPalette.Selection
+                        : BackColor;
             using (var backgroundBrush = new SolidBrush(backgroundColor))
             {
                 graphics.FillRectangle(backgroundBrush, bounds);
@@ -1075,6 +1226,16 @@ namespace Automation
                     centerX - 1,
                     centerY + 2);
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                flashTimer?.Dispose();
+                flashTimer = null;
+            }
+            base.Dispose(disposing);
         }
     }
 }

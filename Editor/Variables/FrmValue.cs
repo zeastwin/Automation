@@ -388,6 +388,7 @@ namespace Automation
         private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
         private readonly Timer viewportRefreshTimer;
+        private readonly Timer runtimeValueRefreshTimer;
         private readonly Font scopeGroupFont;
         private readonly Font scopeChevronFont;
         private readonly DicValue[] variableSnapshot = new DicValue[ValueConfigStore.ValueCapacity];
@@ -612,6 +613,11 @@ namespace Automation
                 viewportRefreshTimer.Stop();
                 RefreshViewportRows();
             };
+            // 常驻运行值刷新：页面可见期间按固定周期同步可视区当前值，
+            // 与变量调试页一致，不依赖激活/滚动事件。
+            runtimeValueRefreshTimer = new Timer { Interval = 200 };
+            runtimeValueRefreshTimer.Tick +=
+                (sender, args) => RefreshDisplayedRuntimeValues();
             btnPrevious.Visible = false;
             BtnNext.Visible = false;
             btnCancel.Visible = false;
@@ -1163,6 +1169,7 @@ namespace Automation
             System.Threading.Interlocked.Increment(ref variableProjectionPrewarmGeneration);
             variableSearchTimer?.Dispose();
             viewportRefreshTimer?.Dispose();
+            runtimeValueRefreshTimer?.Dispose();
             if (isValueStoreHooked && hookedValueStore != null)
             {
                 hookedValueStore.ValueChanged -= ValueStore_ValueChanged;
@@ -1255,7 +1262,9 @@ namespace Automation
                 return;
             }
 
-            bool allowRefresh = isValueGridReady || !variableGridRowsInitialized;
+            // 预热可能已把行结构初始化为 true，但 ready 位仍为 false；
+            // 因此用"尚无可渲染快照"判定本次全量刷新完成后必须进入 ready，避免永久卡死。
+            bool allowRefresh = isValueGridReady || !hasVariableSnapshot;
             isValueGridReady = false;
             BeginVariableGridUpdate();
             try
@@ -2055,8 +2064,10 @@ namespace Automation
             base.OnVisibleChanged(e);
             if (!Visible)
             {
+                runtimeValueRefreshTimer?.Stop();
                 return;
             }
+            runtimeValueRefreshTimer?.Start();
             RefreshFromUserActivation();
         }
 

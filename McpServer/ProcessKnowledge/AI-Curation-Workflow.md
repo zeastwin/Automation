@@ -63,9 +63,10 @@ AI 是链路中的正式审核与整理环节，不要求用户手工逐条整�
 
 主要证据入口：
 
+- `Tools/ProcessKnowledgeCuration/Get-KnowledgeDigest.ps1`：证据摘要器，把 normalized-cases 压缩为总览表（每案例一行）+ 指令序列明细（约 3% 体积）。甄别首选入口：先读总览选候选，按结构族去重，再对候选读明细；避免整包加载 JSON。
 - `knowledge_candidates/manifest.json`：流程、步骤、指令、禁用数量、结构指纹和证据哈希。
-- `knowledge_candidates/normalized-cases/*.json`：按流程保留步骤、指令顺序、类型、禁用、报警和跳转关系。
-- `extracted_data.json`：需要核对具体历史字段时按证据引用定点读取，不整包加载。
+- `knowledge_candidates/normalized-cases/*.json`：按流程保留步骤、指令顺序、类型、禁用、报警和跳转关系。摘要已覆盖甄别所需的结构语义；其中 FieldKeys 是按指令类型重复的键名清单，甄别不需要。
+- `extracted_data.json`：需要核对具体历史字段值时按证据引用定点读取，不整包加载。
 - `source_config/`：变量、结构、IO、报警、通讯和真实流程源文件快照。
 - `code/`：自定义处理器和通讯语义的补充证据，不能覆盖真实流程 XML。
 
@@ -185,15 +186,9 @@ dotnet '.\McpServer\bin\Debug\net8.0-windows\Automation.McpServer.dll' --verify-
 
 ## 9. 当前基线
 
-当前库已经从 `1HSG下料` 和 `小BC-联丰点胶镜像0829(权限)` 中审核并归纳出 5 个可用规范：
+当前已收录的规范清单、主题标签和来源引用以 `ProcessKnowledge/catalog.json` 为准，本文不复述（避免清单与目录漂移）；已登记来源和甄别结论见 `provenance/sources.json`。
 
-1. `identify.read-and-bind-carrier`
-2. `transfer.station-handoff`
-3. `dispensing.service-material-path`
-4. `dispensing.calibrate-needle-offset`
-5. `transaction.submit-trace-record`
-
-新项目应先判断它是强化这 5 个规范、暴露规范缺陷，还是形成真正的新能力。不要以“每个项目至少产出几个规范”为目标；零新增也是有效审核结果。
+新项目应先判断它是强化已有规范、暴露规范缺陷，还是形成真正的新能力。不要以“每个项目至少产出几个规范”为目标；零新增也是有效审核结果。
 
 ## 10. 新对话测试用句
 

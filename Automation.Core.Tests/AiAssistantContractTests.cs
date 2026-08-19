@@ -21,57 +21,16 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void SourceReview_UsesReadOnlyDeveloperToolFilter()
-        {
-            MethodInfo method = typeof(GooseAcpClient).GetMethod(
-                "HasExpectedDeveloperFilter",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.IsNotNull(method);
-            var readOnly = new JObject
-            {
-                ["available_tools"] = new JArray("read", "tree")
-            };
-            var unrestricted = new JObject();
-
-            Assert.IsTrue((bool)method.Invoke(null, new object[]
-            {
-                readOnly,
-                AutomationToolProfiles.SourceReview
-            }));
-            Assert.IsFalse((bool)method.Invoke(null, new object[]
-            {
-                readOnly,
-                AutomationToolProfiles.SourceDevelopment
-            }));
-            Assert.IsTrue((bool)method.Invoke(null, new object[]
-            {
-                unrestricted,
-                AutomationToolProfiles.SourceDevelopment
-            }));
-        }
-
-        [TestMethod]
-        public void SourceReview_NormalizesCatalogNamesAndBlocksNonReadDeveloperTools()
+        public void SourceReview_NormalizesCatalogNames()
         {
             MethodInfo normalize = typeof(GooseAcpClient).GetMethod(
                 "NormalizeExtensionToolName",
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.IsNotNull(normalize);
-            Assert.AreEqual("read", normalize.Invoke(null, new object[] { "developer__read" }));
+            Assert.AreEqual("read_file", normalize.Invoke(null, new object[] { "developer__read_file" }));
             Assert.AreEqual("tree", normalize.Invoke(null, new object[] { "developer/tree" }));
             Assert.AreEqual("read", normalize.Invoke(null, new object[] { "developer.read" }));
             Assert.AreEqual("tree", normalize.Invoke(null, new object[] { "developer:tree" }));
-
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
-                AutomationToolProfiles.SourceReview, "developer__read"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
-                AutomationToolProfiles.SourceReview, "developer/tree"));
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
-                AutomationToolProfiles.SourceReview, "developer__shell"));
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
-                AutomationToolProfiles.SourceReview, "developer.analyze"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperToolBlockedByCapability(
-                AutomationToolProfiles.SourceReview, "automation__search_platform_source"));
         }
 
         [TestMethod]
@@ -254,13 +213,25 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void DeveloperWrite_RequiresEditorProfile()
+        public void DeveloperWrite_RequiresEditorProfileAndSourceDevelopmentCapability()
         {
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByProfile("Diagnostic", "write"));
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByProfile("Diagnostic", "edit"));
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByProfile("RuntimeDiagnostic", "write"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByProfile("Editor", "write"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByProfile("Diagnostic", "read"));
+            // 非 Editor 权限外壳一律拒绝写文件。
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Diagnostic, AutomationToolProfiles.SourceDevelopment, "write"));
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.RuntimeDiagnostic, AutomationToolProfiles.SourceDevelopment, "edit"));
+            // Editor 外壳下只有源码开发能力可以写文件。
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "write"));
+            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.ProcessReview, "edit"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceDevelopment, "write"));
+            // 读取工具不受任何拦截。
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Diagnostic, AutomationToolProfiles.SourceDevelopment, "read"));
+            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
+                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "read"));
         }
 
         [TestMethod]
@@ -330,19 +301,6 @@ namespace Automation.Core.Tests
 
             Assert.AreEqual(AiPreviewObservationKind.Applied, coordinator.Observe(applied, false).Kind);
             Assert.AreEqual(AiPreviewObservationKind.None, coordinator.Observe(incomplete, false).Kind);
-        }
-
-        [TestMethod]
-        public void DeveloperWrite_RequiresSourceDevelopmentCapability()
-        {
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
-                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "write"));
-            Assert.IsTrue(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
-                AutomationToolProfiles.Editor, AutomationToolProfiles.ProcessReview, "edit"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
-                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceDevelopment, "write"));
-            Assert.IsFalse(FrmAiAssistant.IsDeveloperWriteBlockedByCapability(
-                AutomationToolProfiles.Editor, AutomationToolProfiles.SourceReview, "read"));
         }
 
         [TestMethod]

@@ -84,7 +84,9 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_native_operation_field_contract"), Description(
             "按一个精确原生operaType读取少量顶层字段的可写契约。既有同类型指令做operation.update时优先使用本工具，"
-            + "避免读取整类原生契约或UI Schema；返回字段JSON形状、引用类型和对应运行规则。改变指令类型或需要完整递归结构时再使用get_native_operation_schemas。")]
+            + "避免读取整类原生契约或UI Schema；返回字段JSON形状、引用类型和对应运行规则。字段名不确定时不猜："
+            + "命中的字段正常返回，未命中的进unknownFieldNames并附相近候选nearbyFields；全部未命中时返回全部可用字段名。"
+            + "改变指令类型或需要完整递归结构时再使用get_native_operation_schemas。")]
         public static async Task<string> GetNativeOperationFieldContract(
             [Description("现有指令的精确原生类型，例如逻辑判断、修改变量")] string operaType,
             [Description("1..12个区分大小写的顶层可写字段名，例如FalseGoto")] string[] fieldNames)
@@ -119,15 +121,57 @@ namespace Automation.McpServer
                     JsonObject typeRules = contract["behavior"]?["fieldRules"] as JsonObject ?? new JsonObject();
                     var selectedFields = new JsonObject();
                     var selectedRules = new JsonObject();
+                    var unknownFields = new List<string>();
+                    var nearbyFields = new JsonObject();
                     foreach (string fieldName in normalizedFields)
                     {
                         JsonNode? field = typeFields[fieldName] ?? commonFields[fieldName];
                         if (field == null)
-                            throw new ArgumentException(
-                                $"原生指令[{normalizedType}]没有顶层可写字段：{fieldName}。", nameof(fieldNames));
+                        {
+                            unknownFields.Add(fieldName);
+                            continue;
+                        }
                         selectedFields[fieldName] = field.DeepClone();
                         JsonNode? rule = typeRules[fieldName] ?? commonRules[fieldName];
                         if (rule != null) selectedRules[fieldName] = rule.DeepClone();
+                    }
+                    if (unknownFields.Count > 0)
+                    {
+                        string[] knownFields = typeFields.Select(item => item.Key)
+                            .Concat(commonFields.Select(item => item.Key))
+                            .Distinct(StringComparer.Ordinal)
+                            .ToArray();
+                        foreach (string unknown in unknownFields)
+                        {
+                            var candidates = new JsonArray();
+                            foreach (string candidate in RankNearbyFieldNames(unknown, knownFields))
+                            {
+                                candidates.Add(candidate);
+                            }
+                            nearbyFields[unknown] = candidates;
+                        }
+                        // 全部未命中：直接给出全部可用顶层字段，模型下一轮按真实字段名选择。
+                        if (unknownFields.Count == normalizedFields.Length)
+                        {
+                            return JsonSerializer.Serialize(new JsonObject
+                            {
+                                ["ok"] = true,
+                                ["type"] = "change_set.native_field_contract",
+                                ["data"] = new JsonObject
+                                {
+                                    ["operaType"] = normalizedType,
+                                    ["writeKind"] = "native.operation",
+                                    ["fields"] = new JsonObject(),
+                                    ["fieldRules"] = new JsonObject(),
+                                    ["unknownFieldNames"] = new JsonArray(
+                                        unknownFields.Select(f => JsonValue.Create(f)).ToArray()),
+                                    ["nearbyFields"] = nearbyFields,
+                                    ["availableFieldNames"] = new JsonArray(
+                                        knownFields.Select(f => JsonValue.Create(f)).ToArray()),
+                                    ["note"] = "请求的字段全部未命中；availableFieldNames 是该指令全部顶层可写字段，按真实名称重试。"
+                                }
+                            });
+                        }
                     }
                     return JsonSerializer.Serialize(new JsonObject
                     {
@@ -139,10 +183,36 @@ namespace Automation.McpServer
                             ["writeKind"] = "native.operation",
                             ["updateSemantics"] = "operation.update fields是同类型顶层局部补丁",
                             ["fields"] = selectedFields,
-                            ["fieldRules"] = selectedRules
+                            ["fieldRules"] = selectedRules,
+                            ["unknownFieldNames"] = unknownFields.Count > 0
+                                ? new JsonArray(unknownFields.Select(f => JsonValue.Create(f)).ToArray())
+                                : null,
+                            ["nearbyFields"] = unknownFields.Count > 0 ? nearbyFields : null
                         }
                     });
                 }).ConfigureAwait(false);
+        }
+
+        // 按前缀包含与简单相近度排序最多三个候选字段名；帮助模型把猜测字段一轮纠正为真实字段。
+        private static string[] RankNearbyFieldNames(string requested, string[] knownFields)
+        {
+            string target = requested ?? string.Empty;
+            return knownFields
+                .Select(name => new
+                {
+                    Name = name,
+                    Score = (name.StartsWith(target, StringComparison.OrdinalIgnoreCase)
+                            || name.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0
+                            || target.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                        ? 2 + Math.Min(name.Length, target.Length)
+                        : (name.Length == target.Length ? 1 : 0)
+                })
+                .Where(entry => entry.Score > 0)
+                .OrderByDescending(entry => entry.Score)
+                .ThenBy(entry => entry.Name, StringComparer.Ordinal)
+                .Take(3)
+                .Select(entry => entry.Name)
+                .ToArray();
         }
 
         [McpServerTool(Name = "get_semantic_operation_schema"), Description(
@@ -158,16 +228,20 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations。ProcessCreate首阶段创建一个autoStart=false的新流程；提交后把返回的authoringLeaseId传入后续预演，即可在同一能力内按稳定ID逐段完善该流程。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞和合法迁移。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations。ProcessCreate首阶段创建一个autoStart=false的新流程；提交后把返回的authoringLeaseId传入后续预演，即可在同一能力内按稳定ID逐段完善该流程。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞、pendingItems待补齐清单和合法迁移。")]
         public static async Task<string> PreviewChangeSet(
             [Description("当前完整原子阶段；actions与variables整体预演。阶段依赖的新变量也在variables中提交")] AtomicChangeSetDefinition changeSet,
-            [Description("仅用于修正尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null,
-            [Description("仅ProcessCreate续建阶段使用：首次apply_change_set返回的authoringLease.leaseId。首阶段省略；续建时凭据把全部写入机械限制在刚创建的同一流程内")] string? authoringLeaseId = null)
+            [Description("仅用于整体重写尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null,
+            [Description("仅ProcessCreate续建阶段使用：首次apply_change_set返回的authoringLease.leaseId。首阶段省略；续建时凭据把全部写入机械限制在刚创建的同一流程内")] string? authoringLeaseId = null,
+            [Description("在尚未确认的活动预演冻结结果上追加小修正：只提交增量动作，其余沿用冻结编译结果；目标用预演返回的稳定ID。确认失败修正优选此参数，整体重写才用replacePreviewId；两者不能同时提供")] string? amendPreviewId = null)
         {
+            if (!string.IsNullOrWhiteSpace(replacePreviewId)
+                && !string.IsNullOrWhiteSpace(amendPreviewId))
+                throw new ArgumentException("amendPreviewId 与 replacePreviewId 不能同时提供：小修正用 amendPreviewId，整体重写用 replacePreviewId。");
             ProcessAuthoringLease? authoringLease = null;
             string result = await ExecuteAsync(
                 toolName: nameof(PreviewChangeSet),
-                args: new { changeSet, replacePreviewId, authoringLeaseId },
+                args: new { changeSet, replacePreviewId, authoringLeaseId, amendPreviewId },
                 action: client =>
                 {
                     if (changeSet == null) throw new ArgumentNullException(nameof(changeSet));
@@ -179,10 +253,20 @@ namespace Automation.McpServer
                         StringComparison.Ordinal);
                     if (processCreate)
                     {
-                        authoringLease = string.IsNullOrWhiteSpace(authoringLeaseId)
-                            ? null
-                            : ProcessAuthoringLeaseRegistry.ResolveRequired(authoringLeaseId);
-                        ValidateProcessCreateChangeSet(changeSet, authoringLease);
+                        if (string.IsNullOrWhiteSpace(authoringLeaseId)
+                            && !string.IsNullOrWhiteSpace(amendPreviewId))
+                        {
+                            // 追加修正未提交的首阶段预演：lease 可能尚未签发，从被修正预演恢复绑定。
+                            authoringLease = ProcessAuthoringLeaseRegistry.GetPreviewLease(amendPreviewId);
+                        }
+                        if (authoringLease == null && !string.IsNullOrWhiteSpace(authoringLeaseId))
+                            authoringLease = ProcessAuthoringLeaseRegistry.ResolveRequired(authoringLeaseId);
+                        if (authoringLease != null)
+                            ValidateProcessCreateContinuation(changeSet, authoringLease);
+                        else if (!string.IsNullOrWhiteSpace(amendPreviewId))
+                            ValidateProcessCreateAmendment(changeSet);
+                        else
+                            ValidateProcessCreateChangeSet(changeSet, null);
                     }
                     else if (!string.IsNullOrWhiteSpace(authoringLeaseId))
                         throw new ArgumentException("authoringLeaseId 仅用于 ProcessCreate 续建阶段。", nameof(authoringLeaseId));
@@ -193,7 +277,7 @@ namespace Automation.McpServer
                         Actions = changeSet.Actions,
                         Variables = changeSet.Variables
                     };
-                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId);
+                    return client.PreviewChangeSetAsync(compiledInput, replacePreviewId, amendPreviewId);
                 }).ConfigureAwait(false);
             if (string.Equals(
                     AutomationMcpRuntime.CurrentToolProfile,
@@ -203,15 +287,22 @@ namespace Automation.McpServer
                 string? previewId = ProcessAuthoringLeaseRegistry.ReadPreviewId(result);
                 if (!string.IsNullOrWhiteSpace(previewId))
                 {
-                    if (authoringLease == null)
-                        ProcessAuthoringLeaseRegistry.BindInitialPreview(previewId);
-                    else
-                        ProcessAuthoringLeaseRegistry.BindPreview(previewId, authoringLease);
+                    if (!string.IsNullOrWhiteSpace(amendPreviewId)
+                        && !string.Equals(previewId, amendPreviewId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ProcessAuthoringLeaseRegistry.CompletePreview(amendPreviewId);
+                    }
                     if (!string.IsNullOrWhiteSpace(replacePreviewId)
                         && !string.Equals(previewId, replacePreviewId, StringComparison.OrdinalIgnoreCase))
                     {
                         ProcessAuthoringLeaseRegistry.CompletePreview(replacePreviewId);
                     }
+                    // 追加修正未提交的首建预演：旧首建绑定已释放，新预演按首建登记，
+                    // apply 后正常签发 lease；续建修正则沿用恢复的 lease 重新绑定。
+                    if (authoringLease == null)
+                        ProcessAuthoringLeaseRegistry.BindInitialPreview(previewId);
+                    else
+                        ProcessAuthoringLeaseRegistry.BindPreview(previewId, authoringLease);
                 }
             }
             return result;
@@ -343,6 +434,53 @@ namespace Automation.McpServer
             }
         }
 
+        // 追加修正未提交的 ProcessCreate 首建预演：流程已在冻结结果中创建但不能再次创建；
+        // 目标只能用冻结预演返回的稳定 procId/stepId/opId（局部 key 不跨预演）。
+        // 目标是否真的存在于被修正预演中由 Bridge 编译权威判定。
+        internal static void ValidateProcessCreateAmendment(AtomicChangeSetDefinition changeSet)
+        {
+            IReadOnlyList<ChangeSetAction> actions = changeSet.Actions ?? new List<ChangeSetAction>();
+            for (int index = 0; index < actions.Count; index++)
+            {
+                ChangeSetAction action = actions[index]
+                    ?? throw new ArgumentException($"actions[{index}] 不能为 null。", nameof(changeSet));
+                string path = $"actions[{index}]";
+                if (string.Equals(action.Type, "process.create", StringComparison.Ordinal)
+                    || string.Equals(action.Type, "process.delete", StringComparison.Ordinal)
+                    || string.Equals(action.Type, "process.delete_all", StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        $"ProcessCreate 预演追加修正不接受 {path}.type={action.Type}；流程已在被修正预演中创建，只能按稳定ID追加、更新或删除其步骤与指令。",
+                        nameof(changeSet));
+                }
+                RequireStableProcessIdFormat(action.TargetProcess, $"{path}.targetProcess");
+            }
+
+            IReadOnlyList<VariableChange> variables = changeSet.Variables ?? new List<VariableChange>();
+            for (int index = 0; index < variables.Count; index++)
+            {
+                VariableChange variable = variables[index]
+                    ?? throw new ArgumentException($"variables[{index}] 不能为 null。", nameof(changeSet));
+                if (string.Equals(variable.Scope, "process", StringComparison.OrdinalIgnoreCase))
+                {
+                    RequireStableProcessIdFormat(variable.OwnerProcess, $"variables[{index}].ownerProcess");
+                }
+            }
+        }
+
+        private static void RequireStableProcessIdFormat(ProcessSelector? selector, string path)
+        {
+            string procId = selector?.ProcId?.Trim() ?? string.Empty;
+            if (!Guid.TryParse(procId, out _)
+                || !string.IsNullOrWhiteSpace(selector?.Key)
+                || !string.IsNullOrWhiteSpace(selector?.Name))
+            {
+                throw new ArgumentException(
+                    $"{path} 只能提供被修正预演返回的稳定 procId；局部 key 不跨预演。",
+                    "changeSet");
+            }
+        }
+
         private static void RequireOnlyLocalKey(ProcessSelector? selector, string expectedKey, string path)
         {
             string actualKey = selector?.Key?.Trim() ?? string.Empty;
@@ -432,7 +570,7 @@ namespace Automation.McpServer
             + "同时返回从旧项目证据中完成审核和归纳的可用规范；候选、审核过程和废弃内容不会进入运行时返回。"
             + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
-            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；recovery=寻料/重入/恢复；custom-function=函数边界；review=设计审查")] string[] topics,
+            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；vision=拍照定位/纠偏/标定；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；quality=NG判定/抛料/复检/空跑验证/GRR；recovery=寻料/重入/恢复；custom-function=函数边界；composition=整机流程组合/搭建顺序/接缝契约；review=设计审查")] string[] topics,
             [Description("返回粒度：compact（默认，直接用于当前功能块）或full（完整背景与知识正文）")] string? detail = null)
         {
             string result = ProcessDesignGuideCatalog.Get(topics, detail);
@@ -536,11 +674,11 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "inspect_process"), Description(
             "一次读取单个流程评审最常用的结构摘要、就绪校验、确定性流程图和外部引用；不需要先分别试探四个工具。"
-            + "默认返回紧凑结构证据；只有结论依赖具体字段值时才设置includeOperationDetails=true，且流程不超过25条指令时附带全部字段详情。"
+            + "默认返回紧凑结构证据；只有结论依赖具体字段值时才设置includeOperationDetails=true，且流程不超过60条指令时附带全部字段详情。"
             + "已聚合返回的事实不要重复读取；只有发现具体证据缺口时再使用细粒度工具。")]
         public static async Task<string> InspectProcess(
             [Description("流程索引（用户口语\"N号流程\"=procIndex=N）")] int procIndex,
-            [Description("流程不超过25条指令时是否附带全部指令字段；默认false，只有字段级结论确实需要时开启")] bool includeOperationDetails = false)
+            [Description("流程不超过60条指令时是否附带全部指令字段；默认false，只有字段级结论确实需要时开启")] bool includeOperationDetails = false)
         {
             return await ExecuteAsync(
                 toolName: nameof(InspectProcess),
@@ -572,8 +710,8 @@ namespace Automation.McpServer
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToArray();
                     JsonNode? operationDetails = null;
-                    bool detailsOmitted = !includeOperationDetails || opIds.Length > 25;
-                    if (includeOperationDetails && opIds.Length is > 0 and <= 25)
+                    bool detailsOmitted = !includeOperationDetails || opIds.Length > 60;
+                    if (includeOperationDetails && opIds.Length is > 0 and <= 60)
                     {
                         JsonObject details = ParseBridgeResponse(
                             await client.GetOpDetailsAsync(procIndex, opIds).ConfigureAwait(false));
@@ -596,7 +734,7 @@ namespace Automation.McpServer
                             ["detailsOmitted"] = detailsOmitted,
                             ["detailReason"] = detailsOmitted
                                 ? includeOperationDetails
-                                    ? "流程超过25条指令；按overview中的opId选择缺口后调用get_op_details。"
+                                    ? "流程超过60条指令；按overview中的opId选择缺口后调用get_op_details。"
                                     : "调用方选择不读取字段详情。"
                                 : null
                         }
@@ -1407,7 +1545,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "list_io"), Description(
-            "分页列出 IO 目录（含名称/卡号/模块/索引/类型/电平和备注摘要），默认50条、最多100条。"
+            "分页列出 IO 目录（含名称/卡号/模块/索引/类型和备注摘要），默认50条、最多100条。"
             + "名称线索已知时使用nameLike，只有确需全量清单时才省略。IO 类型为\"通用输入\"或\"通用输出\"；精确完整配置使用get_io。")]
         public static async Task<string> ListIo(
             [Description("类型过滤：通用输入 或 通用输出")] string? type = null,
@@ -1422,7 +1560,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_io"), Description(
-            "按精确名称读取单个 IO 配置信息；名称已知时直接使用本工具。返回ioType/usedType/effectLevel/note等配置事实；它们不自动定义机构的安全位或工作位，部件目标与原位/动位反馈关系以明确设备契约为准。")]
+            "按精确名称读取单个 IO 配置信息；名称已知时直接使用本工具。返回ioType/usedType/note等配置事实；它们不自动定义机构的安全位或工作位，部件目标与原位/动位反馈关系以明确设备契约为准。")]
         public static async Task<string> GetIo(
             [Description("IO 名称")] string name)
         {
@@ -1484,7 +1622,7 @@ namespace Automation.McpServer
             + "但名称本身不自动证明气缸方向、安全位或业务角色。authoringGaps会把已发现资源缺少精确目标等事实转成可行动选项；"
             + "缺口不证明该资源与目标无关，替代方案会改变目标含义时保留占位或询问用户。")]
         public static async Task<string> ListAuthoringResources(
-            [Description("1..9个资源类别请求；type支持motion/io_input/io_output/variable/communication/plc/alarm/process/data_struct，type不可重复；hasMore=true时用offset续读")]
+            [Description("1..9个资源类别请求；type支持motion/io_input/io_output/variable/communication/plc/alarm/process/data_struct，同type可用不同nameLike多次并行查询，完全相同的type+nameLike被拒绝；hasMore=true时用offset续读")]
             AuthoringResourceListRequest[] requests,
             [Description("每类最多返回1..100项，默认25；motion按点位总量使用该边界")]
             int? limitPerType = null)
@@ -1503,13 +1641,16 @@ namespace Automation.McpServer
                         .Select((request, index) => NormalizeAuthoringResourceRequest(request, index))
                         .ToArray();
                     string[] duplicatedTypes = normalized
-                        .GroupBy(item => item.Type, StringComparer.Ordinal)
+                        .Select(item => item.Type + "\u001F" + (item.NameLike ?? string.Empty)
+                            + "\u001F" + (item.Offset ?? 0).ToString())
+                        .GroupBy(key => key, StringComparer.Ordinal)
                         .Where(group => group.Count() > 1)
                         .Select(group => group.Key)
                         .ToArray();
                     if (duplicatedTypes.Length > 0)
                         throw new ArgumentException(
-                            "requests.type 不能重复：" + string.Join("、", duplicatedTypes) + "。",
+                            "requests 中完全相同的 type+nameLike+offset 不能重复（同 type 换不同 nameLike 或 offset 可并行查询）："
+                            + string.Join("、", duplicatedTypes.Select(key => key.Replace('\u001F', '/'))) + "。",
                             nameof(requests));
 
                     var results = new JsonArray();
@@ -1732,6 +1873,20 @@ namespace Automation.McpServer
                     index, name, note, category, btn1, btn2, btn3, allowOverwrite)).ConfigureAwait(false);
         }
 
+        [McpServerTool(Name = "update_io_note"), Description(
+            "把用户口述的现场角色、极性、机构绑定等事实写入单个IO的备注并持久化；这是把一次性的用户澄清沉淀为项目长期事实的唯一通道。"
+            + "需 ResourceEdit 权限。name必须是已存在的精确IO名称，找不到时返回相近候选；note传空串即清空备注，上限500字符。"
+            + "只改备注字段，不影响控制语义和流程结构，也不属于ChangeSet预演。")]
+        public static async Task<string> UpdateIoNote(
+            [Description("已存在的精确IO名称")] string name,
+            [Description("备注全文；角色/极性/终态等现场事实，传空串清空")] string note)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(UpdateIoNote),
+                args: new { name, note },
+                action: client => client.UpdateIoNoteAsync(name, note)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "delete_alarm"), Description(
             "清空指定槽位的报警信息。需 ProcessEdit 权限且所有流程已停止。"
             + "槽位索引保持不变，空槽位返回错误；成功后立即持久化并刷新界面。该资源工具不属于ChangeSet预演。")]
@@ -1856,11 +2011,67 @@ namespace Automation.McpServer
                 default:
                     throw new InvalidOperationException("未实现的流程编写资源类别：" + request.Type);
             }
-            return BuildAuthoringResourceResult(
+            JsonObject result = BuildAuthoringResourceResult(
                 request,
                 ProjectAuthoringResourceItems(request.Type, items),
                 total,
                 hasMore);
+            // 首页附该资源域可用操作菜单：与 motion 的 motionOperations 同构，
+            // 模型看到现场资源的同时拿到精确指令类型名，不靠猜类型名试错。
+            if ((request.Offset ?? 0) == 0
+                && TryGetAuthoringDomain(request.Type, out string domain))
+            {
+                result["operations"] = await ListDomainOperationsAsync(client, domain)
+                    .ConfigureAwait(false);
+            }
+            return result;
+        }
+
+        private static bool TryGetAuthoringDomain(string resourceType, out string domain)
+        {
+            switch (resourceType)
+            {
+                case "io_input":
+                case "io_output":
+                    domain = "io";
+                    return true;
+                case "communication":
+                    domain = "communication";
+                    return true;
+                case "plc":
+                    domain = "plc";
+                    return true;
+                case "alarm":
+                    domain = "alarm";
+                    return true;
+                default:
+                    domain = string.Empty;
+                    return false;
+            }
+        }
+
+        private static async Task<JsonArray> ListDomainOperationsAsync(
+            AutomationBridgeClient client,
+            string domain)
+        {
+            JsonObject typesResponse = ParseBridgeResponse(
+                await client.OpMetaAsync("list_types", new JsonObject()).ConfigureAwait(false));
+            EnsureBridgeSuccess(typesResponse);
+            var operations = new JsonArray();
+            foreach (JsonObject item in (typesResponse["data"]?["items"] as JsonArray
+                ?? new JsonArray()).OfType<JsonObject>())
+            {
+                bool inDomain = (item["domains"] as JsonArray ?? new JsonArray())
+                    .Any(value => string.Equals(
+                        value?.GetValue<string>(), domain, StringComparison.Ordinal));
+                if (!inDomain) continue;
+                operations.Add(new JsonObject
+                {
+                    ["operaType"] = item["operaType"]?.DeepClone(),
+                    ["name"] = item["name"]?.DeepClone()
+                });
+            }
+            return operations;
         }
 
         private static async Task<JsonObject> ListMotionAuthoringResourcesAsync(
@@ -2054,7 +2265,7 @@ namespace Automation.McpServer
                 {
                     JsonObject value = SelectAuthoringProperties(item,
                         "index", "name", "cardNum", "module", "ioIndex", "ioType",
-                        "usedType", "effectLevel");
+                        "usedType");
                     string resourceRef = AuthoringResourceRefs.ForIo(
                         item["ioType"]?.GetValue<string>() ?? string.Empty,
                         item["cardNum"]?.GetValue<int>() ?? 0,
@@ -2345,6 +2556,14 @@ namespace Automation.McpServer
                         "variableId", "name", "valueType", "outcome", "index", "scope", "ownerProcId");
                 }
                 compactData["createdObjects"] = created;
+                compactData["pendingItems"] = CompactObjectArray(
+                    data["pendingItems"],
+                    "category", "procId", "stepId", "opId", "name", "reason",
+                    "field", "stationName", "pointName", "repair");
+                compactData["processSnapshot"] = CompactObjectArray(
+                    data["processSnapshot"],
+                    "procId", "procIndex", "name", "autoStart", "disable",
+                    "totalSteps", "totalOps", "steps", "opsOmitted");
                 compactData["warnings"] = CompactObjectArray(
                     data["warnings"], "procIndex", "procId", "message");
                 compactData["runBlockers"] = CompactObjectArray(

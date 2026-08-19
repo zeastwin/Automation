@@ -90,10 +90,11 @@ namespace Automation.Bridge
                         return WrapResponse("diagnostics.issue", ExecuteOnUiThread(() => HandleDiagnoseIssue(request)));
                     // ---------- AI 语义变更集 V2 ----------
                     case "/bridge/change-set/preview":
-                        AiChangeSet changeSet = ParseChangeSet(request);
-                        string replacePreviewId = ReadOptionalString(request, "replacePreviewId");
-                        return WrapResponse("change_set.preview",
-                            ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet, replacePreviewId)));
+                    AiChangeSet changeSet = ParseChangeSet(request);
+                    string replacePreviewId = ReadOptionalString(request, "replacePreviewId");
+                    string amendPreviewId = ReadOptionalString(request, "amendPreviewId");
+                    return WrapResponse("change_set.preview",
+                        ExecuteOnUiThread(() => HandlePreviewChangeSet(changeSet, replacePreviewId, amendPreviewId)));
                     case "/bridge/change-set/apply":
                         WaitForPreviewConfirmation(request);
                         return WrapResponse("change_set.apply", ExecuteOnUiThread(() => HandleApplyChangeSet(request)));
@@ -189,6 +190,8 @@ namespace Automation.Bridge
                         return WrapResponse("io.search", ExecuteOnUiThread(() => HandleSearchIo(request)));
                     case "/bridge/io/state":
                         return WrapResponse("io.state", ExecuteOnUiThread(() => HandleGetIoState(request)));
+                    case "/bridge/io/update_note":
+                        return WrapResponse("io.update_note", ExecuteOnUiThread(() => HandleUpdateIoNote(request)));
                     // ---------- alarm 拆分端点 ----------
                     case "/bridge/alarm/list":
                         return WrapResponse("alarm.list", ExecuteOnUiThread(() => HandleListAlarms(request)));

@@ -63,7 +63,7 @@ namespace Automation.McpServer
             "set_variable_by_name", "set_variable_by_index",
             "add_variable", "update_variable", "delete_variable",
             "upsert_data_struct", "delete_data_struct",
-            "set_alarm", "delete_alarm", "plan_motion_points"
+            "set_alarm", "delete_alarm", "plan_motion_points", "update_io_note"
         };
 
         private static readonly HashSet<string> FullPermissionTools = new HashSet<string>(StringComparer.Ordinal)
@@ -1245,7 +1245,10 @@ namespace Automation.McpServer
                 McpServerTool? tool = GetToolsUnsafe().FirstOrDefault(item =>
                     string.Equals(item.ProtocolTool.Name, name, StringComparison.Ordinal));
                 return tool ?? throw new InvalidOperationException(
-                    $"当前{invocationProfile}模式未开放工具:{name}");
+                    // 开头的稳定错误码标记供 ACP 客户端识别（AutomationMcpErrorCodes.ToolNotAvailable），
+                    // 后续文案调整不得移除该标记。
+                    AutomationMcpErrorCodes.ToolNotAvailable
+                    + $": 当前{invocationProfile}模式未开放工具:{name}");
             }
         }
     }

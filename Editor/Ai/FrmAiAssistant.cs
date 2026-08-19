@@ -83,7 +83,6 @@ namespace Automation
             new AutomationBridgePreviewClient();
         private readonly AiConversationCoordinator conversationCoordinator =
             new AiConversationCoordinator();
-
         private GooseAcpClient gooseClient;
         private bool sending;
         private bool standardTestRunning;
@@ -114,7 +113,7 @@ namespace Automation
             FormClosing += FrmAiAssistant_FormClosing;
         }
 
-        public void ApplyPermissions()
+        private void ApplyPermissions()
         {
             bool busy = HasRunningTasks;
             txtPrompt.Enabled = true;
@@ -818,7 +817,6 @@ namespace Automation
             {
                 ["sending"] = IsActiveTaskRunning || standardTestRunning,
                 ["taskHomeVisible"] = conversationCoordinator.TaskHomeVisible,
-                ["canAccess"] = true,
                 ["canEditConfig"] = !HasRunningTasks,
                 ["config"] = new JObject
                 {
@@ -1257,6 +1255,11 @@ namespace Automation
             {
                 AppendConversation("用户", conversationText, UiPalette.BrandPressed);
             }
+            // 首个模型输出到达前先显示"正在思考"占位，避免长等待期无任何反馈。
+            if (webDocumentReady)
+            {
+                ShowThinkingIndicator();
+            }
             SaveConversationHistory();
             // 生成期间持续强制跟随消息区与思考框底部，不允许增量脚本或用户上滑打断信息流。
             EnqueueScript("if(window.startForcedStreamScroll){startForcedStreamScroll();}");
@@ -1267,6 +1270,7 @@ namespace Automation
             flowVisualizationProcesses.RemoveAll();
             promptStartedAt = DateTime.Now;
             ApplyPermissions();
+            string tokenSummary = null;
 
             try
             {
@@ -1284,6 +1288,7 @@ namespace Automation
                             permissionConfig).ConfigureAwait(false);
                         return EnsureTaskClient(runtime, stageConfig);
                     }).ConfigureAwait(true);
+                tokenSummary = BuildRoundTokenSummary(executionResult);
                 if (executionResult.Status == AiTaskExecutionStatus.Cancelled)
                 {
                     bool hasCompletedStage = (executionResult.CompletedStageProfiles?.Count ?? 0) > 0;
@@ -1342,6 +1347,9 @@ namespace Automation
                 if (isActive)
                 {
                     txtPrompt.Clear();
+                    // 协调阶段直接回复时事件不经过流式 UI，"正在思考"指示器仍在消息区末尾；
+                    // 必须先移除它，否则最终回复会被追加逻辑合并进指示器气泡、随后随指示器一起删除。
+                    RemoveThinkingIndicator();
                     FinishStreaming();
                     FinishThoughtStreaming();
                 }
@@ -1395,13 +1403,41 @@ namespace Automation
                 {
                     FinishStreaming();
                     FinishThoughtStreaming();
-                    CollapseThinkingBox();
+                    CollapseThinkingBox(tokenSummary);
+                    // 异常路径下首个内容可能从未到达，兜底移除"正在思考"占位。
+                    RemoveThinkingIndicator();
                     EnqueueScript("if(window.stopForcedStreamScroll){stopForcedStreamScroll();}");
                     sending = false;
                 }
                 SaveConversationHistory();
                 ApplyPermissions();
             }
+        }
+
+        // 本轮 token 消耗摘要：输入用最终 client 的会话累计值，输出按最终回复 UTF-8 字节数估算（约 3 字节/token）。
+        private static string BuildRoundTokenSummary(AiTaskExecutionResult executionResult)
+        {
+            GooseAcpClient client = executionResult?.Client;
+            if (client == null)
+            {
+                return null;
+            }
+            long inputTokens = client.CumulativeInputTokens;
+            long outputTokens = AiAnalysisLogger.EstimateTokensFromUtf8Bytes(
+                Encoding.UTF8.GetByteCount(executionResult.AssistantText ?? string.Empty));
+            if (inputTokens <= 0 && outputTokens <= 0)
+            {
+                return null;
+            }
+            return "输入约 " + FormatTokenCount(inputTokens)
+                + " · 输出约 " + FormatTokenCount(outputTokens) + " tokens";
+        }
+
+        private static string FormatTokenCount(long tokens)
+        {
+            return tokens >= 1000
+                ? (tokens / 1000d).ToString("0.#") + "k"
+                : tokens.ToString();
         }
 
         private void RemoveConsumedAttachments(IReadOnlyList<GooseFileAttachment> attachments)
@@ -2073,8 +2109,17 @@ namespace Automation
             }
             RenderActiveConversation();
             if (!conversationCoordinator.TaskRuntimes.TryGetValue(
-                    conversationCoordinator.ActiveConversation.Id, out AiTaskRuntime runtime)
-                || runtime.PendingEvents.Count == 0)
+                    conversationCoordinator.ActiveConversation.Id, out AiTaskRuntime runtime))
+            {
+                return;
+            }
+            // 新建任务的发送路径会重载 WebView（webDocumentReady=false 期间 SendPromptAsync 无法显示占位）；
+            // 重载完成后若任务仍在等待首个输出，这里补显示"正在思考"，回放或后续事件中的首个内容会移除它。
+            if (runtime.Running)
+            {
+                ShowThinkingIndicator();
+            }
+            if (runtime.PendingEvents.Count == 0)
             {
                 return;
             }
@@ -2110,10 +2155,7 @@ namespace Automation
             {
                 var created = new GooseAcpClient(Workspace.Runtime, config, runtime.RestoredContext);
                 runtime.RestoredContext = null;
-                created.EventReceived += item => TaskClient_EventReceived(
-                    runtime,
-                    created.ToolProfile,
-                    item);
+                created.EventReceived += item => TaskClient_EventReceived(runtime, item);
                 created.PermissionRequestHandler = request => HandlePermissionRequest(
                     request,
                     created.ToolProfile,
@@ -2127,10 +2169,7 @@ namespace Automation
             return client;
         }
 
-        private void TaskClient_EventReceived(
-            AiTaskRuntime runtime,
-            string capabilityProfile,
-            GooseAcpEvent item)
+        private void TaskClient_EventReceived(AiTaskRuntime runtime, GooseAcpEvent item)
         {
             if (IsDisposed)
             {
@@ -2140,8 +2179,8 @@ namespace Automation
             {
                 try
                 {
-                    BeginInvoke(new Action<AiTaskRuntime, string, GooseAcpEvent>(TaskClient_EventReceived),
-                        runtime, capabilityProfile, item);
+                    BeginInvoke(new Action<AiTaskRuntime, GooseAcpEvent>(TaskClient_EventReceived),
+                        runtime, item);
                 }
                 catch (InvalidOperationException)
                 {
@@ -2149,14 +2188,8 @@ namespace Automation
                 return;
             }
 
-            // 动态协调轮只交换能力申请，不进入用户对话、预演 UI 或可持久化工作阶段证据。
-            if (string.Equals(
-                capabilityProfile, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal))
-            {
-                PushWebAppState();
-                return;
-            }
-
+            // 协调轮事件与工作轮同样进入对话 UI：协调阶段可直接调用 developer 工具完成本地任务
+            // 或直接回复用户，丢弃事件会让整轮只剩"正在思考"计时器，最终回复也只能依赖兜底显示。
             runtime.PendingEvents.Add(item);
             bool isActive = !conversationCoordinator.TaskHomeVisible
                 && ReferenceEquals(conversationCoordinator.ActiveConversation, runtime.Conversation);
@@ -2202,12 +2235,10 @@ namespace Automation
             return string.IsNullOrWhiteSpace(latest) ? fallback : latest;
         }
 
-
-
         private JObject HandlePermissionRequest(
             JObject request,
-            string capabilityProfile = null,
-            GooseAcpClient taskClient = null)
+            string capabilityProfile,
+            GooseAcpClient taskClient)
         {
             if (IsDisposed || Disposing || !IsHandleCreated)
             {
@@ -2283,23 +2314,15 @@ namespace Automation
                     UiPalette.Warning);
                 return BuildPermissionCancelled();
             }
-            if (IsDeveloperToolBlockedByCapability(capabilityProfile, toolName))
-            {
-                AppendConversation(
-                    "系统",
-                    "⛔ SourceReview 只允许 Developer 的 read/tree，已拒绝：" + toolName,
-                    UiPalette.Danger);
-                return BuildPermissionCancelled();
-            }
             if (IsDeveloperWriteBlockedByCapability(toolProfile, capabilityProfile, toolName))
             {
                 AppendConversation(
                     "系统",
-                    "⛔ 当前诊断模式只允许读取源码，已拒绝修改文件。",
+                    "⛔ 当前能力面只允许读取源码，修改文件需要 SourceDevelopment 能力。",
                     UiPalette.Danger);
                 return BuildPermissionCancelled();
             }
-            if (IsDeveloperShellTool(toolName)
+            if (GooseAcpClient.IsDeveloperShellToolName(toolName)
                 && !string.Equals(
                     capabilityProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal))
             {
@@ -2373,7 +2396,7 @@ namespace Automation
             out string rejectedPath)
         {
             rejectedPath = null;
-            if (!IsDeveloperWriteTool(toolName))
+            if (!GooseAcpClient.IsDeveloperWriteToolName(toolName))
             {
                 return false;
             }
@@ -2399,75 +2422,17 @@ namespace Automation
             return false;
         }
 
-        private static bool IsDeveloperWriteTool(string toolName)
-        {
-            string value = (toolName ?? string.Empty).Trim();
-            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
-                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
-            if (separator >= 0)
-                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
-            return string.Equals(value, "write", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "edit", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsDeveloperShellTool(string toolName)
-        {
-            string value = (toolName ?? string.Empty).Trim();
-            return string.Equals(value, "shell", StringComparison.OrdinalIgnoreCase)
-                || value.EndsWith("__shell", StringComparison.OrdinalIgnoreCase)
-                || value.EndsWith("/shell", StringComparison.OrdinalIgnoreCase)
-                || value.EndsWith(".shell", StringComparison.OrdinalIgnoreCase);
-        }
-
-        internal static bool IsDeveloperWriteBlockedByProfile(string profile, string toolName)
-        {
-            return !string.Equals(profile, "Editor", StringComparison.Ordinal)
-                && IsDeveloperWriteTool(toolName);
-        }
-
         internal static bool IsDeveloperWriteBlockedByCapability(
             string permissionProfile,
             string capabilityProfile,
             string toolName)
         {
-            if (!IsDeveloperWriteTool(toolName)) return false;
+            if (!GooseAcpClient.IsDeveloperWriteToolName(toolName)) return false;
             if (!string.Equals(permissionProfile, AutomationToolProfiles.Editor, StringComparison.OrdinalIgnoreCase))
                 return true;
             return AutomationToolProfiles.IsExecutionProfile(capabilityProfile)
                 && !string.Equals(
                     capabilityProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal);
-        }
-
-        internal static bool IsDeveloperToolBlockedByCapability(
-            string capabilityProfile,
-            string toolName)
-        {
-            if (!string.Equals(
-                capabilityProfile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
-            {
-                return false;
-            }
-            string value = (toolName ?? string.Empty).Trim();
-            bool qualifiedDeveloper = value.StartsWith("developer__", StringComparison.OrdinalIgnoreCase)
-                || value.StartsWith("developer/", StringComparison.OrdinalIgnoreCase)
-                || value.StartsWith("developer.", StringComparison.OrdinalIgnoreCase)
-                || value.StartsWith("developer:", StringComparison.OrdinalIgnoreCase);
-            string leaf = value;
-            int doubleUnderscore = leaf.LastIndexOf("__", StringComparison.Ordinal);
-            int separator = Math.Max(doubleUnderscore,
-                Math.Max(leaf.LastIndexOf('/'), Math.Max(leaf.LastIndexOf('.'), leaf.LastIndexOf(':'))));
-            if (separator >= 0)
-            {
-                leaf = leaf.Substring(separator + (separator == doubleUnderscore ? 2 : 1));
-            }
-            bool knownUnqualifiedDeveloper = string.Equals(leaf, "shell", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(leaf, "write", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(leaf, "edit", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(leaf, "read", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(leaf, "tree", StringComparison.OrdinalIgnoreCase);
-            if (!qualifiedDeveloper && !knownUnqualifiedDeveloper) return false;
-            return !string.Equals(leaf, "read", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(leaf, "tree", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ResolveHmiSourceDirectory()
@@ -2673,20 +2638,24 @@ namespace Automation
             DialogResult result = ShowPreviewApprovalDialog(
                 observation.PreviewId,
                 observation.Changes,
-                observation.Messages);
+                observation.Messages,
+                string.Equals(observation.ResultType, "change_set.preview", StringComparison.Ordinal),
+                out bool continueAutoApprove);
             confirmationStopwatch.Stop();
             sourceClient?.LogFrontendAnalysisEvent("preview.decided", new JObject
             {
                 ["previewId"] = observation.PreviewId,
                 ["decision"] = result == DialogResult.Yes ? "confirmed" : "rejected",
                 ["source"] = "user",
+                ["continueAutoApprove"] = continueAutoApprove,
                 ["waitMs"] = confirmationStopwatch.ElapsedMilliseconds
             });
             try
             {
                 if (result == DialogResult.Yes)
                 {
-                    await previewClient.ConfirmAsync(observation.PreviewId).ConfigureAwait(true);
+                    await previewClient.ConfirmAsync(observation.PreviewId, continueAutoApprove)
+                        .ConfigureAwait(true);
                 }
                 else
                 {
@@ -2803,79 +2772,6 @@ namespace Automation
             {
                 return fileName + " " + arguments + "\r\n" + ex.Message;
             }
-        }
-
-        private static string FindFirstString(JToken token, string fieldName)
-        {
-            if (token == null)
-            {
-                return null;
-            }
-            if (token is JObject obj)
-            {
-                if (obj.TryGetValue(fieldName, StringComparison.OrdinalIgnoreCase, out JToken value)
-                    && value != null
-                    && value.Type == JTokenType.String)
-                {
-                    return value.Value<string>();
-                }
-                foreach (JProperty property in obj.Properties())
-                {
-                    string nested = FindFirstString(property.Value, fieldName);
-                    if (!string.IsNullOrWhiteSpace(nested))
-                    {
-                        return nested;
-                    }
-                }
-            }
-            else if (token is JArray array)
-            {
-                foreach (JToken item in array)
-                {
-                    string nested = FindFirstString(item, fieldName);
-                    if (!string.IsNullOrWhiteSpace(nested))
-                    {
-                        return nested;
-                    }
-                }
-            }
-            return null;
-        }
-
-        private static JArray FindFirstArray(JToken token, string fieldName)
-        {
-            if (token == null)
-            {
-                return null;
-            }
-            if (token is JObject obj)
-            {
-                if (obj.TryGetValue(fieldName, StringComparison.OrdinalIgnoreCase, out JToken value)
-                    && value is JArray array)
-                {
-                    return array;
-                }
-                foreach (JProperty property in obj.Properties())
-                {
-                    JArray nested = FindFirstArray(property.Value, fieldName);
-                    if (nested != null)
-                    {
-                        return nested;
-                    }
-                }
-            }
-            else if (token is JArray rootArray)
-            {
-                foreach (JToken item in rootArray)
-                {
-                    JArray nested = FindFirstArray(item, fieldName);
-                    if (nested != null)
-                    {
-                        return nested;
-                    }
-                }
-            }
-            return null;
         }
 
         // 公开以便 FrmMain.FormClosing 早期调用，先 Kill Goose 进程，

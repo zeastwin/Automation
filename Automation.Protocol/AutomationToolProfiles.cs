@@ -77,11 +77,11 @@ namespace Automation.Protocol
                     "find_variable_usages", "add_variable", "update_variable", "delete_variable",
                     "list_data_structs", "get_data_struct", "search_data_struct_items",
                     "upsert_data_struct", "delete_data_struct", "search_alarms", "get_alarm",
-                    "set_alarm", "delete_alarm", "request_capability"),
+                    "set_alarm", "delete_alarm", "update_io_note", "request_capability"),
                 [RuntimeControl] = Tools(
                     "get_snapshot", "wait_for_proc_state", "get_proc_overview", "get_flow_graph",
                     "get_step_detail", "get_operation_context", "get_operation_references",
-                    "trace_resource", "get_info_log_tail", "diagnose_proc", "validate_proc",
+                    "trace_resource", "get_info_log_tail", "diagnose_issue", "diagnose_proc", "validate_proc",
                     "get_variable_by_name", "get_variable_by_index", "get_io", "search_io",
                     "get_io_state", "get_communication", "get_plc_device", "search_alarms",
                     "get_alarm", "run_proc_test", "start_proc", "stop_proc", "pause_proc",
@@ -136,13 +136,8 @@ namespace Automation.Protocol
             return tools;
         }
 
-        public static bool UsesDeveloperTools(string value)
-        {
-            return string.Equals(value, SourceReview, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, SourceDevelopment, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, Editor, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, Diagnostic, StringComparison.OrdinalIgnoreCase);
-        }
+        // developer 工具已全量常驻所有能力面（不做 available_tools 过滤；
+        // 写/shell 由前台权限闸门拦截），不再按能力包开关，UsesDeveloperTools 分类已删除。
 
         private static IReadOnlyList<string> Tools(params string[] names) =>
             Array.AsReadOnly(names ?? Array.Empty<string>());

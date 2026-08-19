@@ -87,7 +87,9 @@ namespace Automation.McpServer
             if (invalidTopics.Length > 0)
             {
                 throw new InvalidDataException(
-                    "可用流程规范包含未知主题：" + string.Join("、", invalidTopics));
+                    "知识目录条目 " + entry.PatternId + " 的 topics 含未支持主题："
+                    + string.Join("、", invalidTopics)
+                    + "；与请求主题无关，需修正 catalog.json 或 SupportedTopics。");
             }
         }
 

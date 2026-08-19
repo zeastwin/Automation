@@ -76,6 +76,13 @@ namespace Automation.Core.Tests
             StringAssert.Contains(html, "cursor-blink");
             // 智能滚动：只有视口位于底部附近才跟随，用户上翻阅读不被打断。
             StringAssert.Contains(html, "clientHeight<140");
+            // 思考指示器：发送后到首个内容前的空白期必须有"正在思考"反馈。
+            StringAssert.Contains(html, "function startThinkingClock");
+            StringAssert.Contains(html, "function stopThinkingClock");
+            StringAssert.Contains(html, "thinking-bounce");
+            StringAssert.Contains(html, "thinking-sweep");
+            StringAssert.Contains(html, "正在思考");
+            StringAssert.Contains(html, "thinking-elapsed");
         }
 
         [TestMethod]
@@ -200,7 +207,7 @@ namespace Automation.Core.Tests
                 {
                     object resultTaskObject = execute.Invoke(core, new object[]
                     {
-                        "appState.canAccess===true&&appState.canEditConfig===true"
+                        "appState.canEditConfig===true"
                             + "&&!document.getElementById('promptInput').disabled"
                             + "&&!document.getElementById('standardTestButton').disabled"
                             + "&&!document.getElementById('toolDiagnostic').disabled"

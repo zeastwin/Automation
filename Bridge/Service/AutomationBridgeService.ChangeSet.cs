@@ -336,16 +336,62 @@ namespace Automation.Bridge
             }
         }
 
-        private JObject HandlePreviewChangeSet(AiChangeSet changeSet, string replacePreviewId)
+        private JObject HandlePreviewChangeSet(
+            AiChangeSet changeSet,
+            string replacePreviewId,
+            string amendPreviewId = null)
         {
             EnsureRuntimeReady();
-            Dictionary<string, DicValue> variables = runtime.Stores.Values?.BuildSaveData()
+            if (!string.IsNullOrWhiteSpace(replacePreviewId)
+                && !string.IsNullOrWhiteSpace(amendPreviewId))
+            {
+                throw new BridgeRequestException(400, "CHANGE_SET_INVALID",
+                    "amendPreviewId 与 replacePreviewId 不能同时提供：局部修正用 amendPreviewId，整体重写用 replacePreviewId。");
+            }
+            // 追加修正（amend）：以未确认活动预演的冻结结果为基线，只编译追加动作；
+            // 修正失败时旧预演保持原样不被替换。
+            AiChangeSetCompileResult amendBase = null;
+            if (!string.IsNullOrWhiteSpace(amendPreviewId))
+            {
+                ValidatePreviewIdFormat(amendPreviewId);
+                lock (previewLock)
+                {
+                    CleanupExpiredPreviewsLocked();
+                    if (!previewRecords.TryGetValue(amendPreviewId, out PreviewApprovalRecord amendTarget)
+                        || amendTarget.Rejected
+                        || !amendTarget.IsChangeSetPreview
+                        || amendTarget.AiChangeSetPreview == null)
+                    {
+                        throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND",
+                            $"要追加修正的 ChangeSet 预演不存在、已结束或已过期：{amendPreviewId}");
+                    }
+                    if (amendTarget.Confirmed && amendTarget.ConfirmedByForeground)
+                    {
+                        throw new BridgeRequestException(409, "PREVIEW_ALREADY_CONFIRMED",
+                            "该预演已由前台用户确认，必须立即提交；要补充内容请先提交后开新阶段。",
+                            new JObject
+                            {
+                                ["previewId"] = amendTarget.PreviewId,
+                                ["allowedTransitions"] = new JArray(new JObject
+                                {
+                                    ["tool"] = "apply_change_set",
+                                    ["arguments"] = new JObject { ["previewId"] = amendTarget.PreviewId }
+                                }),
+                                ["sideEffects"] = "none"
+                            }.ToString(Formatting.None));
+                    }
+                    amendBase = amendTarget.AiChangeSetPreview;
+                }
+            }
+            Dictionary<string, DicValue> variables = (amendBase?.Variables
+                    ?? runtime.Stores.Values?.BuildSaveData())
                 ?? throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "变量存储未初始化。");
+            IList<Proc> baseProcesses = amendBase?.Processes ?? runtime.Stores.Processes.Items;
             AiChangeSetCompileResult draft;
             try
             {
                 draft = AiChangeSetCompiler.Compile(
-                    runtime, changeSet, runtime.Stores.Processes.Items, variables, BuildAiResourceSnapshot());
+                    runtime, changeSet, baseProcesses, variables, BuildAiResourceSnapshot());
             }
             catch (InvalidOperationException ex)
             {
@@ -401,6 +447,11 @@ namespace Automation.Bridge
                     ["safeToRetry"] = true,
                     ["retryScope"] = "same_function_block"
                 };
+                if (amendBase != null)
+                {
+                    recovery["amendPreviewId"] = amendPreviewId;
+                    recovery["amendGuidance"] = "追加修正失败不会替换旧预演；修正后用同一 amendPreviewId 重试即可。";
+                }
                 if (bindingError != null)
                     recovery["bindingRepair"] = BuildResourceBindingRepair(bindingError);
                 if (repairContracts.HasValues)
@@ -409,15 +460,23 @@ namespace Automation.Bridge
                     "语义变更集编译失败。", recovery.ToString(Formatting.None));
             }
 
+            if (amendBase != null)
+            {
+                // 追加修正继承原阶段的全部新建对象，提交后 createdObjects 覆盖整个未提交阶段。
+                MergeCreatedObjects(amendBase.CreatedObjects, draft.CreatedObjects);
+            }
             JObject normalized = JObject.FromObject(changeSet);
-            string previewId = RegisterManagePreview(normalized, replacePreviewId, true);
+            string previewId = RegisterManagePreview(
+                normalized, amendPreviewId ?? replacePreviewId, true, draft);
             PreviewApprovalRecord record;
             lock (previewLock)
             {
                 record = previewRecords[previewId];
                 // 预演冻结编译结果和基线哈希；apply 只接受 previewId，不会重新解释模型原始输入。
                 record.AiChangeSetPreview = draft;
-                record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(runtime.Stores.Processes.Items, variables);
+                // 基线哈希始终对运行时当前状态计算：amend 期间人工修改配置同样会触发提交前版本冲突。
+                record.BaseStateHash = AiChangeSetCompiler.ComputeStateHash(
+                    runtime.Stores.Processes.Items, variables);
             }
             var createdPreviewProcIds = new HashSet<string>(draft.Changes.OfType<JObject>()
                 .Where(change => string.Equals(
@@ -425,14 +484,22 @@ namespace Automation.Bridge
                 .Select(change => change["procId"]?.Value<string>())
                 .Where(procId => !string.IsNullOrWhiteSpace(procId)), StringComparer.OrdinalIgnoreCase);
             JArray allowedTransitions = BuildChangeSetAllowedTransitions(record);
+            var targetProcIds = BuildChangeSetTargetProcIds(draft);
+            var targetProcGuids = new HashSet<Guid>(
+                targetProcIds.Select(id => Guid.TryParse(id, out Guid parsed) ? parsed : Guid.Empty)
+                    .Where(id => id != Guid.Empty));
             return new JObject
             {
                 ["previewId"] = previewId,
                 ["confirmed"] = record.Confirmed,
+                ["confirmedBy"] = record.Confirmed
+                    ? (record.ContinuationAutoApproved ? "continuation_auto_approve" : "auto_approve")
+                    : "awaiting_foreground",
+                ["amendedPreviewId"] = amendPreviewId,
                 ["status"] = record.Confirmed ? "confirmed" : "awaiting_confirmation",
                 ["nextStep"] = record.Confirmed
                     ? "该预演事务已确认（含前台自动批准）；必须在同一请求内用 apply_change_set(previewId) 提交，不得以存在业务假设为由跳过已确认的提交。机构角色、极性等假设在提交后的答复中声明，并可用提交返回的 authoringLease 或稳定 ID 修正。"
-                    : "等待前台确认结果；确认后仅用同一 previewId 提交，不修改已预演内容。",
+                    : "等待前台确认结果；确认后仅用同一 previewId 提交，不修改已预演内容。小修正可用 amendPreviewId 在冻结结果上追加，整体重写才用 replacePreviewId。",
                 ["allowedTransitions"] = allowedTransitions,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 ["summary"] = new JObject
@@ -446,6 +513,16 @@ namespace Automation.Bridge
                 },
                 ["variableResolutions"] = draft.VariableResolutions?.DeepClone() ?? new JArray(),
                 ["changes"] = BuildPreviewOnlyView(draft.Changes, createdPreviewProcIds),
+                ["createdObjects"] = draft.CreatedObjects?.DeepClone() ?? new JObject
+                {
+                    ["processes"] = new JArray(),
+                    ["steps"] = new JArray(),
+                    ["operations"] = new JArray(),
+                    ["variables"] = new JArray()
+                },
+                ["pendingItems"] = ProcessReadinessService.BuildPendingItems(
+                    draft.Processes, targetProcGuids, runtime),
+                ["processSnapshot"] = BuildProcessSnapshotProjection(draft.Processes, targetProcGuids),
                 ["readinessStatus"] = draft.ReadinessStatus,
                 ["runnable"] = draft.Runnable,
                 ["warnings"] = BuildPreviewOnlyView(draft.ConfigurationWarnings, createdPreviewProcIds),
@@ -455,6 +532,105 @@ namespace Automation.Bridge
                     ? $"本阶段包含 {draft.AtomicActionCount} 个原子动作；将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、修改 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量。受影响流程修改后共 {draft.OperationCount} 条指令。"
                     : $"本次将删除 {draft.DeletedProcessCount} 个流程、创建 {draft.CreatedProcessCount} 个流程、替换 {draft.ReplacedProcessCount} 个流程、变更 {draft.ChangedVariableCount} 个变量，共 {draft.OperationCount} 条指令。")
             };
+        }
+
+        // 追加修正时把原阶段 createdObjects 并入新 draft：同 ID 新值优先，保证 apply 返回覆盖整个未提交阶段。
+        private static void MergeCreatedObjects(JObject baseCreated, JObject created)
+        {
+            if (baseCreated == null || created == null) return;
+            foreach (JProperty group in baseCreated.Properties())
+            {
+                if (!(group.Value is JArray baseArray)
+                    || !(created[group.Name] is JArray targetArray))
+                {
+                    continue;
+                }
+                string idField = string.Equals(group.Name, "processes", StringComparison.Ordinal) ? "procId"
+                    : string.Equals(group.Name, "steps", StringComparison.Ordinal) ? "stepId"
+                    : string.Equals(group.Name, "operations", StringComparison.Ordinal) ? "opId"
+                    : string.Equals(group.Name, "variables", StringComparison.Ordinal) ? "variableId"
+                    : null;
+                var existingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (JObject item in targetArray.OfType<JObject>())
+                {
+                    string id = idField != null ? item[idField]?.Value<string>() : null;
+                    if (!string.IsNullOrWhiteSpace(id)) existingIds.Add(id);
+                }
+                foreach (JObject item in baseArray.OfType<JObject>())
+                {
+                    string id = idField != null ? item[idField]?.Value<string>() : null;
+                    if (id != null && existingIds.Contains(id)) continue;
+                    targetArray.Add(item.DeepClone());
+                }
+            }
+        }
+
+        // 受影响流程的紧凑结构回显：预演/提交后模型据此继续分阶段填充，不需要重新 inspect。
+        private const int MaxProcessSnapshotOperations = 300;
+
+        private static JArray BuildProcessSnapshotProjection(
+            IList<Proc> processes,
+            HashSet<Guid> targetProcIds)
+        {
+            var snapshot = new JArray();
+            if (processes == null || targetProcIds == null || targetProcIds.Count == 0)
+            {
+                return snapshot;
+            }
+            for (int procIndex = 0; procIndex < processes.Count; procIndex++)
+            {
+                Proc proc = processes[procIndex];
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                if (procId == Guid.Empty || !targetProcIds.Contains(procId)) continue;
+                var steps = new JArray();
+                int totalOps = 0;
+                bool opsOmitted = false;
+                for (int stepIndex = 0; stepIndex < (proc.steps?.Count ?? 0); stepIndex++)
+                {
+                    Step step = proc.steps[stepIndex];
+                    if (step == null) continue;
+                    int opCount = step.Ops?.Count ?? 0;
+                    totalOps += opCount;
+                    var stepEntry = new JObject
+                    {
+                        ["stepId"] = step.Id.ToString("D"),
+                        ["stepIndex"] = stepIndex,
+                        ["name"] = step.Name ?? string.Empty,
+                        ["disable"] = step.Disable,
+                        ["opCount"] = opCount
+                    };
+                    if (totalOps <= MaxProcessSnapshotOperations)
+                    {
+                        var opIds = new JArray();
+                        foreach (OperationType operation in step.Ops ?? new List<OperationType>())
+                        {
+                            if (operation != null && operation.Id != Guid.Empty)
+                            {
+                                opIds.Add(operation.Id.ToString("D"));
+                            }
+                        }
+                        stepEntry["ops"] = opIds;
+                    }
+                    else
+                    {
+                        opsOmitted = true;
+                    }
+                    steps.Add(stepEntry);
+                }
+                snapshot.Add(new JObject
+                {
+                    ["procId"] = procId.ToString("D"),
+                    ["procIndex"] = procIndex,
+                    ["name"] = proc.head.Name ?? string.Empty,
+                    ["autoStart"] = proc.head.AutoStart,
+                    ["disable"] = proc.head.Disable,
+                    ["totalSteps"] = proc.steps?.Count ?? 0,
+                    ["totalOps"] = totalOps,
+                    ["steps"] = steps,
+                    ["opsOmitted"] = opsOmitted
+                });
+            }
+            return snapshot;
         }
 
         private static JObject BuildResourceBindingRepair(AiResourceBindingException error)
@@ -606,6 +782,17 @@ namespace Automation.Bridge
                     ["fixedArguments"] = new JObject { ["replacePreviewId"] = record.PreviewId },
                     ["changeSetMode"] = "complete_replacement"
                 });
+                // 未确认预演支持在冻结结果上追加小修正：只提交增量动作，其余沿用冻结编译结果。
+                if (!record.Confirmed)
+                {
+                    allowedTransitions.Add(new JObject
+                    {
+                        ["tool"] = "preview_change_set",
+                        ["requiredArguments"] = new JArray("changeSet"),
+                        ["fixedArguments"] = new JObject { ["amendPreviewId"] = record.PreviewId },
+                        ["changeSetMode"] = "incremental_amendment"
+                    });
+                }
             }
             if (includeDiscard)
             {
@@ -850,8 +1037,13 @@ namespace Automation.Bridge
             }
 
             // 提交的是预演时冻结的结果。成功后立即关闭局部 key 作用域，后续编辑改用返回的稳定 ID。
+            List<Proc> processesBeforeCommit = runtime.Stores.Processes.CreateSnapshot();
             CommitChangeSet(draft);
             RemovePreview(previewId);
+            // 提交刷新完成后，按提交前后快照 diff 出流程/步骤/指令级定位，驱动编辑器闪烁提示。
+            NotifyProcessChanges(BuildProcessChangeNotices(
+                processesBeforeCommit,
+                runtime.Stores.Processes.Items));
             var affectedProcesses = new JArray();
             var createdProcIds = new HashSet<string>(
                 (draft.CreatedObjects?["processes"] as JArray ?? new JArray())
@@ -880,6 +1072,12 @@ namespace Automation.Bridge
                     affectedProcesses.Add(item);
                 }
             }
+            var affectedProcGuids = new HashSet<Guid>(
+                affectedProcesses.OfType<JObject>()
+                    .Select(item => item["procId"]?.Value<string>())
+                    .Where(value => !string.IsNullOrEmpty(value))
+                    .Select(value => Guid.TryParse(value, out Guid parsed) ? parsed : Guid.Empty)
+                    .Where(value => value != Guid.Empty));
             return new JObject
             {
                 ["previewId"] = previewId,
@@ -898,12 +1096,198 @@ namespace Automation.Bridge
                     ["steps"] = new JArray(),
                     ["operations"] = new JArray()
                 },
+                ["pendingItems"] = ProcessReadinessService.BuildPendingItems(
+                    draft.Processes, affectedProcGuids, runtime),
+                ["processSnapshot"] = BuildProcessSnapshotProjection(draft.Processes, affectedProcGuids),
                 ["readinessStatus"] = draft.ReadinessStatus,
                 ["runnable"] = draft.Runnable,
                 ["warnings"] = draft.ConfigurationWarnings?.DeepClone() ?? new JArray(),
                 ["runBlockers"] = draft.RunBlockers?.DeepClone() ?? new JArray(),
                 ["message"] = "语义变更集已按冻结预演原子提交。"
             };
+        }
+
+        /// <summary>
+        /// 对比提交前后的流程快照，生成流程树/指令表闪烁用的变更定位。
+        /// 按 procId/stepId/opId 稳定 ID 匹配；指令内容按序列化等价比较（剔除步骤内顺序号 Num，
+        /// 避免插入/删除指令后后续行因重编号被误报为修改）。
+        /// 只保留刷新后界面可定位的对象：新增/修改的流程、步骤和指令；
+        /// 已删除对象在刷新后的界面中不存在，不生成行级通知，仅通过所属步骤/流程的修改态提示。
+        /// </summary>
+        private static List<ProcessChangeNotice> BuildProcessChangeNotices(
+            IList<Proc> before,
+            IList<Proc> after)
+        {
+            var notices = new List<ProcessChangeNotice>();
+            if (after == null || after.Count == 0)
+            {
+                return notices;
+            }
+            var beforeById = new Dictionary<Guid, Proc>();
+            foreach (Proc proc in before ?? Array.Empty<Proc>())
+            {
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                if (procId != Guid.Empty && !beforeById.ContainsKey(procId))
+                {
+                    beforeById.Add(procId, proc);
+                }
+            }
+            for (int procIndex = 0; procIndex < after.Count; procIndex++)
+            {
+                Proc newProc = after[procIndex];
+                Guid newProcId = newProc?.head?.Id ?? Guid.Empty;
+                if (newProcId == Guid.Empty)
+                {
+                    continue;
+                }
+                bool processAdded = !beforeById.TryGetValue(newProcId, out Proc oldProc);
+                var notice = new ProcessChangeNotice
+                {
+                    ProcIndex = procIndex,
+                    ProcId = newProcId,
+                    Name = newProc.head.Name ?? string.Empty,
+                    Kind = processAdded ? ProcChangeKind.Added : ProcChangeKind.Modified
+                };
+                var oldStepsById = new Dictionary<Guid, (int index, Step step)>();
+                if (!processAdded)
+                {
+                    List<Step> oldSteps = oldProc.steps ?? new List<Step>();
+                    for (int oldStepIndex = 0; oldStepIndex < oldSteps.Count; oldStepIndex++)
+                    {
+                        Step oldStep = oldSteps[oldStepIndex];
+                        Guid oldStepId = oldStep?.Id ?? Guid.Empty;
+                        if (oldStepId != Guid.Empty && !oldStepsById.ContainsKey(oldStepId))
+                        {
+                            oldStepsById.Add(oldStepId, (oldStepIndex, oldStep));
+                        }
+                    }
+                }
+                bool structureChanged = processAdded
+                    || !JToken.DeepEquals(
+                        JToken.FromObject(oldProc.head),
+                        JToken.FromObject(newProc.head));
+                List<Step> newSteps = newProc.steps ?? new List<Step>();
+                for (int stepIndex = 0; stepIndex < newSteps.Count; stepIndex++)
+                {
+                    Step newStep = newSteps[stepIndex];
+                    Guid newStepId = newStep?.Id ?? Guid.Empty;
+                    if (newStepId == Guid.Empty)
+                    {
+                        continue;
+                    }
+                    bool stepAdded = !oldStepsById.TryGetValue(
+                        newStepId,
+                        out (int index, Step step) oldStepEntry);
+                    var stepNotice = new ProcessStepChangeNotice
+                    {
+                        StepId = newStepId,
+                        StepIndex = stepIndex,
+                        Kind = stepAdded ? ProcChangeKind.Added : ProcChangeKind.Modified
+                    };
+                    bool stepChanged = stepAdded
+                        || oldStepEntry.index != stepIndex
+                        || !StepContentEquals(oldStepEntry.step, newStep);
+                    if (!stepAdded)
+                    {
+                        stepChanged |= DiffStepOperations(oldStepEntry.step, newStep, stepNotice);
+                    }
+                    if (stepChanged)
+                    {
+                        notice.Steps.Add(stepNotice);
+                        structureChanged = true;
+                    }
+                }
+                if (structureChanged)
+                {
+                    notices.Add(notice);
+                }
+            }
+            return notices;
+        }
+
+        private static bool StepContentEquals(Step oldStep, Step newStep)
+        {
+            if (ReferenceEquals(oldStep, newStep))
+            {
+                return true;
+            }
+            // 步骤级字段（Id/AiKey/Name/Disable）不含 Ops；指令集合另行逐条比较。
+            JObject oldToken = (JObject)JToken.FromObject(oldStep);
+            JObject newToken = (JObject)JToken.FromObject(newStep);
+            oldToken.Remove("Ops");
+            newToken.Remove("Ops");
+            return JToken.DeepEquals(oldToken, newToken);
+        }
+
+        /// <summary>
+        /// 按稳定 opId 对比步骤内指令：新增/修改写入 stepNotice.Operations（OpIndex 为提交后行号），
+        /// 存在被删除的指令时仅返回 true 提示步骤有变化（删除行在刷新后已不存在，无法行级闪烁）。
+        /// </summary>
+        private static bool DiffStepOperations(
+            Step oldStep,
+            Step newStep,
+            ProcessStepChangeNotice stepNotice)
+        {
+            var oldOpsById = new Dictionary<Guid, OperationType>();
+            foreach (OperationType oldOp in oldStep?.Ops ?? new List<OperationType>())
+            {
+                if (oldOp != null && oldOp.Id != Guid.Empty && !oldOpsById.ContainsKey(oldOp.Id))
+                {
+                    oldOpsById.Add(oldOp.Id, oldOp);
+                }
+            }
+            bool opsRemoved = false;
+            var matchedOldOps = new HashSet<Guid>();
+            List<OperationType> newOps = newStep?.Ops ?? new List<OperationType>();
+            for (int opIndex = 0; opIndex < newOps.Count; opIndex++)
+            {
+                OperationType newOp = newOps[opIndex];
+                if (newOp == null || newOp.Id == Guid.Empty)
+                {
+                    continue;
+                }
+                if (!oldOpsById.TryGetValue(newOp.Id, out OperationType oldOp))
+                {
+                    stepNotice.Operations.Add(new ProcessOperationChangeNotice
+                    {
+                        OpIndex = opIndex,
+                        Kind = ProcChangeKind.Added
+                    });
+                    continue;
+                }
+                matchedOldOps.Add(newOp.Id);
+                if (!OperationContentEquals(oldOp, newOp))
+                {
+                    stepNotice.Operations.Add(new ProcessOperationChangeNotice
+                    {
+                        OpIndex = opIndex,
+                        Kind = ProcChangeKind.Modified
+                    });
+                }
+            }
+            foreach (Guid oldOpId in oldOpsById.Keys)
+            {
+                if (!matchedOldOps.Contains(oldOpId))
+                {
+                    opsRemoved = true;
+                    break;
+                }
+            }
+            return opsRemoved;
+        }
+
+        private static bool OperationContentEquals(OperationType oldOp, OperationType newOp)
+        {
+            if (ReferenceEquals(oldOp, newOp))
+            {
+                return true;
+            }
+            JObject oldToken = (JObject)JToken.FromObject(oldOp);
+            JObject newToken = (JObject)JToken.FromObject(newOp);
+            // Num 是步骤内顺序号，由 RenumberOperations 统一维护；位置移动不等于内容修改。
+            oldToken.Remove("Num");
+            newToken.Remove("Num");
+            return JToken.DeepEquals(oldToken, newToken);
         }
 
         private void CommitChangeSet(AiChangeSetCompileResult draft)

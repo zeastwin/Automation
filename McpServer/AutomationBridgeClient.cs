@@ -185,7 +185,10 @@ namespace Automation.McpServer
             return PostAsync("/bridge/proc/validate", payload);
         }
 
-        public Task<string> PreviewChangeSetAsync(AiChangeSet changeSet, string? replacePreviewId)
+        public Task<string> PreviewChangeSetAsync(
+            AiChangeSet changeSet,
+            string? replacePreviewId,
+            string? amendPreviewId = null)
         {
             JsonNode changeSetNode = JsonSerializer.SerializeToNode(changeSet, jsonOptions)
                 ?? throw new ArgumentException("语义变更集不能为 null。", nameof(changeSet));
@@ -197,6 +200,11 @@ namespace Automation.McpServer
             {
                 ValidatePreviewId(replacePreviewId);
                 payload["replacePreviewId"] = replacePreviewId;
+            }
+            if (!string.IsNullOrWhiteSpace(amendPreviewId))
+            {
+                ValidatePreviewId(amendPreviewId);
+                payload["amendPreviewId"] = amendPreviewId;
             }
             return PostAsync("/bridge/change-set/preview", payload);
         }
@@ -535,6 +543,16 @@ namespace Automation.McpServer
         {
             JsonObject payload = new JsonObject { ["index"] = index };
             return PostAsync("/bridge/alarm/delete", payload);
+        }
+
+        public Task<string> UpdateIoNoteAsync(string name, string note)
+        {
+            JsonObject payload = new JsonObject
+            {
+                ["name"] = name,
+                ["note"] = note
+            };
+            return PostAsync("/bridge/io/update_note", payload);
         }
 
         // ---------- data_struct 读取与整对象维护（5 个） ----------

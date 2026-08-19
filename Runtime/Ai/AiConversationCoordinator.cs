@@ -211,7 +211,7 @@ namespace Automation
                 {
                     var compactItem = Select(item,
                         "resourceRef", "binding", "variableId", "procId", "procIndex", "stationIndex", "index", "name",
-                        "type", "scope", "ownerProcId", "ioType", "usedType", "effectLevel",
+                        "type", "scope", "ownerProcId", "ioType", "usedType",
                         "cardNum", "moduleIndex", "ioIndex", "kind", "coordinateSystem",
                         "manualSpeedPercent", "axisCount", "pointCount", "note");
                     if (item["axes"] is JArray axes)
@@ -245,6 +245,17 @@ namespace Automation
             }
             return selected;
         }
+    }
+
+    /// <summary>
+    /// 恢复胶囊与可信事实的字符预算，按大上下文模型固定取值，不再按 ContextLimit 分档。
+    /// </summary>
+    internal static class AiContextBudget
+    {
+        public const int TrustedFactsChars = 32000;
+        public const int RestoredMessages = 16;
+        public const int RestoredChars = 24000;
+        public const int MaxTrustedFactsChars = TrustedFactsChars;
     }
 
     /// <summary>
@@ -638,10 +649,12 @@ namespace Automation
                 RequestTrustedContextRolloverAtRequestTerminal(runtime, client ?? lastWorkerClient);
                 runtime.Status = string.IsNullOrWhiteSpace(stopReason) ? "已完成" : "部分完成";
                 string assistantText = BuildFinalAssistantOutput(completedOutputs, finalMessage);
+                // 协调阶段直接完成回复（无需平台工具或能力申请被拒后向用户提问）时
+                // lastWorkerClient 仍为 null；必须传实际使用的 client，前台才能取到最终回复。
                 return BuildTaskResult(
                     AiTaskExecutionStatus.Completed,
                     runtime,
-                    lastWorkerClient,
+                    client ?? lastWorkerClient,
                     null,
                     completedProfiles,
                     stopReason,
@@ -655,7 +668,7 @@ namespace Automation
                 return BuildTaskResult(
                     AiTaskExecutionStatus.Cancelled,
                     runtime,
-                    lastWorkerClient,
+                    client ?? lastWorkerClient,
                     null,
                     completedProfiles,
                     stopReason,
@@ -668,7 +681,7 @@ namespace Automation
                 return BuildTaskResult(
                     AiTaskExecutionStatus.Failed,
                     runtime,
-                    lastWorkerClient,
+                    client ?? lastWorkerClient,
                     ex.Message,
                     completedProfiles,
                     stopReason,
@@ -983,7 +996,7 @@ namespace Automation
             }
             foreach (AiConversationMessage message in messages
                 .Reverse<AiConversationMessage>()
-                .Take(8)
+                .Take(AiContextBudget.RestoredMessages)
                 .Reverse())
             {
                 builder.Append(message.Role == "user"
@@ -991,7 +1004,7 @@ namespace Automation
                     : "此前最终答复（不是工具证据）：");
                 builder.AppendLine(message.Text);
             }
-            return Tail(builder.ToString(), 12000);
+            return Tail(builder.ToString(), AiContextBudget.RestoredChars);
         }
 
         private static AiTaskExecutionResult BuildTaskResult(
@@ -1113,12 +1126,12 @@ namespace Automation
             return builder.ToString().Trim();
         }
 
-        private static void PersistTrustedFacts(
+        private void PersistTrustedFacts(
             AiConversation conversation,
             AiStageArtifact artifact)
         {
             if (conversation == null || artifact?.HasFacts != true) return;
-            conversation.TrustedFactsJson = artifact.ToCompactJson(16000);
+            conversation.TrustedFactsJson = artifact.ToCompactJson(AiContextBudget.TrustedFactsChars);
             conversation.TrustedFactsObservedAt = DateTime.Now;
         }
 
@@ -1187,7 +1200,8 @@ namespace Automation
                 + ", sourceMutationUncertain=" + (evidence?.SourceMutationUncertain ?? false)
                 + ", toolFailureCount=" + (evidence?.ToolFailureCount ?? 0)
                 + (artifact?.HasFacts == true
-                    ? "\n机械阶段产物（稳定ID、绑定与验证事实）：\n" + artifact.ToCompactJson(12000)
+                    ? "\n机械阶段产物（稳定ID、绑定与验证事实）：\n"
+                        + artifact.ToCompactJson(AiContextBudget.RestoredChars)
                     : string.Empty)
                 + "\n最近阶段最终输出（其中推断不自动成为事实）：\n"
                 + Tail((stageOutput ?? string.Empty).Trim(), 6000);
@@ -1214,18 +1228,12 @@ namespace Automation
                 ["lastPromptInputTokens"] = client.LastPromptInputTokens,
                 ["lastTurnToolResultBytes"] = client.LastTurnToolResultBytes,
                 ["estimatedSessionContextTokens"] = estimatedSessionContextTokens,
-                ["estimatedToolResultTokens"] = EstimateTokensFromUtf8Bytes(client.LastTurnToolResultBytes),
+                ["estimatedToolResultTokens"] = AiAnalysisLogger.EstimateTokensFromUtf8Bytes(client.LastTurnToolResultBytes),
                 ["contextWindowTokens"] = client.ContextWindowTokens,
                 ["reservedOutputTokens"] = client.ReservedOutputTokens,
                 ["reason"] = "request_terminal",
                 ["state"] = "deferred_until_next_user_request"
             });
-        }
-
-        private static long EstimateTokensFromUtf8Bytes(long bytes)
-        {
-            if (bytes <= 0L) return 0L;
-            return (bytes + 2L) / 3L;
         }
 
         private static string Tail(string value, int maxCharacters)

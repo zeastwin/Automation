@@ -27,6 +27,7 @@ namespace Automation.Bridge
         {
             string previewId = ReadRequiredString(request, "previewId");
             PreviewApprovalRecord record;
+            HashSet<string> continuationProcIds = null;
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
@@ -39,16 +40,35 @@ namespace Automation.Bridge
                     return BridgeError(409, "PREVIEW_REJECTED", $"预演已结束，不能再次确认：{previewId}");
                 }
                 record.Confirmed = true;
+                record.ConfirmedByForeground = true;
                 record.ConfirmedAtUtc = previewUtcNow();
+                // 用户确认本次预演并勾选“续建自动确认”：登记该阶段全部目标流程，
+                // 后续只触及这批流程的 ChangeSet 预演自动确认，触及其它流程仍需人工确认。
+                if (ReadOptionalBoolean(request, "continueAutoApprove") == true
+                    && record.IsChangeSetPreview
+                    && record.AiChangeSetPreview != null)
+                {
+                    continuationProcIds = BuildChangeSetTargetProcIds(record.AiChangeSetPreview);
+                    if (continuationProcIds.Count > 0)
+                    {
+                        RegisterContinuationAutoApproveLocked(continuationProcIds);
+                    }
+                }
                 Monitor.PulseAll(previewLock);
             }
 
-            return new JObject
+            var response = new JObject
             {
                 ["previewId"] = record.PreviewId,
                 ["confirmed"] = true,
                 ["expiresAt"] = record.ExpiresAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             };
+            if (continuationProcIds != null && continuationProcIds.Count > 0)
+            {
+                response["continuationAutoApprove"] = true;
+                response["continuationAutoApproveProcIds"] = new JArray(continuationProcIds);
+            }
+            return response;
         }
 
         private JObject HandleRejectPreview(JObject request)
@@ -62,6 +82,8 @@ namespace Automation.Bridge
                     return BridgeError(404, "PREVIEW_NOT_FOUND", $"预演记录不存在或已过期：{previewId}");
                 }
                 record.Rejected = true;
+                // 手动取消任一预演即结束续建自动确认作用域：用户已收回对后续批次的授权。
+                ClearContinuationAutoApproveLocked();
                 Monitor.PulseAll(previewLock);
             }
             return new JObject { ["previewId"] = previewId, ["rejected"] = true };
@@ -428,11 +450,13 @@ namespace Automation.Bridge
         private string RegisterManagePreview(
             JObject previewData,
             string replacePreviewId = null,
-            bool supportsExplicitReplacement = false)
+            bool supportsExplicitReplacement = false,
+            AiChangeSetCompileResult draft = null)
         {
             string previewId = Guid.NewGuid().ToString("N");
             // 自动批准模式：直接标记预演为已确认，避免 FrmAiAssistant 通过 HTTP 回调确认导致 UI 线程死锁。
             bool autoConfirmed = runtime.EditorUi?.IsAutoApproveMode == true;
+            bool continuationAutoConfirmed = false;
             lock (previewLock)
             {
                 CleanupExpiredPreviewsLocked();
@@ -446,6 +470,21 @@ namespace Automation.Bridge
                         throw new BridgeRequestException(404, "PREVIEW_NOT_FOUND",
                             $"要替换的 ChangeSet 预演不存在、已结束或已过期：{replacePreviewId}");
                     }
+                    if (replaced.Confirmed && replaced.ConfirmedByForeground)
+                    {
+                        throw new BridgeRequestException(409, "PREVIEW_ALREADY_CONFIRMED",
+                            "该预演已由前台用户确认，必须立即提交；要改变内容请先提交后开新阶段。",
+                            new JObject
+                            {
+                                ["previewId"] = replaced.PreviewId,
+                                ["allowedTransitions"] = new JArray(new JObject
+                                {
+                                    ["tool"] = "apply_change_set",
+                                    ["arguments"] = new JObject { ["previewId"] = replaced.PreviewId }
+                                }),
+                                ["sideEffects"] = "none"
+                            }.ToString(Formatting.None));
+                    }
                     replaced.Rejected = true;
                     Monitor.PulseAll(previewLock);
                 }
@@ -458,8 +497,37 @@ namespace Automation.Bridge
                         && item.ExpiresAtUtc > previewUtcNow());
                     if (activeChangeSet != null)
                     {
+                        if (activeChangeSet.Confirmed && activeChangeSet.ConfirmedByForeground)
+                        {
+                            throw new BridgeRequestException(409, "PREVIEW_ALREADY_CONFIRMED",
+                                "当前活跃预演已由前台用户确认，必须立即提交；要改变内容请先提交后开新阶段。",
+                                new JObject
+                                {
+                                    ["previewId"] = activeChangeSet.PreviewId,
+                                    ["allowedTransitions"] = new JArray(new JObject
+                                    {
+                                        ["tool"] = "apply_change_set",
+                                        ["arguments"] = new JObject { ["previewId"] = activeChangeSet.PreviewId }
+                                    }),
+                                    ["sideEffects"] = "none"
+                                }.ToString(Formatting.None));
+                        }
                         activeChangeSet.Rejected = true;
                         Monitor.PulseAll(previewLock);
+                    }
+                }
+                if (!autoConfirmed && supportsExplicitReplacement)
+                {
+                    // 续建自动确认：本阶段全部目标流程都在用户已授权的批次内时自动确认并续期。
+                    HashSet<string> targetProcIds = draft != null
+                        ? BuildChangeSetTargetProcIds(draft)
+                        : null;
+                    if (IsContinuationAutoApproveActiveLocked(targetProcIds))
+                    {
+                        autoConfirmed = true;
+                        continuationAutoConfirmed = true;
+                        continuationAutoApproveExpiresUtc =
+                            previewUtcNow().Add(ContinuationAutoApproveLifetime);
                     }
                 }
                 EnsureNoActivePreviewLocked(supportsExplicitReplacement);
@@ -472,7 +540,8 @@ namespace Automation.Bridge
                     CreatedAtUtc = createdAtUtc,
                     ExpiresAtUtc = createdAtUtc.Add(previewLifetime),
                     Confirmed = autoConfirmed,
-                    IsChangeSetPreview = supportsExplicitReplacement
+                    IsChangeSetPreview = supportsExplicitReplacement,
+                    ContinuationAutoApproved = continuationAutoConfirmed
                 };
                 if (autoConfirmed)
                 {
@@ -481,6 +550,56 @@ namespace Automation.Bridge
                 previewRecords[record.PreviewId] = record;
             }
             return previewId;
+        }
+
+        // ChangeSet 阶段触及的全部流程稳定 ID：含新建流程与被修改/替换/删除的既有流程。
+        internal static HashSet<string> BuildChangeSetTargetProcIds(AiChangeSetCompileResult draft)
+        {
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (JObject analysis in (draft?.ProcessAnalyses ?? new JArray()).OfType<JObject>())
+            {
+                string procId = analysis["procId"]?.Value<string>();
+                if (!string.IsNullOrWhiteSpace(procId))
+                {
+                    ids.Add(procId);
+                }
+            }
+            return ids;
+        }
+
+        private bool IsContinuationAutoApproveActiveLocked(HashSet<string> targetProcIds)
+        {
+            if (continuationAutoApproveExpiresUtc <= previewUtcNow())
+            {
+                continuationAutoApproveProcIds.Clear();
+                return false;
+            }
+            if (continuationAutoApproveProcIds.Count == 0
+                || targetProcIds == null
+                || targetProcIds.Count == 0)
+            {
+                return false;
+            }
+            return targetProcIds.All(continuationAutoApproveProcIds.Contains);
+        }
+
+        private void RegisterContinuationAutoApproveLocked(IEnumerable<string> procIds)
+        {
+            continuationAutoApproveProcIds.Clear();
+            foreach (string procId in procIds ?? Array.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(procId))
+                {
+                    continuationAutoApproveProcIds.Add(procId);
+                }
+            }
+            continuationAutoApproveExpiresUtc = previewUtcNow().Add(ContinuationAutoApproveLifetime);
+        }
+
+        private void ClearContinuationAutoApproveLocked()
+        {
+            continuationAutoApproveProcIds.Clear();
+            continuationAutoApproveExpiresUtc = DateTime.MinValue;
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

@@ -48,6 +48,12 @@ namespace Automation.Bridge
             new Dictionary<string, PreviewApprovalRecord>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<int, DiagnosticProcIndex> diagnosticIndexes =
             new Dictionary<int, DiagnosticProcIndex>();
+        // 用户在预演确认对话框勾选“续建自动确认”后，同一批流程的后续 ChangeSet 预演自动确认；
+        // 手动取消任一预演即结束该作用域，超时自动失效。
+        private readonly HashSet<string> continuationAutoApproveProcIds =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private DateTime continuationAutoApproveExpiresUtc = DateTime.MinValue;
+        private static readonly TimeSpan ContinuationAutoApproveLifetime = TimeSpan.FromHours(2);
 
         public AutomationBridgeService(FrmMain owner)
             : this(owner, () => DateTime.UtcNow, TimeSpan.FromMinutes(30))
@@ -70,16 +76,22 @@ namespace Automation.Bridge
         }
 
         /// <summary>
-        /// 流程被 AI 改动后，在 FrmProc 节点和 FrmDataGrid 上触发闪烁动效，让用户直观看到改动位置。
-        /// kind 决定颜色：Modified=橙黄、Added=浅绿、Deleted=浅红。
-        /// FrmDataGrid 仅在用户当前正在浏览的流程 == 被改动的流程时才闪烁，
-        /// 避免用户在查看别的流程时被打扰；FrmProc 节点闪烁不受影响（始终提示哪个流程被改）。
-        /// affectedOps 非空时走行级闪烁（只闪被改动的指令行），为空时走整体闪烁。
+        /// 流程被 AI 改动提交后，按流程/步骤/指令的精确定位通知编辑器：
+        /// 流程树始终闪烁被改流程/步骤节点（未展开时先展开并滚动到位），
+        /// 指令表仅在用户当前浏览的流程命中时闪烁对应指令行。
+        /// 颜色由 kind 决定：Modified=橙黄、Added=浅绿、Deleted=浅红。
         /// </summary>
-        private void NotifyProcChanged(int procIndex, ProcChangeKind kind, List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOps = null)
+        private void NotifyProcessChanges(IReadOnlyList<ProcessChangeNotice> notices)
         {
-            diagnosticIndexes.Remove(procIndex);
-            runtime.EditorUi?.NotifyProcessChanged(procIndex, kind, affectedOps);
+            if (notices == null || notices.Count == 0)
+            {
+                return;
+            }
+            foreach (ProcessChangeNotice notice in notices)
+            {
+                diagnosticIndexes.Remove(notice.ProcIndex);
+            }
+            runtime.EditorUi?.NotifyProcessChanged(notices);
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -115,6 +127,13 @@ namespace Automation.Bridge
             public bool Rejected { get; set; }
 
             public bool IsChangeSetPreview { get; set; }
+
+            // 前台用户通过确认对话框/HTTP 回调确认（区别于自动批准）；
+            // 已由用户确认的冻结预演不得再被替换或追加修正。
+            public bool ConfirmedByForeground { get; set; }
+
+            // 由“续建自动确认”作用域自动确认（用户已在首阶段授权同一批流程）。
+            public bool ContinuationAutoApproved { get; set; }
 
             public AiChangeSetCompileResult AiChangeSetPreview { get; set; }
 

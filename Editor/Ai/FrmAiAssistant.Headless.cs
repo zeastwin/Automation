@@ -52,7 +52,7 @@ namespace Automation
         }
     }
 
-    public partial class FrmAiAssistant
+    public sealed partial class FrmAiAssistant
     {
         /// <summary>最近一次完成的发送所产出的最终助手输出；headless 测试收集用，UI 模式无人读取。</summary>
         internal string HeadlessLastAssistantText { get; private set; } = string.Empty;

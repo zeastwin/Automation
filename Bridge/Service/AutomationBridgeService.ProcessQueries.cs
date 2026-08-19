@@ -222,6 +222,9 @@ namespace Automation.Bridge
                     ["name"] = template.Name ?? string.Empty,
                     // 工站范围指令：行为契约要求 StationName，或用途/执行步骤明确面向工站。
                     ["stationScoped"] = IsStationScopedOperation(behavior),
+                    // 资源域标记：作者资源目录据此为 io/communication/plc/alarm 附加可用操作菜单，
+                    // 让模型看到现场资源的同时拿到精确指令类型名，不靠猜。
+                    ["domains"] = BuildOperationDomains(template, behavior),
                     ["intentAliases"] = behavior?["intentAliases"]?.DeepClone() ?? new JArray()
                 });
             }
@@ -230,6 +233,39 @@ namespace Automation.Bridge
             {
                 ["items"] = items
             };
+        }
+
+        // 按行为契约字段和类型名称做保守分类：只在信号明确时归入资源域，宁缺勿错。
+        private static JArray BuildOperationDomains(OperationType template, JObject behavior)
+        {
+            var domains = new List<string>();
+            string text = (template?.OperaType ?? string.Empty) + (template?.Name ?? string.Empty);
+            JObject rules = behavior?["fieldRules"] as JObject;
+            bool HasRule(params string[] fields) =>
+                rules != null && fields.Any(field => rules.Property(field) != null);
+            if (HasRule("IoParams", "OutIoParams", "CheckIoParams") || text.Contains("IO"))
+            {
+                domains.Add("io");
+            }
+            if (HasRule("DeviceName") && text.Contains("PLC"))
+            {
+                domains.Add("plc");
+            }
+            string purpose = behavior?["purpose"]?.Value<string>() ?? string.Empty;
+            if (text.Contains("通讯") || text.Contains("串口") || text.Contains("TCP")
+                || purpose.Contains("通讯") || purpose.Contains("串口") || purpose.Contains("TCP"))
+            {
+                domains.Add("communication");
+            }
+            if (text.Contains("报警") || purpose.Contains("报警"))
+            {
+                domains.Add("alarm");
+            }
+            if (IsStationScopedOperation(behavior))
+            {
+                domains.Add("motion");
+            }
+            return new JArray(domains);
         }
 
         private static bool IsStationScopedOperation(JObject behavior)

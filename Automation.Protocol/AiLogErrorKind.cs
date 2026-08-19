@@ -6,6 +6,13 @@ using System;
 
 namespace Automation.Protocol
 {
+    // MCP 侧产生、ACP 客户端消费的跨进程稳定错误码。
+    // McpServer 抛出时必须在异常消息开头携带该标记，客户端按标记识别，不匹配自然语言文案。
+    public static class AutomationMcpErrorCodes
+    {
+        public const string ToolNotAvailable = "TOOL_NOT_AVAILABLE";
+    }
+
     public static class AiLogErrorKind
     {
         // 按前缀归类的稳定类别；未匹配时回退为小写 errorCode。

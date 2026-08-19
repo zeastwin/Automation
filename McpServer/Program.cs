@@ -40,6 +40,23 @@ namespace Automation.McpServer
             ToolCallLogger.Configure(options.LogRoot);
             AutomationMcpRuntime.Initialize(options);
 
+            // 启动期校验知识目录：条目主题未登记、区块缺失等契约问题在部署时暴露，
+            // 不等到运行期让每次 get_process_design_guide 失败。
+            try
+            {
+                ProcessDesignGuideCatalog.Get(
+                    ProcessDesignGuideCatalog.SupportedTopics
+                        .Where(topic => !string.Equals(topic, "core", StringComparison.Ordinal))
+                        .ToArray(),
+                    null);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("MCP 知识目录自检失败：" + ex.Message);
+                Environment.ExitCode = 2;
+                return;
+            }
+
             var toolRegistry = new DynamicMcpToolRegistry(options.ToolProfile);
             builder.Services.AddSingleton(toolRegistry);
             builder.Services
@@ -542,7 +559,10 @@ namespace Automation.McpServer
             if (processDesignRoot?["ok"]?.GetValue<bool>() != true
                 || processDesignRoot?["includedCore"]?.GetValue<bool>() != true
                 || processDesignSections?.Count != ProcessDesignGuideCatalog.SupportedTopics.Length
-                || processKnowledgeBlocks?.Count != requiredKnowledgeIds.Length
+                // 知识库随审核增长：只要求必需规范全部在场（下方逐项检查），
+                // 不再断言块数恰等于当前清单，避免新增规范必须改自检。
+                || processKnowledgeBlocks == null
+                || processKnowledgeBlocks.Count < requiredKnowledgeIds.Length
                 || functionalBlocks?.Count != 4
                 || resourceRequests == null
                 || !resourceRequests.Any(request => string.Equals(
@@ -851,6 +871,7 @@ namespace Automation.McpServer
                 || !resources.Contains("add_variable", StringComparer.Ordinal)
                 || !resources.Contains("upsert_data_struct", StringComparer.Ordinal)
                 || !resources.Contains("set_alarm", StringComparer.Ordinal)
+                || !resources.Contains("update_io_note", StringComparer.Ordinal)
                 || resources.Contains("preview_change_set", StringComparer.Ordinal)
                 || resources.Contains("start_proc", StringComparer.Ordinal))
                 throw new InvalidOperationException("ResourceEdit 工具边界错误。");
@@ -1008,6 +1029,47 @@ namespace Automation.McpServer
             catch (ArgumentException)
             {
                 // 期望路径：创建能力不得越界修改已提交流程。
+            }
+
+            // 追加修正边界：目标只能用稳定 procId，且不得再次创建/删除流程。
+            var amendment = new AtomicChangeSetDefinition
+            {
+                Actions = new List<ChangeSetAction>
+                {
+                    new ChangeSetAction
+                    {
+                        Type = "operation.append",
+                        TargetProcess = new ProcessSelector { ProcId = createdProcId },
+                        TargetStep = new StepSelector { StepId = Guid.NewGuid().ToString("D") },
+                        Operation = new SemanticOperation { Kind = "flow.end" }
+                    }
+                }
+            };
+            AutomationMcpTools.ValidateProcessCreateAmendment(amendment);
+            amendment.Actions.Add(new ChangeSetAction
+            {
+                Type = "process.create",
+                Process = new ProcessActionValue { Key = "another", Name = "越界创建" }
+            });
+            try
+            {
+                AutomationMcpTools.ValidateProcessCreateAmendment(amendment);
+                throw new InvalidOperationException("ProcessCreate 追加修正边界自检未拒绝再次创建流程。");
+            }
+            catch (ArgumentException)
+            {
+                // 期望路径：追加修正只完善被修正预演中已创建的流程。
+            }
+            amendment.Actions.RemoveAt(amendment.Actions.Count - 1);
+            amendment.Actions[0].TargetProcess = new ProcessSelector { Key = createdProcId };
+            try
+            {
+                AutomationMcpTools.ValidateProcessCreateAmendment(amendment);
+                throw new InvalidOperationException("ProcessCreate 追加修正边界自检未拒绝局部 key 目标。");
+            }
+            catch (ArgumentException)
+            {
+                // 期望路径：局部 key 不跨预演，追加修正必须使用稳定 ID。
             }
 
             const string initialPreviewId = "11111111111111111111111111111111";
@@ -1411,7 +1473,26 @@ namespace Automation.McpServer
                             ["stepId"] = "step-1"
                         })
                     },
-                    ["runBlockers"] = new JsonArray()
+                    ["runBlockers"] = new JsonArray(),
+                    ["pendingItems"] = new JsonArray(new JsonObject
+                    {
+                        ["category"] = "goto_target",
+                        ["procId"] = "proc-1",
+                        ["opId"] = "op-2",
+                        ["field"] = "defaultGoto",
+                        ["repair"] = "operation.update",
+                        ["redundant"] = "discard"
+                    }),
+                    ["processSnapshot"] = new JsonArray(new JsonObject
+                    {
+                        ["procId"] = "proc-1",
+                        ["procIndex"] = 0,
+                        ["name"] = "流程",
+                        ["totalSteps"] = 1,
+                        ["totalOps"] = 1,
+                        ["steps"] = new JsonArray(),
+                        ["opsOmitted"] = false
+                    })
                 }
             }.ToJsonString();
             string compact = AutomationMcpTools.CompactChangeSetApplyResult(raw);
@@ -1423,6 +1504,15 @@ namespace Automation.McpServer
                 ?? throw new InvalidOperationException("apply_change_set 紧凑结果丢失新建指令身份。");
             JsonObject process = data["createdObjects"]?["processes"]?[0] as JsonObject
                 ?? throw new InvalidOperationException("apply_change_set 紧凑结果丢失新建流程身份。");
+            JsonObject? pendingItem = data["pendingItems"]?[0] as JsonObject;
+            if (pendingItem?["category"]?.GetValue<string>() != "goto_target"
+                || pendingItem?["opId"]?.GetValue<string>() != "op-2"
+                || pendingItem.ContainsKey("redundant")
+                || data["processSnapshot"]?[0]?["procId"]?.GetValue<string>() != "proc-1")
+            {
+                throw new InvalidOperationException(
+                    "apply_change_set 紧凑结果丢失待补齐清单或流程结构回显。");
+            }
             if (data["configurationSaved"]?.GetValue<bool>() != true
                 || data["readinessStatus"]?.GetValue<string>() != "ready"
                 || operation["opId"]?.GetValue<string>() != "op-1"

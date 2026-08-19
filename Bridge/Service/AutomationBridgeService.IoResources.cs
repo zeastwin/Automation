@@ -200,7 +200,6 @@ namespace Automation.Bridge
                 ["ioIndex"] = io.IOIndex ?? string.Empty,
                 ["ioType"] = io.IOType ?? string.Empty,
                 ["usedType"] = io.UsedType ?? string.Empty,
-                ["effectLevel"] = io.EffectLevel ?? string.Empty,
                 ["note"] = io.Note ?? string.Empty,
                 ["isRemark"] = io.IsRemark
             };
@@ -213,6 +212,72 @@ namespace Automation.Bridge
             item["note"] = CompactDiagnosticText(note, 300);
             item["noteTruncated"] = note.Length > 300;
             return item;
+        }
+
+        // ===================== IO 备注维护 =====================
+
+        /// <summary>
+        /// 更新单个 IO 的备注（现场角色/极性等事实落盘的唯一通道）。
+        /// 只改 Note 字段：不影响控制语义，但走 snapshot→TryCommit 原子提交并同步引擎 IoMap 引用。
+        /// </summary>
+        private JObject HandleUpdateIoNote(JObject request)
+        {
+            EnsureRuntimeReady();
+            IoConfigurationStore store = runtime.Stores.IoConfiguration;
+            if (store == null)
+            {
+                return BridgeError(500, "STORE_UNAVAILABLE", "IO 存储未初始化。");
+            }
+            string name = ReadRequiredString(request, "name");
+            string note = request["note"]?.Value<string>() ?? string.Empty;
+            if (note.Length > 500)
+            {
+                return BridgeError(400, "INVALID_ARGUMENT", "note 长度不能超过500字符。");
+            }
+            if (!store.ByName.TryGetValue(name, out _) )
+            {
+                JArray nearby = new JArray(store.AllNames
+                    .Where(candidate => !string.IsNullOrEmpty(candidate)
+                        && candidate.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .OrderBy(candidate => candidate, StringComparer.Ordinal)
+                    .Take(5));
+                string details = nearby.Count > 0
+                    ? new JObject { ["nearbyNames"] = nearby }.ToString(Newtonsoft.Json.Formatting.None)
+                    : null;
+                return BridgeError(404, "IO_NOT_FOUND",
+                    $"未找到 IO：{name}" + (nearby.Count > 0 ? "；相近名称：" + string.Join("、", nearby) : string.Empty),
+                    details);
+            }
+
+            List<List<IO>> snapshot = store.CreateSnapshot();
+            IO target = snapshot
+                .SelectMany(card => card ?? Enumerable.Empty<IO>())
+                .FirstOrDefault(io => io != null && string.Equals(io.Name, name, StringComparison.Ordinal));
+            if (target == null)
+            {
+                return BridgeError(404, "IO_NOT_FOUND", $"未找到 IO：{name}");
+            }
+            string previousNote = target.Note ?? string.Empty;
+            target.Note = note;
+            if (!store.TryCommit(runtime.Paths.ConfigPath, snapshot, out string error))
+            {
+                return BridgeError(500, "IO_NOTE_COMMIT_FAILED", "IO备注保存失败：" + error);
+            }
+            // TryCommit 替换了 ByName 字典与对象引用：同步引擎运行时引用并刷新编辑器视图。
+            if (runtime.ProcessEngine?.Context != null)
+            {
+                runtime.ProcessEngine.Context.IoMap = store.ByName;
+            }
+            runtime.EditorUi?.RefreshMotionIo();
+            store.ByName.TryGetValue(name, out IO updated);
+            return new JObject
+            {
+                ["ok"] = true,
+                ["configurationSaved"] = true,
+                ["io"] = updated != null ? BuildIoJObject(updated) : null,
+                ["previousNote"] = previousNote,
+                ["message"] = $"IO [{name}] 备注已保存。"
+            };
         }
 
         // ===================== 报警清单 =====================

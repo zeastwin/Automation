@@ -17,9 +17,9 @@ namespace Automation.Bridge
     /// </summary>
     internal sealed class AutomationBridgePreviewClient
     {
-        public Task ConfirmAsync(string previewId)
+        public Task ConfirmAsync(string previewId, bool continueAutoApprove = false)
         {
-            return SendDecisionAsync("/bridge/previews/confirm", previewId);
+            return SendDecisionAsync("/bridge/previews/confirm", previewId, continueAutoApprove);
         }
 
         public Task RejectAsync(string previewId)
@@ -27,19 +27,24 @@ namespace Automation.Bridge
             return SendDecisionAsync("/bridge/previews/reject", previewId);
         }
 
-        private static Task SendDecisionAsync(string path, string previewId)
+        private static Task SendDecisionAsync(string path, string previewId, bool continueAutoApprove = false)
         {
             if (string.IsNullOrWhiteSpace(previewId))
                 throw new ArgumentException("预演标识为空。", nameof(previewId));
             return Task.Run(() =>
             {
+                var body = new JObject { ["previewId"] = previewId };
+                if (continueAutoApprove)
+                {
+                    // 用户确认本次预演时勾选“续建自动确认”：同一批流程的后续预演自动确认。
+                    body["continueAutoApprove"] = true;
+                }
                 var envelope = new JObject
                 {
                     ["requestId"] = Guid.NewGuid().ToString("N"),
                     ["method"] = "POST",
                     ["path"] = path,
-                    ["bodyJson"] = new JObject { ["previewId"] = previewId }
-                        .ToString(Formatting.None)
+                    ["bodyJson"] = body.ToString(Formatting.None)
                 };
                 using (var pipe = new NamedPipeClientStream(
                     ".", AutomationBridgeHost.DefaultPipeName, PipeDirection.InOut))

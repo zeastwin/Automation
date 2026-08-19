@@ -93,6 +93,7 @@ namespace Automation
                 }
 
                 flowVisualizationProcesses.RemoveAll();
+                JArray pendingItems = data["pendingItems"] as JArray;
                 foreach (JObject affected in (data["affectedProcesses"] as JArray ?? new JArray())
                     .OfType<JObject>())
                 {
@@ -100,6 +101,22 @@ namespace Automation
                     JObject process = BuildUnifiedFlowVisualization(procIndex);
                     if (process != null)
                     {
+                        // 提交结果附带的待补齐清单（占位/空跳转/待示教点位）挂到对应流程卡片：
+                        // 用户一眼看到 AI 还差什么没填，模型侧同构数据驱动下一阶段。
+                        if (pendingItems != null && pendingItems.Count > 0)
+                        {
+                            string procId = affected["procId"]?.Value<string>() ?? string.Empty;
+                            JArray procPending = new JArray(pendingItems
+                                .Where(item => string.Equals(
+                                    item?["procId"]?.Value<string>(),
+                                    procId,
+                                    StringComparison.OrdinalIgnoreCase))
+                                .Select(item => item.DeepClone()));
+                            if (procPending.Count > 0)
+                            {
+                                process["pendingItems"] = procPending;
+                            }
+                        }
                         UpsertFlowVisualizationProcess(process);
                     }
                 }
@@ -256,6 +273,7 @@ namespace Automation
             {
                 return;
             }
+            RemoveThinkingIndicator();
             bool isCall = string.Equals(marker, "call", StringComparison.Ordinal);
             string normalizedText = string.IsNullOrWhiteSpace(text) ? "无摘要" : LocalizeAutomationToolText(text.Trim());
             bool isSystemError = !isCall && (normalizedText.StartsWith("×", StringComparison.Ordinal)
@@ -462,6 +480,13 @@ namespace Automation
             {
                 html.Append("<span class=\"flow-badge loop\">含回环</span>");
             }
+            string pendingBadge = BuildPendingItemsBadge(process["pendingItems"] as JArray);
+            if (!string.IsNullOrEmpty(pendingBadge))
+            {
+                html.Append("<span class=\"flow-badge pending\" title=\"AI 分阶段搭建的待补齐项\">")
+                    .Append(pendingBadge)
+                    .Append("</span>");
+            }
             html.Append("</div>");
             if (steps.Count == 0)
             {
@@ -482,6 +507,27 @@ namespace Automation
                 AppendStepFlowHtml(html, step, stepIndex++);
             }
             html.Append("</div></div>");
+        }
+
+        // 待补齐徽标：占位/空跳转/待示教点位按类别计数，例“待补齐：占位2 · 空跳转1 · 待示教1”。
+        private static string BuildPendingItemsBadge(JArray pendingItems)
+        {
+            if (pendingItems == null || pendingItems.Count == 0) return string.Empty;
+            int placeholders = 0, gotoTargets = 0, plannedPoints = 0;
+            foreach (JObject item in pendingItems.OfType<JObject>())
+            {
+                string category = item["category"]?.Value<string>();
+                if (string.Equals(category, "placeholder", StringComparison.Ordinal)) placeholders++;
+                else if (string.Equals(category, "goto_target", StringComparison.Ordinal)) gotoTargets++;
+                else if (string.Equals(category, "planned_point", StringComparison.Ordinal)) plannedPoints++;
+            }
+            var parts = new List<string>();
+            if (placeholders > 0) parts.Add("占位" + placeholders);
+            if (gotoTargets > 0) parts.Add("空跳转" + gotoTargets);
+            if (plannedPoints > 0) parts.Add("待示教" + plannedPoints);
+            return parts.Count == 0
+                ? string.Empty
+                : "待补齐：" + string.Join(" · ", parts);
         }
 
         private static void AppendStepFlowHtml(StringBuilder html, JObject step, int stepIndex)
@@ -515,9 +561,16 @@ namespace Automation
                 ?? (operation["operaType"] == null ? "unknown" : "platform.operation");
             string name = operation["name"]?.Value<string>();
             string summary = BuildOperationSummary(operation, kind);
+            bool isPlaceholder = string.Equals(
+                operation["operaType"]?.Value<string>(), "配置占位", StringComparison.Ordinal)
+                || string.Equals(kind, "config.placeholder", StringComparison.Ordinal);
             html.Append("<div class=\"flow-op\" title=\"").Append(HtmlEncode(kind))
                 .Append("\"><div class=\"flow-op-line\"><span class=\"flow-op-index\">")
                 .Append(operationIndex + 1).Append("</span><span class=\"flow-op-text\">");
+            if (isPlaceholder)
+            {
+                html.Append("<span class=\"flow-badge pending\">占位</span> ");
+            }
             if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, summary, StringComparison.Ordinal))
             {
                 html.Append(HtmlEncode(name)).Append(" · ");
@@ -639,11 +692,61 @@ namespace Automation
             thinkingBoxIndex++;
             currentThinkingBoxId = "thinking-box-" + thinkingBoxIndex;
             string boxId = currentThinkingBoxId;
-            string html = "<div class=\"thinking-box\" id=\"" + boxId + "\">"
-                + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + boxId + "')\">思考过程（推理与工具，点击折叠/展开）</div>"
-                + "</div>";
+            string wrapId = "thinking-wrap-" + thinkingBoxIndex;
+            // 双容器结构：外壳承载折叠状态与悬浮跟随按钮；滚动容器（boxId）承接内容追加与滚动控制。
+            string html = "<div class=\"thinking-box\" id=\"" + wrapId + "\">"
+                + "<button class=\"follow-btn\" type=\"button\" title=\"回到底部并跟随最新内容\" aria-label=\"回到底部并跟随最新内容\""
+                + " onclick=\"followThinkingBox('" + boxId + "')\">"
+                + "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14\"/><path d=\"m5 12 7 7 7-7\"/></svg></button>"
+                + "<div class=\"thinking-scroll\" id=\"" + boxId + "\">"
+                + "<div class=\"toggle-bar\" onclick=\"toggleThinkingBox('" + wrapId + "')\">思考过程（推理与工具，点击折叠/展开）</div>"
+                + "</div></div>";
             EnqueueAppendHtml(html);
+            // 请求发起时默认进入跟随模式：新内容无条件贴底；用户上滚阅读历史时自动退出。
+            EnqueueScript("var box=document.getElementById('" + boxId + "');if(box){box.dataset.follow='1';if(window.bindThinkingBoxFollow){bindThinkingBoxFollow(box);}}");
             return boxId;
+        }
+
+        // 发送后立即显示"正在思考"占位气泡：首个内容到达前的空白期给用户明确反馈。
+        private int thinkingIndicatorIndex;
+
+        private void ShowThinkingIndicator()
+        {
+            if (webViewConversation == null || webViewConversation.IsDisposed)
+            {
+                return;
+            }
+            thinkingIndicatorIndex++;
+            string indicatorId = "thinking-indicator-" + thinkingIndicatorIndex;
+            string time = DateTime.Now.ToString("HH:mm:ss");
+            string html = "<div class=\"msg assistant thinking-indicator\" id=\"" + indicatorId + "\">"
+                + "<div class=\"msg-head\">"
+                + "<img class=\"avatar avatar-image\" src=\"" + ChickAvatarDataUri
+                + "\" alt=\"AI\" title=\"EW-AI " + HtmlEncode(time) + "\">"
+                + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span></div>"
+                + "<div class=\"content\">"
+                + "<span class=\"thinking-dots\"><span></span><span></span><span></span></span>"
+                + "<span class=\"thinking-label\">正在思考</span>"
+                + "</div></div>";
+            string htmlJson = JsonConvert.SerializeObject(html);
+            string idJson = JsonConvert.SerializeObject(indicatorId);
+            EnqueueScript("var box=document.getElementById('messages');"
+                + "if(box&&!document.getElementById(" + idJson + ")){box.insertAdjacentHTML('beforeend'," + htmlJson + ");}"
+                + "if(window.scrollMessagesToBottom){scrollMessagesToBottom(true);}");
+        }
+
+        // 首个流式内容、工具条目或任务结束到达时移除指示器；无指示器时是无害空操作。
+        private void RemoveThinkingIndicator()
+        {
+            if (thinkingIndicatorIndex == 0)
+            {
+                return;
+            }
+            for (int i = 1; i <= thinkingIndicatorIndex; i++)
+            {
+                EnqueueScript("var el=document.getElementById('thinking-indicator-" + i + "');if(el){el.remove();}");
+            }
+            thinkingIndicatorIndex = 0;
         }
 
         // 将 HTML 追加到当前思维链窗口内部，并自动滚动到底部。
@@ -655,8 +758,8 @@ namespace Automation
             EnqueueScript(js);
         }
 
-        // 折叠当前思维链窗口（PromptAsync 结束后调用）。
-        private void CollapseThinkingBox()
+        // 折叠当前思维链窗口（PromptAsync 结束后调用），标题栏带上本轮耗时与 token 消耗摘要。
+        private void CollapseThinkingBox(string tokenSummary)
         {
             if (currentThinkingBoxId == null)
             {
@@ -666,8 +769,17 @@ namespace Automation
             string elapsedText = elapsed.TotalMinutes >= 1
                 ? $"{(int)elapsed.TotalMinutes}分{elapsed.Seconds}秒"
                 : $"{Math.Max(1, (int)Math.Ceiling(elapsed.TotalSeconds))}秒";
-            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.style.maxHeight='32px';box.scrollTop=0;box.classList.add('collapsed');var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='思考完成 · 已处理 "
-                + elapsedText + "';}}";
+            string title = "思考完成 · 已处理 " + elapsedText;
+            if (!string.IsNullOrWhiteSpace(tokenSummary))
+            {
+                title += " · " + tokenSummary;
+            }
+            // resizeThinkingBox 写入的内联 max-height 优先级高于 .collapsed 的 CSS，
+            // 折叠必须同时把滚动区内联高度压到 32px。
+            // textContent 按纯文本赋值、不解析 HTML 实体，标题内容又是代码生成的受控文本，
+            // 这里不得做 HtmlEncode，否则 "·" 会以 &#183; 原样显示。
+            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.scrollTop=0;box.style.maxHeight='32px';var wrap=box.closest('.thinking-box');if(wrap){wrap.classList.add('collapsed');}var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='"
+                + title + "';}var btn=wrap?wrap.querySelector('.follow-btn'):null;if(btn){btn.classList.remove('visible');}}";
             EnqueueScript(js);
             currentThinkingBoxId = null;
         }
@@ -688,6 +800,7 @@ namespace Automation
                 streamingMarkdown.Append(text);
                 streamingAssistant = true;
                 lastStreamRender = DateTime.Now;
+                RemoveThinkingIndicator();
                 AppendToThinkingBox("<div class=\"analysis-segment streaming-segment\" id=\""
                     + streamingDivId + "\"></div>");
                 PushStreamSegmentFrame(streamingDivId, streamingMarkdown.ToString(), replayingTaskEvents);
@@ -787,6 +900,7 @@ namespace Automation
                 streamingThoughtMarkdown.Append(text);
                 streamingThought = true;
                 lastThoughtRender = DateTime.Now;
+                RemoveThinkingIndicator();
                 AppendToThinkingBox("<div class=\"streaming-segment\" id=\"" + streamingThoughtDivId + "\"></div>");
                 PushStreamSegmentFrame(streamingThoughtDivId, streamingThoughtMarkdown.ToString(), replayingTaskEvents);
                 return;
@@ -867,8 +981,7 @@ namespace Automation
                 contentHtml = HtmlEncode(text);
                 avatarHtml = "<span class=\"avatar system-avatar\" title=\"" + HtmlEncode(role) + " " + HtmlEncode(time) + "\">!</span>";
             }
-            string roleHtml = string.Empty;
-            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + roleHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
+            string html = "<div class=\"" + cls + "\"><div class=\"msg-head\">" + avatarHtml + "<span class=\"msg-time\">" + HtmlEncode(time) + "</span>"
                 + CopyButtonHtml + "</div>"
                 + "<div class=\"content\">" + contentHtml + "</div></div>";
             EnqueueAppendHtml(html);
@@ -891,7 +1004,9 @@ namespace Automation
             string js = "var box=document.getElementById('messages');"
                 + "if(box){var tpl=document.createElement('template');tpl.innerHTML=" + htmlJson + ";"
                 + "var incoming=tpl.content.firstElementChild;var last=box.lastElementChild;"
-                + "if(incoming&&last&&incoming.classList.contains('assistant')&&last.classList.contains('assistant')){"
+                // 思考指示器虽带 assistant class，但不是正式消息；新消息不得合并进它（会被指示器移除连带删除）。
+                + "if(incoming&&last&&incoming.classList.contains('assistant')&&last.classList.contains('assistant')"
+                + "&&!last.classList.contains('thinking-indicator')){"
                 + "var source=incoming.querySelector('.content');var target=last.querySelector('.content');"
                 + "if(source&&target){var part=document.createElement('div');part.className='merged-part';part.innerHTML=source.innerHTML;target.appendChild(part);}"
                 + "}else if(incoming){box.appendChild(incoming);}}"

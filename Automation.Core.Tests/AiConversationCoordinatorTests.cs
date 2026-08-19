@@ -1,5 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
+using Automation.Protocol;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace Automation.Core.Tests
 {
@@ -83,6 +88,50 @@ namespace Automation.Core.Tests
             Assert.AreEqual("standard_test_user_stop", runtime.CancellationSource);
             Assert.IsTrue(runtime.Cancellation.IsCancellationRequested);
             runtime.Cancellation.Dispose();
+        }
+
+        [TestMethod]
+        public async Task ExecuteDynamicTaskAsync_CoordinatorDirectTerminalCarriesCoordinatorClient()
+        {
+            var coordinator = new AiConversationCoordinator();
+            AiTaskRuntime runtime = coordinator.EnsureActive(false);
+            runtime.Cancellation = new System.Threading.CancellationTokenSource();
+            var config = GooseConfigStorage.CreateDefaultConfig();
+            // 指向不存在的可执行文件：PromptAsync 在启动任何进程前即失败，
+            // 任务在协调轮直接进入终态，等价于"协调轮直接回复用户"的完成路径。
+            config.GooseExecutablePath = Path.Combine(
+                Path.GetTempPath(), "automation_no_goose_" + Guid.NewGuid().ToString("N") + ".exe");
+            var createdClients = new List<GooseAcpClient>();
+            try
+            {
+                AiTaskExecutionResult result = await coordinator.ExecuteDynamicTaskAsync(
+                    runtime,
+                    "你好",
+                    Array.Empty<GooseFileAttachment>(),
+                    AutomationToolProfiles.Editor,
+                    false,
+                    stage =>
+                    {
+                        var client = new GooseAcpClient(new PlatformRuntime(), config);
+                        createdClients.Add(client);
+                        return Task.FromResult(client);
+                    });
+
+                // 协调轮直接终态：只创建过协调 client，未进入任何工作能力阶段。
+                Assert.AreEqual(1, createdClients.Count);
+                Assert.AreEqual(AiTaskExecutionStatus.Failed, result.Status);
+                // 契约：协调阶段直接终态时结果必须携带实际使用的协调 client；
+                // 传 lastWorkerClient(null) 会让前台取不到最终回复，出现"发送后无回复"。
+                Assert.IsNotNull(result.Client);
+                Assert.AreSame(createdClients[0], result.Client);
+            }
+            finally
+            {
+                foreach (GooseAcpClient client in createdClients)
+                {
+                    client.Dispose();
+                }
+            }
         }
 
         [TestMethod]

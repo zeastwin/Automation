@@ -19,13 +19,16 @@ namespace Automation.McpServer
             "interlock",
             "actuator",
             "motion",
+            "vision",
             "pick-place",
             "transfer",
             "identify",
             "transaction",
             "monitoring",
+            "quality",
             "recovery",
             "custom-function",
+            "composition",
             "review"
         };
 
@@ -156,6 +159,8 @@ namespace Automation.McpServer
                     title = block.Title,
                     summary = block.Summary,
                     observableGoal = ExtractKnowledgeSection(block.Markdown, "可观察目标"),
+                    applicableBoundary = ExtractKnowledgeSection(block.Markdown, "适用边界"),
+                    prerequisiteFacts = ExtractKnowledgeSection(block.Markdown, "当前事实与适配"),
                     recommendedStages = ExtractKnowledgeSection(block.Markdown, "参考阶段"),
                     completionEvidence = ExtractKnowledgeSection(block.Markdown, "完成证据"),
                     failureAndRecovery = ExtractKnowledgeSection(block.Markdown, "失败、超时与恢复"),

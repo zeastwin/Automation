@@ -23,6 +23,48 @@ namespace Automation
     }
 
     /// <summary>
+    /// AI 提交后单条指令的变更定位；OpIndex 为提交后新列表中的行号。
+    /// </summary>
+    public sealed class ProcessOperationChangeNotice
+    {
+        public int OpIndex { get; set; }
+
+        public ProcChangeKind Kind { get; set; }
+    }
+
+    /// <summary>
+    /// AI 提交后单个步骤的变更定位；StepIndex 为提交后新列表中的步骤索引。
+    /// </summary>
+    public sealed class ProcessStepChangeNotice
+    {
+        public Guid StepId { get; set; }
+
+        public int StepIndex { get; set; }
+
+        public ProcChangeKind Kind { get; set; }
+
+        public List<ProcessOperationChangeNotice> Operations { get; } =
+            new List<ProcessOperationChangeNotice>();
+    }
+
+    /// <summary>
+    /// AI 提交后单个流程的变更定位，用于流程树节点与指令表的闪烁提示。
+    /// </summary>
+    public sealed class ProcessChangeNotice
+    {
+        public int ProcIndex { get; set; }
+
+        public Guid ProcId { get; set; }
+
+        public string Name { get; set; }
+
+        public ProcChangeKind Kind { get; set; }
+
+        public List<ProcessStepChangeNotice> Steps { get; } =
+            new List<ProcessStepChangeNotice>();
+    }
+
+    /// <summary>
     /// 非 UI 模块访问平台编辑器时使用的唯一 WinForms 适配边界。
     /// </summary>
     public interface IPlatformEditorUiAdapter
@@ -36,8 +78,7 @@ namespace Automation
         PlatformEditorSelection GetSelection();
         void SelectProcessContext(int procIndex, int stepIndex);
         IReadOnlyList<PlatformInfoLogEntry> GetInfoLogTail(int maxCount);
-        void NotifyProcessChanged(int procIndex, ProcChangeKind kind,
-            List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOperations = null);
+        void NotifyProcessChanged(IReadOnlyList<ProcessChangeNotice> notices);
         bool RebuildWorkConfig(int startIndex);
         void RefreshProcesses();
         void RefreshProcess(int procIndex);
@@ -108,31 +149,67 @@ namespace Automation
                 .ToList();
         }
 
-        public void NotifyProcessChanged(int procIndex, ProcChangeKind kind,
-            List<(int stepIndex, int opIndex, ProcChangeKind kind)> affectedOperations = null)
+        public void NotifyProcessChanged(IReadOnlyList<ProcessChangeNotice> notices)
         {
-            owner.RefreshProcessFlowGraph();
+            if (notices == null || notices.Count == 0 || owner.IsDisposed)
+            {
+                return;
+            }
             try
             {
-                if (owner.frmProc == null || owner.frmProc.IsDisposed
-                    || owner.frmDataGrid == null || owner.frmDataGrid.IsDisposed
-                    || owner.frmProc.SelectedProcNum != procIndex)
+                if (owner.InvokeRequired)
                 {
+                    owner.BeginInvoke((Action)(() => NotifyOnUiThread(notices)));
                     return;
                 }
-                owner.frmProc.RefreshCurrentBinding();
-                if (affectedOperations != null && affectedOperations.Count > 0)
-                {
-                    owner.frmDataGrid.FlashRows(affectedOperations);
-                }
-                else
-                {
-                    owner.frmDataGrid.FlashGrid(kind);
-                }
+                NotifyOnUiThread(notices);
             }
             catch
             {
                 // 编辑器动效失败不改变配置提交结果。
+            }
+        }
+
+        private void NotifyOnUiThread(IReadOnlyList<ProcessChangeNotice> notices)
+        {
+            if (owner.IsDisposed)
+            {
+                return;
+            }
+            owner.RefreshProcessFlowGraph();
+            if (owner.frmProc == null || owner.frmProc.IsDisposed)
+            {
+                return;
+            }
+            // 流程树始终闪烁被改流程/步骤节点（未展开时先展开），提示改动位置。
+            owner.frmProc.NotifyAiProcessChanged(notices);
+            if (owner.frmDataGrid == null || owner.frmDataGrid.IsDisposed)
+            {
+                return;
+            }
+            ProcessChangeNotice current = notices.FirstOrDefault(item =>
+                item.ProcIndex == owner.frmProc.SelectedProcNum);
+            if (current == null)
+            {
+                return;
+            }
+            owner.frmProc.RefreshCurrentBinding();
+            var affectedOps = new List<(int stepIndex, int opIndex, ProcChangeKind kind)>();
+            foreach (ProcessStepChangeNotice step in current.Steps)
+            {
+                foreach (ProcessOperationChangeNotice operation in step.Operations)
+                {
+                    affectedOps.Add((step.StepIndex, operation.OpIndex, operation.Kind));
+                }
+            }
+            if (affectedOps.Count > 0)
+            {
+                owner.frmDataGrid.FlashRows(affectedOps);
+            }
+            else if (current.Steps.Count > 0)
+            {
+                // 当前流程被改但改动无法落到指令行（如步骤更名）时闪烁整个网格。
+                owner.frmDataGrid.FlashGrid(current.Kind);
             }
         }
 

@@ -1009,6 +1009,211 @@ namespace Automation
             return incomplete;
         }
 
+        /// <summary>
+        /// 构建分阶段续建的待补齐清单：占位指令、未解析/留空跳转出口和待示教点位。
+        /// 识别信号与 Analyze 完全同源（占位 Note 前缀、MarkedGoto 前缀与空出口、点位 IsTaught），
+        /// 这里只做结构化投影供预演/提交响应导航，不产生新的校验语义。
+        /// </summary>
+        public static JArray BuildPendingItems(
+            IList<Proc> processes,
+            IEnumerable<Guid> procIdFilter,
+            PlatformRuntime runtime)
+        {
+            var items = new JArray();
+            if (processes == null) return items;
+            var filter = procIdFilter != null
+                ? new HashSet<Guid>(procIdFilter)
+                : null;
+            List<DataStation> stations = runtime?.Stores?.Stations?.Items;
+            for (int procIndex = 0; procIndex < processes.Count; procIndex++)
+            {
+                Proc proc = processes[procIndex];
+                Guid procId = proc?.head?.Id ?? Guid.Empty;
+                if (procId == Guid.Empty || (filter != null && !filter.Contains(procId))) continue;
+                string procIdText = procId.ToString("D");
+                foreach (Step step in proc.steps ?? new List<Step>())
+                {
+                    if (step?.Ops == null) continue;
+                    string stepIdText = step.Id == Guid.Empty
+                        ? string.Empty
+                        : step.Id.ToString("D");
+                    foreach (OperationType operation in step.Ops)
+                    {
+                        if (operation == null) continue;
+                        string opIdText = operation.Id == Guid.Empty
+                            ? string.Empty
+                            : operation.Id.ToString("D");
+                        string name = operation.Name ?? string.Empty;
+                        if (IsPlaceholder(operation))
+                        {
+                            items.Add(new JObject
+                            {
+                                ["category"] = "placeholder",
+                                ["procId"] = procIdText,
+                                ["stepId"] = stepIdText,
+                                ["opId"] = opIdText,
+                                ["name"] = name,
+                                ["reason"] = GetPlaceholderReason(operation),
+                                ["repair"] = "operation.replace"
+                            });
+                        }
+                        foreach (string field in CollectPendingGotoFields(operation))
+                        {
+                            items.Add(new JObject
+                            {
+                                ["category"] = "goto_target",
+                                ["procId"] = procIdText,
+                                ["stepId"] = stepIdText,
+                                ["opId"] = opIdText,
+                                ["name"] = name,
+                                ["field"] = field,
+                                ["repair"] = "operation.update"
+                            });
+                        }
+                        if (stations != null)
+                        {
+                            CollectPlannedPointItems(operation, stations, procIdText,
+                                stepIdText, opIdText, name, items);
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+
+        // 与 CountPendingGotos 同源的递归反射，但收集字段路径而不是计数；
+        // 覆盖 #PENDING-GOTO#/#DELETED-GOTO# 前缀值和 Goto 指令的留空出口。
+        private static IEnumerable<string> CollectPendingGotoFields(object obj, string path = null)
+        {
+            if (obj == null) yield break;
+            if (obj is Goto jump)
+            {
+                if ((jump.Params == null || jump.Params.Count == 0)
+                    && string.IsNullOrWhiteSpace(jump.DefaultGoto))
+                {
+                    yield return "defaultGoto";
+                }
+                for (int index = 0; index < (jump.Params?.Count ?? 0); index++)
+                {
+                    if (string.IsNullOrWhiteSpace(jump.Params[index]?.Goto))
+                    {
+                        yield return $"params[{index}].goto";
+                    }
+                }
+            }
+            foreach (PropertyInfo property in obj.GetType().GetProperties())
+            {
+                if (property.GetIndexParameters().Length > 0) continue;
+                bool browsable = property.GetCustomAttribute<System.ComponentModel.BrowsableAttribute>()?.Browsable ?? true;
+                if (obj is IPropertyVisibilityProvider visibilityProvider
+                    && !visibilityProvider.IsPropertyVisible(property.Name, browsable))
+                {
+                    continue;
+                }
+                object value = property.GetValue(obj);
+                string childPath = path == null ? property.Name : path + "." + property.Name;
+                if (property.PropertyType == typeof(string)
+                    && property.GetCustomAttribute<MarkedGotoAttribute>() != null
+                    && value is string text
+                    && (text.StartsWith(ProcessDefinitionService.PendingGotoPrefix, StringComparison.Ordinal)
+                        || text.StartsWith(ProcessDefinitionService.DeletedGotoPrefix, StringComparison.Ordinal)))
+                {
+                    yield return childPath;
+                }
+                else if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                {
+                    int index = 0;
+                    foreach (object item in enumerable)
+                    {
+                        foreach (string field in CollectPendingGotoFields(
+                            item, childPath + "[" + index + "]"))
+                        {
+                            yield return field;
+                        }
+                        index++;
+                    }
+                }
+            }
+        }
+
+        // 与 AddMotionPointBlockers 同源的点位遍历，只收集 IsTaught==false 的被引用点位。
+        private static void CollectPlannedPointItems(
+            OperationType operation,
+            List<DataStation> stations,
+            string procId,
+            string stepId,
+            string opId,
+            string name,
+            JArray items)
+        {
+            string stationName = null;
+            if (operation is StationRunPos runPos) stationName = runPos.StationName;
+            else if (operation is CreateTray tray) stationName = tray.StationName;
+            else if (operation is ModifyStationPos modify) stationName = modify.StationName;
+            else if (operation is GetStationPos getPos) stationName = getPos.StationName;
+            else return;
+            DataStation station = stations.FirstOrDefault(item => item != null
+                && string.Equals(item.Name, stationName, StringComparison.Ordinal));
+            if (station == null) return;
+
+            DataPos FindPoint(string pointName) => station.ListDataPos?.FirstOrDefault(item =>
+                item != null && string.Equals(item.Name, pointName, StringComparison.Ordinal));
+            void AddPlanned(string pointName, string field)
+            {
+                DataPos point = FindPoint(pointName);
+                if (point == null || point.IsTaught != false) return;
+                items.Add(new JObject
+                {
+                    ["category"] = "planned_point",
+                    ["procId"] = procId,
+                    ["stepId"] = stepId,
+                    ["opId"] = opId,
+                    ["name"] = name,
+                    ["field"] = field,
+                    ["stationName"] = stationName ?? string.Empty,
+                    ["pointName"] = point.Name ?? pointName ?? string.Empty,
+                    ["repair"] = "manual_teaching"
+                });
+            }
+
+            if (operation is StationRunPos stationRunPos)
+            {
+                DataPos point = stationRunPos.PosIndex >= 0
+                    && station.ListDataPos != null
+                    && stationRunPos.PosIndex < station.ListDataPos.Count
+                        ? station.ListDataPos[stationRunPos.PosIndex]
+                        : FindPoint(stationRunPos.PosName);
+                if (point != null && point.IsTaught == false)
+                {
+                    AddPlanned(point.Name, "运动目标点位");
+                }
+            }
+            else if (operation is CreateTray createTray)
+            {
+                AddPlanned(createTray.PX1, "左上参考点");
+                AddPlanned(createTray.PX2, "右上参考点");
+                AddPlanned(createTray.PY1, "左下参考点");
+                AddPlanned(createTray.PY2, "右下参考点");
+            }
+            else if (operation is ModifyStationPos modifyStationPos)
+            {
+                if (!string.Equals(modifyStationPos.RefPosName, "当前位置", StringComparison.Ordinal)
+                    && !string.Equals(modifyStationPos.RefPosName, "自定义坐标", StringComparison.Ordinal))
+                {
+                    AddPlanned(modifyStationPos.RefPosName, "参考点位");
+                }
+                if (!string.Equals(modifyStationPos.ModifyType, "替换", StringComparison.Ordinal))
+                {
+                    AddPlanned(modifyStationPos.TargetPosName, "目标点位");
+                }
+            }
+            else if (operation is GetStationPos getStationPos
+                && string.Equals(getStationPos.SourceType, "指定点位", StringComparison.Ordinal))
+            {
+                AddPlanned(getStationPos.SourcePosName, "来源点位");
+            }
+        }
+
         private static int CountPendingGotos(object obj)
         {
             if (obj == null) return 0;

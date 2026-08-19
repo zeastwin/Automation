@@ -36,7 +36,10 @@
         "small-bc-lianfeng:case-e2e013c1c59f7e7f61f3",
         "small-bc-lianfeng:case-35e5a65c6dfc8d38b6a0",
         "small-bc-lianfeng:case-2c9bc073f088413e8b82",
-        "small-bc-lianfeng:case-e28199c20f71bc324c22"
+        "small-bc-lianfeng:case-e28199c20f71bc324c22",
+        "likai-bc:case-af4eb8fdbefb435e03ab",
+        "likai-bc:case-17684299c9b5fac2855b",
+        "likai-bc:case-f04c69682193dc1d136b"
       ]
     },
     {
@@ -53,7 +56,14 @@
         "small-bc-lianfeng:case-7871aa000f84323767d3",
         "small-bc-lianfeng:case-b94c5326b0459fecad6a",
         "small-bc-lianfeng:case-d3b5b10f323461f13e71",
-        "small-bc-lianfeng:case-f5ba17af98466daa75d8"
+        "small-bc-lianfeng:case-f5ba17af98466daa75d8",
+        "guanjiao-lk:case-dae008444bdcbd25f366",
+        "guanjiao-lk:case-77299cb2527deb932898",
+        "likai-bc-dispenser:case-6a13b6413a761ea855dc",
+        "likai-bc-dispenser:case-db7b12a57f276ab04ba5",
+        "likai-primer:case-c7b4347c78048ddc286a",
+        "lianfeng-hsg-primer:case-9e0a8b1f57ef9c2908f8",
+        "lianfeng-hsg-primer:case-1fa2cf436070fd2bcf9c"
       ]
     },
     {
@@ -83,7 +93,393 @@
       "sourceRefs": [
         "small-bc-lianfeng:case-77e087afefeb4fbdcfce",
         "small-bc-lianfeng:case-e7b68d0843f167cd815f",
-        "small-bc-lianfeng:case-788dbca233a71fabe138"
+        "small-bc-lianfeng:case-788dbca233a71fabe138",
+        "likai-bc-dispenser:case-a12538b01ddb4d1285f8",
+        "likai-bc-dispenser:case-9537e66637672500238f",
+        "likai-bc-oven-loader:case-f5b3b9c626808dff83af",
+        "likai-bc-oven-loader:case-c07ee7f132c4da43a791",
+        "lianfeng-hsg-plasma:case-dfd5ccf672c94ac6cf0d"
+      ]
+    },
+    {
+      "patternId": "reset.system-and-station-reinit",
+      "title": "系统与工站复位到已知安全状态",
+      "summary": "按执行器安全位、停止业务流程、Z轴先回原、资源与标志清零、通讯成对连接的固定顺序，把系统恢复到一致可启动状态。",
+      "topics": ["lifecycle", "motion"],
+      "capabilities": ["system-reset", "safe-homing", "state-reinitialization"],
+      "deviceTypes": ["servo-axis", "digital-io", "conveyor", "vision-system", "rfid-reader", "tcp-device"],
+      "processTypes": ["reset", "startup"],
+      "riskTags": ["unsafe-axis-position", "stale-state", "unclean-restart"],
+      "file": "reset.system-and-station-reinit.md",
+      "sourceRefs": [
+        "small-bc-lianfeng:case-a5ab68e1ac33abf886fe",
+        "small-bc-lianfeng:case-169b0d499c6b7bc5eda7",
+        "small-bc-lianfeng:case-0c5907adb163809d00aa",
+        "small-bc-lianfeng:case-06bafa0a22f457f5fa05",
+        "1hsg-unloading:case-f20da35527ecdf0d644b",
+        "guanjiao-lk:case-db455d4910a2a3daca81",
+        "likai-bc:case-c0975b00de969a81e018",
+        "lianfeng-bc-aux:case-2bb7303f15cbcd0b3ce7"
+      ]
+    },
+    {
+      "patternId": "interlock.safety-gate-watchdog",
+      "title": "安全门禁联锁监控",
+      "summary": "常驻流程轮询门禁闭合状态，违规时置共享暂停变量并区分来源报警，恢复后自动释放；不直接停机。",
+      "topics": ["interlock", "monitoring"],
+      "capabilities": ["safety-interlock", "pause-coordination"],
+      "deviceTypes": ["digital-io", "safety-gate"],
+      "processTypes": ["safety-monitoring"],
+      "riskTags": ["personnel-safety", "silent-bypass", "stuck-pause"],
+      "file": "interlock.safety-gate-watchdog.md",
+      "sourceRefs": [
+        "1hsg-unloading:case-524cc1f17a93dce5e4b8",
+        "1hsg-unloading:case-0ee129c9af743b40fdcb",
+        "small-bc-lianfeng:case-786a210c87ed1c384c36",
+        "likai-bc:case-7bba2a6ecae8169ae315",
+        "lianfeng-bc-aux:case-4de0ec848ecf99f82908"
+      ]
+    },
+    {
+      "patternId": "monitoring.resource-watchdog",
+      "title": "物料资源持续监控",
+      "summary": "常驻小流程带超时轮询缺料、堆料、料满信号，异常报警并联动暂停相关流程，恢复后释放暂停；覆盖胶水液位、胶布余量等耗材与抛料盘满人工处置闭环。",
+      "topics": ["monitoring"],
+      "capabilities": ["resource-watchdog", "pause-coordination", "alarm-deduplication", "consumable-watchdog"],
+      "deviceTypes": ["digital-io", "conveyor", "magazine"],
+      "processTypes": ["material-monitoring"],
+      "riskTags": ["material-starvation", "jamming", "stuck-pause"],
+      "file": "monitoring.resource-watchdog.md",
+      "sourceRefs": [
+        "1hsg-unloading:case-fa313d9bdca73042d4db",
+        "1hsg-unloading:case-a9471275bc4ae362d648",
+        "1hsg-unloading:case-5bf6fb2dd4047bd1bbf8",
+        "small-bc-lianfeng:case-b11b4659e70f67bca6b7",
+        "likai-bc:case-2da984066ed24fbca3b3",
+        "likai-bc:case-f0b9969dbc3c5cb8b4a3",
+        "likai-primer:case-4482558a177af60ade38",
+        "likai-primer:case-6e16a12ba4761dc8d7f4",
+        "likai-bc-dispenser:case-3ed5c9326169f23e2819",
+        "likai-bc-glass-loader:case-5b7e628635d049f4fabf",
+        "lianfeng-glass-peeler:case-65491a051195c7679247"
+      ]
+    },
+    {
+      "patternId": "quality.reject-and-divert",
+      "title": "NG品判定后抛料分流",
+      "summary": "依据既有NG判定逐穴位安全取放到NG仓，前置人工解锁与仓到位检测，仓满转人工处置，不影响合格品流。",
+      "topics": ["quality", "pick-place", "transfer"],
+      "capabilities": ["ng-diversion", "safe-pick-place", "slot-iteration"],
+      "deviceTypes": ["gripper", "vacuum-nozzle", "servo-axis", "digital-io"],
+      "processTypes": ["rejection", "inspection"],
+      "riskTags": ["mixed-good-part", "unsafe-motion", "overflow-reject-bin"],
+      "file": "quality.reject-and-divert.md",
+      "sourceRefs": [
+        "small-bc-lianfeng:case-ccc5a474b296882fa047",
+        "small-bc-lianfeng:case-678ec87d9260a2aa888b",
+        "likai-bc:case-7fdd8d720c2dca8b0441",
+        "likai-bc:case-79813ddae79267ecdbec"
+      ]
+    },
+    {
+      "patternId": "transfer.machine-demand-signal",
+      "title": "机台间料位需求信号",
+      "summary": "常驻检测本机满料或缺料状态，按邻机独立电平信号通知上下游，信号与实际料位实时一致。",
+      "topics": ["transfer", "monitoring"],
+      "capabilities": ["machine-to-machine-signaling", "material-demand-coordination"],
+      "deviceTypes": ["digital-io", "conveyor"],
+      "processTypes": ["line-coordination", "material-monitoring"],
+      "riskTags": ["stale-signal", "signal-crosstalk", "silent-failure"],
+      "file": "transfer.machine-demand-signal.md",
+      "sourceRefs": [
+        "lianfeng-bc-aux:case-93f18622f22c90a4a975",
+        "lianfeng-bc-aux:case-545ad6e0610303facdb5",
+        "lianfeng-bc-aux:case-32858de7dac30e715da6"
+      ]
+    },
+    {
+      "patternId": "actuation.shared-vacuum-arbitration",
+      "title": "共享真空泵资源仲裁",
+      "summary": "多工段共享真空泵时按需求汇总统一启停，计数防抖，逐段确认达真空，无需求才停泵。",
+      "topics": ["orchestration", "actuator"],
+      "capabilities": ["shared-resource-arbitration", "demand-aggregation"],
+      "deviceTypes": ["vacuum-pump", "digital-io"],
+      "processTypes": ["utility-scheduling"],
+      "riskTags": ["pump-thrashing", "starvation", "stale-demand"],
+      "file": "actuation.shared-vacuum-arbitration.md",
+      "sourceRefs": [
+        "guanjiao-lk:case-192b9fef043916c37b7e",
+        "guanjiao-lk:case-fd354d9f0f7016836e5f"
+      ]
+    },
+    {
+      "patternId": "monitoring.analog-threshold-guard",
+      "title": "模拟量阈值安全监控",
+      "summary": "持续采集压力、功率、炉温等模拟量并与基准比较，越限即停止相关全部动作并置超标标记，人工确认后才允许重启。",
+      "topics": ["monitoring", "interlock"],
+      "capabilities": ["analog-threshold-guard", "fail-safe-stop"],
+      "deviceTypes": ["analog-input", "pressure-sensor", "plasma-cleaner"],
+      "processTypes": ["safety-monitoring"],
+      "riskTags": ["overpressure", "sensor-failure", "auto-restart"],
+      "file": "monitoring.analog-threshold-guard.md",
+      "sourceRefs": [
+        "guanjiao-lk:case-784f245edddefe86027c",
+        "guanjiao-lk:case-7afb2ab1748a62315769",
+        "guanjiao-lk:case-fd354d9f0f7016836e5f",
+        "likai-plasma:case-8a09f250f6445b5976b6",
+        "likai-plasma:case-7f5b6a99d4aba14cad9b",
+        "likai-bc-oven-loader:case-7974697713b2f303dd8e"
+      ]
+    },
+    {
+      "patternId": "transfer.flow-throttle-control",
+      "title": "流道按需节流控制",
+      "summary": "回流线与接驳流道按计数目标或满料信号启停，各流道独立状态，避免空转与堆料。",
+      "topics": ["transfer"],
+      "capabilities": ["conveyor-throttling", "count-based-control"],
+      "deviceTypes": ["conveyor", "digital-io"],
+      "processTypes": ["recirculation-control"],
+      "riskTags": ["idle-wear", "jamming", "count-drift"],
+      "file": "transfer.flow-throttle-control.md",
+      "sourceRefs": [
+        "lianfeng-bc-aux:case-532e3178a62519295ffa",
+        "lianfeng-bc-aux:case-68c96682e07b35154e0d",
+        "lianfeng-bc-aux:case-1e2d911e547d65e41da3",
+        "lianfeng-bc-aux:case-256cb2b79bf42a21fd27"
+      ]
+    },
+    {
+      "patternId": "recovery.abort-retreat-and-clear",
+      "title": "中止退回与清空",
+      "summary": "中止作业后机器人先抬安全高度再退回，工艺执行器关闭并验证，逐仓清点物料，防止碰撞与遗留。",
+      "topics": ["recovery", "pick-place"],
+      "capabilities": ["safe-retreat", "station-clearing", "robot-foolproofing"],
+      "deviceTypes": ["robot", "dispenser", "digital-io"],
+      "processTypes": ["abort-cleanup", "changeover"],
+      "riskTags": ["collision", "residual-material", "unverified-shutdown"],
+      "file": "recovery.abort-retreat-and-clear.md",
+      "sourceRefs": [
+        "guanjiao-lk:case-e8bac676212678988b70",
+        "guanjiao-lk:case-e390ecc582009ac91543",
+        "guanjiao-lk:case-e1d7921880555b3e9064",
+        "likai-bc:case-a89f3ca8218fe0529756",
+        "likai-bc-glass-loader:case-5f19b09facf0c7408033",
+        "likai-bc-glass-loader:case-5c229ac9462392146eb5",
+        "likai-hsg-loader:case-96b4baf2bfb435db0acf"
+      ]
+    },
+    {
+      "patternId": "orchestration.shared-feeder-dispatch",
+      "title": "共享供料调度与工位互斥",
+      "summary": "中央调度流程独占供料源，工位用标记申请、调度器互斥批准，取料完成释放；跨机台分发委托代码计算。",
+      "topics": ["orchestration"],
+      "capabilities": ["shared-feeder-arbitration", "handshake-coordination", "mutual-exclusion"],
+      "deviceTypes": ["feeder", "digital-io", "servo-axis"],
+      "processTypes": ["station-coordination", "supply-dispatch"],
+      "riskTags": ["double-pick", "starvation", "broken-mutex"],
+      "file": "orchestration.shared-feeder-dispatch.md",
+      "sourceRefs": [
+        "lianfeng-filmer:case-33cfc913b7cdf2290a17",
+        "lianfeng-filmer:case-d6ed86f4854913be932d",
+        "lianfeng-filmer:case-e5d0ce1a33718ee59fd2",
+        "lianfeng-standstill:case-2d9e625f3bd9d82a3ecf",
+        "likai-bc-glass-loader:case-71121e02f01dc3533af7"
+      ]
+    },
+    {
+      "patternId": "orchestration.cross-process-readiness",
+      "title": "跨流程就绪等待与安全交接",
+      "summary": "共享机构的两个作业流程在交接点显式等待对方就绪，核对夹爪、有料与轴位防呆，保证永不同时动作。",
+      "topics": ["orchestration"],
+      "capabilities": ["cross-process-handoff", "readiness-waiting", "position-foolproofing"],
+      "deviceTypes": ["robot", "conveyor", "gripper"],
+      "processTypes": ["process-coordination"],
+      "riskTags": ["simultaneous-motion", "collision", "skipped-readiness"],
+      "file": "orchestration.cross-process-readiness.md",
+      "sourceRefs": [
+        "lianfeng-standstill:case-abaaeba60d695a62eb30",
+        "lianfeng-standstill:case-be6663c1843b764fc7cd",
+        "lianfeng-bc-aux:case-2bb7303f15cbcd0b3ce7"
+      ]
+    },
+    {
+      "patternId": "custom-function.code-process-collaboration",
+      "title": "流程与自定义代码协作边界",
+      "summary": "流程管时序互锁运动，代码管计算协议与界面；通过消息调用、开关标记与最小入口流程协作，返回必检。",
+      "topics": ["custom-function"],
+      "capabilities": ["code-delegation", "ui-entry-flow", "protocol-bridging"],
+      "deviceTypes": ["custom-code", "mes", "tcp-device"],
+      "processTypes": ["code-integration"],
+      "riskTags": ["unchecked-return", "logic-leak", "bypassed-interlock"],
+      "file": "custom-function.code-process-collaboration.md",
+      "sourceRefs": [
+        "likai-bc-glass-loader:case-5f19b09facf0c7408033",
+        "likai-bc-glass-loader:case-1a29e0c022d497cbd692",
+        "likai-bc-glass-loader:case-d6ba415065788d15edde",
+        "likai-bc-oven-loader:case-7974697713b2f303dd8e",
+        "likai-bc-dispenser:case-40e35c6519f40d20b93a",
+        "likai-bc-dispenser:case-db7b12a57f276ab04ba5",
+        "lianfeng-standstill:case-2d9e625f3bd9d82a3ecf"
+      ]
+    },
+    {
+      "patternId": "transfer.pipeline-station-triad",
+      "title": "流水线工位三件套与状态机",
+      "summary": "每工位配缓冲区流程（九态状态机管流入流出与上游要料）、作业台流程与作业流程，职责分离、同构复制；要料信号用完即清。",
+      "topics": ["transfer", "orchestration"],
+      "capabilities": ["station-state-machine", "upstream-demand", "barrier-control"],
+      "deviceTypes": ["conveyor", "digital-io"],
+      "processTypes": ["buffering", "station-coordination"],
+      "riskTags": ["state-deadlock", "stale-demand-signal", "orphan-material"],
+      "file": "transfer.pipeline-station-triad.md",
+      "sourceRefs": [
+        "likai-bc-dispenser:case-8e4ad1a3aba328c016fd",
+        "likai-bc-glass-loader:case-c1a0a59dd9d571daabd5",
+        "lianfeng-bc-v307:case-385793a665765b73724c",
+        "lianfeng-bc-v307:case-b293399ada1a74afc0cc",
+        "lianfeng-glass-peeler:case-425116a3c78dabb9f9ef",
+        "lianfeng-glass-peeler:case-d27c7324301cb29e7d51",
+        "lianfeng-standstill:case-1818d7294e8f8e5e7010"
+      ]
+    },
+    {
+      "patternId": "orchestration.replicated-station-fleet",
+      "title": "同构多工位复制与集中停线",
+      "summary": "同构工位建成结构相同仅点位/IO名不同的复制流程并常驻循环，队列结构体记录过程数据，盖板/治具回流线配套，集中停止流程一键停线。",
+      "topics": ["orchestration", "transfer"],
+      "capabilities": ["replicated-stations", "queue-timing", "carrier-return-line", "line-wide-stop"],
+      "deviceTypes": ["conveyor", "digital-io", "stopper-cylinder"],
+      "processTypes": ["station-coordination", "recirculation-control"],
+      "riskTags": ["structure-drift", "queue-desync", "missed-line-stop"],
+      "file": "orchestration.replicated-station-fleet.md",
+      "sourceRefs": [
+        "likai-bc-cover-remover:case-26f74f5cb2c79867bd4f",
+        "likai-bc-cover-remover:case-2c77e5583f6dc3c303ef",
+        "likai-bc-cover-remover:case-1db75284382cd8df5014",
+        "likai-bc-oven-loader:case-684e57ed12ad7aec84b2",
+        "likai-bc-oven-loader:case-d0bfae3877985ada8b58",
+        "likai-bc-oven-loader:case-36de729198dd6e0dac90",
+        "likai-standstill:case-57c20628bbcd5de689d8",
+        "likai-standstill:case-a51f057fb28a19450680"
+      ]
+    },
+    {
+      "patternId": "orchestration.cross-machine-relay",
+      "title": "跨机台对等接力与屏蔽分流",
+      "summary": "机台对等衔接：按下游要料信号与屏蔽标志选目标，穴位占用顺延，放料前安全检查，给料信号握手后清零；物理IO/通讯IO双模。",
+      "topics": ["orchestration", "transfer"],
+      "capabilities": ["peer-relay", "target-selection-by-demand", "feed-handshake"],
+      "deviceTypes": ["digital-io", "conveyor", "vacuum-nozzle", "servo-axis"],
+      "processTypes": ["line-coordination", "supply-dispatch"],
+      "riskTags": ["wrong-target", "residual-feed-signal", "occupied-slot-drop"],
+      "file": "orchestration.cross-machine-relay.md",
+      "sourceRefs": [
+        "likai-bc-glass-loader:case-536699d8e9fd0bf09502",
+        "likai-bc-glass-loader:case-c1a0a59dd9d571daabd5",
+        "likai-bc-glass-loader:case-ffdc59494a51bbe31ab4",
+        "lianfeng-hsg-plasma:case-db75098b3bb81c63f071"
+      ]
+    },
+    {
+      "patternId": "orchestration.single-robot-dispatch",
+      "title": "单机器人调度与仓位记录",
+      "summary": "调度流程按要料信号与仓位占用记录选流向，串行启动执行流程互斥机器人；执行前位置防呆三查，记录删除必校验。载体可选变量、数据结构、自定义代码或本地文件。",
+      "topics": ["orchestration", "pick-place"],
+      "capabilities": ["robot-task-dispatch", "slot-tracking", "position-foolproofing"],
+      "deviceTypes": ["robot", "gripper", "digital-io"],
+      "processTypes": ["dispatching", "material-relay"],
+      "riskTags": ["concurrent-robot-drive", "slot-record-desync", "position-out-of-range"],
+      "file": "orchestration.single-robot-dispatch.md",
+      "sourceRefs": [
+        "lianfeng-standstill:case-2d9e625f3bd9d82a3ecf",
+        "lianfeng-standstill:case-abaaeba60d695a62eb30",
+        "lianfeng-standstill:case-eed179004790094701f7"
+      ]
+    },
+    {
+      "patternId": "vision.positioning-and-correct",
+      "title": "视觉定位与动态纠偏",
+      "summary": "拍照位收图解析坐标，按标定偏移计算补偿并动态改写工艺点位；穴位门控跳过禁用穴，超时计数屏蔽联动，断联重连，标定独立成流程。",
+      "topics": ["vision", "motion"],
+      "capabilities": ["photo-locate", "offset-compensation", "dynamic-point-rewrite", "camera-reconnect"],
+      "deviceTypes": ["vision-system", "servo-axis", "light-source"],
+      "processTypes": ["positioning", "calibration", "inspection"],
+      "riskTags": ["uncorrected-motion", "camera-timeout", "slot-skip-error"],
+      "file": "vision.positioning-and-correct.md",
+      "sourceRefs": [
+        "likai-bc-dispenser:case-f1eda15d0e4e0378b1f3",
+        "likai-hsg-loader:case-4551672e4a9762b78b96",
+        "likai-hsg-loader:case-ae82149753ee177f5b23",
+        "lianfeng-bc-v307:case-ab25e8d1485a32de6d60"
+      ]
+    },
+    {
+      "patternId": "identify.warehouse-seek-and-allocate",
+      "title": "料仓寻料分料与轴防呆",
+      "summary": "对射感应+信号捕获在运动中探测有盘位，捕获不到慢速步进重试达上限判空仓停轴；分料气缸夹爪动作必检测到位；自启看门狗监视寻料期轴安全。",
+      "topics": ["identify", "motion", "monitoring"],
+      "capabilities": ["seek-and-detect", "bounded-retry", "axis-watchdog"],
+      "deviceTypes": ["magazine", "servo-axis", "digital-io", "stopper-cylinder"],
+      "processTypes": ["loading", "pallet-dispatch"],
+      "riskTags": ["empty-warehouse-crash", "unverified-actuator", "seek-runaway"],
+      "file": "identify.warehouse-seek-and-allocate.md",
+      "sourceRefs": [
+        "lianfeng-bc-v307:case-59849f26597684a1f395",
+        "lianfeng-bc-v307:case-77b2d6196d775b09b103",
+        "likai-bc-glass-loader:case-1b569f1148ba61bb6ab8",
+        "likai-bc-glass-loader:case-77def5b28aafa4bc02ca"
+      ]
+    },
+    {
+      "patternId": "quality.dry-run-and-grr-pair",
+      "title": "空跑调机与GRR成对流程",
+      "summary": "关键作业配成对验证版本：空跑复用运动轨迹与CT但旁路视觉（预置点位）与上报；调机模式独立入口；GRR/重测按次数重复检测单独记录。",
+      "topics": ["quality", "lifecycle"],
+      "capabilities": ["dry-run-verification", "mode-switching", "repeat-measurement"],
+      "deviceTypes": ["servo-axis", "vision-system"],
+      "processTypes": ["validation", "commissioning"],
+      "riskTags": ["structure-drift", "dry-run-data-leak", "mode-leak"],
+      "file": "quality.dry-run-and-grr-pair.md",
+      "sourceRefs": [
+        "likai-primer:case-d59f03d47f90585576a7",
+        "likai-bc-oven-loader:case-d8d8a7f3840638d2900d",
+        "likai-bc-cover-remover:case-8f6cfcf3645378693764"
+      ]
+    },
+    {
+      "patternId": "monitoring.system-service-listeners",
+      "title": "系统常驻服务流程族",
+      "summary": "自启常驻流程承担系统服务：物理按钮去抖+状态门控代理启动复位/启动总流程，状态灯映射系统状态，报警循环上报MES；业务流程不管按钮灯与上报。",
+      "topics": ["monitoring", "lifecycle"],
+      "capabilities": ["button-proxy", "status-light-mapping", "alarm-relay"],
+      "deviceTypes": ["digital-io", "signal-tower", "mes"],
+      "processTypes": ["system-service"],
+      "riskTags": ["double-start", "light-state-mismatch", "silent-alarm"],
+      "file": "monitoring.system-service-listeners.md",
+      "sourceRefs": [
+        "lianfeng-bc-v307:case-47fac9086a5415f86f5f",
+        "lianfeng-filmer:case-56c4d4bc84aa908a8dbf",
+        "likai-bc-dispenser:case-030ee71c8ce1804c2374"
+      ]
+    },
+    {
+      "patternId": "composition.bc-line",
+      "title": "BC产线整机组合",
+      "summary": "多机台BC产线的流程族构成索引：上料供料→清洁→点胶组装复检→固化回流，机台间要料/给料对等衔接，身份随料流转；给出搭建顺序与九类流程的规范引用表。",
+      "topics": ["composition"],
+      "capabilities": ["machine-line-composition", "build-order", "seam-contract", "carrier-tracing"],
+      "deviceTypes": ["conveyor", "robot", "rfid-reader", "mes"],
+      "processTypes": ["line-integration"],
+      "riskTags": ["missing-sibling-process", "broken-handover", "identity-loss"],
+      "file": "composition.bc-line.md",
+      "sourceRefs": [
+        "likai-bc-glass-loader:case-71121e02f01dc3533af7",
+        "likai-bc-dispenser:case-315c1b15333caa0066a7",
+        "likai-bc-dispenser:case-8e4ad1a3aba328c016fd",
+        "likai-bc-cover-remover:case-8f6cfcf3645378693764",
+        "likai-bc-oven-loader:case-d0bfae3877985ada8b58",
+        "likai-standstill:case-57c20628bbcd5de689d8",
+        "lianfeng-hsg-plasma:case-dfd5ccf672c94ac6cf0d"
       ]
     }
   ]

@@ -7,14 +7,140 @@
       "displayName": "1HSG下料",
       "packageLocator": "Transform4SNsdemo/runs/1HSG下料-knowledge",
       "manifestSha256": "0e580486b7f245d4b4baa0e1079cc77f0f49314304307491ee2854cd1c20402f",
-      "reviewConclusion": "只吸收身份与载体绑定、工位职责分层和显式机械反馈；不吸收超大单步骤、测试流程、旧跳转、禁用配置和默认报警处理。"
+      "reviewConclusion": "只吸收身份与载体绑定、工位职责分层、显式机械反馈，以及系统复位的阶段顺序、门禁联锁的暂停变量联动和资源监控的常驻轮询结构；不吸收超大单步骤、测试流程、旧跳转、禁用配置、固定信号编号和默认报警处理。"
     },
     {
       "sourceId": "small-bc-lianfeng",
       "displayName": "小BC-联丰点胶镜像0829(权限)",
       "packageLocator": "Transform4SNsdemo/runs/小BC-联丰点胶镜像0829-knowledge",
       "manifestSha256": "319fea859c1417d22981e9d49dad1b479d6825243ffa94f7902d9e4b2c5c0c30",
-      "reviewConclusion": "只吸收跨多个流程一致出现且能按当前契约重建的身份、交接、点胶维护、校准和追溯事务能力；不吸收固定次数、固定时长、槽位数量、空步骤、禁用分支、自动处理和报警忽略。"
+      "reviewConclusion": "只吸收跨多个流程一致出现且能按当前契约重建的身份、交接、点胶维护、校准和追溯事务能力，以及系统复位阶段顺序、门禁联锁暂停联动、资源监控常驻轮询和NG抛料分流的安全结构；不吸收固定次数、固定时长、槽位数量、空步骤、禁用分支、自动处理、报警忽略、固定穴位数和固定点位索引。"
+    },
+    {
+      "sourceId": "guanjiao-lk",
+      "displayName": "灌胶机LK新版(20240106)",
+      "packageLocator": "Transform4SNsdemo/runs/灌胶机LK-knowledge",
+      "manifestSha256": "4f1cb05e757b892bb4f4c64b759b4e8f429f615b1092d1273658edf494b73948",
+      "reviewConclusion": "只吸收共享真空泵需求仲裁、模拟量压力阈值安全停止、中止退回与逐仓清点、胶阀材料路径维护和复位阶段顺序；不吸收16阀组按序复制的重复流程结构、固定阈值+101、固定通道号、被禁用的脱泡机备用通道和测试流程。"
+    },
+    {
+      "sourceId": "likai-bc",
+      "displayName": "BC_下料机_NS_V3.0.0_20240922",
+      "packageLocator": "Transform4SNsdemo/runs/立凯BC下料-knowledge",
+      "manifestSha256": "6f4fd7f02820b602796b575f2afd587a091f60f967c34c1ee398009b587fd547",
+      "reviewConclusion": "只吸收门禁锁门执行器与屏蔽标志默认关闭、磁盘空间等非物料资源监控、抛料仓满人工处置、机器人Z轴防呆清空和复位阶段顺序；不吸收屏蔽门禁的常开用法、固定信号编号、测试流程和轴精度测试流程。"
+    },
+    {
+      "sourceId": "lianfeng-bc-aux",
+      "displayName": "4线BC辅助机0904(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/联丰BC辅助机-knowledge",
+      "manifestSha256": "cda6248095a99f6bbae5f227692ae7e9da2be69474534bef1d5134b4a2104e99",
+      "reviewConclusion": "只吸收机台间料位需求电平信号、回流流道按计数与满料信号节流、门禁检测和复位阶段顺序；不吸收固定信号编号(8/9/13/14/15)、固定延时、空流程(0步骤0指令)和按流道名复制的重复结构。"
+    },
+    {
+      "sourceId": "lianfeng-bc-v307",
+      "displayName": "BC_V3.0.7.02.24_20240822最新(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-bc-v307-knowledge",
+      "manifestSha256": "a7de764b4e6aa94729e30374c63633ee992de165568a9568d21f09588bf148cf",
+      "reviewConclusion": "只吸收流水线工位三件套九态状态机、系统IO监听按钮代理（去抖+释放确认+状态门控）、料仓寻料分料的信号捕获步进重试与自启轴防呆看门狗、拍照取料/扫码纠偏/拍照贴合的视觉定位纠偏结构与进出站RFID事务；不吸收固定四穴位与固定点位地址（-20/-52/-84等）、测试流程、空步骤、固定寻盘步距。"
+    },
+    {
+      "sourceId": "lianfeng-filmer",
+      "displayName": "贴膜机05(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-filmer-knowledge",
+      "manifestSha256": "e006fe2e2f6d5c1c30a87f7b6d0e7a755e9b60002b90e3637b2c50cc7096de04",
+      "reviewConclusion": "只吸收飞达调度互斥握手、系统状态灯控常驻映射、光栅检测常驻、载具取走监控和左右工站对称结构族（按单份结构吸收）；不吸收左右工站/上料/抛膜/复检的逐份复制文本、Test/hhh/轴精度等测试流程、固定延时。"
+    },
+    {
+      "sourceId": "lianfeng-glass-peeler",
+      "displayName": "玻璃上料+撕膜机_0807(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-glass-peeler-knowledge",
+      "manifestSha256": "a765ce5674126828bf7d632cecd9fe48da5b4871e6d4ae92153778046a52f9b5",
+      "reviewConclusion": "只吸收WD撕膜缓冲区/工作台三件套状态机、胶布用完的耗材监控报警、撕膜抛料平台结构与工站复位分层；不吸收IO撕膜测试流程、轴精度测试、固定信号编号。"
+    },
+    {
+      "sourceId": "lianfeng-glass-plasma",
+      "displayName": "玻璃plasma清洁0615(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-glass-plasma-knowledge",
+      "manifestSha256": "741a4e1a2c1b71f382b4466a0f942e6b6ec48be5bbff9bd3be0d1df5526e41da",
+      "reviewConclusion": "只吸收WD清洁缓冲区/工作台与出料/桥接/子机暂存台的跨段交接结构、清洁画圆参数独立流程、撕膜与清洁工站复位分层；不吸收轴精度测试、固定画圆参数值、测试流程。"
+    },
+    {
+      "sourceId": "lianfeng-hsg-plasma",
+      "displayName": "HSG_Plasma_0525MES验证(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-hsg-plasma-knowledge",
+      "manifestSha256": "16483fe5282491544d6dcd01c8e13fce14faea17f621bc6ecb8e3821bf882b29",
+      "reviewConclusion": "只吸收MES入站检查/出站上传事务、给料信号清零握手、清洗喷枪维护流程、清洁BUFF区/工作台状态机与报警处理自启；不吸收固定信号编号、清洗喷枪固定参数、测试流程。"
+    },
+    {
+      "sourceId": "lianfeng-hsg-primer",
+      "displayName": "HSG_Primer点胶(大小料合并)_0805(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-hsg-primer-knowledge",
+      "manifestSha256": "ef71667f948908bd436456a31e6c64bf34b40a7ba8f0f013f3eed11d7d44b30d",
+      "reviewConclusion": "只吸收BC点胶缓冲区/工作台三件套、排胶/擦胶/IO擦胶/开胶/检查胶路维护链、称重流程与胶量闭环、进站读取RFID事务、复位分层与门禁常驻；不吸收固定穴位数、轴精度/相机动态测试流程、固定维护时长。"
+    },
+    {
+      "sourceId": "lianfeng-standstill",
+      "displayName": "BC_静置机0615虚拟IO修改(联丰)",
+      "packageLocator": "Transform4SNsdemo/runs/lianfeng-standstill-knowledge",
+      "manifestSha256": "833422abbc2a70df4f475df811e28e8cd37c9e61f596fc39d0721f419b3fb210",
+      "reviewConclusion": "只吸收单机器人调度（要料分流+串行启动互斥+代码维护json可取/可放仓位记录+删除校验）、执行流程前置三查与X/Z轴位置防呆、给料信号握手、MES出站流程联动与BC进料作业台状态机；不吸收A/B机台硬编码分支、虚拟IO/实体IO双实现并存、固定偏移50/60/70、固定载具号拼接规则。"
+    },
+    {
+      "sourceId": "likai-bc-cover-remover",
+      "displayName": "BC拆盖板NS_V3.0.0_0922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-bc-cover-remover-knowledge",
+      "manifestSha256": "d85a0a5b725765387a44050b4cc4155af39f7f3d5d9c628baf47593db3ce6a96",
+      "reviewConclusion": "只吸收出炉工站同构复制+阻挡放行常驻循环、盖板回流（顶升+放行标志+到位检测）与治具回流（阻挡/分料配对+流出检测）、复检与(重测)复检成对结构、抛料复检NG分流、系统复位/启动检测自启与上传报警信息；不吸收固定8工位数量、GRR/空跑的数百指令复制文本、内存检测测试流程、禁用阻挡检测分支。"
+    },
+    {
+      "sourceId": "likai-bc-dispenser",
+      "displayName": "BC点胶V3.2.3-2024-0922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-bc-dispenser-knowledge",
+      "manifestSha256": "6c73e96a2a5a2d4a8455fa86ee3e0f92dbbb407529a18e63d734c47eb6008f80",
+      "reviewConclusion": "只吸收点胶/组装/复检三工位三件套、RFID失败降级临时条码与MES批量获取工站参数、胶重实时获取与称重断线重连、称重胶量闭环、监控报警上传与硬盘空间周期检测、混合比检查、穴位级禁用与屏蔽联动、点胶NG连续超限屏蔽上游进料；不吸收GRR 746指令复制、TEST/压印/混合比测试专用流程、固定穴位地址与固定点胶索引、(取消)接驳台弃用流程。"
+    },
+    {
+      "sourceId": "likai-bc-glass-loader",
+      "displayName": "BC_玻璃上料机_2024-0922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-bc-glass-loader-knowledge",
+      "manifestSha256": "4ae6389b8ff1dfc79e43bff4d70a9f4fa8f5daef2970c25c3ba20000a5ca90ed",
+      "reviewConclusion": "只吸收跨机台对等接力（屏蔽标志过滤+四目标要料选择+穴位占用顺延+放料前吸嘴缩回安全检查+给料信号握手清零）、HSG供料流水线物理IO/通讯IO双模要料与满料感应控制、满料仓分料与空料仓寻料防呆、WD取放料调度与补料、一键清料/移出空料盘的UI小流程入口、满料仓缺料报警与磁盘检测、回流模组；不吸收(弃用)流程保留形态、固定8放料点位与固定点位索引、固定信号编号、WD出料空流程。"
+    },
+    {
+      "sourceId": "likai-bc-oven-loader",
+      "displayName": "BC隧道炉上料20240922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-bc-oven-loader-knowledge",
+      "manifestSha256": "1bc99e21fad1aad8565edc273d43a9a7d9993824a1d8be040037474974387076",
+      "reviewConclusion": "只吸收炉前工站同构复制、盖板回流线/治具回流线双回流配套与回流监控、炉温采集、RF-载具+RF-盖板双载体读取与MES过站、出料信号检测、调机模式独立流程、系统复位/启动检测自启与状态灯控；不吸收固定8工位、空流程\"111\"、空跑测试、固定信号编号。"
+    },
+    {
+      "sourceId": "likai-hsg-loader",
+      "displayName": "LK_HSG上料机_3.1.0_20240922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-hsg-loader-knowledge",
+      "manifestSha256": "89b2934290b558f119513f82e05b44054bb5184d73297833da6bd5eae1db8cba",
+      "reviewConclusion": "只吸收视觉定位与动态纠偏（拍照指令拼接+穴位门控+超时计数屏蔽联动+相机断联重连）、标定族独立流程（取料位置/组装位置/下相机/夹爪旋转中心）、HSG取料/放料/抛料/扫码/整形作业结构、流水线接驳/搬运/工作分区、系统状态与系统报警自启、磁盘空间检测；不吸收轴精度测试、固定标定索引上限8、CCD动静态测试流程、固定穴位索引。"
+    },
+    {
+      "sourceId": "likai-plasma",
+      "displayName": "Plasma_0922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-plasma-knowledge",
+      "manifestSha256": "2888354ef47d463516c5d28aad7f044a2e111eff6edb8f87e9685f00045c812d",
+      "reviewConclusion": "只吸收离子功率定期检测、暂停态离子监测、载具缓存区/清洁区分层与HSG清洁作业结构、进站读取RFID、门禁常驻；不吸收清洁机断火测试的具体阈值、固定通道、轴精度测试。"
+    },
+    {
+      "sourceId": "likai-primer",
+      "displayName": "Primer-V3.0.1-2024-0912(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-primer-knowledge",
+      "manifestSha256": "b4206305f0414af2e7c4e1cf44daa11a6c9df8e71c745eb38f25b5dc914b540b",
+      "reviewConclusion": "只吸收空跑成对流程（旁路视觉用预置点位+禁用上报+保留轨迹与CT）、称胶流程与胶水液位长周期监控、抛料盘满的解锁-人工取出-确认-上锁处置闭环、点胶/复检双工位三件套、校准针头与开胶/排胶/擦胶维护链、上传报警信息；不吸收进站RFID中4个未定义变量的引用（证据缺口）、空跑固定圆心点索引-133、自动检测抛料盘的固定工位耦合、测试流程。"
+    },
+    {
+      "sourceId": "likai-standstill",
+      "displayName": "静置机-V3.0.3-2024-0922(立凯)",
+      "packageLocator": "Transform4SNsdemo/runs/likai-standstill-knowledge",
+      "manifestSha256": "88cd15a79bfb75bb279335e1c010c925abea20cec5092e56a8ed10d3fed6a116",
+      "reviewConclusion": "只吸收多线同构复制+九态状态机+队列结构体起始时间计时+出料后自动靠拢、多阻挡气缸按位接力放行、集中停止所有流水线协调流程、进出移栽接力与门禁系统级检测；不吸收1-5号线逐份复制文本、固定Sleep 10s、固定线数5。"
     }
   ]
 }

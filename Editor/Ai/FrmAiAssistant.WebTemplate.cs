@@ -268,6 +268,7 @@ document.addEventListener('DOMContentLoaded',function(){
     white-space:nowrap;
 }
 .flow-badge.loop{color:#8a4b08;background:#fff0d9;}
+.flow-badge.pending{color:#9a3800;background:#ffe3c2;}
 .flow-process{padding:8px 10px 10px;}
 .flow-process + .flow-process{border-top:1px solid #dfe7f1;}
 .flow-process-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px;}
@@ -331,9 +332,9 @@ body{
     font:14px/1.5 ""Segoe UI"",""Microsoft YaHei"",Arial,sans-serif;
     overflow:hidden;
 }
-.scrollable::-webkit-scrollbar,.thinking-box::-webkit-scrollbar{width:8px;height:8px;}
-.scrollable::-webkit-scrollbar-thumb,.thinking-box::-webkit-scrollbar-thumb{background:#c5d0e0;border-radius:8px;border:2px solid #f4f6fa;}
-.scrollable::-webkit-scrollbar-track,.thinking-box::-webkit-scrollbar-track{background:transparent;}
+.scrollable::-webkit-scrollbar,.thinking-scroll::-webkit-scrollbar{width:8px;height:8px;}
+.scrollable::-webkit-scrollbar-thumb,.thinking-scroll::-webkit-scrollbar-thumb{background:#c5d0e0;border-radius:8px;border:2px solid #f4f6fa;}
+.scrollable::-webkit-scrollbar-track,.thinking-scroll::-webkit-scrollbar-track{background:transparent;}
 .app-shell{height:100%;display:flex;flex-direction:column;background:transparent;}
 .topbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:rgba(255,255,255,.92);border-bottom:1px solid #e5ebf3;}
 .topbar-left{display:flex;align-items:center;min-width:0;}
@@ -621,10 +622,11 @@ code{
 pre code{color:inherit;background:transparent;border:0;padding:0;font-variant-ligatures:none;}
 img{max-width:100%;border-radius:8px;}
 hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
+/* 思维窗口双容器结构：外壳负责视觉与折叠状态、承载悬浮按钮；滚动区负责滚动与内容追加。
+   按钮不能放在滚动流内：sticky bottom 只能把元素向上钉，正常流位置在顶部时永远无法钉到可视底部。 */
 .thinking-box{
     width:100%;
-    max-height:calc(100vh - 150px);
-    overflow-y:auto;
+    position:relative;
     background:rgba(255,255,255,.82);
     border:1px solid #e2eaf4;
     border-radius:10px;
@@ -633,7 +635,33 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
     box-shadow:0 4px 18px rgba(31,45,61,.06);
     backdrop-filter:blur(10px);
 }
-.thinking-box.collapsed{max-height:32px;overflow:hidden;}
+.thinking-box .thinking-scroll{
+    max-height:calc(100vh - 150px);
+    overflow-y:auto;
+    border-radius:10px;
+}
+.thinking-box.collapsed .thinking-scroll{max-height:32px;overflow:hidden;}
+/* 跟随按钮：用户上滚阅读历史时出现；点击回到底部并恢复自动跟随。 */
+.thinking-box .follow-btn{
+    display:none;
+    position:absolute;
+    right:12px;
+    bottom:10px;
+    z-index:2;
+    width:30px;
+    height:30px;
+    border:1px solid #d3dfeb;
+    border-radius:50%;
+    background:rgba(255,255,255,.97);
+    color:#246fb5;
+    cursor:pointer;
+    align-items:center;
+    justify-content:center;
+    box-shadow:0 3px 10px rgba(31,45,61,.18);
+}
+.thinking-box .follow-btn.visible{display:flex;}
+.thinking-box .follow-btn:hover{background:#eef5fc;border-color:#9cc1e6;}
+.thinking-box .follow-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
 .thinking-box .reasoning-text{margin:6px 10px;color:#445268;font-size:13px;line-height:1.55;}
 .thinking-box .toggle-bar{
     position:sticky;
@@ -685,8 +713,54 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 .stream-markdown li + li{margin-top:.34em;}
 .stream-markdown li>p{margin:.2em 0;}
 .stream-raw{white-space:pre-wrap;}
+.thinking-indicator .content{
+    display:inline-flex;
+    align-items:center;
+    gap:11px;
+    margin-left:14px;
+    padding:9px 15px;
+    color:#3d4a5c;
+    background:linear-gradient(180deg,#ffffff 0%,#f6f9fc 100%);
+    border:1px solid #dae4f0;
+    border-radius:11px;
+    font-size:13px;
+    box-shadow:0 2px 10px rgba(31,45,61,.05);
+    position:relative;
+    overflow:hidden;
+}
+.thinking-indicator .content::before{
+    content:"""";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(100deg,transparent 30%,rgba(116,178,229,.14) 50%,transparent 70%);
+    transform:translateX(-100%);
+    animation:thinking-sweep 2.2s ease-in-out infinite;
+    pointer-events:none;
+}
+@keyframes thinking-sweep{
+    0%{transform:translateX(-100%);}
+    55%,100%{transform:translateX(100%);}
+}
+.thinking-dots{display:inline-flex;gap:5px;align-items:center;flex:0 0 auto;}
+.thinking-dots span{
+    width:7px;height:7px;border-radius:50%;
+    background:#4a90d9;
+    animation:thinking-bounce 1.15s infinite ease-in-out;
+}
+.thinking-dots span:nth-child(2){animation-delay:.15s;}
+.thinking-dots span:nth-child(3){animation-delay:.3s;}
+@keyframes thinking-bounce{
+    0%,80%,100%{transform:translateY(0);opacity:.35;}
+    40%{transform:translateY(-5px);opacity:1;}
+}
+.thinking-label{
+    color:#51617a;
+    font-weight:600;
+    letter-spacing:.5px;
+    white-space:nowrap;
+}
 .streaming-segment.is-streaming::after{
-    content:"";
+    content:"""";
     display:inline-block;
     width:5px;
     height:13px;
@@ -798,7 +872,7 @@ hr{border:none;border-top:1px solid #dfe6ef;margin:8px 0;}
 }
 </style>
 <script>
-var appState={sending:false,taskHomeVisible:true,canAccess:false,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],modelServices:[],conversations:[],activeConversationId:'',attachments:[]};
+var appState={sending:false,taskHomeVisible:true,canEditConfig:false,config:{},providerOptions:[],modelOptions:[],modelServices:[],conversations:[],activeConversationId:'',attachments:[]};
 var quickSettingPending=false;
 var dropReadCount=0;
 var lastAiActivityAt=Date.now();
@@ -838,11 +912,26 @@ function renderTaskHome(){
     }
 }
 function toggleThinkingBox(id){
-    var el=document.getElementById(id);
-    if(el){el.classList.toggle('collapsed');if(el.classList.contains('collapsed')){el.style.maxHeight='32px';el.scrollTop=0;}else{el.style.maxHeight='';scrollThinkingBoxToBottom(id);}}
+    // id 指向外壳（.thinking-box）；滚动与内容在内部 .thinking-scroll。
+    // resizeThinkingBox 会写内联 max-height，内联样式优先级高于 .collapsed 的 CSS，
+    // 因此折叠/展开必须显式同步内联高度，否则 collapsed 类不生效。
+    var wrap=document.getElementById(id);
+    if(!wrap){return;}
+    var scrollArea=wrap.querySelector('.thinking-scroll');
+    wrap.classList.toggle('collapsed');
+    if(wrap.classList.contains('collapsed')){
+        if(scrollArea){scrollArea.style.maxHeight='32px';scrollArea.scrollTop=0;}
+    }else if(scrollArea){
+        scrollArea.style.maxHeight='';
+        scrollThinkingBoxToBottom(scrollArea.id);
+    }
+    updateThinkingFollowState(scrollArea);
 }
 function resizeThinkingBox(box){
-    if(!box||box.classList.contains('collapsed')){return;}
+    // box 指向滚动区（.thinking-scroll）；折叠状态挂在外壳上。
+    if(!box){return;}
+    var wrap=box.closest('.thinking-box');
+    if(wrap&&wrap.classList.contains('collapsed')){return;}
     var chat=byId('messagesScroll');
     if(!chat){return;}
     var available=Math.max(120,Math.min(chat.clientHeight-16,Math.floor(chat.clientHeight*.68)));
@@ -881,9 +970,13 @@ function ensureStreamSlots(id){
 }
 function followStreamScroll(el){
     if(!el||!el.isConnected){return;}
-    var box=el.closest('.thinking-box');
-    if(box&&!box.classList.contains('collapsed')&&box.scrollHeight-box.scrollTop-box.clientHeight<140){
-        box.scrollTop=box.scrollHeight;
+    var box=el.closest('.thinking-scroll');
+    if(box){
+        var wrap=box.closest('.thinking-box');
+        var following=box.dataset.follow==='1';
+        if((!wrap||!wrap.classList.contains('collapsed'))&&(following||box.scrollHeight-box.scrollTop-box.clientHeight<140)){
+            box.scrollTop=box.scrollHeight;
+        }
     }
     var m=byId('messagesScroll');
     if(m&&m.scrollHeight-m.scrollTop-m.clientHeight<140){m.scrollTop=m.scrollHeight;}
@@ -988,11 +1081,13 @@ function promoteStreamSegment(id,messageHtml){
 }
 function promoteStreamSegmentNow(id,messageHtml){
     var el=document.getElementById(id);
-    var box=el&&el.closest('.thinking-box');
+    var box=el&&el.closest('.thinking-scroll');
+    var wrap=box?box.closest('.thinking-box'):null;
     if(el){el.remove();}
     var messages=document.getElementById('messages'),finalMessage=null;
     if(messages){messages.insertAdjacentHTML('beforeend',messageHtml);finalMessage=messages.lastElementChild;}
-    if(box&&box.querySelectorAll(':scope > :not(.toggle-bar)').length===0){box.remove();}
+    // 滚动区只剩折叠条时整个外壳一并移除。
+    if(box&&wrap&&box.querySelectorAll(':scope > :not(.toggle-bar)').length===0){wrap.remove();}
     if(window.revealFinalAnswer){revealFinalAnswer(finalMessage);}
     if(window.scrollMessagesToBottom){scrollMessagesToBottom();}
 }
@@ -1032,23 +1127,56 @@ function revealFinalAnswer(message){
     },900);
 }
 function scrollThinkingBoxToBottom(boxId){
+    // boxId 指向滚动区（.thinking-scroll）；按钮与折叠状态在外壳上。
     var box=document.getElementById(boxId);
-    if(!box||box.classList.contains('collapsed')){return;}
+    if(!box){return;}
+    var wrap=box.closest('.thinking-box');
+    if(wrap&&wrap.classList.contains('collapsed')){return;}
     if(box._scrollFrame){window.cancelAnimationFrame(box._scrollFrame);}
     box._scrollFrame=window.requestAnimationFrame(function(){
         box._scrollFrame=0;
-        if(!box.isConnected||box.classList.contains('collapsed')){return;}
+        if(!box.isConnected){return;}
+        var host=box.closest('.thinking-box');
+        if(host&&host.classList.contains('collapsed')){return;}
         resizeThinkingBox(box);
-        if(box.scrollHeight-box.scrollTop-box.clientHeight<140){box.scrollTop=box.scrollHeight;}
+        // 跟随模式（点击箭头进入）无条件贴底；默认仅在用户本就接近底部时跟随。
+        var following=box.dataset.follow==='1';
+        if(following||box.scrollHeight-box.scrollTop-box.clientHeight<140){box.scrollTop=box.scrollHeight;}
         var messages=byId('messagesScroll');
-        if(messages&&messages.scrollHeight-messages.scrollTop-messages.clientHeight<140){messages.scrollTop=messages.scrollHeight;}
+        if(messages&&(following||messages.scrollHeight-messages.scrollTop-messages.clientHeight<140)){messages.scrollTop=messages.scrollHeight;}
     });
+}
+// 思维窗口跟随按钮：上滚阅读历史时显示；点击贴底并进入跟随模式，再上滚自动退出。
+function updateThinkingFollowState(box){
+    if(!box){return;}
+    var wrap=box.closest('.thinking-box');
+    var btn=wrap?wrap.querySelector('.follow-btn'):null;
+    if(!btn){return;}
+    var away=box.scrollHeight-box.scrollTop-box.clientHeight>40;
+    if(away){box.dataset.follow='0';}
+    btn.classList.toggle('visible',away&&!!wrap&&!wrap.classList.contains('collapsed'));
+}
+function bindThinkingBoxFollow(box){
+    if(!box||box._followBound){return;}
+    box._followBound=true;
+    box.addEventListener('scroll',function(){updateThinkingFollowState(box);});
+}
+function followThinkingBox(boxId){
+    var box=document.getElementById(boxId);
+    if(!box){return;}
+    box.dataset.follow='1';
+    box.scrollTop=box.scrollHeight;
+    var wrap=box.closest('.thinking-box');
+    var btn=wrap?wrap.querySelector('.follow-btn'):null;
+    if(btn){btn.classList.remove('visible');}
 }
 var forcedStreamScrollFrame=0;
 var forcedStreamScrollActive=false;
 function runForcedStreamScroll(){
     if(!forcedStreamScrollActive){forcedStreamScrollFrame=0;return;}
-    document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(function(box){
+    document.querySelectorAll('.thinking-scroll').forEach(function(box){
+        var wrap=box.closest('.thinking-box');
+        if(wrap&&wrap.classList.contains('collapsed')){return;}
         if(box.scrollHeight-box.scrollTop-box.clientHeight<140){box.scrollTop=box.scrollHeight;}
     });
     var messages=byId('messagesScroll');
@@ -1062,7 +1190,9 @@ function startForcedStreamScroll(){
 function stopForcedStreamScroll(){
     forcedStreamScrollActive=false;
     if(forcedStreamScrollFrame){window.cancelAnimationFrame(forcedStreamScrollFrame);forcedStreamScrollFrame=0;}
-    document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(function(box){
+    document.querySelectorAll('.thinking-scroll').forEach(function(box){
+        var wrap=box.closest('.thinking-box');
+        if(wrap&&wrap.classList.contains('collapsed')){return;}
         resizeThinkingBox(box);
         box.scrollTop=box.scrollHeight;
     });
@@ -1162,12 +1292,12 @@ function automationSetState(state){
     quickSettingPending=false;
     var status=byId('statusText');
     if(status){status.textContent=appState.sending?'生成中':'就绪';}
-    byId('promptInput').disabled=!appState.canAccess||appState.sending;
+    byId('promptInput').disabled=appState.sending;
     refreshAttachments();
     refreshSendButton();
-    byId('attachButton').disabled=!appState.canAccess||appState.sending;
-    byId('resetButton').disabled=!appState.canAccess||appState.sending;
-    byId('standardTestButton').disabled=!appState.canAccess||appState.sending;
+    byId('attachButton').disabled=appState.sending;
+    byId('resetButton').disabled=appState.sending;
+    byId('standardTestButton').disabled=appState.sending;
     renderTaskHome();
     byId('newSessionButton').disabled=false;
     byId('newSessionButton').classList.toggle('active',!!appState.taskHomeVisible);
@@ -1180,7 +1310,7 @@ function automationSetState(state){
     ['cfgGoose','cfgWorkdir','cfgMcp','cfgSession','cfgModelService','cfgProvider','cfgModel','cfgApiKey','cfgTurns','cfgOutputTokens','cfgTemperature','saveConfig','clearApiKey','manageModelServices'].forEach(function(id){var el=byId(id);if(el){el.disabled=lock;}});
     refreshModelServiceState();
     byId('reloadConfig').disabled=appState.sending;
-    byId('checkConfig').disabled=appState.sending||!appState.canAccess;
+    byId('checkConfig').disabled=appState.sending;
     if(byId('modelServiceOverlay').classList.contains('open')){renderModelServicePicker((appState.config||{}).modelServiceId||'');}
 }
 function refreshSendButton(){
@@ -1188,7 +1318,7 @@ function refreshSendButton(){
     var input=byId('promptInput');
     if(!send||!input){return;}
     var hasAttachmentError=(appState.attachments||[]).some(function(item){return !!item.error;});
-    var canSend=appState.canAccess&&!appState.sending&&dropReadCount===0
+    var canSend=!appState.sending&&dropReadCount===0
         &&!hasAttachmentError&&(input.value.trim().length>0||(appState.attachments||[]).length>0);
     send.classList.toggle('stop',!!appState.sending);
     send.classList.toggle('ready',canSend);
@@ -1478,9 +1608,10 @@ window.setInterval(function(){
     var status=byId('statusText');
     if(!status){return;}
     var seconds=Math.max(0,Math.floor((Date.now()-lastAiActivityAt)/1000));
-    status.textContent=seconds<10?'生成中':'模型处理中 · 已等待 '+seconds+' 秒';
+    var waitText=seconds<60?seconds+' 秒':(Math.floor(seconds/60)+' 分 '+(seconds%60)+' 秒');
+    status.textContent=seconds<10?'生成中':'模型处理中 · 已等待 '+waitText;
 },1000);
-window.addEventListener('resize',function(){document.querySelectorAll('.thinking-box:not(.collapsed)').forEach(resizeThinkingBox);});
+window.addEventListener('resize',function(){document.querySelectorAll('.thinking-scroll').forEach(function(box){var wrap=box.closest('.thinking-box');if(!wrap||!wrap.classList.contains('collapsed')){resizeThinkingBox(box);}});});
 </script>
 </head>
 <body>

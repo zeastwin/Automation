@@ -17,10 +17,26 @@ namespace Automation
         #region 自定义审核对话框
 
         // 预演确认对话框：以表格形式展示变更详情（操作类型/位置/对象/字段/原值/新值），让用户清晰看到改了什么。
-        private DialogResult ShowPreviewApprovalDialog(string previewId, JArray changes, JArray messages)
+        // showContinueOption：ChangeSet 预演显示“续建自动确认”勾选；勾选后同一批流程的后续预演自动确认，
+        // 手动取消任一预演即结束该授权。
+        private DialogResult ShowPreviewApprovalDialog(
+            string previewId,
+            JArray changes,
+            JArray messages,
+            bool showContinueOption,
+            out bool continueAutoApprove)
         {
             using (Form dlg = new Form())
             {
+                CheckBox chkContinue = new CheckBox
+                {
+                    Text = "续建此流程期间自动确认后续预演（取消任一预演即结束）",
+                    Visible = showContinueOption,
+                    AutoSize = true,
+                    ForeColor = UiPalette.TextSecondary,
+                    Font = new Font("微软雅黑", 9F),
+                    Anchor = AnchorStyles.Left
+                };
                 dlg.Text = "EW-AI 预演确认";
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 bool hasChanges = changes != null && changes.Count > 0;
@@ -293,6 +309,10 @@ namespace Automation
                 btnConfirm.FlatAppearance.BorderSize = 0;
                 btnPanel.Controls.Add(btnConfirm);
                 btnPanel.Controls.Add(btnReject);
+                if (showContinueOption)
+                {
+                    btnPanel.Controls.Add(chkContinue);
+                }
 
                 // 按顺序添加控件（WinForms docking: 后添加的先停靠）
                 if (hasChanges)
@@ -308,17 +328,21 @@ namespace Automation
                 {
                     btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 18, 13);
                     btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 13);
+                    chkContinue.Location = new Point(18, 21);
                 };
                 // 初始定位按钮
                 dlg.Shown += (s, e) =>
                 {
                     btnConfirm.Location = new Point(btnPanel.Width - btnConfirm.Width - 18, 13);
                     btnReject.Location = new Point(btnConfirm.Left - btnReject.Width - 10, 13);
+                    chkContinue.Location = new Point(18, 21);
                     dlg.BringToFront();
                     dlg.Activate();
                 };
 
-                return dlg.ShowDialog(this);
+                DialogResult dialogResult = dlg.ShowDialog(this);
+                continueAutoApprove = showContinueOption && chkContinue.Checked;
+                return dialogResult;
             }
         }
 

@@ -74,8 +74,11 @@ namespace Automation
                 }
                 if (!string.IsNullOrWhiteSpace(conversation.TrustedFactsJson))
                 {
-                    if (conversation.TrustedFactsJson.Length > 16000)
-                        throw new InvalidDataException("AI 会话可信事实超过16000字符边界。");
+                    // 上限取预算分档的最大档：历史文件可能来自大上下文模型会话，
+                    // 小上下文模型恢复时由 BuildRestoredContext 按当前窗口重新裁剪。
+                    if (conversation.TrustedFactsJson.Length > AiContextBudget.MaxTrustedFactsChars)
+                        throw new InvalidDataException(
+                            "AI 会话可信事实超过" + AiContextBudget.MaxTrustedFactsChars + "字符边界。");
                     try
                     {
                         JObject.Parse(conversation.TrustedFactsJson);

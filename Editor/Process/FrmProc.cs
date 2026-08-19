@@ -1664,6 +1664,42 @@ namespace Automation
             if (Workspace.DataGrid != null) Workspace.DataGrid.iSelectedRow = -1;
         }
 
+        /// <summary>
+        /// AI 改动提交后的流程树闪烁提示：按通知定位流程/步骤节点，未展开的流程先展开再闪烁。
+        /// 只做视觉提示，不改变用户当前选中。
+        /// </summary>
+        public void NotifyAiProcessChanged(IReadOnlyList<ProcessChangeNotice> notices)
+        {
+            if (notices == null || notices.Count == 0
+                || processOutline == null || processOutline.IsDisposed)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke((Action)(() => NotifyAiProcessChanged(notices)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                return;
+            }
+            foreach (ProcessChangeNotice notice in notices)
+            {
+                var stepChanges = new List<(Guid stepId, ProcChangeKind kind)>();
+                foreach (ProcessStepChangeNotice step in notice.Steps)
+                {
+                    stepChanges.Add((step.StepId, step.Kind));
+                }
+                processOutline.FlashIdentities(
+                    notice.ProcId,
+                    notice.Kind,
+                    stepChanges);
+            }
+        }
+
         internal bool TrySelectProcessStep(int procIndex, int stepIndex)
         {
             if (procIndex < 0 || procIndex >= procsList.Count)

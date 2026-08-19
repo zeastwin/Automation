@@ -12,7 +12,7 @@ namespace Automation
     public static class GooseRuntimeProvisioner
     {
         public const int SystemPromptVersion = 21;
-        public const int IntegrationContextVersion = 61;
+        public const int IntegrationContextVersion = 70;
         public const string ProcessAuthoringSkillName = "automation-process-authoring";
         public const string ProcessReviewSkillName = "automation-process-review";
         public static int ProcessAuthoringSkillVersion { get; } = ReadBundledSkillVersion(
@@ -314,6 +314,10 @@ namespace Automation
             string integrationContext = File.ReadAllText(IntegrationContextPath, Encoding.UTF8);
             string[] contextAnchors =
             {
+                "平台全景",
+                "Proc→Step→OperationType",
+                "自动化配置与运行软件",
+                "常驻所有能力面",
                 "automation-process-authoring",
                 "automation-process-review",
                 "diagnose_issue",

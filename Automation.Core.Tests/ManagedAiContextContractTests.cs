@@ -29,6 +29,11 @@ namespace Automation.Core.Tests
             Assert.IsFalse(system.Contains("proactively compare related objects"));
 
             string automation = ReadEmbedded("Automation.Assets.Goose.automation.md");
+            StringAssert.Contains(automation, "平台全景");
+            StringAssert.Contains(automation, "Proc→Step→OperationType");
+            StringAssert.Contains(automation, "流程结构写入只有 ChangeSet V2 一条链");
+            StringAssert.Contains(automation, "由 Readiness 与启动闸门共同表达");
+            StringAssert.Contains(automation, "常驻所有能力面");
             StringAssert.Contains(automation, "automation-process-review");
             StringAssert.Contains(automation, "automation-process-authoring");
             StringAssert.Contains(automation, "get_process_design_guide");
@@ -47,6 +52,12 @@ namespace Automation.Core.Tests
             StringAssert.Contains(automation, "单个输入未激活不证明相反机械终态");
             StringAssert.Contains(automation, "plan_motion_points");
             StringAssert.Contains(automation, "人工示教坐标前不能运行");
+            StringAssert.Contains(automation, "IO 极性缺少显式事实时按命名默认理解");
+            StringAssert.Contains(automation, "动位 true 且原位 false 即工作态");
+            StringAssert.Contains(automation, "急停 true=触发（异常状态）");
+            StringAssert.Contains(automation, "尚未绑定具体 IO 的阶段不必预声明极性假设");
+            StringAssert.Contains(automation, "整机流程族");
+            StringAssert.Contains(automation, "用户只要其中一类时不自动补建其他类");
 
             string review = ReadEmbedded(
                 "Automation.Assets.Goose.Skills.automation-process-review.SKILL.md");
@@ -96,6 +107,25 @@ namespace Automation.Core.Tests
             StringAssert.Contains(authoring, "单个输入的反向状态也不能代替相反机械终态反馈");
             StringAssert.Contains(authoring, "用 `plan_motion_points`");
             StringAssert.Contains(authoring, "planned 点位可以保存和继续搭建流程");
+            StringAssert.Contains(authoring, "出口有三种合法形态");
+            StringAssert.Contains(authoring, "跨阶段跳转优先留空");
+            StringAssert.Contains(authoring, "默认分阶段");
+            StringAssert.Contains(authoring, "先运动域、再 IO 域");
+            StringAssert.Contains(authoring, "pendingItems");
+            StringAssert.Contains(authoring, "processSnapshot");
+            StringAssert.Contains(authoring, "amendPreviewId");
+            StringAssert.Contains(authoring, "整体设计变化才用 `replacePreviewId`");
+            StringAssert.Contains(authoring, "update_io_note");
+            StringAssert.Contains(authoring, "不让它只留在对话里");
+            StringAssert.Contains(authoring, "假设登记簿");
+            StringAssert.Contains(authoring, "创建物总览");
+            // 第 2 条拆分为 2a~2f 短列表：结构锁防止回退成一整段长句。
+            StringAssert.Contains(authoring, "- 2a 目录读取：");
+            StringAssert.Contains(authoring, "- 2b 引用消费：");
+            StringAssert.Contains(authoring, "- 2c 变量归属：");
+            StringAssert.Contains(authoring, "- 2d 证据边界：");
+            StringAssert.Contains(authoring, "- 2e 点位规划：");
+            StringAssert.Contains(authoring, "- 2f 能力解析时机：");
             Assert.IsFalse(authoring.Contains("preview_process_blueprint", StringComparison.Ordinal));
             Assert.IsFalse(authoring.Contains("retries[]", StringComparison.Ordinal));
             Assert.IsFalse(authoring.Contains("blueprintEvidence", StringComparison.Ordinal));

@@ -53,7 +53,7 @@ ACP 流式过程仍可在当前前台显示并进入底层取证日志，正常�
 
 每条用户请求持有一个 Goose ACP `sessionId`，同一请求的所有能力阶段连续复用它。请求开始先把工具面切到只含 `request_capability` 的 `TaskCoordinator`；不需要平台工具或需要用户补充时直接正常回复，需要工作能力时才提交一个 `run_stage`。代码批准后在当前 `sessionId` 内切换到固定 Profile。协调器和工作阶段使用同一会话级输出配置，默认输出预算为 16384 tokens、temperature 为 0.3；旧平台默认 8192/0.7 在加载时迁移，其他用户自定义值保持不变。所有工作 Profile 都保留同一个轻量控制工具，但它只负责换能力；当前能力足以完成或需要用户信息时直接输出。每轮第一条成功能力申请立即锁定并结束该模型轮；系统不提前生成完整阶段序列，也没有关键词路由或规划失败兜底。
 
-MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取消和阶段状态彼此独立。能力变化通过 Goose 1.46 的会话扩展接口 `_goose/unstable/session/extensions/add/remove/list` 原地重挂 Automation MCP；Automation TOM 只在工作 Profile 挂载，流程评审/创建/修改再挂载对应 Skills，源码阶段按只读或完整权限挂载 Developer。`SourceReview` 的 Developer 配置只允许 `read/tree`，权限回调再次拒绝其他 Developer 工具。`_goose/unstable/tools/list` 同时核对模型实际可见的完整 Automation 工具名集合和 `request_capability` 输入 Schema；所有 Profile 的控制 Schema 必须完全一致并通过指纹复核，缺字段、同名缓存漂移、必需工具缺失或白名单不一致都立即停止当前任务。同一请求内切换成功必须保持原 `sessionId`；附件只发送一次并由该请求的原生会话保留。
+MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取消和阶段状态彼此独立。能力变化通过 Goose 1.46 的会话扩展接口 `_goose/unstable/session/extensions/add/remove/list` 原地重挂 Automation MCP；Automation TOM 只在工作 Profile 挂载，流程评审/创建/修改再挂载对应 Skills。Developer 扩展全量常驻所有能力面，工具面不做 `available_tools` 过滤；文件修改与 Shell 执行由前台权限闸门限制在 Editor 权限外壳 + SourceDevelopment 能力。`_goose/unstable/tools/list` 同时核对模型实际可见的完整 Automation 工具名集合和 `request_capability` 输入 Schema；所有 Profile 的控制 Schema 必须完全一致并通过指纹复核，缺字段、同名缓存漂移或必需工具缺失都立即停止当前任务。同一请求内切换成功必须保持原 `sessionId`；附件只发送一次并由该请求的原生会话保留。
 
 AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有会话、任务运行时、单轮执行、取消和历史收尾，`GooseAcpEventReader` 解析 ACP 工具结果，`AiPreviewConfirmationCoordinator` 归一化预演状态并去重，`AutomationBridgePreviewClient` 是前台确认/拒绝的最小 Named Pipe 客户端。`FrmAiAssistant` 只组合这些对象并负责输入、气泡和 Web 展示；模板、渲染和审核对话框分别位于对应 partial 文件。
 
@@ -65,8 +65,8 @@ AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有�
 
 - `Editor`、`Diagnostic`：用户选择的权限外壳，不直接作为常规任务的模型工具面。
 - `RuntimeDiagnostic`：独立诊断实例，只提供运行现场取证，不提供平台开发和配置写入。
-- `TaskCoordinator`：每次用户请求先切入此工具面，只开放无副作用的 `request_capability`，不加载 Developer、Skills 或 Automation TOM，不读取平台事实；无需平台工具时直接正常回复，需要工作能力时以第一条成功申请为准。
-- `ProcessDesign`、`ProcessReview`、`ProcessCreate`、`ProcessEdit`、`ResourceEdit`、`RuntimeControl`、`SourceReview`、`SourceDevelopment`、`PlatformConfiguration`：工作阶段的最小业务工具加轻量 `request_capability` 控制面。独立变量、数据结构和报警维护归入 `ResourceEdit`，源码只读与写入分离；Automation TOM 在工作阶段启用，流程 Skill 只挂到评审/创建/修改能力，源码阶段再按只读或完整权限动态挂载 Developer。
+- `TaskCoordinator`：每次用户请求先切入此工具面，只开放无副作用的 `request_capability` Automation 工具，不加载 Skills 或 Automation TOM，不读取平台事实；无需平台工具时直接正常回复，需要工作能力时以第一条成功申请为准。Goose 原生 developer 扩展全量常驻所有能力面，协调阶段也可读取用户引用的外部文件。
+- `ProcessDesign`、`ProcessReview`、`ProcessCreate`、`ProcessEdit`、`ResourceEdit`、`RuntimeControl`、`SourceReview`、`SourceDevelopment`、`PlatformConfiguration`：工作阶段的最小业务工具加轻量 `request_capability` 控制面。独立变量、数据结构和报警维护归入 `ResourceEdit`，源码只读与写入分离；Automation TOM 在工作阶段启用，流程 Skill 只挂到评审/创建/修改能力。developer 扩展全量常驻且不做工具面过滤；write/edit/shell 调用由 Editor 权限外壳、SourceDevelopment 能力要求、Hmi 目录边界和前台确认闸门放行或拦截。
 
 能力申请不会改变用户权限。只读权限申请写入、运行或源码开发，或未开启完全权限时申请平台迁移，代码会拒绝该申请并让协调模型改为询问用户或结束；不会擅自降级成另一任务。`McpServer/Program.cs --verify-profile` 校验能力包边界、申请 Schema、必需工具、退役工具和工具描述。文档不复制完整工具清单，以免与 Profile 漂移。
 
@@ -91,13 +91,14 @@ flowchart LR
 - `ProcessReview` 只评审静态配置：单流程先用 `inspect_process` 一次取得紧凑概览、Readiness、确定性流程图和流程引用；默认不附加全部指令字段，只有字段级结论确实需要时才设置 `includeOperationDetails=true` 或精确钻取。Profile 不再同时暴露四个重复基础入口。日志、快照和“为什么刚才没动作”等现场症状必须切到 `RuntimeDiagnostic`。
 - `ProcessReview` 的普通评审文字直接正常完成；只有需要把已证明 finding 交给后续修复时才调用独立 `submit_review_handoff`，该工具不结束模型轮。未提交时宿主合成 `unresolved` 安全交接，不为包装普通结论消耗工具轮，也绝不授权修复。只有 `status=proven_defect`、finding 逐项引用宿主机械事实且 `repairability=safe_without_external_facts`，才能以 `basis=proven_review_finding` 进入 `ProcessEdit`。
 - `ProcessReview` 中成功的校验、概览、流程图、指令详情、引用、变量使用和批量审计结果由宿主机械绑定为 `verifiedFacts`，记录对象、事实键、工具调用、JSON Pointer 和结果哈希；占位节点还绑定 `operation.placeholder`、计划出口数量和计划目标。模型 finding 通过 `evidenceFactRefs` 声明所需事实，宿主再绑定并校验；`verifiedFacts` 不开放给模型提交或改写。占位说明不是实现证据：外部动作或结果未决属于配置缺口；用户已明确且无需外部事实的控制策略若不在机械结构中，可据“明确要求 + 当前结构事实”证明为结构缺陷。最终交接最多携带 100 项机械事实，先保留 finding 明确引用的事实，再补流程与批量审计摘要。
-- `ProcessCreate/ProcessEdit` 必须取得 `change_set.apply` 的 committed 与 `configurationSaved`；`PlatformConfiguration` 必须取得对应 migration apply 证据；`ResourceEdit` 必须明确返回 `configurationSaved`。无副作用的预演编译失败返回 `issues[path/rule/message/suggestedRepair]` 和 `recovery.sideEffects=none/safeToRetry=true`；模型按当前修复包整体处理这些问题，需要时可继续修正，同阶段最终成功提交后只保留失败计数用于分析，不标记为不安全部分写入。
+- `ProcessCreate/ProcessEdit` 必须取得 `change_set.apply` 的 committed 与 `configurationSaved`；`PlatformConfiguration` 必须取得对应 migration apply 证据；`ResourceEdit` 必须明确返回 `configurationSaved`。`ResourceEdit` 的 `update_io_note` 把用户口述的 IO 角色、极性、机构绑定等现场事实写入 IO 备注并持久化（snapshot→TryCommit 原子提交，同步引擎 IoMap 引用），是会话级澄清沉淀为项目长期事实的唯一通道；备注经资源目录回读，后续会话不重复求证。无副作用的预演编译失败返回 `issues[path/rule/message/suggestedRepair]` 和 `recovery.sideEffects=none/safeToRetry=true`；模型按当前修复包整体处理这些问题，需要时可继续修正，同阶段最终成功提交后只保留失败计数用于分析，不标记为不安全部分写入。
 - 配置阶段只有实际调度过写入工具后才建立 mutation 状态；只加载 Skill、读取契约或因为 `max_tokens` 暂停不会伪造“未提交写入”。实际写入失败且不能证明 `sideEffects=none`，或写入尝试最终没有取得保存证据时，才禁止继续写入和运行。预演被拒绝、用户说“先给我看/确认后再做”也立即停在边界。
 - 流程写入直接进入 `ProcessCreate`，不先绕行纯方案阶段。设计知识由 `get_process_design_guide` 按当前目标需要读取，不设置首次必读或完成闸门；简单且事实充分时可一次创建，复杂或知识依赖明显时先提交安全骨架，再使用提交结果中的创建工作区凭据留在 `ProcessCreate` 按稳定 ID 续建。普通文本声称“已参考知识库”不算读取证据，但没有知识依赖时也不要求仪式性调用。
-- `SourceReview/SourceDevelopment` 使用 `search_platform_source` 做根目录内的受限字面量检索，再配合 Developer `read/tree` 精确读取。纯读取不使运行实例过期；direct `write/edit` 标记源码已改变，`SourceDevelopment` 中的 Shell 标记修改状态不确定，两者都停止后续能力并要求重新构建加载。
+- `SourceReview/SourceDevelopment` 使用 `search_platform_source` 做根目录内的受限字面量检索，再配合 Developer 只读工具精确读取。纯读取不使运行实例过期；direct `write/edit` 标记源码已改变，`SourceDevelopment` 中的 Shell 标记修改状态不确定，两者都停止后续能力并要求重新构建加载。
 - 协调模型的申请不是授权或事实；当前请求的原生会话保留阶段对话和工具结果，但代码只接受工具结果中的机械证据。宿主从成功的作者资源目录、指令能力解析、ChangeSet apply 和 validate 结果提取阶段产物，包括已观察资源、已创建对象、稳定 ID、创建工作区凭据和 Readiness 摘要。阶段摘要不在同一请求的正常切换时重复注入；请求终态后的可信滚动或原生会话意外丢失只注入这些结构化产物和有限最终输出，也不扩大副作用授权。每个业务对话额外持久化有界的最近机械事实与观察时间，供下一请求理解“按刚才建议”等承接语义；用户说明配置已变化时必须重新读取。已完成阶段的输出和副作用事实保留，后续失败或用户停止时不恢复整单请求，防止重复提交。
 - 工作轮有正常 assistant 最终输出时即完成当前任务；只有模型既未完成输出、也未申请下一能力时才从当前进度续写。续写不以工具调用数判断思考是否有进展：模型可以在原会话跨输出分段继续必要分析或调用工具。输出分段数、能力阶段数、自然语言目标重复和固定纠错次数都不作为自动中断条件；不合法申请不执行，并把结构化校验错误交回模型修正。任务只在用户停止、正常完成/提问、Provider 或用户配置的真实资源预算到达、运行实现无法恢复，或权限、安全、事实与证据完整性、事务一致性等机械契约拒绝继续时停止。能力切换记录 `transition.started/prepared/completed/failed/cancelled`，Goose 实际核验工具面后记录 `surface.verified`。取消请求额外记录 `task.cancellation_requested.source`，执行端观察到取消后记录 `task.cancelled`；用户停止、标准测试停止和运行时释放不得再共用不可区分的“已取消”事实。
 - 阶段轨迹按能力记录工具调用数、工具结果体积、`modelSegmentBytes`、估算会话上下文、非工具耗时、首次预演尝试/成功耗时、首次成功前失败数以及聚合解析调用数；这些阈值只生成诊断信号，不改变调度。少量已恢复的工具失败只记录为 `recovered`。Provider 累计 token 不直接当作真实上下文大小；同一请求内无论这些观测值如何都保持原生连续性，请求终态后统一安排可信滚动，下一请求只恢复有限可信上下文。
+- 跨进程错误识别只用稳定错误码标记，不匹配自然语言文案：McpToolProfile 拒绝未开放工具时异常消息以 `AutomationMcpErrorCodes.ToolNotAvailable`（`TOOL_NOT_AVAILABLE`，定义在 `Automation.Protocol`）开头，ACP 客户端按同一常量识别并把该失败归类为 `sideEffects=none` 的可恢复错误；调整文案不得移除标记。Goose 能力面校验失败时，错误消息必须附 Goose 实际返回的事实（实际公布扩展清单、原始工具目录、工具对象实际键名），保证外部升级导致的契约偏差可快速定位而不是静默误杀。
 
 `request_capability` 只有 `run_stage`：接收一个能力、当前目标、修改依据和可选授权证据，不承载最终消息、问题、评审交接或“阶段后暂停”开关。是否继续使用当前能力、切换能力、直接回复或询问用户由模型根据新事实自然决定，不通过额外布尔字段制造人工断点。普通流程与资源写入由 ChangeSet 预演确认形成最终闸门，不再要求协调器从自然语言中逐字截取授权；运行控制、平台配置和源码修改仍必须在 `authorizationQuote` 中逐字引用当前用户消息。历史、附件和模型生成内容不能单独扩大这些高风险副作用授权。
 
@@ -111,18 +112,24 @@ stateDiagram-v2
     Previewed --> Confirmed: 前台用户确认
     Previewed --> Discarded: discard_change_set_preview
     Previewed --> Replaced: replacePreviewId
+    Previewed --> Amended: amendPreviewId
     Confirmed --> Applied: apply_change_set(previewId)
     Confirmed --> Discarded: discard_change_set_preview
     Applied --> [*]
     Discarded --> [*]
     Replaced --> [*]
+    Amended --> Previewed
 ```
+
+未确认预演支持两类修正：`replacePreviewId` 整体重写旧阶段；`amendPreviewId` 在冻结编译结果上只编译追加动作，新建对象跨修正累积，提交覆盖整个未提交阶段。追加修正的目标使用预演响应 `createdObjects` 返回的稳定 ID（局部 key 不跨预演）；由前台用户确认的预演不得再被替换或修正（`PREVIEW_ALREADY_CONFIRMED`），自动批准预演不受此限制。追加修正编译失败不替换旧预演，可用同一 `amendPreviewId` 重试。
 
 `ProcessCreate` 与既有流程修改共用 `preview_change_set`。首阶段省略 `authoringLeaseId`，必须且只能创建一个 `autoStart=false` 的新流程，并用 `process.key`、`step.key` 串联当前 ChangeSet 的新对象；成功提交后，MCP 根据机械创建结果签发不可猜测的 `authoringLease`。后续阶段原样传入其 `leaseId`，即可在同一 `ProcessCreate` 工具面按稳定 `procId/stepId/opId` 增删改该新流程，也可用当前 ChangeSet 局部 key 组合本阶段对象。凭据把所有流程目标和流程变量归属机械收窄到首次创建的流程，不能修改、创建或删除其他流程，且不替代每个 ChangeSet 的前台预演确认。这样复杂、带回环或资源未决的目标可先保存安全骨架、回读检查，再逐块补齐；原子性只约束当前提交的数据一致性，不要求一次写完整流程。凭据丢失、过期或目标本来就是独立既有流程时，才切换 `ProcessEdit`。
 
 当前 ChangeSet 内的符号跳转使用 `operationKey`：先在当前步骤解析，跨步骤全局唯一时直接解析，只有同名歧义时才要求附加 `stepId/stepKey`；提交后优先使用稳定 `operationId`，即使同时提供冗余步骤信息也以该 ID 为权威。重试优先使用真实指令已有的 `RetryCount`；需要流程级重试时，模型直接用变量复位/累加、结果分支、成功/耗尽出口和回跳表达。平台不提供重试宏，也不根据表面回环形状自动分类或改写。用户只要求成功/失败出口不等于授权报警、停机、复位、重试或提示等额外副作用。结果条件未决时可使用一等 `config.placeholder` 保留计划出口，但不伪造结果。入口不可达等尚未完成的控制流进入 Readiness：允许以 `incomplete` 保存并返回警告，但启动闸门阻止运行；悬空目标或无法编译的引用仍拒绝预演。
 
-预演阶段由 `AiChangeSetCompiler` 在流程、变量和资源快照上编译语义或原生指令，计算可保存性和 readiness，并冻结编译结果与基础状态哈希。前台确认只更新预演记录的确认状态。预演响应带 `nextStep` 机械反馈：`confirmed=true`（含前台自动批准）时明确"必须用同一 previewId 提交"，已确认的预演不得以存在业务假设为由跳过，事务悬挂由预演过期机制回收；`confirmed=false` 时等待前台确认结果。
+预演阶段由 `AiChangeSetCompiler` 在流程、变量和资源快照上编译语义或原生指令，计算可保存性和 readiness，并冻结编译结果与基础状态哈希。前台确认只更新预演记录的确认状态。预演响应带 `nextStep` 机械反馈：`confirmed=true`（含前台自动批准）时明确"必须用同一 previewId 提交"，已确认的预演不得以存在业务假设为由跳过，事务悬挂由预演过期机制回收；`confirmed=false` 时等待前台确认结果。预演和提交响应都携带 `pendingItems`（占位、留空跳转、待示教点位的结构化清单，含稳定 opId 与修复方式）与 `processSnapshot`（受影响流程的步骤/指令目录），作为分阶段续建的施工导航，模型下一阶段不再为重建结构认知而重复 `inspect_process`。
+
+前台确认 ChangeSet 预演时可勾选"续建自动确认"（确认请求携带 `continueAutoApprove`）：该阶段全部目标流程登记为已授权批次，此后只触及这批流程的 ChangeSet 预演自动确认并续期（响应 `confirmedBy=continuation_auto_approve`）；触及其他流程仍需人工确认。手动取消任一预演即收回该授权，作用域 2 小时无活动自动过期。
 
 `apply_change_set` 只接受 `previewId`。Bridge 再检查确认状态、过期时间和基础状态哈希，然后把冻结的流程与变量快照交给 `ProcessVariableConfigurationService`；它与手工编辑复用同一刷新、失败回滚和底层事务，不在 apply 时重新接收或重新编译模型生成的 ChangeSet。提交结果返回稳定对象身份和受影响流程，供下一阶段精确读取。
 
@@ -198,7 +205,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 - 受管 Prompt、上下文和 Skill 在版本相同时仍核对内置资源内容；同版本内容漂移会重新同步，避免不同机器以同一版本运行不同规则。高于内置版本的本机文件仍按既有策略保留并校验。
 - 具体参数、枚举、模式矩阵、数量边界、资源候选和指令技巧来自 Schema、行为 Catalog、资源工具和按需 Guide，不复制到常驻 Prompt。
 - `get_process_design_guide` 是唯一的按需流程设计知识入口。服务端自动附带短 `core`，调用方通常只选一个主主题；默认 `detail=compact`，主题正文也必须返回真正的紧凑投影，并给出可直接传给作者目录的 `goalCoverage.resourceRequests`、结构化功能槽、完成证据、失败恢复和 `evidenceGapPolicy`，只有确实需要完整背景时才请求 `full`。功能槽用于最终核对已实现、占位和证据缺口，不规定固定工具顺序，也不把复杂目标变成一次提交闸门。相关资源存在而精确目标、角色、极性或终态证据缺失时，缺口不能被解释为该功能无需实现；替代机构会改变用户目标含义时应询问或保留占位。Readiness 只证明结构满足当前保存/启动契约，不替代用户目标覆盖判断。已审核知识块包含该场景自身的失败、超时和恢复写法，另一主题承担独立职责时才追加。
-- `McpServer/ProcessKnowledge/` 只保存已完成甄别的可用规范：`catalog.json` 负责能力、设备、工艺和风险标签，`blocks/*.md` 保存完整写法，内部来源摘要不返回给运行时 AI。旧项目证据和审核过程留在 Transform 运行目录；AI 完成审核与归纳后才把结果登记到目录，并由 `get_process_design_guide` 按主题返回。
+- `McpServer/ProcessKnowledge/` 只保存已完成甄别的可用规范：`catalog.json` 负责能力、设备、工艺和风险标签，`blocks/*.md` 保存完整写法，内部来源摘要不返回给运行时 AI。旧项目证据和审核过程留在 Transform 运行目录；AI 完成审核与归纳后才把结果登记到目录，并由 `get_process_design_guide` 按主题返回。知识体系按三层组织：`automation.md`「整机流程族」段常驻路由（一台设备由什么构成）、`composition` 主题按需返回整机组合索引（怎么拆、搭建顺序、接缝契约、规范引用表）、其余功能块按单主主题返回内部写法；层间只索引不复制。主题是硬契约：条目 `topics` ⊆ `ProcessDesignGuideCatalog.SupportedTopics` 并与 `schema.json` 枚举、工具描述一致，每个非 core 主题在 `Guides/ProcessDesignGuide.md` 有区块标记；`Program.cs` 启动时校验整个目录，不同步直接拒启（exit code 2），错误消息指明问题条目而非请求主题。目录契约与库存现状详见 `McpServer/ProcessKnowledge/README.md`。
 - Automation 源码开发知识由 `get_platform_development_context` 按 `hmi`、`platform-api`、`custom-function` 精确加载；目标不明确时才读取 `catalog`。源码定位使用 `search_platform_source` 的字面量、目录、扩展名和最多 100 条结果边界，不把 Shell 开放给只读源码能力。
 - Prompt 主要陈述长期稳定的身份、真实性和安全边界；平台路由进入 `automation.md`，任务步骤进入 Skill，字段与行为进入工具契约。某类可靠复现的问题若不能仅靠代码契约表达，允许增加 1～3 句短而通用的行为规则并递增对应资源版本；确定性、安全和数据完整性仍由代码执行，不为单次措辞或单个案例增加补丁式训话。
 
@@ -231,7 +238,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 
 - 一个 ChangeSet 是可独立审查和保存的阶段，不要求一次完成用户的全部目标。分阶段读取、提交、回读和修正是正常路径，不重新引入会话外草稿缓存或大而全的单次协议。
 - 目标流程名称不确定时使用 `resolve_proc_target` 一次提交多个线索。流程编写所需现场对象未明确时，使用唯一的 `list_authoring_resources` 按 `motion/io_input/io_output/variable/communication/plc/alarm/process/data_struct` 查看当前目录；设计指南已有 `goalCoverage.resourceRequests` 时可原样作为类别请求，名称过滤只在目录较大或已看到目标后收窄。`motion` 聚合工站、实际轴配置以及 `planned/taught` 点位，底层 `list_stations/list_points/list_io` 等继续服务其他权限面与实现复用，不在创建/编辑工具面形成重叠入口。目录项返回类型化 `resourceRef`；运动工站缺少命名点位时，`authoringGaps` 明确允许模型从业务目标规划点位名并先用于流程。流程经预演确认并提交后，模型可切到 `ResourceEdit` 调用批量 `plan_motion_points`，只登记固定槽位和名称；它不接收坐标，也不执行运动。新点位以 `IsTaught=false` 持久化，流程可保持 `incomplete` 保存，人工编辑坐标、工站取点或真实采集后转为已示教，Readiness 和运行时防线在此之前拒绝相关运动；旧命名点位没有该字段时按已示教兼容。语义 IO 编译同时接受稳定引用和精确名称，并在落入运行模型前解析为当前规范名称。新流程私有变量直接在当前 ChangeSet 使用 `ownerProcess.key` 声明，既有流程变量通过稳定 `ownerProcess.procId` 归属。目录项证明资源存在及其配置字段，不自动证明气缸方向、安全位或业务角色；单个输入未激活不证明相反机械终态。
-- 作者资源目录的请求类别、可选名称过滤和返回边界由 Schema 约束；默认只返回创建决策需要的紧凑身份、类型、作用域和绑定字段，引用影响、运行值等编辑详情不混入创建目录。无效参数在 MCP 内返回结构化 `INVALID_ARGUMENT`，不把普通错误升级成 ACP 传输失败。资源绑定失败返回路径、所需资源类型和最多三个带 `resourceRef` 的相近候选，不重复返回动作 Schema。`motion` 目录的每个工站项附 `motionOperations`（来自 `list_operation_types` 的 `stationScoped` 标记），给出工站范围原生指令精确 operaType，模型不再猜测运动指令类型名。原生指令类型未命中时，`get_native_operation_schemas` 等入口返回 `OPERA_TYPE_NOT_FOUND` 并附按类型名/显示名/`intentAliases` 包含与共享二元组排序的最多三个 `suggestions`。熟悉且基础 Schema 足够的语义 kind 可直接预演；陌生、歧义或原生业务动作再用 `resolve_operation_capability` 一次提交多个意图。语义动作别名来自协议目录，原生动作别名来自 `OperationBehaviorCatalog`；别名匹配按连续包含与共享二元组评分，`resolutionStatus=missing` 时附最多五个 `nearbyTypes` 相近注册类型并明确"missing 只证明措辞未命中，不证明平台缺少该能力"。`resolutionStatus=exact` 的作用域仅为动作类型和字段契约，响应必须明确 `resourceBindingValidation=not_performed`，不能暗示意图文字中的 IO、变量、工站或点位已验证。既有原生指令做少量同类型字段修改时使用 `get_native_operation_field_contract` 获取紧凑字段契约，只有改类型或递归结构不明确时才读取完整原生契约。
+- 作者资源目录的请求类别、可选名称过滤和返回边界由 Schema 约束；默认只返回创建决策需要的紧凑身份、类型、作用域和绑定字段，引用影响、运行值等编辑详情不混入创建目录。无效参数在 MCP 内返回结构化 `INVALID_ARGUMENT`，不把普通错误升级成 ACP 传输失败。资源绑定失败返回路径、所需资源类型和最多三个带 `resourceRef` 的相近候选，不重复返回动作 Schema。`motion` 目录的每个工站项附 `motionOperations`（来自 `list_operation_types` 的 `stationScoped` 标记），给出工站范围原生指令精确 operaType，模型不再猜测运动指令类型名。`io_input/io_output/communication/plc/alarm` 目录首页同样附 `operations` 操作菜单（`list_operation_types` 按行为契约字段与类型名称保守分类的 `domains` 标记），各资源域可用指令类型一次可见。原生指令类型未命中时，`get_native_operation_schemas` 等入口返回 `OPERA_TYPE_NOT_FOUND` 并附按类型名/显示名/`intentAliases` 包含与共享二元组排序的最多三个 `suggestions`。熟悉且基础 Schema 足够的语义 kind 可直接预演；陌生、歧义或原生业务动作再用 `resolve_operation_capability` 一次提交多个意图。语义动作别名来自协议目录，原生动作别名来自 `OperationBehaviorCatalog`；别名匹配按连续包含与共享二元组评分，`resolutionStatus=missing` 时附最多五个 `nearbyTypes` 相近注册类型并明确"missing 只证明措辞未命中，不证明平台缺少该能力"。`resolutionStatus=exact` 的作用域仅为动作类型和字段契约，响应必须明确 `resourceBindingValidation=not_performed`，不能暗示意图文字中的 IO、变量、工站或点位已验证。既有原生指令做少量同类型字段修改时使用 `get_native_operation_field_contract` 获取紧凑字段契约，只有改类型或递归结构不明确时才读取完整原生契约。
 - 新建与修改共用一套 ChangeSet V2 DTO、编译、预演、确认和提交链；不为创建再定义一套需要翻译的中间 DSL。
 - 配置保存只硬拦截 Schema、重复身份、悬空引用、不可编译控制流、原子一致性等结构/`saveRequired` 确定性不变量；缺少 `runRequired`、晚绑定资源、占位功能块或尚未完成整个业务目标可以保存为 `incomplete`。启动闸门再检查资源就绪、设备状态、完整运行闭环和安全条件。不能通过放松结构错误让坏流程落盘，也不能把仅影响运行的缺口提前升级成保存失败。
 - 用户要求占位或骨架时，未知动作或真实结果条件使用一等 `config.placeholder`，可声明仅用于设计期的计划出口；Readiness 保持 `incomplete` 并阻止启动。固定延时、普通弹框、猜测变量和常量状态不能作为缺失能力的替代品。

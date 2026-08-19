@@ -170,6 +170,8 @@ namespace Automation
         private string lastInjectedProfileContext;
         private string lastInjectedSelectionContext;
         private bool disposed;
+        // Dispose 主动终止进程的标记：Process_Exited 据此区分正常会话滚动与异常退出。
+        private volatile bool intentionalShutdown;
 
         private readonly PlatformRuntime runtime;
 
@@ -281,7 +283,7 @@ namespace Automation
                 lock (executionLock)
                 {
                     // System/TOM/内置扩展不经过session/prompt，预留16KB作为固定上下文安全量。
-                    return EstimateTokensFromUtf8Bytes(
+                    return AiAnalysisLogger.EstimateTokensFromUtf8Bytes(
                         sessionConversationBytes + currentToolSurfaceBytes + 16L * 1024L);
                 }
             }
@@ -879,7 +881,10 @@ namespace Automation
             bool skillsEnabled = string.Equals(normalized, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessEdit, StringComparison.Ordinal);
-            bool developerEnabled = AutomationToolProfiles.UsesDeveloperTools(normalized);
+            // Goose 原生 developer 工具全量常驻所有能力面：不设置 available_tools 白名单，
+            // 原生工具（read_file/tree 等）任何阶段都可直接使用；文件修改与 Shell 执行
+            // 仍由前台权限闸门（Editor 权限外壳 + SourceDevelopment 能力）拦截。
+            bool developerEnabled = true;
             var desiredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (skillsEnabled) desiredNames.Add("skills");
             if (tomEnabled) desiredNames.Add("tom");
@@ -890,13 +895,12 @@ namespace Automation
             foreach (string managedName in capabilityBuiltinExtensionNames)
             {
                 bool desired = desiredNames.Contains(managedName);
-                if (!active.TryGetValue(managedName, out JObject current))
+                if (!active.ContainsKey(managedName))
                 {
                     if (desired)
                     {
                         JObject definition = await GetAvailableExtensionAsync(
                             managedName, cancellationToken).ConfigureAwait(false);
-                        ApplyCapabilityToolFilter(definition, managedName, normalized);
                         await AddSessionExtensionAsync(definition, cancellationToken)
                             .ConfigureAwait(false);
                     }
@@ -906,19 +910,6 @@ namespace Automation
                 if (!desired)
                 {
                     await RemoveSessionExtensionAsync(managedName, cancellationToken)
-                        .ConfigureAwait(false);
-                    continue;
-                }
-
-                if (string.Equals(managedName, "developer", StringComparison.OrdinalIgnoreCase)
-                    && !HasExpectedDeveloperFilter(current, normalized))
-                {
-                    await RemoveSessionExtensionAsync(managedName, cancellationToken)
-                        .ConfigureAwait(false);
-                    JObject definition = await GetAvailableExtensionAsync(
-                        managedName, cancellationToken).ConfigureAwait(false);
-                    ApplyCapabilityToolFilter(definition, managedName, normalized);
-                    await AddSessionExtensionAsync(definition, cancellationToken)
                         .ConfigureAwait(false);
                 }
             }
@@ -945,7 +936,9 @@ namespace Automation
                 availableGooseExtensions.TryGetValue(name, out cached);
             }
             if (cached == null)
-                throw new InvalidOperationException($"Goose 未公布内置扩展：{name}。");
+                throw new InvalidOperationException(
+                    $"Goose 未公布内置扩展：{name}；实际公布：{string.Join(",", availableGooseExtensions.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase))}。"
+                    + "Goose 升级改名或下线内置扩展时会出现此错误，请核对扩展名单常量。");
             return (JObject)cached.DeepClone();
         }
 
@@ -1020,12 +1013,9 @@ namespace Automation
                 throw new InvalidOperationException("Goose 指导扩展与当前能力包不一致。");
             }
 
-            bool expectsDeveloper = AutomationToolProfiles.UsesDeveloperTools(normalized);
-            if (extensions.ContainsKey("developer") != expectsDeveloper)
-                throw new InvalidOperationException("Goose Developer 扩展与当前能力包不一致。");
-            if (expectsDeveloper
-                && !HasExpectedDeveloperFilter(extensions["developer"], normalized))
-                throw new InvalidOperationException("Goose Developer 工具白名单与当前能力包不一致。");
+            // developer 扩展全量常驻：任何能力面都必须存在，工具面不做过滤。
+            if (!extensions.ContainsKey("developer"))
+                throw new InvalidOperationException("Goose Developer 常驻扩展缺失。");
 
             JArray automationToolCatalog = await GetExtensionToolsAsync(
                 "automation", cancellationToken).ConfigureAwait(false);
@@ -1040,8 +1030,11 @@ namespace Automation
             {
                 string missing = string.Join(",", expectedToolNames.Except(actualToolNames).OrderBy(name => name));
                 string unexpected = string.Join(",", actualToolNames.Except(expectedToolNames).OrderBy(name => name));
+                string rawCatalog = string.Join(",", automationTools.OrderBy(name => name, StringComparer.Ordinal));
                 throw new InvalidOperationException(
-                    $"Goose 实际 Automation 工具面与 {normalized} 契约不一致；缺少={missing}；多出={unexpected}。" );
+                    $"Goose 实际 Automation 工具面与 {normalized} 契约不一致；缺少={missing}；多出={unexpected}；"
+                    + $"原始目录（含前缀）={rawCatalog}。"
+                    + "若原始目录与缺少项仅前缀格式不同，说明 Goose 更改了 MCP 工具命名格式。");
             }
             JObject controlSurface = ValidateCapabilityControlToolCatalog(automationToolCatalog);
             string currentControlSchemaSha256 = controlSurface["schemaSha256"]?.Value<string>()
@@ -1066,7 +1059,7 @@ namespace Automation
                     automationToolCatalog.ToString(Formatting.None));
             }
 
-            if (expectsDeveloper)
+            // 常驻 developer 扩展：每个能力面都记录实际工具目录快照（全量，无白名单过滤）。
             {
                 HashSet<string> developerTools = await GetExtensionToolNamesAsync(
                     "developer", cancellationToken).ConfigureAwait(false);
@@ -1080,41 +1073,9 @@ namespace Automation
                     ["gooseSessionId"] = sessionId ?? string.Empty,
                     ["profile"] = normalized,
                     ["extension"] = "developer",
-                    ["configuredTools"] = extensions["developer"]?["availableTools"]?.DeepClone()
-                        ?? extensions["developer"]?["available_tools"]?.DeepClone()
-                        ?? new JArray(),
                     ["rawToolNames"] = new JArray(developerTools.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)),
                     ["normalizedToolNames"] = new JArray(normalizedNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
                 });
-                if (string.Equals(normalized, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
-                {
-                    string[] missing = new[] { "read", "tree" }
-                        .Where(name => !normalizedNames.Contains(name))
-                        .ToArray();
-                    if (missing.Length > 0)
-                    {
-                        throw new InvalidOperationException(
-                            "源码只读能力缺少 Developer 工具：" + string.Join(",", missing)
-                            + "；实际目录：" + string.Join(",", developerTools.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)));
-                    }
-                    if (normalizedNames.Any(name => !string.Equals(name, "read", StringComparison.OrdinalIgnoreCase)
-                        && !string.Equals(name, "tree", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        AiAnalysisLogger.Write(new JObject
-                        {
-                            ["event"] = "capability.surface.catalog_unfiltered",
-                            ["auditSessionId"] = auditSessionId,
-                            ["gooseSessionId"] = sessionId ?? string.Empty,
-                            ["profile"] = normalized,
-                            ["extension"] = "developer",
-                            ["note"] = "tools/list 返回扩展目录；有效权限继续由 available_tools 与客户端权限闸门共同限制。",
-                            ["extraCatalogTools"] = new JArray(normalizedNames
-                                .Where(name => !string.Equals(name, "read", StringComparison.OrdinalIgnoreCase)
-                                    && !string.Equals(name, "tree", StringComparison.OrdinalIgnoreCase))
-                                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
-                        });
-                    }
-                }
             }
         }
 
@@ -1195,7 +1156,9 @@ namespace Automation
             }
             if (!(schemaToken is JObject) && !(schemaToken is JArray))
                 throw new InvalidOperationException(
-                    "Goose 工具目录没有返回 request_capability 的实际输入 Schema，无法确认能力面可信。" );
+                    "Goose 工具目录没有返回 request_capability 的实际输入 Schema，无法确认能力面可信。"
+                    + "工具对象实际键名：" + string.Join(",", controlTool.Properties().Select(p => p.Name))
+                    + "。Goose 升级更改 tools/list 响应结构时会出现此错误。");
             JObject runStage = FindCapabilityDecisionBranch(schemaToken, "run_stage");
             if (runStage == null)
                 throw new InvalidOperationException(
@@ -1280,30 +1243,6 @@ namespace Automation
         {
             return extension?["name"]?.Value<string>()
                 ?? extension?["server"]?["name"]?.Value<string>();
-        }
-
-        private static void ApplyCapabilityToolFilter(
-            JObject extension,
-            string name,
-            string profile)
-        {
-            if (!string.Equals(name, "developer", StringComparison.OrdinalIgnoreCase)) return;
-            extension.Remove("available_tools");
-            extension.Remove("availableTools");
-            if (string.Equals(profile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
-                extension["available_tools"] = new JArray("read", "tree");
-        }
-
-        private static bool HasExpectedDeveloperFilter(JObject extension, string profile)
-        {
-            JArray configured = extension?["availableTools"] as JArray
-                ?? extension?["available_tools"] as JArray;
-            if (!string.Equals(profile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
-                return configured == null || configured.Count == 0;
-            var names = new HashSet<string>(
-                (configured ?? new JArray()).Values<string>(),
-                StringComparer.OrdinalIgnoreCase);
-            return names.SetEquals(new[] { "read", "tree" });
         }
 
         private void EnsureSessionIdentity(string expectedSessionId)
@@ -1565,16 +1504,28 @@ namespace Automation
 
         private void Process_Exited(object sender, EventArgs e)
         {
-            string message = "EW-AI ACP 进程已退出。";
+            // Dispose 主动 Kill（可信滚动、会话重建）也是进程退出事件；区分为正常关闭，
+            // 不按异常误报，避免滚动期间向用户弹出误导性的错误提示。
+            bool intentional = intentionalShutdown;
+            string message = intentional
+                ? "EW-AI ACP 进程已随会话滚动正常关闭。"
+                : "EW-AI ACP 进程已退出。";
             try
             {
-                message = $"EW-AI ACP 进程已退出，退出码 {process?.ExitCode ?? -1}。";
+                if (!intentional)
+                {
+                    message = $"EW-AI ACP 进程已退出，退出码 {process?.ExitCode ?? -1}。";
+                }
             }
             catch
             {
             }
-            LogFile(message, LogLevel.Error);
-            Report("exit", message, null);
+            LogFile(message, intentional ? LogLevel.Normal : LogLevel.Error);
+            // 正常滚动关闭是内部机制，不向用户事件流上报，避免无意义的进程级提示。
+            if (!intentional)
+            {
+                Report("exit", message, null);
+            }
             sessionId = null;
             foreach (var item in pendingRequests)
             {
@@ -1904,7 +1855,7 @@ namespace Automation
                         ? "模型工具参数未形成"
                         : ResolveToolDisplayName(parameters, title);
                     MarkFirstModelActivity();
-                    AppendReasoningTraceEvent("tool_call", displayName, message);
+                    FlushReasoningTraceSegmentsOnToolEvent();
                     RecordAnalysisToolStarted(callId, parameters, parameterGenerationFailed);
                     LogExecution("tool_call", displayName, message);
                     Report("tool_call", displayName, message);
@@ -1931,7 +1882,7 @@ namespace Automation
                                 ? "× 工具调用失败，ACP 未提供错误内容"
                                 : "× " + detail;
                         RecordAnalysisToolFinished(callId, parameters, true, parameterGenerationFailed);
-                        AppendReasoningTraceEvent("tool_error", failureSummary, message);
+                        FlushReasoningTraceSegmentsOnToolEvent();
                         var diagnostic = (JObject)parameters.DeepClone();
                         diagnostic["automationDiagnostic"] = parameterGenerationFailed
                             ? new JObject
@@ -1967,7 +1918,7 @@ namespace Automation
                     // 完成响应只提取摘要给 UI；完整参数和结果由 MCP 统一审计，避免重复落盘。
                     string summary = ExtractToolResultSummary(parameters);
                     RecordAnalysisToolFinished(completedCallId, parameters, false, false);
-                    AppendReasoningTraceEvent("tool_result", summary, message);
+                    FlushReasoningTraceSegmentsOnToolEvent();
                     Report("tool_result", summary, message);
                     return;
                 }
@@ -2094,23 +2045,7 @@ namespace Automation
         // 从 tool_call_update 完成响应提取摘要，避免在 UI 显示完整 JSON。
         private static string ExtractToolResultSummary(JObject parameters)
         {
-            JToken update = parameters["update"] ?? parameters;
-            JToken content = update["content"];
-            string raw = null;
-            if (content is JArray arr && arr.Count > 0)
-            {
-                JToken first = arr[0];
-                JToken textToken = first["text"];
-                if (textToken == null && first["content"] != null)
-                {
-                    textToken = first["content"]["text"];
-                }
-                if (textToken != null && textToken.Type == JTokenType.String)
-                {
-                    raw = textToken.Value<string>();
-                }
-            }
-            return SummarizeToolResultText(raw);
+            return SummarizeToolResultText(ExtractRawToolResultText(parameters));
         }
 
         private static string ExtractRawToolResultText(JObject parameters)
@@ -2249,12 +2184,13 @@ namespace Automation
                 ? FindFirstString(parameters, "message", "error", "text")
                 : null;
             string transportCode = transportFailed
-                && transportMessage?.IndexOf("未开放工具", StringComparison.Ordinal) >= 0
-                    ? "TOOL_NOT_AVAILABLE"
+                && transportMessage?.IndexOf(
+                    AutomationMcpErrorCodes.ToolNotAvailable, StringComparison.Ordinal) >= 0
+                    ? AutomationMcpErrorCodes.ToolNotAvailable
                     : transportFailed ? "ACP_TOOL_CALL_FAILED" : string.Empty;
             string reportedSideEffects = parameterGenerationFailed
                 ? "none"
-                : transportCode == "TOOL_NOT_AVAILABLE"
+                : transportCode == AutomationMcpErrorCodes.ToolNotAvailable
                     ? "none"
                     : resultObject?["recovery"]?["sideEffects"]?.Value<string>() ?? "unknown";
             if (!string.IsNullOrEmpty(rawResult))
@@ -2430,13 +2366,13 @@ namespace Automation
                             ?? (transportFailed
                                 ? new JObject
                                 {
-                                    ["reason"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                    ["reason"] = transportCode == AutomationMcpErrorCodes.ToolNotAvailable
                                         ? "requested_tool_not_exposed_by_current_profile"
                                         : "acp_tool_call_failed",
-                                    ["retryableWhen"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                    ["retryableWhen"] = transportCode == AutomationMcpErrorCodes.ToolNotAvailable
                                         ? "use_a_tool_published_by_the_current_profile"
                                         : "acp_returns_a_dispatchable_tool_result",
-                                    ["sideEffects"] = transportCode == "TOOL_NOT_AVAILABLE"
+                                    ["sideEffects"] = transportCode == AutomationMcpErrorCodes.ToolNotAvailable
                                         ? "none"
                                         : "unknown"
                                 }
@@ -2564,7 +2500,7 @@ namespace Automation
                     context = "当前能力：流程运行控制。先验证启动条件和当前状态，只执行用户明确要求的启动、停止、暂停、恢复或有界测试。";
                     break;
                 case AutomationToolProfiles.SourceDevelopment:
-                    context = "当前能力：Automation 源码开发。先用 search_platform_source、read、tree 做只读定位，确认目标后再使用开发工具修改和验证仓库代码；平台上下文仅在需要精确内部契约时按需读取。纯读取不要使用shell，因为shell无法被执行器证明无间接写入并会要求重建。若调查后无需修改，直接正常回复，不得声称源码已变化。";
+                    context = "当前能力：Automation 源码开发。先用 search_platform_source 和 developer 只读工具做只读定位，确认目标后再使用开发工具修改和验证仓库代码；平台上下文仅在需要精确内部契约时按需读取。纯读取不要使用shell，因为shell无法被执行器证明无间接写入并会要求重建。若调查后无需修改，直接正常回复，不得声称源码已变化。";
                     break;
                 case AutomationToolProfiles.SourceReview:
                     context = "当前能力：Automation 源码只读检查。优先使用 search_platform_source 受限检索，可以读取源码并按需获取平台开发上下文，但不得执行 shell、写入、编辑或删除文件。";
@@ -2888,7 +2824,8 @@ namespace Automation
             }
         }
 
-        private void AppendReasoningTraceEvent(string kind, string text, JObject raw)
+        // 工具事件到来时结束此前累积的 assistant/thought 流式分段，保证轨迹分段边界完整。
+        private void FlushReasoningTraceSegmentsOnToolEvent()
         {
             lock (executionLock)
             {
@@ -3101,7 +3038,7 @@ namespace Automation
                 ["toolResultBytes"] = currentPromptToolResultBytes,
                 ["promptInputBytes"] = currentPromptInputBytes,
                 ["modelSegmentBytes"] = currentPromptModelSegmentBytes,
-                ["estimatedSessionContextTokens"] = EstimateTokensFromUtf8Bytes(
+                ["estimatedSessionContextTokens"] = AiAnalysisLogger.EstimateTokensFromUtf8Bytes(
                     sessionConversationBytes + currentToolSurfaceBytes + 16L * 1024L),
                 ["parameterFailureCount"] = currentParameterFailureCount,
                 ["retryCount"] = retryCount,
@@ -3171,12 +3108,6 @@ namespace Automation
             return result;
         }
 
-        private static long EstimateTokensFromUtf8Bytes(long bytes)
-        {
-            if (bytes <= 0L) return 0L;
-            return (bytes + 2L) / 3L;
-        }
-
         private AiTurnEvidence BuildTurnEvidenceLocked()
         {
             return new AiTurnEvidence(
@@ -3217,15 +3148,20 @@ namespace Automation
             return assistantResponse.ToString().Trim();
         }
 
-        private static bool IsDeveloperWriteToolName(string toolName)
+        // developer 工具名经统一前缀剥离后按叶名判定；跨类共享给 FrmAiAssistant 权限闸门。
+        internal static bool IsDeveloperWriteToolName(string toolName)
         {
-            string value = (toolName ?? string.Empty).Trim();
-            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
-                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
-            if (separator >= 0)
-                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
-            return string.Equals(value, "write", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "edit", StringComparison.OrdinalIgnoreCase);
+            string leaf = NormalizeExtensionToolName(toolName);
+            return string.Equals(leaf, "write", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "edit", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsDeveloperShellToolName(string toolName)
+        {
+            return string.Equals(
+                NormalizeExtensionToolName(toolName),
+                "shell",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsPreviewTool(string toolName)
@@ -3233,16 +3169,6 @@ namespace Automation
             return string.Equals(toolName, "preview_change_set", StringComparison.Ordinal)
                 || (toolName ?? string.Empty).StartsWith("preview_", StringComparison.Ordinal)
                     && (toolName ?? string.Empty).EndsWith("_configuration", StringComparison.Ordinal);
-        }
-
-        private static bool IsDeveloperShellToolName(string toolName)
-        {
-            string value = (toolName ?? string.Empty).Trim();
-            int separator = Math.Max(value.LastIndexOf("__", StringComparison.Ordinal),
-                Math.Max(value.LastIndexOf('/'), value.LastIndexOf('.')));
-            if (separator >= 0)
-                value = value.Substring(separator + (value[separator] == '_' ? 2 : 1));
-            return string.Equals(value, "shell", StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool IsCurrentStateEvidenceTool(string toolName)
@@ -3991,32 +3917,14 @@ namespace Automation
                 AppendLogField(builder, "审计会话", record["auditSessionId"]);
                 AppendLogField(builder, "Goose 会话", record["gooseSessionId"]);
                 AppendLogField(builder, "Prompt ID", record["promptId"]);
-                AppendLogField(builder, "调用 ID", record["callId"]);
-                AppendLogField(builder, "工具", record["toolName"]);
-                AppendLogField(builder, "耗时", record["durationMs"], "毫秒");
                 builder.AppendLine("内容：");
                 builder.AppendLine(record["text"]?.Value<string>() ?? string.Empty);
-                AppendJsonSection(builder, "参数", record["args"]);
-                AppendJsonSection(builder, "结果", record["result"]);
-                AppendLogField(builder, "异常", record["error"]);
                 AppendJsonSection(builder, "原始数据", record["raw"]);
                 builder.AppendLine();
 
                 string content = builder.ToString();
-                string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
-                int index = 0;
-                string path;
-                while (true)
-                {
-                    string suffix = index == 0 ? string.Empty : $"_{index:000}";
-                    path = Path.Combine(executionLogRoot, datePrefix + suffix + ".log");
-                    if (!File.Exists(path)
-                        || new FileInfo(path).Length + Encoding.UTF8.GetByteCount(content) <= MaxLogFileBytes)
-                    {
-                        break;
-                    }
-                    index++;
-                }
+                string path = ResolveRollingLogPath(
+                    executionLogRoot, DateTime.Now.ToString("yyyy-MM-dd"), ".log", content);
                 using (StreamWriter writer = new StreamWriter(path, true, new UTF8Encoding(false)))
                 {
                     writer.Write(content);
@@ -4066,21 +3974,12 @@ namespace Automation
                 JObject structuredRecord = CreateStructuredExecutionRecord(record);
                 string structuredContent = structuredRecord.ToString(Formatting.None) + Environment.NewLine;
                 Directory.CreateDirectory(structuredExecutionLogRoot);
-                string datePrefix = DateTime.Now.ToString("yyyy-MM-dd");
-                int structuredIndex = 0;
-                string structuredPath;
-                while (true)
-                {
-                    structuredPath = Path.Combine(
-                        structuredExecutionLogRoot,
-                        $"{datePrefix}_{structuredIndex:000}.jsonl");
-                    if (!File.Exists(structuredPath)
-                        || new FileInfo(structuredPath).Length + Encoding.UTF8.GetByteCount(structuredContent) <= MaxLogFileBytes)
-                    {
-                        break;
-                    }
-                    structuredIndex++;
-                }
+                string structuredPath = ResolveRollingLogPath(
+                    structuredExecutionLogRoot,
+                    DateTime.Now.ToString("yyyy-MM-dd") + "_",
+                    ".jsonl",
+                    structuredContent,
+                    "000");
                 using (StreamWriter writer = new StreamWriter(structuredPath, true, new UTF8Encoding(false)))
                 {
                     writer.Write(structuredContent);
@@ -4126,13 +4025,9 @@ namespace Automation
             }
 
             JToken raw = record["raw"];
-            string toolCallId = record["toolCallId"]?.Value<string>()
-                ?? record["callId"]?.Value<string>()
-                ?? FindFirstString(raw, "toolCallId");
-            string toolName = record["toolName"]?.Value<string>()
-                ?? FindFirstString(raw, "toolName");
-            string status = record["status"]?.Value<string>()
-                ?? FindFirstString(raw, "status");
+            string toolCallId = FindFirstString(raw, "toolCallId");
+            string toolName = FindFirstString(raw, "toolName");
+            string status = FindFirstString(raw, "status");
 
             var structured = new JObject
             {
@@ -4150,29 +4045,37 @@ namespace Automation
             AddStructuredString(structured, "status", status);
             AddStructuredString(structured, "text", record["text"]?.Value<string>());
 
-            if (record["durationMs"] != null)
-            {
-                structured["durationMs"] = record["durationMs"].DeepClone();
-            }
-            if (record["args"] != null)
-            {
-                structured["args"] = record["args"].DeepClone();
-            }
-            if (record["result"] != null)
-            {
-                structured["result"] = record["result"].DeepClone();
-            }
-            if (record["error"] != null)
-            {
-                structured["error"] = record["error"].DeepClone();
-            }
-
             if (raw != null)
             {
                 structured["raw"] = raw.DeepClone();
             }
 
             return structured;
+        }
+
+        // 按大小滚动选择日志文件：首个文件名不带序号，超出 MaxLogFileBytes 时追加 _001、_002 …
+        // datePrefix 已含尾部分隔符（如 "2026-08-19" 或 "2026-08-19_"），indexFormat 指定序号格式。
+        private static string ResolveRollingLogPath(
+            string root,
+            string datePrefix,
+            string extension,
+            string content,
+            string indexFormat = null)
+        {
+            int index = 0;
+            while (true)
+            {
+                string suffix = index == 0
+                    ? string.Empty
+                    : "_" + index.ToString(indexFormat ?? "000");
+                string path = Path.Combine(root, datePrefix + suffix + extension);
+                if (!File.Exists(path)
+                    || new FileInfo(path).Length + Encoding.UTF8.GetByteCount(content) <= MaxLogFileBytes)
+                {
+                    return path;
+                }
+                index++;
+            }
         }
 
         private static void AddStructuredString(JObject target, string name, string value)
@@ -4190,16 +4093,6 @@ namespace Automation
             {
                 builder.Append(label).Append('：').AppendLine(text);
             }
-        }
-
-        private static void AppendLogField(StringBuilder builder, string label, JToken value, string suffix)
-        {
-            if (value == null || value.Type == JTokenType.Null)
-            {
-                return;
-            }
-
-            builder.Append(label).Append('：').Append(value).AppendLine(suffix ?? string.Empty);
         }
 
         private static void AppendJsonSection(StringBuilder builder, string label, JToken value)
@@ -4261,7 +4154,23 @@ namespace Automation
         public void Dispose()
         {
             disposed = true;
+            intentionalShutdown = true;
             LogFile("ACP Dispose 开始", LogLevel.Normal);
+            // 修复：必须先杀进程再写 stdin。goose 进程内部僵死（活着但不读输入）时，
+            // 先 Cancel 会把 session/cancel 写入已满的管道缓冲并永久阻塞在 writeLock，
+            // Dispose 卡死导致后续每条消息都挂在同一客户端上（现象：发送后零事件零反馈）。
+            // 进程先终止后管道立即失效，残留写入快速失败并被吞掉。
+            try
+            {
+                if (process != null && !process.HasExited)
+                {
+                    process.Kill();
+                }
+            }
+            catch
+            {
+            }
+            LogFile("ACP Dispose 进程已终止", LogLevel.Normal);
             try
             {
                 Cancel();
