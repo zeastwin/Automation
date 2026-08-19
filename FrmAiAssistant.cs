@@ -4790,6 +4790,14 @@ window.addEventListener('resize',function(){document.querySelectorAll('.thinking
         private static bool TryResolveAgentExecutablePath(string configuredPath, out string resolvedPath)
         {
             resolvedPath = null;
+            // 已配置且存在的路径优先；机器默认部署路径仅在配置缺失时兜底，
+            // 允许显式切换到 npm 全局 pi（.cmd 垫片）等其他安装形态。
+            string trimmed = (configuredPath ?? string.Empty).Trim();
+            if (trimmed.Length > 0 && File.Exists(trimmed))
+            {
+                resolvedPath = trimmed;
+                return true;
+            }
             if (File.Exists(PiRuntimeEnvironment.MachinePiExecutablePath))
             {
                 resolvedPath = PiRuntimeEnvironment.MachinePiExecutablePath;

@@ -508,10 +508,21 @@ namespace Automation
                 arguments.Append(" --model ").Append(QuoteArgument(configuredModel));
             }
 
+            string agentExecutable = config.AgentExecutablePath;
+            string agentArguments = arguments.ToString();
+            // npm 全局安装的 pi 是 .cmd 垫片（内部调 node 执行 cli.js），CreateProcess 无法直接
+            // 启动脚本文件，经 cmd.exe 转发；独立 exe（Bun 编译版）仍按原路径直接启动。
+            if (agentExecutable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
+                || agentExecutable.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
+            {
+                agentArguments = "/d /s /c \"\"" + agentExecutable + "\" " + agentArguments + "\"";
+                agentExecutable = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            }
+
             var startInfo = new ProcessStartInfo
             {
-                FileName = config.AgentExecutablePath,
-                Arguments = arguments.ToString(),
+                FileName = agentExecutable,
+                Arguments = agentArguments,
                 WorkingDirectory = sessionWorkingDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
