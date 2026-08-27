@@ -1147,13 +1147,13 @@ namespace Automation
             }
             ClearAllRowColors();
 
-            gridFlashColor = kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
-                           : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
-                           : UiPalette.WarningSoft;
+            gridFlashColor = kind == ProcChangeKind.Added ? UiPalette.FlashSuccess
+                           : kind == ProcChangeKind.Deleted ? UiPalette.FlashDanger
+                           : UiPalette.FlashWarning;
             gridFlashCount = 0;
 
             gridFlashTimer = new System.Windows.Forms.Timer();
-            gridFlashTimer.Interval = 300;
+            gridFlashTimer.Interval = 500;
             gridFlashTimer.Tick += GridFlashTimer_Tick;
             gridFlashTimer.Start();
         }
@@ -1225,9 +1225,9 @@ namespace Automation
                 {
                     continue;
                 }
-                Color color = kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
-                            : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
-                            : UiPalette.WarningSoft;
+                Color color = kind == ProcChangeKind.Added ? UiPalette.FlashSuccess
+                            : kind == ProcChangeKind.Deleted ? UiPalette.FlashDanger
+                            : UiPalette.FlashWarning;
                 targetRows.Add((opIndex, color));
             }
 
@@ -1239,7 +1239,7 @@ namespace Automation
             // 新增指令位于当前可视区域之外时自动跟随一次，便于观察 AI 的插入过程；
             // 修改和删除不改变用户滚动位置。
             int addedRowIndex = targetRows
-                .Where(item => item.color == UiPalette.SuccessSoft)
+                .Where(item => item.color == UiPalette.FlashSuccess)
                 .Select(item => item.rowIndex)
                 .DefaultIfEmpty(-1)
                 .First();
@@ -1268,7 +1268,7 @@ namespace Automation
             gridFlashCount = 0;
 
             gridFlashTimer = new System.Windows.Forms.Timer();
-            gridFlashTimer.Interval = 300;
+            gridFlashTimer.Interval = 500;
             gridFlashTimer.Tick += GridFlashTimer_Tick;
             gridFlashTimer.Start();
         }

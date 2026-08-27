@@ -39,7 +39,10 @@ namespace Automation
                 return AiTaskDecisionValidation.Invalid(ex.Message);
             }
             if (!AutomationToolProfiles.IsExecutionProfile(capability))
-                return AiTaskDecisionValidation.Invalid($"{capability} 不是可执行能力包。");
+                return AiTaskDecisionValidation.Invalid(
+                    $"{capability} 不是可执行能力包。可申请的能力包："
+                    + string.Join("、", AutomationToolProfiles.ExecutionProfiles)
+                    + "。");
             string editBasisError = ValidateProcessEditBasis(decision, capability, state);
             if (editBasisError != null) return AiTaskDecisionValidation.Invalid(editBasisError);
             if (RequiresExplicitAuthorizationQuote(capability))
@@ -158,7 +161,11 @@ namespace Automation
                     ReviewHandoffStatuses.Unresolved,
                     ReviewHandoffStatuses.NoDefect
                 }.Contains(status, StringComparer.Ordinal))
-                return "reviewHandoff.status 不合法。";
+                return "reviewHandoff.status 不合法。合法值："
+                    + ReviewHandoffStatuses.ProvenDefect + "、"
+                    + ReviewHandoffStatuses.ConfigurationGap + "、"
+                    + ReviewHandoffStatuses.Unresolved + "、"
+                    + ReviewHandoffStatuses.NoDefect + "。";
             if (string.IsNullOrWhiteSpace(handoff.Summary))
                 return "reviewHandoff.summary 不能为空。";
             List<ReviewFindingDefinition> findings = handoff.Findings ?? new List<ReviewFindingDefinition>();
@@ -174,24 +181,35 @@ namespace Automation
             foreach (ReviewFindingDefinition finding in findings)
             {
                 string id = (finding?.Id ?? string.Empty).Trim();
-                if (string.IsNullOrWhiteSpace(id) || !ids.Add(id))
-                    return "reviewHandoff.findings 的 id 必须非空且唯一。";
-                if (string.IsNullOrWhiteSpace(finding.Summary)
-                    || !ReviewFindingCategories.SupportedCategories.Split('、')
-                        .Contains(finding.Category, StringComparer.Ordinal)
-                    || !ReviewFindingRepairability.SupportedValues.Split('、')
-                        .Contains(finding.Repairability, StringComparer.Ordinal)
-                    || string.IsNullOrWhiteSpace(finding.Evidence)
-                    || string.IsNullOrWhiteSpace(finding.MinimalChange)
-                    || (finding.TargetIds?.Count ?? 0) == 0
-                    || finding.TargetIds.Any(string.IsNullOrWhiteSpace)
-                    || (finding.EvidenceFactRefs?.Count ?? 0) == 0
+                if (string.IsNullOrWhiteSpace(id))
+                    return $"reviewHandoff.findings 第 {ids.Count + 1} 项的 id 为空。";
+                if (!ids.Add(id))
+                    return $"reviewHandoff.findings 的 id 重复：{id}。";
+                if (string.IsNullOrWhiteSpace(finding.Summary))
+                    return $"reviewHandoff finding[{id}] 的 summary 不能为空。";
+                if (!ReviewFindingCategories.SupportedCategories.Split('、')
+                        .Contains(finding.Category, StringComparer.Ordinal))
+                    return $"reviewHandoff finding[{id}] 的 category 不合法：{finding.Category}。合法值："
+                        + ReviewFindingCategories.SupportedCategories + "。";
+                if (!ReviewFindingRepairability.SupportedValues.Split('、')
+                        .Contains(finding.Repairability, StringComparer.Ordinal))
+                    return $"reviewHandoff finding[{id}] 的 repairability 不合法：{finding.Repairability}。合法值："
+                        + ReviewFindingRepairability.SupportedValues + "。";
+                if (string.IsNullOrWhiteSpace(finding.Evidence))
+                    return $"reviewHandoff finding[{id}] 的 evidence 不能为空。";
+                if (string.IsNullOrWhiteSpace(finding.MinimalChange))
+                    return $"reviewHandoff finding[{id}] 的 minimalChange 不能为空。";
+                if ((finding.TargetIds?.Count ?? 0) == 0
+                    || finding.TargetIds.Any(string.IsNullOrWhiteSpace))
+                    return $"reviewHandoff finding[{id}] 的 targetIds 必须至少一项且不能含空值。";
+                if ((finding.EvidenceFactRefs?.Count ?? 0) == 0
                     || finding.EvidenceFactRefs.Any(string.IsNullOrWhiteSpace))
-                    return $"reviewHandoff finding[{id}] 缺少问题、目标、证据或最小改动。";
+                    return $"reviewHandoff finding[{id}] 的 evidenceFactRefs 必须至少一项且不能含空值。";
                 string unknownFact = finding.EvidenceFactRefs.FirstOrDefault(reference =>
                     !verifiedFactRefs.Contains(reference));
                 if (unknownFact != null)
-                    return $"reviewHandoff finding[{id}] 引用了不存在的宿主机械事实：{unknownFact}。";
+                    return $"reviewHandoff finding[{id}] 引用了不存在的宿主机械事实：{unknownFact}。"
+                        + BuildAvailableFactRefHint(handoff.VerifiedFacts, unknownFact);
                 var referencedSubjects = new HashSet<string>(finding.EvidenceFactRefs.Select(reference =>
                     reference.Substring(0, reference.LastIndexOf("::", StringComparison.Ordinal))),
                     StringComparer.Ordinal);
@@ -226,6 +244,33 @@ namespace Automation
             return null;
         }
 
+        /// <summary>
+        /// 引用不存在的事实键时，在错误消息中附上当前可用键候选（优先同一主体），
+        /// 让模型一轮修正而不是再调工具盲试。
+        /// </summary>
+        private static string BuildAvailableFactRefHint(
+            List<ReviewVerifiedFactDefinition> verifiedFacts,
+            string unknownReference)
+        {
+            if (verifiedFacts == null || verifiedFacts.Count == 0) return string.Empty;
+            string subjectId = unknownReference?.Contains("::") == true
+                ? unknownReference.Substring(0, unknownReference.IndexOf("::", StringComparison.Ordinal))
+                : string.Empty;
+            List<string> candidates = verifiedFacts
+                .Select(fact => ReviewFactReference.Build(fact?.SubjectId, fact?.Key))
+                .Where(reference => !string.IsNullOrWhiteSpace(reference))
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(reference =>
+                    subjectId.Length > 0 && reference.StartsWith(subjectId + "::", StringComparison.Ordinal))
+                .ThenBy(reference => reference, StringComparer.Ordinal)
+                .Take(20)
+                .ToList();
+            if (candidates.Count == 0) return string.Empty;
+            return " 当前可用的事实键（已按该主体优先，最多20条）："
+                + string.Join("；", candidates)
+                + "。只能引用以上键。";
+        }
+
         private static string ValidateProcessEditBasis(
             TaskCapabilityDecisionDefinition decision,
             string capability,
@@ -257,7 +302,16 @@ namespace Automation
                 StringComparer.Ordinal);
             string unknown = requested.FirstOrDefault(id => !available.Contains(id));
             if (unknown != null)
-                return $"findingIds 引用了不存在的可信 finding：{unknown}。";
+            {
+                List<string> availableIds = (handoff.Findings ?? new List<ReviewFindingDefinition>())
+                    .Select(item => item.Id)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .ToList();
+                return $"findingIds 引用了不存在的可信 finding：{unknown}。"
+                    + (availableIds.Count == 0
+                        ? "当前评审交接没有任何可信 finding。"
+                        : "可引用的 finding id：" + string.Join("；", availableIds) + "。");
+            }
             ReviewFindingDefinition unresolved = (handoff.Findings ?? new List<ReviewFindingDefinition>())
                 .FirstOrDefault(item => requested.Contains(item.Id, StringComparer.Ordinal)
                     && !string.Equals(

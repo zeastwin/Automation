@@ -78,6 +78,12 @@ namespace Automation
         public static readonly Color StoppingSoft = Color.FromArgb(253, 242, 248);
         public static readonly Color Breakpoint = Color.FromArgb(219, 39, 119);
         public static readonly Color BreakpointSoft = Color.FromArgb(253, 242, 248);
+
+        // AI 改动闪烁提示专用：中等饱和色，在浅色行背景（Surface/Background）上肉眼可辨；
+        // Soft 系列与背景色差过小，只用于徽标底色，不用于闪烁动效。
+        public static readonly Color FlashSuccess = Color.FromArgb(187, 247, 208);
+        public static readonly Color FlashWarning = Color.FromArgb(254, 240, 138);
+        public static readonly Color FlashDanger = Color.FromArgb(254, 202, 202);
         public static readonly Color Disabled = Color.FromArgb(148, 163, 184);
         public static readonly Color DisabledSoft = Color.FromArgb(241, 245, 249);
 

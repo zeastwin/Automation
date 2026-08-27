@@ -66,6 +66,12 @@ namespace Automation.Core.Tests
             StringAssert.Contains(automation, "尚未绑定具体 IO 的阶段不必预声明极性假设");
             StringAssert.Contains(automation, "整机流程族");
             StringAssert.Contains(automation, "用户只要其中一类时不自动补建其他类");
+            StringAssert.Contains(automation, "先取 `get_process_design_guide` 的 `composition` 主题");
+            StringAssert.Contains(automation, "按索引中的 patternId 钻取目标框架");
+            StringAssert.Contains(automation, "单个功能块任务选对应主题，不取 composition");
+            StringAssert.Contains(automation, "优先用调用自定义函数指令表达");
+            StringAssert.Contains(automation, "安全检查、IO/设备反馈等待、运动取放和超时恢复保留在流程图");
+            StringAssert.Contains(automation, "read_image 只用于真实的 png/jpeg/gif/webp 图片");
 
             string review = ReadEmbedded(
                 "Automation.Assets.Goose.Skills.automation-process-review.SKILL.md");

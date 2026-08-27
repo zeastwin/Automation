@@ -60,7 +60,7 @@ namespace Automation.Protocol
         [Description("直接支持结论的当前配置、引用、Readiness 或运行证据。当前机械结构与用户明确业务要求不一致时，同时说明要求与结构差异；占位message只能证明未决说明，不能证明其中描述的控制策略已经实现。")]
         public string Evidence { get; set; }
 
-        [Description("至少一项宿主机械事实引用，格式为subjectId::key。稳定key包括proc.isValid/proc.runnable/proc.runBlockerCount、operation.reachable/operation.invalid/operation.placeholder/operation.plannedOutgoingCount/operation.plannedTarget.<field>/operation.graphDiagnostic.<code>/operation.incomingGotoCount、variable.usageCount等。只能引用本阶段成功工具结果中由宿主附加的verifiedFacts。")]
+        [Description("至少一项宿主机械事实引用，格式为subjectId::key。稳定key包括proc.isValid/proc.runnable/proc.runBlockerCount、operation.reachable/operation.invalid/operation.placeholder、operation.outgoingTarget.<field>（get_flow_graph已配置跳转边的目标）、operation.field.<field>（get_op_details字段值）、operation.plannedTarget.<field>（仅预演计划边）、operation.graphDiagnostic.<code>/operation.incomingGotoCount、variable.usageCount等。只能引用本阶段成功工具结果中由宿主附加的verifiedFacts；被驳回时按错误消息列出的可用键修正。")]
         public List<string> EvidenceFactRefs { get; set; }
 
         [Description("只修复该 finding 所需的最小改动边界。")]
@@ -129,10 +129,10 @@ namespace Automation.Protocol
         [Description("仅RuntimeControl、PlatformConfiguration、SourceDevelopment需要；必须逐字来自当前用户消息，历史消息不能授权。ProcessCreate、ProcessEdit和ResourceEdit由预演确认授权，不填写本字段。")]
         public string AuthorizationQuote { get; set; }
 
-        [Description("申请 ProcessEdit 时必填：direct_user_change 表示当前用户明确指定修改，也用于继续补齐本次已提交的流程骨架；proven_review_finding 表示只落实已证明的评审 finding。")]
+        [Description("仅申请 ProcessEdit 时填写：direct_user_change 表示当前用户明确指定修改，也用于继续补齐本次已提交的流程骨架；proven_review_finding 表示只落实已证明的评审 finding。申请其他能力（含 ProcessCreate）时必须留空。")]
         public string Basis { get; set; }
 
-        [Description("basis=proven_review_finding 时必填，必须逐项引用最近可信 reviewHandoff 中的 finding id。")]
+        [Description("仅 basis=proven_review_finding 时必填，必须逐项引用最近可信 reviewHandoff 中的 finding id。申请其他能力或 basis=direct_user_change 时不得携带。")]
         public List<string> FindingIds { get; set; }
 
     }

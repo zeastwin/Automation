@@ -151,6 +151,18 @@ ProcessKnowledge/
 - `## 失败、超时与恢复`
 - `## 幂等与甄别结论`
 
+设备框架块（`device-frame.*`，topics 固定 `composition`）使用独立结构，回答"针对某种设备怎么搭流程框架"：
+
+- `## 设备画像`
+- `## 功能单元构成`（单元/职责/典型流程/引用功能块表）
+- `## 单元间衔接`
+- `## 框架变化点`
+- `## 搭建顺序`
+- `## 完成证据`
+- `## 幂等与甄别结论`
+
+设备框架只针对单台设备，多机台产线编排不收录；新机型先核对已有框架的变化点，确实表达不了才新增 `device-frame` 条目。同一机型的差异优先写进"框架变化点"，不建机型副本。
+
 正文只写可用规范，不写审核状态、工作计划、旧项目参数或待办。`sourceRefs` 和内部来源摘要负责可信回查，但 `get_process_design_guide` 不向运行时 AI 返回它们。
 
 ### 6.3 不收录的处理
@@ -159,7 +171,7 @@ ProcessKnowledge/
 
 ## 7. 如何在 Automation 中生效
 
-`McpServer/ProcessKnowledgeCatalog.cs` 读取内嵌 `catalog.json` 和 `blocks/*.md`。`ProcessDesignGuideCatalog.Get(topics)` 按主题筛选后，把可用规范放入 `get_process_design_guide` 返回的 `knowledgeBlocks`。
+`McpServer/ProcessKnowledgeCatalog.cs` 读取内嵌 `catalog.json` 和 `blocks/*.md`。`ProcessDesignGuideCatalog.Get(topics, detail, patternIds)` 按主题筛选后，把可用规范放入 `get_process_design_guide` 返回的 `knowledgeBlocks`；compact 投影携带功能块标准小节和设备框架的功能单元表等小节，`patternIds` 支持按块钻取，库变大时不放大单次返回。
 
 新增普通规范时不需要新增 MCP 工具，也不需要修改 Prompt 或 Skill。通常委托只修改 `catalog.json`、对应 Markdown 和来源摘要；项目文件使用通配符嵌入规范正文。
 

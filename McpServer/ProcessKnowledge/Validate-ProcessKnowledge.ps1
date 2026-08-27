@@ -24,6 +24,16 @@ $requiredHeadings = @(
     '## 失败、超时与恢复',
     '## 幂等与甄别结论'
 )
+# 设备框架块使用独立结构（回答"针对某种设备怎么搭流程框架"），topics 固定 composition。
+$requiredFrameHeadings = @(
+    '## 设备画像',
+    '## 功能单元构成',
+    '## 单元间衔接',
+    '## 框架变化点',
+    '## 搭建顺序',
+    '## 完成证据',
+    '## 幂等与甄别结论'
+)
 $forbiddenTerms = @(
     'candidate',
     'needs-review',
@@ -48,7 +58,12 @@ foreach ($block in @($catalog.blocks)) {
         throw "规范文件不存在：$contentPath"
     }
     $content = Get-Content -LiteralPath $contentPath -Raw
-    foreach ($heading in $requiredHeadings) {
+    $headings = if ([string]$block.patternId -like 'device-frame.*') {
+        $requiredFrameHeadings
+    } else {
+        $requiredHeadings
+    }
+    foreach ($heading in $headings) {
         if (-not $content.Contains($heading, [System.StringComparison]::Ordinal)) {
             throw "规范缺少必要章节 $heading：$($block.patternId)"
         }

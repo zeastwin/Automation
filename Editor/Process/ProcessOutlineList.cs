@@ -315,61 +315,65 @@ namespace Automation
         }
 
         /// <summary>
-        /// AI 改动提交后闪烁流程/步骤节点：流程节点始终闪烁；
-        /// 有可定位的步骤目标且流程未展开时先展开，再闪烁步骤节点并滚动到首个目标。
-        /// 不改变用户当前选中。
+        /// AI 改动提交后闪烁流程/步骤节点：所有被改流程的节点合并为一次闪烁会话；
+        /// 流程节点始终闪烁，有可定位的步骤目标且流程未展开时先展开；
+        /// 滚动到第一个步骤目标（无步骤目标时滚动到第一个流程节点）。不改变用户当前选中。
         /// </summary>
-        public void FlashIdentities(
-            Guid procId,
-            ProcChangeKind procKind,
-            IReadOnlyList<(Guid stepId, ProcChangeKind kind)> stepChanges)
+        public void FlashChanges(IReadOnlyList<ProcessChangeNotice> notices)
         {
-            if (IsDisposed)
-            {
-                return;
-            }
-            if (procId == Guid.Empty || !processItems.ContainsKey(procId))
+            if (IsDisposed || notices == null || notices.Count == 0)
             {
                 return;
             }
             StopFlash();
 
-            bool hasStepTargets = false;
-            foreach ((Guid stepId, ProcChangeKind _) in stepChanges ?? Array.Empty<(Guid, ProcChangeKind)>())
+            ProcessOutlineItem scrollTarget = null;
+            bool scrollTargetIsStep = false;
+            foreach (ProcessChangeNotice notice in notices)
             {
-                if (stepId != Guid.Empty
-                    && stepItems.ContainsKey(new ProcessOutlineStepIdentity(procId, stepId)))
-                {
-                    hasStepTargets = true;
-                    break;
-                }
-            }
-            if (hasStepTargets && !expandedProcIds.Contains(procId))
-            {
-                ExpandProcess(procId);
-                UpdateScrollExtent();
-                Invalidate();
-            }
-
-            flashTargets[new ProcessOutlineStepIdentity(procId, Guid.Empty)] = ChangeFlashColor(procKind);
-            ProcessOutlineItem scrollTarget = processItems[procId];
-            foreach ((Guid stepId, ProcChangeKind kind) in stepChanges ?? Array.Empty<(Guid, ProcChangeKind)>())
-            {
-                if (stepId == Guid.Empty)
+                if (notice.ProcId == Guid.Empty
+                    || !processItems.TryGetValue(notice.ProcId, out ProcessOutlineItem process))
                 {
                     continue;
                 }
-                var identity = new ProcessOutlineStepIdentity(procId, stepId);
-                if (!stepItems.TryGetValue(identity, out ProcessOutlineItem step))
+                var resolvedSteps = new List<(ProcessOutlineItem item, ProcChangeKind kind)>();
+                foreach (ProcessStepChangeNotice step in notice.Steps)
                 {
-                    continue;
+                    if (step.StepId != Guid.Empty
+                        && stepItems.TryGetValue(
+                            new ProcessOutlineStepIdentity(notice.ProcId, step.StepId),
+                            out ProcessOutlineItem stepItem))
+                    {
+                        resolvedSteps.Add((stepItem, step.Kind));
+                    }
                 }
-                flashTargets[identity] = ChangeFlashColor(kind);
-                if (ReferenceEquals(scrollTarget, processItems[procId]))
+                if (resolvedSteps.Count > 0 && !expandedProcIds.Contains(notice.ProcId))
                 {
-                    // 优先滚动到第一个步骤目标，让用户直接看到改动的步骤。
-                    scrollTarget = step;
+                    ExpandProcess(notice.ProcId);
+                    UpdateScrollExtent();
+                    Invalidate();
                 }
+                flashTargets[new ProcessOutlineStepIdentity(notice.ProcId, Guid.Empty)] =
+                    ChangeFlashColor(notice.Kind);
+                if (scrollTarget == null)
+                {
+                    scrollTarget = process;
+                }
+                foreach ((ProcessOutlineItem item, ProcChangeKind kind) in resolvedSteps)
+                {
+                    flashTargets[new ProcessOutlineStepIdentity(item.ProcId, item.StepId)] =
+                        ChangeFlashColor(kind);
+                    if (!scrollTargetIsStep)
+                    {
+                        // 优先滚动到第一个步骤目标，让用户直接看到改动的步骤。
+                        scrollTarget = item;
+                        scrollTargetIsStep = true;
+                    }
+                }
+            }
+            if (flashTargets.Count == 0)
+            {
+                return;
             }
             if (scrollTarget != null)
             {
@@ -380,7 +384,7 @@ namespace Automation
             flashCount = 1;
             InvalidateFlashTargets();
             flashTimer = new System.Windows.Forms.Timer();
-            flashTimer.Interval = 300;
+            flashTimer.Interval = 500;
             flashTimer.Tick += FlashTimer_Tick;
             flashTimer.Start();
         }
@@ -444,9 +448,9 @@ namespace Automation
 
         private static Color ChangeFlashColor(ProcChangeKind kind)
         {
-            return kind == ProcChangeKind.Added ? UiPalette.SuccessSoft
-                : kind == ProcChangeKind.Deleted ? UiPalette.DangerSoft
-                : UiPalette.WarningSoft;
+            return kind == ProcChangeKind.Added ? UiPalette.FlashSuccess
+                : kind == ProcChangeKind.Deleted ? UiPalette.FlashDanger
+                : UiPalette.FlashWarning;
         }
 
         public bool TryGetProcess(Guid procId, out ProcessOutlineItem item)

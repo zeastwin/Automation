@@ -172,44 +172,81 @@ namespace Automation
 
         private void NotifyOnUiThread(IReadOnlyList<ProcessChangeNotice> notices)
         {
-            if (owner.IsDisposed)
+            // 经 BeginInvoke 派发后异常不会再回到调用方 try/catch，这里必须自兜底，
+            // 保证闪烁动效失败不影响配置提交结果。
+            try
             {
-                return;
-            }
-            owner.RefreshProcessFlowGraph();
-            if (owner.frmProc == null || owner.frmProc.IsDisposed)
-            {
-                return;
-            }
-            // 流程树始终闪烁被改流程/步骤节点（未展开时先展开），提示改动位置。
-            owner.frmProc.NotifyAiProcessChanged(notices);
-            if (owner.frmDataGrid == null || owner.frmDataGrid.IsDisposed)
-            {
-                return;
-            }
-            ProcessChangeNotice current = notices.FirstOrDefault(item =>
-                item.ProcIndex == owner.frmProc.SelectedProcNum);
-            if (current == null)
-            {
-                return;
-            }
-            owner.frmProc.RefreshCurrentBinding();
-            var affectedOps = new List<(int stepIndex, int opIndex, ProcChangeKind kind)>();
-            foreach (ProcessStepChangeNotice step in current.Steps)
-            {
-                foreach (ProcessOperationChangeNotice operation in step.Operations)
+                if (owner.IsDisposed)
                 {
-                    affectedOps.Add((step.StepIndex, operation.OpIndex, operation.Kind));
+                    return;
+                }
+                owner.RefreshProcessFlowGraph();
+                if (owner.frmProc == null || owner.frmProc.IsDisposed)
+                {
+                    return;
+                }
+                // 指令级改动（既有步骤内的新增/修改指令）只闪烁指令行，不闪流程树，避免分散注意力；
+                // 涉及流程/步骤增删或步骤本身改动时才闪烁树节点定位改动位置。
+                bool operationOnlyChange = notices.All(notice =>
+                    notice.Kind == ProcChangeKind.Modified
+                    && notice.Steps.All(step => step.Kind == ProcChangeKind.Modified));
+                if (!operationOnlyChange)
+                {
+                    owner.frmProc.NotifyAiProcessChanged(notices);
+                }
+                if (owner.frmDataGrid == null || owner.frmDataGrid.IsDisposed)
+                {
+                    return;
+                }
+                // 指令表优先跟随用户正在浏览的被改流程；否则定位到第一个被改流程。
+                // 目标是让用户直接看到 AI 改了哪里，因此总是切换到改动步骤并闪烁对应指令行。
+                int selectedProc = owner.frmProc.SelectedProcNum;
+                ProcessChangeNotice current = notices.FirstOrDefault(item =>
+                    item.ProcIndex == selectedProc)
+                    ?? notices.FirstOrDefault();
+                if (current == null)
+                {
+                    return;
+                }
+                // 新增/修改的步骤或指令不在当前显示的步骤内时，自动切换选中到改动步骤，
+                // 让指令表立即显示该步骤并闪烁其中被改动的指令行。
+                ProcessStepChangeNotice targetStep = current.Steps
+                    .FirstOrDefault(step => step.Operations.Count > 0)
+                    ?? current.Steps.FirstOrDefault();
+                bool located = false;
+                if (targetStep != null
+                    && (selectedProc != current.ProcIndex
+                        || owner.frmProc.SelectedStepNum != targetStep.StepIndex))
+                {
+                    located = owner.frmProc.TrySelectProcessStep(
+                        current.ProcIndex,
+                        targetStep.StepIndex);
+                }
+                if (!located)
+                {
+                    owner.frmProc.RefreshCurrentBinding();
+                }
+                var affectedOps = new List<(int stepIndex, int opIndex, ProcChangeKind kind)>();
+                foreach (ProcessStepChangeNotice step in current.Steps)
+                {
+                    foreach (ProcessOperationChangeNotice operation in step.Operations)
+                    {
+                        affectedOps.Add((step.StepIndex, operation.OpIndex, operation.Kind));
+                    }
+                }
+                if (affectedOps.Count > 0)
+                {
+                    owner.frmDataGrid.FlashRows(affectedOps);
+                }
+                else if (current.Steps.Count > 0)
+                {
+                    // 当前流程被改但改动无法落到指令行（如步骤更名）时闪烁整个网格。
+                    owner.frmDataGrid.FlashGrid(current.Kind);
                 }
             }
-            if (affectedOps.Count > 0)
+            catch
             {
-                owner.frmDataGrid.FlashRows(affectedOps);
-            }
-            else if (current.Steps.Count > 0)
-            {
-                // 当前流程被改但改动无法落到指令行（如步骤更名）时闪烁整个网格。
-                owner.frmDataGrid.FlashGrid(current.Kind);
+                // 编辑器动效失败不改变配置提交结果。
             }
         }
 

@@ -1686,18 +1686,8 @@ namespace Automation
                 }
                 return;
             }
-            foreach (ProcessChangeNotice notice in notices)
-            {
-                var stepChanges = new List<(Guid stepId, ProcChangeKind kind)>();
-                foreach (ProcessStepChangeNotice step in notice.Steps)
-                {
-                    stepChanges.Add((step.StepId, step.Kind));
-                }
-                processOutline.FlashIdentities(
-                    notice.ProcId,
-                    notice.Kind,
-                    stepChanges);
-            }
+            // 所有被改流程合并为一次闪烁会话；未展开的流程先展开再闪烁，并滚动到首个改动步骤。
+            processOutline.FlashChanges(notices);
         }
 
         internal bool TrySelectProcessStep(int procIndex, int stepIndex)

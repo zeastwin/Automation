@@ -512,6 +512,8 @@ namespace Automation.Core.Tests
                 handoff, AutomationToolProfiles.ProcessReview);
 
             StringAssert.Contains(error, "不存在的宿主机械事实");
+            StringAssert.Contains(error, "当前可用的事实键");
+            StringAssert.Contains(error, "op-2::operation.reachable");
         }
 
         [TestMethod]

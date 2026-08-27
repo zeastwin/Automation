@@ -106,6 +106,75 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void DeviceProjectFile_IsTrackedAndRestoredWithRestartTier()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                string projectPath = Path.Combine(directory.FullPath, "MachineApp.csproj");
+                const string originalProject =
+                    "<Project>\r\n  <ItemGroup />\r\n</Project>\r\n";
+                File.WriteAllText(projectPath, originalProject, new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot(
+                        "原始版本",
+                        "测试",
+                        out string snapshotError),
+                    snapshotError);
+                ConfigurationVersionRecord target = runtime.VersionService
+                    .GetHistory(out _, out string historyError)
+                    .Single();
+                Assert.IsTrue(string.IsNullOrEmpty(historyError), historyError);
+
+                // 模拟源码开发在工程文件中注册新 HMI 源文件。
+                const string modifiedProject =
+                    "<Project>\r\n  <ItemGroup><Compile Include=\"Hmi\\NewPage.cs\" /></ItemGroup>\r\n</Project>\r\n";
+                File.WriteAllText(projectPath, modifiedProject, new UTF8Encoding(false));
+
+                bool applyInvoked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    target.CommitId,
+                    () => true,
+                    () => runtime.Readiness.VersionRestartRequired = true,
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return false;
+                    });
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsTrue(result.RestartRequired);
+                Assert.IsFalse(
+                    applyInvoked,
+                    "工程文件变更属于重启档，不得尝试免重启生效。");
+
+                // 快照以规范化文本落盘，还原后行尾统一为 \n。
+                Assert.AreEqual(
+                    originalProject.Replace("\r\n", "\n"),
+                    File.ReadAllText(projectPath, Encoding.UTF8));
+
+                ConfigurationVersionRecord[] history = runtime.VersionService
+                    .GetHistory(out bool dirty, out historyError)
+                    .ToArray();
+                Assert.IsTrue(string.IsNullOrEmpty(historyError), historyError);
+                Assert.IsFalse(dirty);
+                ConfigurationVersionDiffEntry[] protectionDiff = runtime.VersionService
+                    .GetStructuredDiff(
+                        history.Single(item => item.SnapshotType == "还原前保护点").CommitId,
+                        true,
+                        out string diffError)
+                    .ToArray();
+                Assert.IsTrue(string.IsNullOrEmpty(diffError), diffError);
+                Assert.IsTrue(
+                    protectionDiff.Any(item =>
+                        item.Category == "HMI 代码"
+                        && string.Equals(item.Target, "Project" + Path.DirectorySeparatorChar + "MachineApp.csproj", StringComparison.OrdinalIgnoreCase)),
+                    "还原前保护点差异应包含设备工程文件变更。");
+            }
+        }
+
+        [TestMethod]
         public void Restore_WhenOnlyEditStateFilesChanged_AppliesInPlaceWithoutRestart()
         {
             using (var directory = new TemporaryDirectory())

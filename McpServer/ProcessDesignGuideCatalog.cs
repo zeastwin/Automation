@@ -32,7 +32,7 @@ namespace Automation.McpServer
             "review"
         };
 
-        public static string Get(string[] topics, string? detail = null)
+        public static string Get(string[] topics, string? detail = null, string[]? patternIds = null)
         {
             string[] normalized = (topics ?? Array.Empty<string>())
                 .Select(value => (value ?? string.Empty).Trim().ToLowerInvariant())
@@ -74,6 +74,26 @@ namespace Automation.McpServer
                 return Error(
                     "PROCESS_DESIGN_TOPIC_INVALID",
                     "topics 包含不支持的主题：" + string.Join("、", invalid) + "。");
+            }
+
+            // patternIds 按需钻取：知识库变大后先 compact 取索引，再按 patternId 精确收窄目标块。
+            string[]? normalizedPatternIds = patternIds?
+                .Select(value => (value ?? string.Empty).Trim())
+                .Where(value => value.Length > 0)
+                .ToArray();
+            if (normalizedPatternIds != null)
+            {
+                string[] patternDuplicates = normalizedPatternIds
+                    .GroupBy(value => value, StringComparer.Ordinal)
+                    .Where(group => group.Count() > 1)
+                    .Select(group => group.Key)
+                    .ToArray();
+                if (patternDuplicates.Length > 0)
+                {
+                    return Error(
+                        "PROCESS_KNOWLEDGE_PATTERN_DUPLICATED",
+                        "patternIds 包含重复知识块：" + string.Join("、", patternDuplicates) + "。");
+                }
             }
 
             string source;
@@ -119,13 +139,36 @@ namespace Automation.McpServer
             ProcessKnowledgeSelection knowledge;
             try
             {
-                knowledge = ProcessKnowledgeCatalog.Get(normalized);
+                // 钻取时跨全目录匹配 patternId（所有条目在启动期已通过校验）。
+                knowledge = ProcessKnowledgeCatalog.Get(
+                    normalizedPatternIds == null ? normalized : SupportedTopics);
             }
             catch (InvalidDataException ex)
             {
                 return Error(
                     "PROCESS_KNOWLEDGE_INVALID",
                     ex.Message);
+            }
+            if (normalizedPatternIds != null)
+            {
+                string[] unknownPatterns = normalizedPatternIds
+                    .Where(id => knowledge.Blocks.All(
+                        block => !string.Equals(block.PatternId, id, StringComparison.Ordinal)))
+                    .ToArray();
+                if (unknownPatterns.Length > 0)
+                {
+                    return Error(
+                        "PROCESS_KNOWLEDGE_PATTERN_INVALID",
+                        "patternIds 包含未知知识块：" + string.Join("、", unknownPatterns)
+                        + "。请使用 compact 响应中返回的 patternId。");
+                }
+                knowledge = new ProcessKnowledgeSelection(
+                    knowledge.CatalogSha256,
+                    knowledge.Blocks
+                        .Where(block => normalizedPatternIds.Contains(
+                            block.PatternId,
+                            StringComparer.Ordinal))
+                        .ToList());
             }
 
             string sourceSha256 = Convert.ToHexString(
@@ -153,20 +196,9 @@ namespace Automation.McpServer
                     markdown = block.Markdown,
                     contentSha256 = block.ContentSha256
                 })
-                : knowledge.Blocks.Select(block => (object)new
-                {
-                    patternId = block.PatternId,
-                    title = block.Title,
-                    summary = block.Summary,
-                    observableGoal = ExtractKnowledgeSection(block.Markdown, "可观察目标"),
-                    applicableBoundary = ExtractKnowledgeSection(block.Markdown, "适用边界"),
-                    prerequisiteFacts = ExtractKnowledgeSection(block.Markdown, "当前事实与适配"),
-                    recommendedStages = ExtractKnowledgeSection(block.Markdown, "参考阶段"),
-                    completionEvidence = ExtractKnowledgeSection(block.Markdown, "完成证据"),
-                    failureAndRecovery = ExtractKnowledgeSection(block.Markdown, "失败、超时与恢复"),
-                    riskTags = block.RiskTags,
-                    contentSha256 = block.ContentSha256
-                });
+                : knowledge.Blocks.Select(block => (object)BuildCompactKnowledgeBlock(
+                    block,
+                    drilled: normalizedPatternIds != null));
             return JsonSerializer.Serialize(new
             {
                 ok = true,
@@ -201,6 +233,55 @@ namespace Automation.McpServer
                     referencePolicy = "只返回已完成甄别的可用规范；旧项目证据和审核中间结果不进入运行时上下文"
                 }
             });
+        }
+
+        private static object BuildCompactKnowledgeBlock(ProcessKnowledgeBlock block, bool drilled)
+        {
+            // compact 投影保留可信的充分信息。设备框架块未钻取时只返回简索引
+            // （patternId/标题/摘要/设备画像）：框架会持续增多，先选型再按 patternId
+            // 钻取完整功能单元表；功能块数量少，直接携带全部标准小节。
+            var projection = new Dictionary<string, object>
+            {
+                ["patternId"] = block.PatternId,
+                ["title"] = block.Title,
+                ["summary"] = block.Summary,
+                ["capabilities"] = block.Capabilities,
+                ["deviceTypes"] = block.DeviceTypes,
+                ["riskTags"] = block.RiskTags,
+                ["contentSha256"] = block.ContentSha256
+            };
+            bool frameIndex = !drilled
+                && block.PatternId.StartsWith("device-frame.", StringComparison.Ordinal);
+            AddKnowledgeSection(projection, block, "deviceProfile", "设备画像");
+            if (frameIndex)
+            {
+                return projection;
+            }
+            AddKnowledgeSection(projection, block, "observableGoal", "可观察目标");
+            AddKnowledgeSection(projection, block, "applicableBoundary", "适用边界");
+            AddKnowledgeSection(projection, block, "prerequisiteFacts", "当前事实与适配");
+            AddKnowledgeSection(projection, block, "recommendedStages", "参考阶段");
+            AddKnowledgeSection(projection, block, "completionEvidence", "完成证据");
+            AddKnowledgeSection(projection, block, "failureAndRecovery", "失败、超时与恢复");
+            AddKnowledgeSection(projection, block, "functionalUnits", "功能单元构成");
+            AddKnowledgeSection(projection, block, "unitSeams", "单元间衔接");
+            AddKnowledgeSection(projection, block, "variationPoints", "框架变化点");
+            AddKnowledgeSection(projection, block, "buildOrder", "搭建顺序");
+            AddKnowledgeSection(projection, block, "curationNotes", "幂等与甄别结论");
+            return projection;
+        }
+
+        private static void AddKnowledgeSection(
+            Dictionary<string, object> projection,
+            ProcessKnowledgeBlock block,
+            string fieldName,
+            string heading)
+        {
+            string value = ExtractKnowledgeSection(block.Markdown, heading);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                projection[fieldName] = value;
+            }
         }
 
         private static object? BuildFunctionalBlock(string topic)

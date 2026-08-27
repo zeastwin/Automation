@@ -9,6 +9,7 @@ using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Automation.Bridge
 {
@@ -77,14 +78,31 @@ namespace Automation.Bridge
 
         /// <summary>
         /// 流程被 AI 改动提交后，按流程/步骤/指令的精确定位通知编辑器：
-        /// 流程树始终闪烁被改流程/步骤节点（未展开时先展开并滚动到位），
-        /// 指令表仅在用户当前浏览的流程命中时闪烁对应指令行。
+        /// 流程树始终闪烁被改流程/步骤节点（未展开时先展开并滚动到位）；
+        /// 指令表跟随用户正在浏览的流程，自动定位到改动步骤并闪烁对应指令行
+        /// （未选中任何流程时定位到第一个被改流程）。
         /// 颜色由 kind 决定：Modified=橙黄、Added=浅绿、Deleted=浅红。
         /// </summary>
         private void NotifyProcessChanges(IReadOnlyList<ProcessChangeNotice> notices)
         {
             if (notices == null || notices.Count == 0)
             {
+                // 提交成功但未检出流程级变更（如纯变量修改）；记录日志便于区分“无变更”与“通知失败”。
+                try
+                {
+                    StructuredAuditLogger.Write("Bridge", new JObject
+                    {
+                        ["source"] = "bridge",
+                        ["eventName"] = "editor.change.skipped",
+                        ["payload"] = new JObject
+                        {
+                            ["reason"] = "no_process_change_detected"
+                        }
+                    });
+                }
+                catch
+                {
+                }
                 return;
             }
             foreach (ProcessChangeNotice notice in notices)
@@ -92,6 +110,30 @@ namespace Automation.Bridge
                 diagnosticIndexes.Remove(notice.ProcIndex);
             }
             runtime.EditorUi?.NotifyProcessChanged(notices);
+            // 结构化记录通知内容，便于现场核对闪烁链路是否执行、定位是否准确。
+            try
+            {
+                StructuredAuditLogger.Write("Bridge", new JObject
+                {
+                    ["source"] = "bridge",
+                    ["eventName"] = "editor.change.notified",
+                    ["payload"] = new JObject
+                    {
+                        ["processCount"] = notices.Count,
+                        ["processes"] = new JArray(notices.Select(notice => new JObject
+                        {
+                            ["procIndex"] = notice.ProcIndex,
+                            ["name"] = notice.Name,
+                            ["kind"] = notice.Kind.ToString(),
+                            ["steps"] = notice.Steps.Count,
+                            ["operations"] = notice.Steps.Sum(step => step.Operations.Count)
+                        }))
+                    }
+                });
+            }
+            catch
+            {
+            }
         }
 
         [System.Diagnostics.DebuggerNonUserCode]

@@ -60,7 +60,7 @@ namespace Automation
     }
 
     /// <summary>
-    /// 运行时项目配置的私有 Git 版本服务。流程、设备、运行值和 HMI 源码共享一条历史主链。
+    /// 运行时项目配置的私有 Git 版本服务。流程、设备、运行值、HMI 源码与设备项目工程文件共享一条历史主链。
     /// </summary>
     public sealed class ConfigurationVersionService
     {
@@ -92,6 +92,7 @@ namespace Automation
             }, StringComparer.OrdinalIgnoreCase);
         private readonly string configPath;
         private readonly string hmiSourceRoot;
+        private readonly string hmiProjectPath;
         private readonly string hmiSourceError;
         private readonly PlatformRuntime runtime;
         private readonly object syncRoot = new object();
@@ -115,11 +116,21 @@ namespace Automation
                 out string sourceError))
             {
                 hmiSourceRoot = hmiSource.SourceDirectory;
+                // 设备项目（DeviceProject/MachineApp）的工程文件承载 HMI 源文件注册，
+                // 必须随快照还原；平台开发包（Automation.csproj）与发布布局不纳入。
+                hmiProjectPath = string.Equals(
+                        hmiSource.ProjectKind,
+                        HmiDevelopmentSourceLocator.DeviceProjectKind,
+                        StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(hmiSource.ProjectPath)
+                    ? Path.GetFullPath(hmiSource.ProjectPath)
+                    : null;
                 hmiSourceError = null;
             }
             else
             {
                 hmiSourceRoot = null;
+                hmiProjectPath = null;
                 hmiSourceError = sourceError;
             }
             RecoverInterruptedVersionOperations();
@@ -1296,7 +1307,7 @@ namespace Automation
                 }
                 string target = Path.Combine(snapshotRoot, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                if (IsHmiRelativePath(relativePath))
+                if (IsHmiRelativePath(relativePath) || IsProjectRelativePath(relativePath))
                 {
                     File.WriteAllText(
                         target,
@@ -1386,7 +1397,7 @@ namespace Automation
             {
                 return false;
             }
-            if (IsHmiRelativePath(path))
+            if (IsHmiRelativePath(path) || IsProjectRelativePath(path))
             {
                 return string.Equals(
                     NormalizeSourceText(beforeText),
@@ -1692,7 +1703,7 @@ namespace Automation
             }
 
             foreach (string path in beforeFiles.Keys.Union(afterFiles.Keys, StringComparer.OrdinalIgnoreCase)
-                .Where(IsHmiRelativePath)
+                .Where(item => IsHmiRelativePath(item) || IsProjectRelativePath(item))
                 .OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
             {
                 beforeFiles.TryGetValue(path, out string beforeText);
@@ -2301,6 +2312,12 @@ namespace Automation
                 StringComparer.OrdinalIgnoreCase);
             foreach (string relativePath in existing)
             {
+                if (IsProjectRelativePath(relativePath))
+                {
+                    // 工程文件是编译入口：旧版本快照可能尚未收录该文件，
+                    // 快照缺失时保留当前文件等待覆盖，不得按“删除语义”移除。
+                    continue;
+                }
                 string path = GetManagedFilePath(relativePath);
                 if (File.Exists(path))
                 {
@@ -2376,10 +2393,33 @@ namespace Automation
                 yield return "Hmi" + Path.DirectorySeparatorChar + GetRelativePath(hmiSourceRoot, path);
             }
 
+            if (!string.IsNullOrWhiteSpace(hmiProjectPath)
+                && File.Exists(hmiProjectPath))
+            {
+                yield return "Project" + Path.DirectorySeparatorChar + Path.GetFileName(hmiProjectPath);
+            }
         }
 
         private string GetManagedFilePath(string relativePath)
         {
+            if (IsProjectRelativePath(relativePath))
+            {
+                if (string.IsNullOrWhiteSpace(hmiProjectPath))
+                {
+                    throw new InvalidOperationException("未找到 HMI 工程文件，项目版本管理不能继续。");
+                }
+                string requestedName = relativePath.Substring(
+                    ("Project" + Path.DirectorySeparatorChar).Length);
+                if (requestedName.IndexOf(Path.DirectorySeparatorChar) >= 0
+                    || !string.Equals(
+                        requestedName,
+                        Path.GetFileName(hmiProjectPath),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("项目文件路径不匹配：" + relativePath);
+                }
+                return hmiProjectPath;
+            }
             if (IsHmiRelativePath(relativePath))
             {
                 EnsureHmiSourceRoot();
@@ -2405,7 +2445,9 @@ namespace Automation
         {
             return IsManagedRelativePath(relativePath)
                 || (IsHmiRelativePath(relativePath)
-                    && IsHmiSourceFile(relativePath));
+                    && IsHmiSourceFile(relativePath))
+                || (IsProjectRelativePath(relativePath)
+                    && IsProjectSourceFile(relativePath));
         }
 
         private static bool IsHmiRelativePath(string relativePath)
@@ -2413,6 +2455,30 @@ namespace Automation
             string normalized = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
                 .TrimStart(Path.DirectorySeparatorChar);
             return normalized.StartsWith("Hmi" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsProjectRelativePath(string relativePath)
+        {
+            string normalized = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar);
+            return normalized.StartsWith("Project" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsProjectSourceFile(string relativePath)
+        {
+            if (!IsProjectRelativePath(relativePath))
+            {
+                return false;
+            }
+            string normalized = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar);
+            string fileName = normalized.Substring(
+                ("Project" + Path.DirectorySeparatorChar).Length);
+            return fileName.IndexOf(Path.DirectorySeparatorChar) < 0
+                && string.Equals(
+                    Path.GetExtension(fileName),
+                    ".csproj",
+                    StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsHmiSourceFile(string path)
@@ -2465,7 +2531,8 @@ namespace Automation
                     StringComparison.OrdinalIgnoreCase)
                 || string.Equals(normalized, "value.json", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(normalized, "DataStruct.json", StringComparison.OrdinalIgnoreCase)
-                || IsHmiRelativePath(normalized);
+                || IsHmiRelativePath(normalized)
+                || IsProjectRelativePath(normalized);
         }
 
         private static string GetCategory(string path)
@@ -2474,7 +2541,7 @@ namespace Automation
             if (path.StartsWith("Work" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return "流程";
             if (string.Equals(file, "value.json", StringComparison.OrdinalIgnoreCase)) return "变量";
             if (string.Equals(file, "value_debug.json", StringComparison.OrdinalIgnoreCase)) return "变量调试值";
-            if (IsHmiRelativePath(path)) return "HMI 代码";
+            if (IsHmiRelativePath(path) || IsProjectRelativePath(path)) return "HMI 代码";
             if (string.Equals(file, "DataStruct.json", StringComparison.OrdinalIgnoreCase)) return "数据结构";
             if (string.Equals(file, "DataStation.json", StringComparison.OrdinalIgnoreCase)) return "工站点位";
             if (string.Equals(file, "IOMap.json", StringComparison.OrdinalIgnoreCase)

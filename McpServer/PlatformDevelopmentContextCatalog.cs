@@ -95,7 +95,9 @@ namespace Automation.McpServer
                             "修改前核对实际公开签名。",
                             "HMI 界面或设备自定义函数实际修改完成后执行 validation.command。",
                             "验证产生的候选程序集和中间文件会在成功或失败后自动清理。",
-                            "验证通过只证明当前 HMI 项目的候选代码可编译，不代表已经部署或验证运行行为。"
+                            "验证通过只证明当前 HMI 项目的候选代码可编译，不代表已经部署或验证运行行为。",
+                            "部署由用户重新构建并重启宿主完成：验证不产出新程序，重启本身不编译新源码；答复中不得暗示重启即可看到改动。",
+                            "涉及新增源码文件时，答复中列出完整的改动文件清单（新文件、项目文件注册、引用方修改）：源码改动是事务性的，用户按清单逐文件还原才不会留下编译残留。"
                         },
                         validation
                     };
@@ -131,7 +133,7 @@ namespace Automation.McpServer
                         entry = "自定义函数源码统一为当前宿主项目的 Hmi/CustomFunctions.cs；平台内部 Engine/CustomFunc.cs 只负责注册和执行。",
                         usage = "通过 IAutomationPlatform.RegisterCustomFunction 注册的方法名必须与流程中调用自定义函数指令的 Name 完全一致。",
                         discovery = "修改前读取 source、Automation.DeviceSdk 的公开契约和本次需要调用的实际签名，不预读无关模块。",
-                        deployment = "修改当前项目自定义函数后执行 validation.command。验证不会替换当前程序；只有本轮实际修改该 C# 源码时才提示重新生成并重启当前宿主（Automation 或 MachineApp）后生效，纯流程配置不需要编译或重启。",
+                        deployment = "修改当前项目自定义函数后执行 validation.command。验证不会替换当前程序；部署由用户重新构建并重启当前宿主（Automation 或 MachineApp）完成，重启本身不编译新源码。只有本轮实际修改该 C# 源码时才提示重新生成并重启后生效，纯流程配置不需要编译或重启。",
                         validation
                     };
                     break;

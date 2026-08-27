@@ -16,7 +16,7 @@ namespace Automation.McpServer
         [McpServerTool(Name = "request_capability"), Description(
             "申请切换到一个下一能力包。该工具不读取平台、不修改配置、不运行流程；完成当前工作或需要用户补充时不要调用，直接正常回复。不能自行扩展用户的副作用授权。")]
         public static string RequestCapability(
-            [Description("能力切换请求。action固定为run_stage并填写capability/objective；仅运行控制、平台配置和源码修改还必须在authorizationQuote逐字引用当前用户消息中的授权片段。第一条成功请求会被执行器锁定，调用后立即结束本轮")]
+            [Description("能力切换请求。action固定为run_stage并填写capability/objective；仅运行控制、平台配置和源码修改还必须在authorizationQuote逐字引用当前用户消息中的授权片段；basis/findingIds仅在申请ProcessEdit时填写，其他能力留空。第一条成功请求会被执行器锁定，调用后立即结束本轮")]
             TaskCapabilityDecisionDefinition decision)
         {
             if (decision == null) throw new ArgumentNullException(nameof(decision));
@@ -362,11 +362,11 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "preview_change_set"), Description(
-            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations。ProcessCreate首阶段创建一个autoStart=false的新流程；提交后把返回的authoringLeaseId传入后续预演，即可在同一能力内按稳定ID逐段完善该流程。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞、pendingItems待补齐清单和合法迁移。")]
+            "预演一个可独立保存、原子提交的ChangeSet V2阶段。每个action只表达一个type；process.create不能内嵌steps/operations。ProcessCreate首阶段创建一个autoStart=false的新流程；提交后把返回的authoringLeaseId作为本工具的顶层参数传入后续预演（不是changeSet内字段），即可在同一能力内按稳定ID逐段完善该流程。未知动作使用config.placeholder并保持incomplete，不得伪造成runnable。返回previewId、变化摘要、就绪事实、警告、阻塞、pendingItems待补齐清单和合法迁移。")]
         public static async Task<string> PreviewChangeSet(
             [Description("当前完整原子阶段；actions与variables整体预演。阶段依赖的新变量也在variables中提交")] AtomicChangeSetDefinition changeSet,
             [Description("仅用于整体重写尚未apply的活动预演；新changeSet完整替代旧阶段，省略的旧动作不会保留。已apply后不要传此参数，改用稳定ID开始新阶段")] string? replacePreviewId = null,
-            [Description("仅ProcessCreate续建阶段使用：首次apply_change_set返回的authoringLease.leaseId。首阶段省略；续建时凭据把全部写入机械限制在刚创建的同一流程内")] string? authoringLeaseId = null,
+            [Description("仅ProcessCreate续建阶段使用：首次apply_change_set返回的authoringLease.leaseId。首阶段省略；续建时凭据把全部写入机械限制在刚创建的同一流程内。注意：本参数是preview_change_set的顶层参数，放进changeSet内部会被忽略并当作未提供")] string? authoringLeaseId = null,
             [Description("在尚未确认的活动预演冻结结果上追加小修正：只提交增量动作，其余沿用冻结编译结果；目标用预演返回的稳定ID。确认失败修正优选此参数，整体重写才用replacePreviewId；两者不能同时提供")] string? amendPreviewId = null)
         {
             if (!string.IsNullOrWhiteSpace(replacePreviewId)
@@ -439,7 +439,7 @@ namespace Automation.McpServer
                         ProcessAuthoringLeaseRegistry.BindPreview(previewId, authoringLease);
                 }
             }
-            return result;
+            return CompactChangeSetPreviewResult(result);
         }
 
         internal static void ValidateProcessCreateChangeSet(
@@ -459,7 +459,7 @@ namespace Automation.McpServer
                     action?.Type, "process.create", StringComparison.Ordinal)) != 1)
             {
                 throw new ArgumentException(
-                    "未提供authoringLeaseId的ProcessCreate首阶段必须且只能包含一个process.create。若新流程已经提交，请传apply返回的authoringLease.leaseId续建，不要再次创建流程。",
+                    "未提供authoringLeaseId的ProcessCreate首阶段必须且只能包含一个process.create。若新流程已经提交，请把apply返回的authoringLease.leaseId作为preview_change_set的顶层参数authoringLeaseId传入续建（放进changeSet内部会被忽略），不要再次创建流程。",
                     nameof(changeSet));
             }
 
@@ -701,14 +701,16 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_process_design_guide"), Description(
             "Automation复杂流程设计的唯一按需知识入口。通常只按目标选择一个主主题；默认compact直接返回当前功能块的短规则、可执行阶段、完成证据、失败恢复和结构化功能槽，只有需要完整设计背景时才使用full。core通用不变量会自动返回。"
+            + "用户目标描述一台完整设备时选 composition：compact 只返回设备框架简索引（patternId+设备画像+摘要），选中后把 patternId 传入 patternIds 钻取该框架的完整功能单元表、单元间衔接、变化点与搭建顺序。知识库会持续变大：先看 compact 索引，再按 patternId 精确钻取，不整库取 full。"
             + "同时返回从旧项目证据中完成审核和归纳的可用规范；候选、审核过程和废弃内容不会进入运行时返回。"
             + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
-            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；vision=拍照定位/纠偏/标定；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；quality=NG判定/抛料/复检/空跑验证/GRR；recovery=寻料/重入/恢复；custom-function=函数边界；composition=整机流程组合/搭建顺序/接缝契约；review=设计审查")] string[] topics,
-            [Description("返回粒度：compact（默认，直接用于当前功能块）或full（完整背景与知识正文）")] string? detail = null)
+            [Description("主题数组，通常只传一个主主题：core自动加入；lifecycle=复位/启动；orchestration=主调度/子流程；interlock=门禁/光栅/前置条件；actuator=IO/气缸/真空；motion=轴/工站运动；vision=拍照定位/纠偏/标定；pick-place=取料/放料/分流；transfer=输送/载具/升降/料仓；identify=扫码/RFID；transaction=MES/通讯事务；monitoring=持续监控/状态呈现；quality=NG判定/抛料/复检/空跑验证/GRR；recovery=寻料/重入/恢复；custom-function=函数边界；composition=单机设备框架（功能单元/衔接/搭建顺序）；review=设计审查")] string[] topics,
+            [Description("返回粒度：compact（默认，直接用于当前功能块）或full（完整背景与知识正文）")] string? detail = null,
+            [Description("可选：按 compact 响应返回的 patternId 精确收窄知识块（如设备框架），库大时先 compact 取索引再钻取")] string[]? patternIds = null)
         {
-            string result = ProcessDesignGuideCatalog.Get(topics, detail);
-            ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics, detail }, result);
+            string result = ProcessDesignGuideCatalog.Get(topics, detail, patternIds);
+            ToolCallLogger.Log(nameof(GetProcessDesignGuide), new { topics, detail, patternIds }, result);
             return result;
         }
 
@@ -2044,7 +2046,8 @@ namespace Automation.McpServer
                 .Contains(type, StringComparer.Ordinal))
             {
                 throw new ArgumentException(
-                    $"requests[{index}].type 不支持：{type}。", nameof(request));
+                    $"requests[{index}].type 不支持：{type}。合法值："
+                    + AuthoringResourceTypes.SupportedTypes + "。", nameof(request));
             }
             string? nameLike = NullIfWhiteSpace(request.NameLike);
             if (nameLike != null && nameLike.Length > 100)
@@ -2706,6 +2709,77 @@ namespace Automation.McpServer
                 {
                     ["ok"] = true,
                     ["type"] = "change_set.apply",
+                    ["data"] = compactData
+                }.ToJsonString();
+            }
+            catch (JsonException)
+            {
+                return raw ?? string.Empty;
+            }
+            catch (InvalidOperationException)
+            {
+                return raw ?? string.Empty;
+            }
+        }
+
+        internal static string CompactChangeSetPreviewResult(string? raw)
+        {
+            // 预演成功结果的紧凑投影：保留确认状态、合法迁移、稳定对象身份和待补齐事实；
+            // processSnapshot 与 createdObjects 重复罗列对象身份，编辑类变更的结构回读走
+            // inspect_process，不随预演返回。失败结果（含 bindingRepair 候选）原样透传。
+            try
+            {
+                JsonObject? response = JsonNode.Parse(raw ?? string.Empty) as JsonObject;
+                if (response?["ok"]?.GetValue<bool>() != true
+                    || !string.Equals(
+                        response["type"]?.GetValue<string>(),
+                        "change_set.preview",
+                        StringComparison.Ordinal)
+                    || response["data"] is not JsonObject data)
+                {
+                    return raw ?? string.Empty;
+                }
+
+                var compactData = new JsonObject();
+                CopyFields(data, compactData,
+                    "previewId", "confirmed", "confirmedBy", "amendedPreviewId", "status",
+                    "nextStep", "allowedTransitions", "expiresAt", "summary",
+                    "requiresConfirmation", "readinessStatus", "runnable", "message");
+                compactData["variableResolutions"] = CompactObjectArray(
+                    data["variableResolutions"],
+                    "variableId", "name", "valueType", "outcome", "changed", "index",
+                    "scope", "ownerProcId", "ownerProcName");
+                compactData["affectedProcesses"] = CompactObjectArray(
+                    data["affectedProcesses"],
+                    "procIndex", "procId", "name", "changeType", "readinessStatus", "runnable");
+                var created = new JsonObject();
+                if (data["createdObjects"] is JsonObject createdObjects)
+                {
+                    created["processes"] = CompactObjectArray(
+                        createdObjects["processes"], "key", "procId", "procIndex", "name");
+                    created["steps"] = CompactObjectArray(
+                        createdObjects["steps"],
+                        "procId", "processKey", "key", "stepId", "name");
+                    created["operations"] = CompactObjectArray(
+                        createdObjects["operations"],
+                        "procId", "processKey", "stepId", "stepKey", "key", "opId", "name", "operaType");
+                    created["variables"] = CompactObjectArray(
+                        createdObjects["variables"],
+                        "variableId", "name", "valueType", "outcome", "index", "scope", "ownerProcId");
+                }
+                compactData["createdObjects"] = created;
+                compactData["pendingItems"] = CompactObjectArray(
+                    data["pendingItems"],
+                    "category", "procId", "stepId", "opId", "name", "reason",
+                    "field", "stationName", "pointName", "repair");
+                compactData["warnings"] = CompactObjectArray(
+                    data["warnings"], "procIndex", "procId", "message");
+                compactData["runBlockers"] = CompactObjectArray(
+                    data["runBlockers"], "procIndex", "procId", "message");
+                return new JsonObject
+                {
+                    ["ok"] = true,
+                    ["type"] = "change_set.preview",
                     ["data"] = compactData
                 }.ToJsonString();
             }

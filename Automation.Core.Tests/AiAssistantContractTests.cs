@@ -5,6 +5,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Automation.Protocol;
+using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 
 namespace Automation.Core.Tests
 {
@@ -18,6 +19,25 @@ namespace Automation.Core.Tests
 
             Assert.AreEqual(16384, config.MaxOutputTokens);
             Assert.AreEqual(0.3d, config.Temperature, 0.000001d);
+        }
+
+        [TestMethod]
+        public void CapabilityDecision_BasisBoundaryIsExplicitInSchemaDescription()
+        {
+            // 代码校验要求非 ProcessEdit 时 basis/findingIds 必须为空；
+            // Schema 描述必须同步声明该边界，否则模型按“可选字段”随手填写（实测两次）。
+            DescriptionAttribute basis = typeof(TaskCapabilityDecisionDefinition)
+                .GetProperty(nameof(TaskCapabilityDecisionDefinition.Basis))
+                ?.GetCustomAttribute<DescriptionAttribute>();
+            Assert.IsNotNull(basis);
+            StringAssert.Contains(basis.Description, "仅申请 ProcessEdit 时填写");
+            StringAssert.Contains(basis.Description, "留空");
+
+            DescriptionAttribute findingIds = typeof(TaskCapabilityDecisionDefinition)
+                .GetProperty(nameof(TaskCapabilityDecisionDefinition.FindingIds))
+                ?.GetCustomAttribute<DescriptionAttribute>();
+            Assert.IsNotNull(findingIds);
+            StringAssert.Contains(findingIds.Description, "不得携带");
         }
 
         [TestMethod]

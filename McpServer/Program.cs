@@ -486,6 +486,7 @@ namespace Automation.McpServer
                 previewTool.ProtocolTool.InputSchema.GetRawText());
             VerifyPreviewChangeSetCompactContract(previewTool.ProtocolTool.InputSchema.GetRawText());
             VerifyCompactChangeSetApplyResult();
+            VerifyCompactChangeSetPreviewResult();
             VerifyDiagnosticPagingSchemas();
             McpServerTool nativeSchemaTool = editorTools.First(tool =>
                 string.Equals(tool.ProtocolTool.Name, "get_native_operation_schemas", StringComparison.Ordinal));
@@ -615,6 +616,48 @@ namespace Automation.McpServer
                     >= Encoding.UTF8.GetByteCount(identifyFullGuide))
             {
                 throw new InvalidOperationException("流程设计知识未默认返回紧凑core、可执行阶段或可用规范。");
+            }
+            // 设备框架简索引与 patternIds 钻取：compact 索引只带设备画像（框架会持续增多），
+            // 钻取才返回功能单元表；未知 patternId 必须结构化拒绝而不是静默空结果。
+            string compositionCompactGuide = ProcessDesignGuideCatalog.Get(new[] { "composition" });
+            JsonObject? compositionRoot = JsonNode.Parse(compositionCompactGuide) as JsonObject;
+            JsonArray? compositionBlocks = compositionRoot?["knowledgeBlocks"] as JsonArray;
+            JsonObject? dispensingIndex = compositionBlocks?
+                .FirstOrDefault(block => string.Equals(
+                    block?["patternId"]?.GetValue<string>(),
+                    "device-frame.dispensing-station",
+                    StringComparison.Ordinal)) as JsonObject;
+            if (compositionBlocks == null
+                || dispensingIndex == null
+                || string.IsNullOrWhiteSpace(dispensingIndex["deviceProfile"]?.GetValue<string>())
+                || dispensingIndex.ContainsKey("functionalUnits")
+                || dispensingIndex.ContainsKey("markdown"))
+            {
+                throw new InvalidOperationException("composition 索引必须是设备框架简索引（设备画像），不带功能单元表。");
+            }
+            string frameDrillGuide = ProcessDesignGuideCatalog.Get(
+                new[] { "composition" },
+                null,
+                new[] { "device-frame.reinspect" });
+            JsonObject? frameDrillRoot = JsonNode.Parse(frameDrillGuide) as JsonObject;
+            JsonArray? frameDrillBlocks = frameDrillRoot?["knowledgeBlocks"] as JsonArray;
+            if (frameDrillRoot?["ok"]?.GetValue<bool>() != true
+                || frameDrillBlocks?.Count != 1
+                || frameDrillBlocks[0]?["patternId"]?.GetValue<string>() != "device-frame.reinspect"
+                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["functionalUnits"]?.GetValue<string>())
+                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["buildOrder"]?.GetValue<string>()))
+            {
+                throw new InvalidOperationException("patternIds 钻取未返回目标设备框架的功能单元表与搭建顺序。");
+            }
+            string unknownPatternGuide = ProcessDesignGuideCatalog.Get(
+                new[] { "composition" },
+                null,
+                new[] { "device-frame.not-exist" });
+            JsonObject? unknownPatternRoot = JsonNode.Parse(unknownPatternGuide) as JsonObject;
+            if (unknownPatternRoot?["ok"]?.GetValue<bool>() != false
+                || unknownPatternRoot?["errorCode"]?.GetValue<string>() != "PROCESS_KNOWLEDGE_PATTERN_INVALID")
+            {
+                throw new InvalidOperationException("未知 patternId 未被结构化拒绝。");
             }
             IReadOnlyList<McpServerTool> diagnosticTools = McpToolProfile.CreateTools("Diagnostic");
             string[] diagnosticNames = diagnosticTools.Select(tool => tool.ProtocolTool.Name).ToArray();
@@ -1435,6 +1478,86 @@ namespace Automation.McpServer
             if (fieldsSchema["additionalProperties"] is JsonValue additional
                     && additional.TryGetValue(out bool allowsFields) && !allowsFields)
                 throw new InvalidOperationException("native.operation.fields未保留动态原生字段。");
+        }
+
+        private static void VerifyCompactChangeSetPreviewResult()
+        {
+            string raw = new JsonObject
+            {
+                ["ok"] = true,
+                ["type"] = "change_set.preview",
+                ["data"] = new JsonObject
+                {
+                    ["previewId"] = "preview-1",
+                    ["confirmed"] = true,
+                    ["status"] = "confirmed",
+                    ["nextStep"] = "提交",
+                    ["allowedTransitions"] = new JsonArray("apply", "discard"),
+                    ["readinessStatus"] = "incomplete",
+                    ["runnable"] = false,
+                    ["createdObjects"] = new JsonObject
+                    {
+                        ["operations"] = new JsonArray(new JsonObject
+                        {
+                            ["stepKey"] = "step",
+                            ["key"] = "end",
+                            ["opId"] = "op-1",
+                            ["name"] = "结束",
+                            ["operaType"] = "End",
+                            ["redundant"] = "discard"
+                        })
+                    },
+                    ["pendingItems"] = new JsonArray(new JsonObject
+                    {
+                        ["category"] = "planned_point",
+                        ["opId"] = "op-2",
+                        ["pointName"] = "取料位",
+                        ["repair"] = "manual_teaching",
+                        ["redundant"] = "discard"
+                    }),
+                    ["processSnapshot"] = new JsonArray(new JsonObject
+                    {
+                        ["procId"] = "proc-1",
+                        ["totalOps"] = 1,
+                        ["steps"] = new JsonArray()
+                    })
+                }
+            }.ToJsonString();
+            string compact = AutomationMcpTools.CompactChangeSetPreviewResult(raw);
+            JsonObject response = JsonNode.Parse(compact) as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set 紧凑结果不是JSON对象。");
+            JsonObject data = response["data"] as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set 紧凑结果缺少data。");
+            JsonObject operation = data["createdObjects"]?["operations"]?[0] as JsonObject
+                ?? throw new InvalidOperationException("preview_change_set 紧凑结果丢失新建指令身份。");
+            JsonObject? pendingItem = data["pendingItems"]?[0] as JsonObject;
+            if (data["previewId"]?.GetValue<string>() != "preview-1"
+                || data["status"]?.GetValue<string>() != "confirmed"
+                || (data["allowedTransitions"] as JsonArray)?.Count != 2
+                || operation["opId"]?.GetValue<string>() != "op-1"
+                || operation.ContainsKey("redundant")
+                || pendingItem?["pointName"]?.GetValue<string>() != "取料位"
+                || pendingItem.ContainsKey("redundant")
+                || data.ContainsKey("processSnapshot"))
+            {
+                throw new InvalidOperationException(
+                    "preview_change_set 紧凑结果丢失确认状态、稳定身份或待补齐清单，或仍携带重复的流程快照。");
+            }
+            // 失败结果（含 bindingRepair 等修复候选）必须原样透传，不得被压缩丢弃。
+            string failure = new JsonObject
+            {
+                ["ok"] = false,
+                ["type"] = "change_set.preview",
+                ["errorCode"] = "CHANGE_SET_VALIDATION_FAILED",
+                ["bindingRepair"] = new JsonObject { ["candidates"] = new JsonArray("op-1") }
+            }.ToJsonString();
+            if (!string.Equals(
+                    AutomationMcpTools.CompactChangeSetPreviewResult(failure),
+                    failure,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("preview_change_set 失败结果必须原样透传。");
+            }
         }
 
         private static void VerifyCompactChangeSetApplyResult()

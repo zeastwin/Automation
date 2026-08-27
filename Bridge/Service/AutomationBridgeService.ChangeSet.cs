@@ -1187,7 +1187,23 @@ namespace Automation.Bridge
                     bool stepChanged = stepAdded
                         || oldStepEntry.index != stepIndex
                         || !StepContentEquals(oldStepEntry.step, newStep);
-                    if (!stepAdded)
+                    if (stepAdded)
+                    {
+                        // 新增步骤内的全部指令都是新增行，逐行生成闪烁定位。
+                        List<OperationType> addedOps = newStep?.Ops ?? new List<OperationType>();
+                        for (int opIndex = 0; opIndex < addedOps.Count; opIndex++)
+                        {
+                            if (addedOps[opIndex] != null && addedOps[opIndex].Id != Guid.Empty)
+                            {
+                                stepNotice.Operations.Add(new ProcessOperationChangeNotice
+                                {
+                                    OpIndex = opIndex,
+                                    Kind = ProcChangeKind.Added
+                                });
+                            }
+                        }
+                    }
+                    else
                     {
                         stepChanged |= DiffStepOperations(oldStepEntry.step, newStep, stepNotice);
                     }
@@ -1221,7 +1237,8 @@ namespace Automation.Bridge
 
         /// <summary>
         /// 按稳定 opId 对比步骤内指令：新增/修改写入 stepNotice.Operations（OpIndex 为提交后行号），
-        /// 存在被删除的指令时仅返回 true 提示步骤有变化（删除行在刷新后已不存在，无法行级闪烁）。
+        /// 返回步骤是否存在任何指令级变更（新增/修改/删除）；
+        /// 已删除的指令行在刷新后的界面中不存在，无法行级闪烁，通过步骤/流程的修改态提示。
         /// </summary>
         private static bool DiffStepOperations(
             Step oldStep,
@@ -1236,7 +1253,6 @@ namespace Automation.Bridge
                     oldOpsById.Add(oldOp.Id, oldOp);
                 }
             }
-            bool opsRemoved = false;
             var matchedOldOps = new HashSet<Guid>();
             List<OperationType> newOps = newStep?.Ops ?? new List<OperationType>();
             for (int opIndex = 0; opIndex < newOps.Count; opIndex++)
@@ -1265,15 +1281,8 @@ namespace Automation.Bridge
                     });
                 }
             }
-            foreach (Guid oldOpId in oldOpsById.Keys)
-            {
-                if (!matchedOldOps.Contains(oldOpId))
-                {
-                    opsRemoved = true;
-                    break;
-                }
-            }
-            return opsRemoved;
+            return stepNotice.Operations.Count > 0
+                || oldOpsById.Keys.Any(oldOpId => !matchedOldOps.Contains(oldOpId));
         }
 
         private static bool OperationContentEquals(OperationType oldOp, OperationType newOp)

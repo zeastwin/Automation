@@ -137,6 +137,7 @@ namespace Automation.McpServer
                 {
                     ApplyStringArraySchema(tool, "topics", ProcessDesignGuideCatalog.SupportedTopics);
                     ApplyToolStringEnum(tool, "detail", "compact", "full");
+                    ApplyStringArraySchema(tool, "patternIds", null);
                 }
                 else if (string.Equals(toolName, "request_capability", StringComparison.Ordinal))
                 {

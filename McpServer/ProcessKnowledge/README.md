@@ -17,15 +17,15 @@
 | 层 | 载体 | 回答的问题 | 生命周期 |
 | --- | --- | --- | --- |
 | 路由层 | `Assets/Goose/automation.md`「整机流程族」段 | 一台设备由什么构成、什么时候需要哪个兄弟流程 | 常驻每会话 |
-| 组合层 | `composition` 主题 + `composition.*.md` | 整机怎么拆、搭建顺序、接缝契约、规范引用表 | 按需 |
+| 组合层 | `composition` 主题 + `device-frame.*.md` | 单机怎么构成：功能单元表、单元间衔接、变化点、搭建顺序 | 按需 |
 | 功能块层 | 其余 `blocks/*.md` + `Guides/ProcessDesignGuide.md` | 某类功能块内部怎么写 | 按需 |
 
 层间只索引不复制：功能块说"怎么做"，组合层说"有哪些、先做哪个"，路由层说"全景与边界"。新增知识时先判断属于哪一层——归纳完功能块后必须自问"组织这些块的分类图景落盘了吗"（策展人盲区：组织层知识因内化而最容易漏写）。
 
 ## 当前库存
 
-- 26 个功能/组合块，20 个来源项目（`provenance/sources.json` 含逐项目甄别结论与 manifest SHA256）。
-- 17 个主题（core + 16），其中 `composition` 为整机组合索引（首个：`composition.bc-line`）。
+- 32 个功能/设备框架块（25 个功能块 + 7 个 `device-frame.*` 单机设备框架），20 个来源项目（`provenance/sources.json` 含逐项目甄别结论与 manifest SHA256）。
+- 17 个主题（core + 16），`composition` 只针对单台设备（多机台产线编排不收录）；`get_process_design_guide` 支持 patternIds 按块钻取，库变大后先 compact 取索引再收窄目标块。
 - 主检索维度是 `capabilities`；`topics` 决定 `get_process_design_guide` 按主题返回哪些块。设备和工艺只是多值标签，不建立额外树形目录；真实差异直接写入规范的"当前事实与适配"章节，出现实际复用压力后再建立新抽象。
 
 ## 主题契约（硬约束，违者 MCP 启动拒启）

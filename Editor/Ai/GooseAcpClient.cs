@@ -3510,6 +3510,22 @@ namespace Automation
                         CompactFactValue(edge["targetId"]), toolCallId,
                         $"{pathPrefix}/edges/{edges.IndexOf(edge)}/targetId", evidenceSha256, evidenceTool);
                 }
+
+                // 已配置跳转边（planned=false 的 branch 边）没有 plannedTarget 事实；
+                // 用 outgoingTarget 键记录其当前目标，作为评审"配置了什么跳转"的可引用证据。
+                JObject[] configuredEdges = edges.OfType<JObject>()
+                    .Where(edge => edge["planned"]?.Value<bool?>() != true
+                        && !string.IsNullOrWhiteSpace(edge["sourceField"]?.Value<string>())
+                        && string.Equals(edge["sourceId"]?.Value<string>(), nodeId, StringComparison.Ordinal))
+                    .ToArray();
+                foreach (JObject edge in configuredEdges)
+                {
+                    string sourceField = edge["sourceField"]?.Value<string>() ?? "target";
+                    AddReviewFact(facts, opId, name,
+                        "operation.outgoingTarget." + SanitizeFactKeySegment(sourceField),
+                        CompactFactValue(edge["configuredTargetId"] ?? edge["targetId"]), toolCallId,
+                        $"{pathPrefix}/edges/{edges.IndexOf(edge)}/targetId", evidenceSha256, evidenceTool);
+                }
             }
             JArray diagnostics = resultData["diagnostics"] as JArray ?? new JArray();
             for (int index = 0; index < diagnostics.Count; index++)
