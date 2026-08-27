@@ -1,5 +1,7 @@
 using Automation.Protocol;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Automation.Core.Tests
@@ -43,6 +45,42 @@ namespace Automation.Core.Tests
             Assert.AreEqual(AiTaskDecisionKind.Invalid, result.Kind);
             Assert.IsNull(result.Stage);
             StringAssert.Contains(result.Message, "不允许");
+        }
+
+        [TestMethod]
+        public void DiagnosticRejection_MessageIncludesReadableCapabilityGuidance()
+        {
+            AiTaskDecisionValidation result = Validate(
+                "run_stage",
+                AutomationToolProfiles.RuntimeControl,
+                AutomationToolProfiles.Diagnostic);
+
+            Assert.AreEqual(AiTaskDecisionKind.Invalid, result.Kind);
+            StringAssert.Contains(result.Message, "ProcessReview");
+            StringAssert.Contains(result.Message, "只读查询在 ProcessReview 能力内");
+        }
+
+        [TestMethod]
+        public void ProcessReview_IncludesMotionResourceReadTools()
+        {
+            IReadOnlyList<string> tools = AutomationToolProfiles.GetTaskToolNames(
+                AutomationToolProfiles.ProcessReview);
+
+            Assert.IsTrue(tools.Contains("list_stations", StringComparer.Ordinal));
+            Assert.IsTrue(tools.Contains("get_station", StringComparer.Ordinal));
+            Assert.IsTrue(tools.Contains("list_points", StringComparer.Ordinal));
+            Assert.IsTrue(tools.Contains("get_point", StringComparer.Ordinal));
+        }
+
+        [TestMethod]
+        public void TaskCoordinator_IncludesDeviceSummaryAndRequestCapability()
+        {
+            IReadOnlyList<string> tools = AutomationToolProfiles.GetTaskToolNames(
+                AutomationToolProfiles.TaskCoordinator);
+
+            Assert.AreEqual(2, tools.Count);
+            Assert.IsTrue(tools.Contains("get_device_summary", StringComparer.Ordinal));
+            Assert.IsTrue(tools.Contains("request_capability", StringComparer.Ordinal));
         }
 
         [TestMethod]

@@ -62,7 +62,10 @@ namespace Automation
                 || string.Equals(capability, AutomationToolProfiles.RuntimeControl, StringComparison.Ordinal)
                 || string.Equals(capability, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal)))
             {
-                return AiTaskDecisionValidation.Invalid($"当前只读诊断权限不允许执行 {capability}。");
+                return AiTaskDecisionValidation.Invalid(
+                    $"当前只读诊断权限不允许执行 {capability}。可申请的只读能力："
+                    + $"{AutomationToolProfiles.ProcessDesign}/{AutomationToolProfiles.ProcessReview}/{AutomationToolProfiles.SourceReview}"
+                    + "；资源配置（工站/轴/点位/IO/通讯）的只读查询在 ProcessReview 能力内。");
             }
             if (string.Equals(capability, AutomationToolProfiles.PlatformConfiguration, StringComparison.Ordinal)
                 && !fullPermissionEnabled)

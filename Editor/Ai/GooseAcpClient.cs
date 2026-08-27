@@ -169,6 +169,7 @@ namespace Automation
         private int verifiedAutomationToolCount;
         private string lastInjectedProfileContext;
         private string lastInjectedSelectionContext;
+        private string lastInjectedHeartbeatContext;
         private bool disposed;
         // Dispose 主动终止进程的标记：Process_Exited 据此区分正常会话滚动与异常退出。
         private volatile bool intentionalShutdown;
@@ -397,6 +398,7 @@ namespace Automation
                 currentToolSurfaceBytes = 0L;
                 lastInjectedProfileContext = null;
                 lastInjectedSelectionContext = null;
+                lastInjectedHeartbeatContext = null;
             }
             try
             {
@@ -2528,8 +2530,20 @@ namespace Automation
             string selectionContext = BuildSelectionContext();
             if (!string.Equals(lastInjectedSelectionContext, selectionContext, StringComparison.Ordinal))
             {
-                contextParts.Add(selectionContext.Trim());
                 lastInjectedSelectionContext = selectionContext;
+                if (!string.IsNullOrWhiteSpace(selectionContext))
+                {
+                    contextParts.Add(selectionContext.Trim());
+                }
+            }
+            string heartbeatContext = BuildDeviceHeartbeatContext();
+            if (!string.Equals(lastInjectedHeartbeatContext, heartbeatContext, StringComparison.Ordinal))
+            {
+                lastInjectedHeartbeatContext = heartbeatContext;
+                if (!string.IsNullOrWhiteSpace(heartbeatContext))
+                {
+                    contextParts.Add(heartbeatContext);
+                }
             }
             string restoredContext = restoredConversationContext;
             restoredConversationContext = null;
@@ -2641,18 +2655,70 @@ namespace Automation
         /// <summary>
         /// 构建当前用户选中流程/步骤/指令的背景信息，附加到 prompt 中。
         /// 只展开到用户实际选中的最深层级，避免把未选中的下级对象误传给 AI。
+        /// 选中信息只是解析"这个流程"等口语指代的辅助定位；未选中时不注入任何内容，
+        /// 避免"未选中"事实被模型误用为拒绝设备级查询的理由。
         /// </summary>
         private string BuildSelectionContext()
         {
             JObject selection = BuildSelectionAnalysis();
             if (selection?["hasSelection"]?.Value<bool?>() != true)
             {
-                return "\n\n当前用户未选中任何流程。";
+                return string.Empty;
             }
             selection.Remove("hasSelection");
             return "\n\n当前用户在流程编辑器中的选中对象（仅用于定位，不等于用户要求改动；实际目标仍以用户请求为准）：\n"
                 + selection.ToString(Formatting.None)
                 + "\n用户口语中的\"N号流程\"即 procIndex=N。";
+        }
+
+        /// <summary>
+        /// 构建设备心跳背景信息：安全锁、流程运行状态、活动报警计数。
+        /// 模仿选中上下文的"仅变化时注入"机制，严格一行有界摘要；
+        /// 让模型无需查询就知道设备当前处于什么状态（态势感知），
+        /// 运行/报警状态影响写入类建议时的安全提醒。读取失败时静默跳过，不阻塞对话。
+        /// </summary>
+        private string BuildDeviceHeartbeatContext()
+        {
+            try
+            {
+                List<Proc> processes = runtime.Stores?.Processes?.Items;
+                int procCount = processes?.Count ?? 0;
+                int runningCount = 0;
+                var alarmingProcesses = new List<string>();
+                if (procCount > 0 && runtime.ProcessEngine != null)
+                {
+                    for (int i = 0; i < procCount; i++)
+                    {
+                        EngineSnapshot snapshot = runtime.ProcessEngine.GetSnapshot(i);
+                        if (snapshot == null) continue;
+                        ProcRunState state = snapshot.State;
+                        if (state == ProcRunState.Running
+                            || state == ProcRunState.SingleStep
+                            || state == ProcRunState.Paused
+                            || state == ProcRunState.Pausing
+                            || state == ProcRunState.Stopping)
+                        {
+                            runningCount++;
+                        }
+                        if (state == ProcRunState.Alarming)
+                        {
+                            alarmingProcesses.Add(snapshot.ProcName ?? ("proc" + i));
+                        }
+                    }
+                }
+                string lockedText = runtime.Safety?.IsLocked == true ? "安全锁定" : "安全正常";
+                string runningText = runningCount > 0
+                    ? $"{runningCount}个流程运行中" : "无流程运行";
+                string alarmText = alarmingProcesses.Count > 0
+                    ? $"{alarmingProcesses.Count}个流程报警中（{string.Join("、", alarmingProcesses.Take(3))}）"
+                    : "无活动报警";
+                return $"设备心跳：{lockedText}；{runningText}；{alarmText}。";
+            }
+            catch
+            {
+                // 心跳是辅助态势信息，读取失败不影响对话主链路。
+                return string.Empty;
+            }
         }
 
         private JObject BuildSelectionAnalysis()

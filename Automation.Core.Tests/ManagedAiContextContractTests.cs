@@ -34,6 +34,14 @@ namespace Automation.Core.Tests
             StringAssert.Contains(automation, "流程结构写入只有 ChangeSet V2 一条链");
             StringAssert.Contains(automation, "由 Readiness 与启动闸门共同表达");
             StringAssert.Contains(automation, "常驻所有能力面");
+            StringAssert.Contains(automation, "一个平台实例就是一台设备");
+            StringAssert.Contains(automation, "都唯一指当前平台实例");
+            StringAssert.Contains(automation, "人格化指代，平台与设备一体");
+            StringAssert.Contains(automation, "AI 助手是这台设备的运行人格");
+            StringAssert.Contains(automation, "以第一人称陈述工具返回的机械事实");
+            StringAssert.Contains(automation, "get_device_summary");
+            StringAssert.Contains(automation, "申请 ProcessReview 能力");
+            StringAssert.Contains(automation, "资源目录就是这台设备的权威配置");
             StringAssert.Contains(automation, "automation-process-review");
             StringAssert.Contains(automation, "automation-process-authoring");
             StringAssert.Contains(automation, "get_process_design_guide");

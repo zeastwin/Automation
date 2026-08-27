@@ -47,6 +47,140 @@ namespace Automation.McpServer
             return result;
         }
 
+        [McpServerTool(Name = "get_device_summary"), Description(
+            "设备自我画像：一次返回本机运行状态（安全锁/流程状态/活动报警/选中流程）、工站与轴、IO、通讯和PLC资源的真实计数与名称。"
+            + "纯只读、无副作用；回答\"这台设备/你\"的状态或配置数量类问题（有几个轴、什么状态、有没有报警、配了哪些通讯）时直接调用，"
+            + "不需要先申请能力包。本工具只提供概览；流程内容、点位坐标、变量或深度诊断仍需申请对应能力包读取。")]
+        public static async Task<string> GetDeviceSummary()
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetDeviceSummary),
+                args: new { },
+                action: async client =>
+                {
+                    // 运行快照：安全锁、流程状态、选中对象（概览一次性聚合，避免多次往返）
+                    JsonObject snapshotResponse = ParseBridgeResponse(
+                        await client.GetSnapshotAsync(null, 0, 100).ConfigureAwait(false));
+                    EnsureBridgeSuccess(snapshotResponse);
+                    JsonObject snapshotData = snapshotResponse["data"] as JsonObject
+                        ?? throw new InvalidOperationException("运行快照缺少data。");
+                    var processes = new JsonArray();
+                    int runningCount = 0;
+                    int alarmCount = 0;
+                    foreach (JsonObject item in (snapshotData["snapshots"] as JsonArray ?? new JsonArray())
+                        .OfType<JsonObject>())
+                    {
+                        string state = item["state"]?.GetValue<string>() ?? string.Empty;
+                        bool isAlarm = item["isAlarm"]?.GetValue<bool>() == true;
+                        if (isAlarm) alarmCount++;
+                        if (string.Equals(state, "Running", StringComparison.Ordinal)) runningCount++;
+                        processes.Add(new JsonObject
+                        {
+                            ["procIndex"] = item["procIndex"]?.DeepClone(),
+                            ["name"] = item["procName"]?.DeepClone(),
+                            ["state"] = state,
+                            ["isAlarm"] = isAlarm,
+                            ["alarmMessage"] = item["alarmMessage"]?.DeepClone()
+                        });
+                    }
+
+                    // 运动资源：工站与实际轴
+                    JsonObject stationResponse = ParseBridgeResponse(
+                        await client.ListStationsAsync().ConfigureAwait(false));
+                    EnsureBridgeSuccess(stationResponse);
+                    var stations = new JsonArray();
+                    int axisTotal = 0;
+                    foreach (JsonObject station in CloneItems(stationResponse).OfType<JsonObject>())
+                    {
+                        int axisCount = (station["axes"] as JsonArray ?? new JsonArray()).Count;
+                        axisTotal += axisCount;
+                        stations.Add(new JsonObject
+                        {
+                            ["stationIndex"] = station["stationIndex"]?.DeepClone(),
+                            ["name"] = station["name"]?.DeepClone(),
+                            ["axisCount"] = axisCount
+                        });
+                    }
+
+                    int inputCount = await CountIoCatalogAsync(client, "通用输入").ConfigureAwait(false);
+                    int outputCount = await CountIoCatalogAsync(client, "通用输出").ConfigureAwait(false);
+
+                    JsonObject communicationResponse = ParseBridgeResponse(
+                        await client.ListResourcesAsync(
+                            "communications", new JsonObject { ["includeStatus"] = false })
+                            .ConfigureAwait(false));
+                    EnsureBridgeSuccess(communicationResponse);
+                    JsonObject communicationData = communicationResponse["data"] as JsonObject ?? new JsonObject();
+                    string[] communicationNames = (communicationData["tcp"] as JsonArray ?? new JsonArray())
+                        .OfType<JsonObject>()
+                        .Concat((communicationData["serial"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+                        .Select(item => item["name"]?.GetValue<string>() ?? string.Empty)
+                        .Where(name => name.Length > 0)
+                        .ToArray();
+                    JsonObject plcResponse = ParseBridgeResponse(
+                        await client.ListResourcesAsync("plc", new JsonObject { ["includeMaps"] = false })
+                            .ConfigureAwait(false));
+                    EnsureBridgeSuccess(plcResponse);
+                    string[] plcNames = CloneItems(plcResponse).OfType<JsonObject>()
+                        .Select(item => item["name"]?.GetValue<string>() ?? string.Empty)
+                        .Where(name => name.Length > 0)
+                        .ToArray();
+
+                    return JsonSerializer.Serialize(new JsonObject
+                    {
+                        ["ok"] = true,
+                        ["type"] = "device.summary",
+                        ["data"] = new JsonObject
+                        {
+                            ["runtime"] = new JsonObject
+                            {
+                                ["securityLocked"] = snapshotData["securityLocked"]?.DeepClone(),
+                                ["procConfigFaulted"] = snapshotData["procConfigFaulted"]?.DeepClone(),
+                                ["procCount"] = snapshotData["procCount"]?.DeepClone(),
+                                ["selectedProcIndex"] = snapshotData["selected"]?["procIndex"]?.DeepClone(),
+                                ["runningProcessCount"] = runningCount,
+                                ["alarmProcessCount"] = alarmCount,
+                                ["processesTruncated"] = snapshotData["hasMore"]?.GetValue<bool>() == true,
+                                ["processes"] = processes
+                            },
+                            ["motion"] = new JsonObject
+                            {
+                                ["stationCount"] = stations.Count,
+                                ["axisCount"] = axisTotal,
+                                ["stations"] = stations
+                            },
+                            ["io"] = new JsonObject
+                            {
+                                ["inputCount"] = inputCount,
+                                ["outputCount"] = outputCount
+                            },
+                            ["communication"] = new JsonObject
+                            {
+                                ["count"] = communicationNames.Length,
+                                ["names"] = new JsonArray(communicationNames
+                                    .Select(name => JsonValue.Create(name)).ToArray())
+                            },
+                            ["plc"] = new JsonObject
+                            {
+                                ["count"] = plcNames.Length,
+                                ["names"] = new JsonArray(plcNames
+                                    .Select(name => JsonValue.Create(name)).ToArray())
+                            },
+                            ["note"] = "本摘要返回本机当前配置与运行状态的机械事实；runtime反映调用时刻的实时状态。"
+                                + "详细流程内容、点位坐标、变量或深度诊断需申请对应能力包读取。"
+                        }
+                    });
+                }).ConfigureAwait(false);
+        }
+
+        private static async Task<int> CountIoCatalogAsync(AutomationBridgeClient client, string ioType)
+        {
+            JsonObject response = ParseBridgeResponse(
+                await client.ListIoAsync(ioType, null, 0, 1).ConfigureAwait(false));
+            EnsureBridgeSuccess(response);
+            return ReadCatalogTotal(response, CloneItems(response).Count);
+        }
+
         [McpServerTool(Name = "search_platform_source"), Description(
             "在 Automation 平台源码根目录内执行只读字面量检索。路径会被限制在平台源码根目录，跳过bin/obj/.git等生成或管理目录，不执行Shell、不接受正则表达式。用于源码审查和修改前定位；返回相对路径、行号、匹配行和截断标志。")]
         public static string SearchPlatformSource(

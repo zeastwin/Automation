@@ -731,10 +731,13 @@ namespace Automation.McpServer
         {
             VerifyOperationCapabilityResolver();
             string[] coordinator = ToolNames(AutomationToolProfiles.TaskCoordinator);
-            if (!coordinator.SequenceEqual(new[] { "request_capability" }, StringComparer.Ordinal))
-                throw new InvalidOperationException("TaskCoordinator 必须只开放结构化单步决定提交工具。");
+            if (!coordinator.SequenceEqual(new[] { "get_device_summary", "request_capability" }, StringComparer.Ordinal))
+                throw new InvalidOperationException(
+                    "TaskCoordinator 必须只开放设备自我画像（get_device_summary）和结构化单步决定提交工具。");
             string coordinatorSchema = McpToolProfile.CreateTools(AutomationToolProfiles.TaskCoordinator)
-                .Single().ProtocolTool.InputSchema.GetRawText();
+                .Single(tool => string.Equals(
+                    tool.ProtocolTool.Name, "request_capability", StringComparison.Ordinal))
+                .ProtocolTool.InputSchema.GetRawText();
             int coordinatorSchemaBytes = Encoding.UTF8.GetByteCount(coordinatorSchema);
             JsonNode? coordinatorSchemaNode = JsonNode.Parse(coordinatorSchema);
             JsonObject? runStageBranch = FindDecisionBranch(coordinatorSchemaNode, "run_stage");
@@ -836,8 +839,10 @@ namespace Automation.McpServer
                 || review.Contains("get_snapshot", StringComparer.Ordinal)
                 || review.Contains("get_proc_detail", StringComparer.Ordinal)
                 || review.Contains("get_op_detail", StringComparer.Ordinal)
-                || review.Length > 18)
-                throw new InvalidOperationException("ProcessReview 必须优先使用单次聚合检查，并移除重复的基础读取入口。");
+                || review.Length > 22)
+                throw new InvalidOperationException(
+                    "ProcessReview 必须优先使用单次聚合检查，并移除重复的基础读取入口；"
+                    + "资源域只读查询（工站/轴/点位/IO/通讯）不算重复入口。");
             string reviewDecisionSchema = McpToolProfile.CreateTools(AutomationToolProfiles.ProcessReview)
                 .Single(tool => string.Equals(
                     tool.ProtocolTool.Name, "request_capability", StringComparison.Ordinal))

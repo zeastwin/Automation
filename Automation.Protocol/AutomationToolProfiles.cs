@@ -49,7 +49,7 @@ namespace Automation.Protocol
         private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TaskToolCatalog =
             new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
             {
-                [TaskCoordinator] = Tools("request_capability"),
+                [TaskCoordinator] = Tools("get_device_summary", "request_capability"),
                 [ProcessDesign] = Tools("get_process_design_guide", "request_capability"),
                 [ProcessReview] = Tools(
                     "resolve_proc_target", "inspect_process", "get_op_details", "search_ops",
@@ -57,6 +57,7 @@ namespace Automation.Protocol
                     "get_operation_context", "audit_proc_batch", "get_operation_guide",
                     "get_semantic_operation_schema", "get_native_operation_schemas",
                     "get_variable_by_name", "get_io", "get_communication",
+                    "list_stations", "get_station", "list_points", "get_point",
                     "submit_review_handoff", "request_capability"),
                 [ProcessCreate] = Tools(
                     "get_process_design_guide", "list_authoring_resources",

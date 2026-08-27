@@ -1158,7 +1158,8 @@ namespace Automation
                 : $"status={lastReviewHandoff.Status}; findingIds="
                     + string.Join(",", (lastReviewHandoff.Findings ?? new List<ReviewFindingDefinition>())
                         .Select(item => item.Id));
-            return "先判断是否需要平台工具。若无需工具，或需要用户补充信息，直接正常回复；"
+            return "设备状态或配置数量类问题（轴数、运行状态、报警、资源清单）先用 get_device_summary 读取后直接回答，"
+                + "它能回答时不需要申请能力包。其余任务判断是否需要平台工具：若无需工具，或需要用户补充信息，直接正常回复；"
                 + "只有需要切换到工作能力包时才调用一次 request_capability，不输出整单计划。\n"
                 + "完整用户目标：\n" + originalRequest.Trim()
                 + "\n\n用户权限外壳：" + permissionProfile
