@@ -238,8 +238,8 @@ namespace Automation.McpServer
         private static object BuildCompactKnowledgeBlock(ProcessKnowledgeBlock block, bool drilled)
         {
             // compact 投影保留可信的充分信息。设备框架块未钻取时只返回简索引
-            // （patternId/标题/摘要/设备画像）：框架会持续增多，先选型再按 patternId
-            // 钻取完整功能单元表；功能块数量少，直接携带全部标准小节。
+            // （patternId/标题/摘要/设备画像/关联块清单）：框架会持续增多，先选型再按
+            // patternId 钻取完整功能单元表；功能块数量少，直接携带全部标准小节。
             var projection = new Dictionary<string, object>
             {
                 ["patternId"] = block.PatternId,
@@ -253,6 +253,12 @@ namespace Automation.McpServer
             bool frameIndex = !drilled
                 && block.PatternId.StartsWith("device-frame.", StringComparison.Ordinal);
             AddKnowledgeSection(projection, block, "deviceProfile", "设备画像");
+            // 关联块清单始终输出：未钻取时用于选型+任务包展开，钻取时供一次 patternIds 拉全整套。
+            string[] related = ExtractRelatedPatternIds(block.Markdown);
+            if (related.Length > 0)
+            {
+                projection["relatedPatternIds"] = related;
+            }
             if (frameIndex)
             {
                 return projection;
@@ -282,6 +288,27 @@ namespace Automation.McpServer
             {
                 projection[fieldName] = value;
             }
+        }
+
+        private static string[] ExtractRelatedPatternIds(string markdown)
+        {
+            string section = ExtractKnowledgeSection(markdown, "关联块清单");
+            if (string.IsNullOrWhiteSpace(section))
+            {
+                return Array.Empty<string>();
+            }
+            var ids = new List<string>();
+            foreach (System.Text.RegularExpressions.Match match in
+                System.Text.RegularExpressions.Regex.Matches(
+                    section,
+                    @"[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)+"))
+            {
+                if (ids.All(id => !string.Equals(id, match.Value, StringComparison.Ordinal)))
+                {
+                    ids.Add(match.Value);
+                }
+            }
+            return ids.ToArray();
         }
 
         private static object? BuildFunctionalBlock(string topic)

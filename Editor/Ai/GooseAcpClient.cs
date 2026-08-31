@@ -39,7 +39,8 @@ namespace Automation
             bool isImage,
             byte[] data,
             string extractedText,
-            string error)
+            string error,
+            string previewDataUri = null)
         {
             Id = id ?? throw new ArgumentNullException(nameof(id));
             FileName = fileName ?? throw new ArgumentNullException(nameof(fileName));
@@ -49,6 +50,7 @@ namespace Automation
             Data = data ?? throw new ArgumentNullException(nameof(data));
             ExtractedText = extractedText;
             Error = error;
+            PreviewDataUri = previewDataUri;
         }
 
         public string Id { get; }
@@ -66,6 +68,9 @@ namespace Automation
         public string ExtractedText { get; }
 
         public string Error { get; }
+
+        // 图片附件的小尺寸缩略图 data URI；用于对话气泡与前端附件卡片的本地预览。
+        public string PreviewDataUri { get; }
     }
 
     public sealed class GooseAcpClient : IDisposable
@@ -1387,6 +1392,12 @@ namespace Automation
                 config.MaxOutputTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
             startInfo.EnvironmentVariables["GOOSE_TEMPERATURE"] =
                 config.Temperature.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // 思考强度决定推理模型在正式输出前的草稿长度；推理 token 计入输出预算，
+            // high 档会在大型工具调用参数前挤占空间（实测触发预演参数截断）。
+            startInfo.EnvironmentVariables["GOOSE_THINKING_EFFORT"] =
+                string.IsNullOrWhiteSpace(config.ThinkingEffort)
+                    ? GooseConfigStorage.DefaultThinkingEffort
+                    : config.ThinkingEffort.Trim();
             if (modelService != null)
             {
                 // 自定义服务只覆盖当前 EW-AI 子进程，避免污染 Goose 全局配置和其他应用。
@@ -1485,6 +1496,10 @@ namespace Automation
             startupInfo.Append(" maxTurns=").Append(config.MaxTurns);
             startupInfo.Append(" maxOutputTokens=").Append(config.MaxOutputTokens);
             startupInfo.Append(" temperature=").Append(config.Temperature);
+            startupInfo.Append(" thinkingEffort=").Append(
+                string.IsNullOrWhiteSpace(config.ThinkingEffort)
+                    ? GooseConfigStorage.DefaultThinkingEffort
+                    : config.ThinkingEffort.Trim());
             LogFile(startupInfo.ToString(), LogLevel.Normal);
             if (!string.IsNullOrWhiteSpace(skillProvisionMessage))
             {

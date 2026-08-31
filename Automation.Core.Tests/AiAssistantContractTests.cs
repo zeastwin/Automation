@@ -18,7 +18,15 @@ namespace Automation.Core.Tests
             GooseConfig config = GooseConfigStorage.CreateDefaultConfig();
 
             Assert.AreEqual(16384, config.MaxOutputTokens);
-            Assert.AreEqual(0.3d, config.Temperature, 0.000001d);
+            Assert.AreEqual(0.25d, config.Temperature, 0.000001d);
+            // 默认 high 且由平台统一接管，不开放用户调整：high 档是多流程骨架
+            // 任务多步自主推进的驱动力（15:58 实测 medium 档每轮只建一个流程就
+            // 收束），截断风险由"单次预演动作数有界"的知识规则与预演失败自愈兜底。
+            Assert.AreEqual(GooseConfigStorage.DefaultThinkingEffort, config.ThinkingEffort);
+            Assert.AreEqual("high", config.ThinkingEffort);
+            CollectionAssert.AreEquivalent(
+                new[] { "low", "medium", "high" },
+                GooseConfigStorage.SupportedThinkingEfforts);
         }
 
         [TestMethod]
@@ -321,6 +329,34 @@ namespace Automation.Core.Tests
 
             Assert.AreEqual(AiPreviewObservationKind.Applied, coordinator.Observe(applied, false).Kind);
             Assert.AreEqual(AiPreviewObservationKind.None, coordinator.Observe(incomplete, false).Kind);
+        }
+
+        [TestMethod]
+        public void PreviewObservation_ConfirmedPreviewAllowsProjectionWithoutDisplayFields()
+        {
+            // 自动批准下模型收到的确认结果不含弹窗展示字段（changes/messages），
+            // 前台仍需识别 Confirmed 以记录 preview.decided，不得误判为 None。
+            var coordinator = new AiPreviewConfirmationCoordinator();
+            JObject confirmed = BuildToolResult(
+                "change_set.preview",
+                new JObject
+                {
+                    ["previewId"] = "0123456789abcdef0123456789abcdef",
+                    ["confirmed"] = true,
+                    ["status"] = "confirmed"
+                });
+            // 等待前台确认的结果仍必须携带展示字段，缺失视为无效投影。
+            JObject awaiting = BuildToolResult(
+                "change_set.preview",
+                new JObject
+                {
+                    ["previewId"] = "fedcba9876543210fedcba9876543210",
+                    ["confirmed"] = false,
+                    ["status"] = "awaiting_confirmation"
+                });
+
+            Assert.AreEqual(AiPreviewObservationKind.Confirmed, coordinator.Observe(confirmed, true).Kind);
+            Assert.AreEqual(AiPreviewObservationKind.None, coordinator.Observe(awaiting, false).Kind);
         }
 
         [TestMethod]

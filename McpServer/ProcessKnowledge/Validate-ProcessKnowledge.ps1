@@ -1,8 +1,13 @@
-[CmdletBinding()]
+﻿﻿[CmdletBinding()]
 param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Test-Json 仅在 pwsh 6+ 提供；检测到缺失时给出可行动指引，避免晦涩报错。
+if (-not (Get-Command Test-Json -ErrorAction SilentlyContinue)) {
+    throw '当前 PowerShell 缺少 Test-Json 命令，请改用 PowerShell 7+ 运行：pwsh -NoProfile -ExecutionPolicy Bypass -File 此脚本路径。'
+}
 
 $knowledgeRoot = $PSScriptRoot
 $schema = Get-Content -LiteralPath (Join-Path $knowledgeRoot 'schema.json') -Raw
@@ -22,6 +27,7 @@ $requiredHeadings = @(
     '## 参考阶段',
     '## 完成证据',
     '## 失败、超时与恢复',
+    '## 反模式',
     '## 幂等与甄别结论'
 )
 # 设备框架块使用独立结构（回答"针对某种设备怎么搭流程框架"），topics 固定 composition。
@@ -32,6 +38,7 @@ $requiredFrameHeadings = @(
     '## 框架变化点',
     '## 搭建顺序',
     '## 完成证据',
+    '## 关联块清单',
     '## 幂等与甄别结论'
 )
 $forbiddenTerms = @(

@@ -11,10 +11,10 @@
 | 进料缓冲 | 物料流入、上游要料、状态推进 | 缓冲区流程+作业台流程 | transfer.pipeline-station-triad |
 | 点胶作业 | 拍照定位→补偿→画胶→关胶 | 点胶作业流程 | vision.positioning-and-correct |
 | 材料维护 | 排胶/擦胶/开胶/校准针头/称重 | 独立维护流程组 | dispensing.service-material-path、dispensing.calibrate-needle-offset |
-| 质量控制 | 胶路复检、NG 抛料 | 复检流程+抛料流程 | quality.reject-and-divert |
-| 耗材监控 | 液位、胶量闭环 | 常驻小流程 | monitoring.resource-watchdog |
+| 质量控制 | 胶路复检、NG 抛料 | 复检流程（OK/NG/重测三分叉）+抛料流程 | quality.reject-and-divert |
+| 耗材监控 | 液位、胶量闭环（不含门禁） | 常驻小流程 | monitoring.resource-watchdog |
 | 追溯事务 | RFID 进站/MES 出站 | 进出站流程 | identify.read-and-bind-carrier、transaction.submit-trace-record |
-| 系统服务 | 复位/启动/门禁/状态灯 | 复位总流程+常驻 | reset.system-and-station-reinit、monitoring.system-service-listeners |
+| 系统服务 | 复位/启动执行流、按钮监听、状态灯 | 空白项目默认自带五件套——"复位"与"启动流程"是执行流，"检测复位按钮"/"检测启动按钮"/"检测系统状态"是自启常驻服务（监听按钮、门控触发执行流、驱动三色灯）；先核对，已存在的复用，缺失的按此形态补齐，资源绑不上的动作先用占位落地；门禁独立常驻 | reset.system-and-station-reinit、monitoring.system-service-listeners |
 | 验证配套 | 空跑调机、GRR | 成对流程 | quality.dry-run-and-grr-pair |
 
 ## 单元间衔接
@@ -27,11 +27,55 @@
 
 ## 搭建顺序
 
-复位族+系统服务 → 门禁/液位常驻 → 缓冲三件套骨架 → 点胶作业（先运动后视觉纠偏后 IO）→ 维护流程组 → RFID/MES 进出站 → 复检与抛料 → 空跑配套。
+系统服务核对（复位/启动/检测复位按钮/检测启动按钮/检测系统状态默认自带，已存在的复用，缺失的按执行流+常驻服务分离的形态补齐，资源绑不上先用占位落地）→ 门禁独立常驻+液位监控 → 缓冲三件套骨架 → 点胶作业（先运动后视觉纠偏后 IO）→ 维护流程组 → RFID/MES 进出站 → 复检与抛料 → 空跑配套。变化点（工位数、称重闭环、复检配套）按默认假设先建，分歧项集中写进骨架答复。
 
 ## 完成证据
 
 一个完整物料周期走通"进站→缓冲→纠偏点胶→复检→出站上传"且账目一致；维护流程可在生产外独立触发并恢复就绪；空跑旁路上报。
+
+## 关联块清单
+
+- `transfer.pipeline-station-triad`
+- `vision.positioning-and-correct`
+- `dispensing.service-material-path`
+- `dispensing.calibrate-needle-offset`
+- `quality.reject-and-divert`
+- `monitoring.resource-watchdog`
+- `identify.read-and-bind-carrier`
+- `transaction.submit-trace-record`
+- `reset.system-and-station-reinit`
+- `monitoring.system-service-listeners`
+- `quality.dry-run-and-grr-pair`
+- `variables.design`
+- `data-struct.design`
+- `custom-function.code-process-collaboration`
+- `observability.design`
+
+## 反模式
+
+- **先建作业后建骨架**：直接开写点胶作业流程，没有缓冲三件套承载状态，作业无处触发。按搭建顺序先骨架后工艺。
+- **维护与作业互相等待**：作业等维护就绪、维护又等作业让出，双方死等。维护触发与恢复由明确的就绪标记单向驱动。
+- **NG 只抛不记账**：抛料完成但结构体身份记录没更新，账目对不上实物。抛料与记录更新成对。
+- **系统五件套漏建**：只建业务流程不核对系统服务，按钮/灯/复位无人管。搭建前先核对五件套。
+
+## 黄金样例
+
+> 来源：`HSG_Primer点胶(大小料合并)_0805(联丰)`。只取流程族构成、步骤职责与排序理由；所有坐标、穴位数、时长、信号编号按当前项目重建。
+
+**流程族清单**（21 个流程，即框架单元的落地形态）：复位总流程、主流程启动、点胶工站复位、门禁监控、报警处理｜BC点胶缓冲区、BC点胶工作台、BC点胶作业、点胶画圆参数｜排胶、擦胶、IO擦胶、开胶、检查胶路、称重、CCD标定、相机动态｜进站读取RFID、出站写入RFID、MES出站上传。系统执行流（复位/启动）与常驻服务（按钮检测/门禁/报警）分离，维护流程组独立成族——这就是"单元构成"的直接映射。
+
+**BC点胶缓冲区骨架**（九态 + 报警兜底，10 步）：
+
+| 步骤 | 职责 | 为什么这样排 |
+|---|---|---|
+| 作业台进料Ready | 检查模式与耗材门控，未屏蔽时向上游发要料 | 耗材门控（针头时长/胶水失效）前置，避免装料后才发现不能作业 |
+| 进料Running/Finish | 物料流入推进，结构体（SN/载具码）随料传递 | 状态每步推进带门控，进料完成才进工作段 |
+| 工作Ready→Running | 触发 BC点胶作业，等结束 | 作业只在此窗口执行，物理上不可能在进料途中被加工 |
+| 工作Finish | 作业结果写回结构体 | NG 标志随料流转，出站侧按它分流 |
+| 出料Ready→Running→Finish | 出料阻挡按下游状态放行 | 下游不收就持料等待，不硬塞 |
+| 报警处理 | 气缸回原+状态初始化，跳回第一步 | 兜底步让任何报警恢复都回到已知循环起点 |
+
+**BC点胶作业骨架**（7 步）：排擦胶 → BC拍照 → BC点胶 → 记录NG产品到RF → 记录产量 → 排胶 → 结束。排序理由：排擦胶在前保证胶路状态一致（维护未做则出胶质量不可信）；拍照紧邻点胶（偏差实时性最高）；NG 记录在搬走前写（防丢因）；产量与排胶收尾（每循环账目闭合）。作业流程内不含状态机推进——它只消费 Work_Running 窗口。
 
 ## 幂等与甄别结论
 

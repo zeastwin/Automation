@@ -1495,6 +1495,13 @@ namespace Automation.McpServer
                     ["allowedTransitions"] = new JsonArray("apply", "discard"),
                     ["readinessStatus"] = "incomplete",
                     ["runnable"] = false,
+                    ["changes"] = new JsonArray(new JsonObject
+                    {
+                        ["type"] = "process.delete",
+                        ["procId"] = "proc-1",
+                        ["name"] = "示例流程"
+                    }),
+                    ["messages"] = new JsonArray("本次将删除 1 个流程。"),
                     ["createdObjects"] = new JsonObject
                     {
                         ["operations"] = new JsonArray(new JsonObject
@@ -1534,6 +1541,11 @@ namespace Automation.McpServer
             if (data["previewId"]?.GetValue<string>() != "preview-1"
                 || data["status"]?.GetValue<string>() != "confirmed"
                 || (data["allowedTransitions"] as JsonArray)?.Count != 2
+                || data["changes"] is not JsonArray changes
+                || changes.Count != 1
+                || (changes[0] as JsonObject)?["procId"]?.GetValue<string>() != "proc-1"
+                || data["messages"] is not JsonArray messages
+                || messages.Count != 1
                 || operation["opId"]?.GetValue<string>() != "op-1"
                 || operation.ContainsKey("redundant")
                 || pendingItem?["pointName"]?.GetValue<string>() != "取料位"
@@ -1541,7 +1553,7 @@ namespace Automation.McpServer
                 || data.ContainsKey("processSnapshot"))
             {
                 throw new InvalidOperationException(
-                    "preview_change_set 紧凑结果丢失确认状态、稳定身份或待补齐清单，或仍携带重复的流程快照。");
+                    "preview_change_set 紧凑结果丢失确认状态、变化明细、摘要文案、稳定身份或待补齐清单，或仍携带重复的流程快照。");
             }
             // 失败结果（含 bindingRepair 等修复候选）必须原样透传，不得被压缩丢弃。
             string failure = new JsonObject

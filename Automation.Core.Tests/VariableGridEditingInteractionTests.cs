@@ -2,10 +2,12 @@
 // 职责范围：验证变量名称、当前值的鼠标编辑入口和关键列宽。
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
+using Automation.Protocol;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Automation.Core.Tests
@@ -83,6 +85,71 @@ namespace Automation.Core.Tests
                         "作用域节点不应创建原生悬停提示窗口。");
                 }
             }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
+        public void VariableScopeOptions_AddFirstProcessAtRuntime_RetainsTextAndDropDown()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var main = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    FrmValue form = main.frmValue;
+                    DataGridView grid = form.dgvValue;
+                    form.CreateControl();
+                    grid.CreateControl();
+                    form.RefreshFromStore();
+
+                    Proc process = TestProcessFactory.CreateEndingProcess("计数器循环");
+                    main.Runtime.Stores.Processes.Items.Add(process);
+                    var variables = new Dictionary<string, DicValue>
+                    {
+                        ["Counter"] = new DicValue
+                        {
+                            Id = Guid.NewGuid(),
+                            Index = 0,
+                            Name = "Counter",
+                            Type = "double",
+                            Scope = VariableScopeContract.Process,
+                            OwnerProcId = process.head.Id,
+                            Value = "0"
+                        }
+                    };
+                    Assert.IsTrue(
+                        main.Runtime.Stores.Values.TryCommitConfiguration(
+                            main.Runtime.Paths.ConfigPath,
+                            variables,
+                            out string error),
+                        error);
+
+                    form.RefreshFromStore();
+
+                    DataGridViewComboBoxColumn scopeColumn =
+                        ReadPrivateField<DataGridViewComboBoxColumn>(form, "scopeColumn");
+                    DataGridViewCell scopeCell = grid.Rows[0].Cells[scopeColumn.Index];
+                    Assert.AreEqual(
+                        "计数器循环",
+                        Convert.ToString(scopeCell.FormattedValue),
+                        "运行中新增首个流程后，作用域列不应显示选项对象的类型名。");
+
+                    InvokeCellMouseDoubleClick(
+                        form,
+                        grid,
+                        scopeColumn.Index,
+                        0,
+                        MouseButtons.Left);
+
+                    Assert.AreSame(scopeCell, grid.CurrentCell);
+                    Assert.IsTrue(
+                        grid.IsCurrentCellInEditMode,
+                        "新增流程对应的作用域单元格应继续允许下拉编辑。");
+                    Assert.IsInstanceOfType(
+                        grid.EditingControl,
+                        typeof(DataGridViewComboBoxEditingControl));
+                }
+            }, TimeSpan.FromSeconds(20));
         }
 
         [TestMethod]

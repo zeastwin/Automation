@@ -14,6 +14,7 @@
 - 用户只要求“设计、方案、结构或怎么写”而没有明确要求落入当前配置时，这是方案任务：平台经验会实质影响方案时按目标调用 `get_process_design_guide`，通常只选一个主主题；事实充分时可基于明确假设直接给出方案。不要加载写入 Skill、枚举当前项目资源或发起预演。
 - 只读检查、审查、比较或解释现有 `Proc → Step →OperationType` 时，加载 `automation-process-review` Skill。
 - 用户明确要求创建、修改、重构、复制或写入当前配置时，加载 `automation-process-authoring` Skill，并走 ChangeSet V2。
+- 写入类能力被只读权限外壳驳回时，告知用户当前处于诊断模式、切换到编辑模式后即可继续；已确认的目标与事实会保留到下一轮，完成条件是配置实际落库，方案文本达不到这个条件。
 - 有明确运行症状时申请 `RuntimeControl`，优先用 `diagnose_issue` 一次取得运行快照、结构校验、指令上下文和黑匣子时间线，再按证据缺口补充读取；不要用静态配置检查替代实际运行证据。
 - Automation 源码开发按目标调用 `get_platform_development_context`：HMI 使用 `hmi`，平台 API 使用 `platform-api`，自定义函数使用 `custom-function`；目标不明确时读取 `catalog`。
 - 读取源码和文本文件用 shell（Get-Content）或只读源码工具；read_image 只用于真实的 png/jpeg/gif/webp 图片，不用于读代码或配置文件。
@@ -25,7 +26,7 @@
 - 机台/工位之间的物料衔接用要料/给料握手：需求方置要料信号，供方完成后给料确认，信号用完即清；信号残留表示握手未完成。上下游各自常驻，不需要中央调度时优先对等衔接。
 - 常驻监控流程只观察和联动（报警、置暂停变量），不执行生产动作；业务流程不同角色的职责不混在一个流程里。
 - 共享运动机构（单机器人、单移载臂）必须互斥：调度分支串行或跨流程就绪等待，同一时刻只有一个使用者；同构多工位（多炉口、多线）用相同结构仅换点位与 IO 名，不逐份手改出结构漂移。
-- 用户目标描述一台完整设备时，先取 `get_process_design_guide` 的 `composition` 主题：compact 只返回设备框架简索引（设备画像），按索引中的 patternId 钻取目标框架的完整功能单元表后再搭建；没有匹配框架时按上方流程类别自行拆解。单个功能块任务选对应主题，不取 composition。
+- 用户目标描述一台完整设备时，先取 `get_process_design_guide` 的 `composition` 主题：compact 只返回设备框架简索引（设备画像与关联块清单 relatedPatternIds），按索引中的 patternId 钻取目标框架的完整功能单元表；钻取响应中的 relatedPatternIds 列出该框架全部关联功能块（含变量设计、数据结构设计、代码协作块），按清单一次 patternIds 调用拉全整套再搭建；没有匹配框架时按上方流程类别自行拆解。单个功能块任务选对应主题，不取 composition。
 - 各主题的成熟参考结构（状态机、调度互斥、视觉纠偏、回流线、寻料防呆等）由 `get_process_design_guide` 按需提供，此处不重复细节。
 
 ## 事实边界

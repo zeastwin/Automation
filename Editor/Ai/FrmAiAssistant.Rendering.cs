@@ -778,7 +778,8 @@ namespace Automation
             // 折叠必须同时把滚动区内联高度压到 32px。
             // textContent 按纯文本赋值、不解析 HTML 实体，标题内容又是代码生成的受控文本，
             // 这里不得做 HtmlEncode，否则 "·" 会以 &#183; 原样显示。
-            string js = "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.scrollTop=0;box.style.maxHeight='32px';var wrap=box.closest('.thinking-box');if(wrap){wrap.classList.add('collapsed');}var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='"
+            string js = "if(window.flushPendingPromotes){flushPendingPromotes();}"
+                + "var box=document.getElementById('" + currentThinkingBoxId + "');if(box){box.scrollTop=0;box.style.maxHeight='32px';var wrap=box.closest('.thinking-box');if(wrap){wrap.classList.add('collapsed');}var bar=box.querySelector('.toggle-bar');if(bar){bar.textContent='"
                 + title + "';}var btn=wrap?wrap.querySelector('.follow-btn'):null;if(btn){btn.classList.remove('visible');}}";
             EnqueueScript(js);
             currentThinkingBoxId = null;
@@ -947,9 +948,9 @@ namespace Automation
             PushStreamSegmentFrame(streamingThoughtDivId, streamingThoughtMarkdown.ToString(), replayingTaskEvents);
         }
 
-        // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义，Goose 消息走 Markdown→HTML。
+        // 追加对话消息：根据 role/color 决定 CSS 类，用户消息纯文本转义（图片附件渲染为缩略图行），Goose 消息走 Markdown→HTML。
         private void AppendConversation(string role, string text, Color color, DateTime? messageTime = null,
-            string visualizationJson = null)
+            string visualizationJson = null, IReadOnlyList<string> imagePreviews = null)
         {
             if (webViewConversation == null || webViewConversation.IsDisposed)
             {
@@ -962,7 +963,7 @@ namespace Automation
             if (role == "用户")
             {
                 cls = "msg user";
-                contentHtml = HtmlEncode(text);
+                contentHtml = BuildUserMessageImagesHtml(imagePreviews) + HtmlEncode(text);
             }
             else if (role == "EW-AI")
             {
@@ -987,6 +988,28 @@ namespace Automation
             EnqueueAppendHtml(html);
         }
 
+        // 用户消息的图片缩略图行；data URI 只包含 base64 安全字符，无需再转义。
+        private static string BuildUserMessageImagesHtml(IReadOnlyList<string> imagePreviews)
+        {
+            if (imagePreviews == null || imagePreviews.Count == 0)
+            {
+                return string.Empty;
+            }
+            var builder = new StringBuilder("<div class=\"msg-images\">");
+            foreach (string preview in imagePreviews)
+            {
+                if (string.IsNullOrWhiteSpace(preview))
+                {
+                    continue;
+                }
+                builder.Append("<img class=\"msg-image\" src=\"")
+                    .Append(preview)
+                    .Append("\" alt=\"图片附件\">");
+            }
+            builder.Append("</div>");
+            return builder.ToString();
+        }
+
         // 更新对话区正式回复的流式帧：稳定 Markdown 实时渲染 + 未完成尾部由前端打字机逐字显示。
         private void UpdateStreamingPreview()
         {
@@ -1001,7 +1024,8 @@ namespace Automation
         private void EnqueueAppendHtml(string html)
         {
             string htmlJson = JsonConvert.SerializeObject(html);
-            string js = "var box=document.getElementById('messages');"
+            string js = "if(window.flushPendingPromotes){flushPendingPromotes();}"
+                + "var box=document.getElementById('messages');"
                 + "if(box){var tpl=document.createElement('template');tpl.innerHTML=" + htmlJson + ";"
                 + "var incoming=tpl.content.firstElementChild;var last=box.lastElementChild;"
                 // 思考指示器虽带 assistant class，但不是正式消息；新消息不得合并进它（会被指示器移除连带删除）。

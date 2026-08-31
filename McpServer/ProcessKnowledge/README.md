@@ -24,9 +24,19 @@
 
 ## 当前库存
 
-- 32 个功能/设备框架块（25 个功能块 + 7 个 `device-frame.*` 单机设备框架），20 个来源项目（`provenance/sources.json` 含逐项目甄别结论与 manifest SHA256）。
-- 17 个主题（core + 16），`composition` 只针对单台设备（多机台产线编排不收录）；`get_process_design_guide` 支持 patternIds 按块钻取，库变大后先 compact 取索引再收窄目标块。
+- 48 个功能/设备框架块（26 个功能块 + 13 个 `device-frame.*` 单机设备框架 + 7 个 20260828 批次新功能块 + 数据设计层 2 块 + `observability.design`），来源 129 个证据包（`provenance/sources.json` 含逐包甄别结论与 manifest SHA256；20260828 批次按同型号结构族去重深审代表机）。设备框架覆盖形态去重结论：129 包 ≈ 60 独立型号 ≈ 15~18 形态族，已立 13 框架；单包弱证据形态（NA/Sedona 组装类、Coil-UV、镀膜插锅机等）暂不立框架，等同类第二例出现再立。
+- 17 个主题（core + 16），`composition` 只针对单台设备（多机台产线编排不收录）；`get_process_design_guide` 支持 patternIds 按块钻取，库变大后先 compact 取索引再收窄目标块；设备框架钻取响应带 `relatedPatternIds` 任务包清单，按清单一次拉全关联块。
+- 20260828 批次确认了两类设备软件形态：NS 全流程平台（流程直接控制轴与 IO）与 PLC 主控-PC 采集代理（PC 只做信息代理）；后者由 `device-frame.acquisition-proxy` 与 communication.* 块覆盖。
 - 主检索维度是 `capabilities`；`topics` 决定 `get_process_design_guide` 按主题返回哪些块。设备和工艺只是多值标签，不建立额外树形目录；真实差异直接写入规范的"当前事实与适配"章节，出现实际复用压力后再建立新抽象。
+
+## 块结构增强（20260829 批次）
+
+在原有"规则型"结构上补充四个正交维度，全部寄宿在现有块与框架内，不新增获取机制：
+
+1. **反模式**：每个功能块含 4~5 条"别这样做 + 后果 + 正确做法"（校验脚本强制 `## 反模式` 节），设备框架含框架级搭建陷阱。
+2. **定量参考惯例**：`variables.design`（超时/去抖/重试/节拍典型起步值）与 `data-struct.design`（容量与落盘周期）；标注"起步值，现场定型"，防止模型拍脑袋也防止照抄历史数值。
+3. **权衡裁决顺序**：`ProcessDesignGuide.md` core 区新增"规则冲突时的裁决顺序"（安全 > 正确 > 可查 > 效率），冲突时按序裁决不随机选边。
+4. **黄金样例**：设备框架的 `## 黄金样例` 节（可选）挂真实项目流程族骨架 + 逐段排序理由，只取结构与顺序，参数按当前项目重建；13 个设备框架全部覆盖（联丰素材 + NA/AutoRoxer/Crown/拆盖板/SIP-TO-HSG/LCF-MLA）。
 
 ## 主题契约（硬约束，违者 MCP 启动拒启）
 

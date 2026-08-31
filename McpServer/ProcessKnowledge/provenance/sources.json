@@ -141,6 +141,769 @@
       "packageLocator": "Transform4SNsdemo/runs/likai-standstill-knowledge",
       "manifestSha256": "88cd15a79bfb75bb279335e1c010c925abea20cec5092e56a8ed10d3fed6a116",
       "reviewConclusion": "只吸收多线同构复制+九态状态机+队列结构体起始时间计时+出料后自动靠拢、多阻挡气缸按位接力放行、集中停止所有流水线协调流程、进出移栽接力与门禁系统级检测；不吸收1-5号线逐份复制文本、固定Sleep 10s、固定线数5。"
+    },
+    {
+      "sourceId": "be-镀膜自助插锅机-小款-0920-修改速度",
+      "displayName": "be-镀膜自助插锅机-小款-0920-修改速度",
+      "packageLocator": "Transform4SNsdemo/runs/be-镀膜自助插锅机-小款-0920-修改速度-knowledge",
+      "manifestSha256": "e2db2b4d1fc2a8aaaf102f4969511e9e38ad70450cc860d850e47cf52b85ee51",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "be-镀膜自助插锅机-小款-0922-修改禁用吸嘴",
+      "displayName": "be-镀膜自助插锅机-小款-0922-修改禁用吸嘴",
+      "packageLocator": "Transform4SNsdemo/runs/be-镀膜自助插锅机-小款-0922-修改禁用吸嘴-knowledge",
+      "manifestSha256": "a6e118f5a0b366b72d5b728d368ea2f3daa6a8b1910aa6c01cabbb2eefd8479d",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机",
+      "displayName": "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机",
+      "packageLocator": "Transform4SNsdemo/runs/be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机-knowledge",
+      "manifestSha256": "e20e32bca4b8bda46e05def34f210844a05c07856c9796559dfe5ac4e7f8d421",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "be-RcamNsDemo3号机_3-0_20250514",
+      "displayName": "be-RcamNsDemo3号机_3-0_20250514",
+      "packageLocator": "Transform4SNsdemo/runs/be-RcamNsDemo3号机_3-0_20250514-knowledge",
+      "manifestSha256": "7ed5bff9f70640cf8b29cfb550b3578c59dcfe241d50952a9d491436f10d2c8b",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "by-1_LCF_11G_2025-04_10-57-上传+保压检测",
+      "displayName": "by-1_LCF_11G_2025-04_10-57-上传+保压检测",
+      "packageLocator": "Transform4SNsdemo/runs/by-1_LCF_11G_2025-04_10-57-上传+保压检测-knowledge",
+      "manifestSha256": "ef94b9225e18a3377fcd2b0a2ef1a15156d85c52d1a4e07423c13d1b1608e706",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-AutoRoxerS2-and-S4-2",
+      "displayName": "cd-AutoRoxerS2-and-S4-2",
+      "packageLocator": "Transform4SNsdemo/runs/cd-AutoRoxerS2-and-S4-2-knowledge",
+      "manifestSha256": "e232d4435f21bae229266ff82b0b9961f4f1e2ec7d66fd167fa6bb5447690a99",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-AutoRoxerS2-and-S4",
+      "displayName": "cd-AutoRoxerS2-and-S4",
+      "packageLocator": "Transform4SNsdemo/runs/cd-AutoRoxerS2-and-S4-knowledge",
+      "manifestSha256": "4e7a0a8012cd82cd90e84aa95b802ba702c06c861fb48cac6aaf21f40d1fa8f4",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_2P-Flux_V3-0-1_20240917",
+      "displayName": "cd-CD_2P-Flux_V3-0-1_20240917",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_2P-Flux_V3-0-1_20240917-knowledge",
+      "manifestSha256": "1b836d774d105f1d221d08b845562cf070d079b4a578f7fb4069f042e0738548",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_3P-Flux_V3-1-1_20250506",
+      "displayName": "cd-CD_3P-Flux_V3-1-1_20250506",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_3P-Flux_V3-1-1_20250506-knowledge",
+      "manifestSha256": "1246a3a93fbe31d81535d224c5c03cccde8f96c1d7d70a5db567238dbc26ccdd",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_AutoRoxer_LG_S1-and-S3_V3-0-1_20240926",
+      "displayName": "cd-CD_AutoRoxer_LG_S1-and-S3_V3-0-1_20240926",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_AutoRoxer_LG_S1-and-S3_V3-0-1_20240926-knowledge",
+      "manifestSha256": "795f5963863104da9e11c96f57c0827a39719bfeb77ada22b3f1da585ce4eb52",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_AutoRoxer_SM_S1-and-S3_V3-0-1_20240926",
+      "displayName": "cd-CD_AutoRoxer_SM_S1-and-S3_V3-0-1_20240926",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_AutoRoxer_SM_S1-and-S3_V3-0-1_20240926-knowledge",
+      "manifestSha256": "64df8d497830a0a8b94d48d0dea93d5ec86d00cf6de2fe785213a5a8fb9537a9",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_LG_1-2-_V3-2-1_20250513",
+      "displayName": "cd-CD_Battery_LG_1-2-_V3-2-1_20250513",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_LG_1-2-_V3-2-1_20250513-knowledge",
+      "manifestSha256": "978e5216b6818a6d3098e5128afa20a55c6f31b27c16432ce409925304092134",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_LG_3-_V3-2-1_20250514",
+      "displayName": "cd-CD_Battery_LG_3-_V3-2-1_20250514",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_LG_3-_V3-2-1_20250514-knowledge",
+      "manifestSha256": "bba5cc88931bd5ea3a78192c2a128030e7104fde5722d6cc9f21dd5bcbe3f34c",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_LG_4-_3-1-1_20240908",
+      "displayName": "cd-CD_Battery_LG_4-_3-1-1_20240908",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_LG_4-_3-1-1_20240908-knowledge",
+      "manifestSha256": "f7ce4a399794af2b612d1e8dbb583ee49b6a689c164fbf6534b00125331cb6ed",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_LG_6-_V3-2-1_20250721",
+      "displayName": "cd-CD_Battery_LG_6-_V3-2-1_20250721",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_LG_6-_V3-2-1_20250721-knowledge",
+      "manifestSha256": "ed220ce02e5199a768f12f04a78a9d9d1ce92f9c503b208eda4c532f58a9fcc6",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_SM_1-2-_V3-1-1_20240908",
+      "displayName": "cd-CD_Battery_SM_1-2-_V3-1-1_20240908",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_SM_1-2-_V3-1-1_20240908-knowledge",
+      "manifestSha256": "65f9c3f4d7f828c7619f71d28e37d3a4222550768a6eb9aaead46a980ddc0e69",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_SM_3-_V3-2-1_20250514",
+      "displayName": "cd-CD_Battery_SM_3-_V3-2-1_20250514",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_SM_3-_V3-2-1_20250514-knowledge",
+      "manifestSha256": "a38ae19d466be3fc7715f1bf87c188f27f62ce9e33848697d57259bb4a2ab6c9",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_SM_4-_V3-1-1_20240908",
+      "displayName": "cd-CD_Battery_SM_4-_V3-1-1_20240908",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_SM_4-_V3-1-1_20240908-knowledge",
+      "manifestSha256": "9f6062cae339caf7c6a72871ada70798b069775cd8d22fa821882685498bd225",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Battery_SM_6-_V3-2-1_20250515",
+      "displayName": "cd-CD_Battery_SM_6-_V3-2-1_20250515",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Battery_SM_6-_V3-2-1_20250515-knowledge",
+      "manifestSha256": "fb811dca936bdb007d538cfd9fabded1a20a033dc30c4abf978dd48f7d00dd98",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Coil-UV_V3-1-1_20250505",
+      "displayName": "cd-CD_Coil-UV_V3-1-1_20250505",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Coil-UV_V3-1-1_20250505-knowledge",
+      "manifestSha256": "63d9d39f1cbce1c0d39f6a40870384ac1f341c31ac47c48541b1d17d32cf63a9",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_DC-Shield_A_V3-1-2_20250919",
+      "displayName": "cd-CD_DC-Shield_A_V3-1-2_20250919",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_DC-Shield_A_V3-1-2_20250919-knowledge",
+      "manifestSha256": "7f91ca03f0296f7c28092b9a7bc3e2ce167126ee888235c96e4418f6e1d4a3f2",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_DC-Shield_B_V3-1-2_20250919",
+      "displayName": "cd-CD_DC-Shield_B_V3-1-2_20250919",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_DC-Shield_B_V3-1-2_20250919-knowledge",
+      "manifestSha256": "5a18612bf2d046a85acc2fac7141954881a0211cef526bd81ce570f84a39977e",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Load_V3-1-1_20250512",
+      "displayName": "cd-CD_Load_V3-1-1_20250512",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Load_V3-1-1_20250512-knowledge",
+      "manifestSha256": "86ea9bf9340221f96d4e5b2c9be7924f53e935a61bd9b8a04ba68a5415e93d62",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_NA_V3-1-1_20250918",
+      "displayName": "cd-CD_NA_V3-1-1_20250918",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_NA_V3-1-1_20250918-knowledge",
+      "manifestSha256": "5b2c7c366327c73de96ba913a4f710ba70714921b83168b6374151db3801a038",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_PNP_V3-1-1_20250915",
+      "displayName": "cd-CD_PNP_V3-1-1_20250915",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_PNP_V3-1-1_20250915-knowledge",
+      "manifestSha256": "729ececd16a493ed5c47c12887ac3d3c673f933080e181c125b017b78cfda2df",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Sedona_V3-1-1_20250925",
+      "displayName": "cd-CD_Sedona_V3-1-1_20250925",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Sedona_V3-1-1_20250925-knowledge",
+      "manifestSha256": "c5eb9fdcca0b305731ffc9fbf4f354c21c5b85b4a1af787560b4b5b8dfc05bb4",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-CD_Unload_V3-1-1_20250605",
+      "displayName": "cd-CD_Unload_V3-1-1_20250605",
+      "packageLocator": "Transform4SNsdemo/runs/cd-CD_Unload_V3-1-1_20250605-knowledge",
+      "manifestSha256": "a406819dd23b8ae796e2efa5925f9cc1cdb8e6d57ae0c12c4a22951e9d0e95d6",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-DataMining-2",
+      "displayName": "cd-DataMining-2",
+      "packageLocator": "Transform4SNsdemo/runs/cd-DataMining-2-knowledge",
+      "manifestSha256": "90a128cc32ae2d081021283b0be1867f651b9bea7fcb25aa2c3f65978d993b6e",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-DataMining-3",
+      "displayName": "cd-DataMining-3",
+      "packageLocator": "Transform4SNsdemo/runs/cd-DataMining-3-knowledge",
+      "manifestSha256": "49f94b23618d1c2ad7303a7f91b51491c147bb1eba1137d663c852129cd79f84",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-DataMining",
+      "displayName": "cd-DataMining",
+      "packageLocator": "Transform4SNsdemo/runs/cd-DataMining-knowledge",
+      "manifestSha256": "984c1bf8213b05746d125c77cefea79fb2d1d483da4c1a0211d29284ca188393",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-SIPTOHSG-S1-202505101100_A6",
+      "displayName": "cd-SIPTOHSG-S1-202505101100_A6",
+      "packageLocator": "Transform4SNsdemo/runs/cd-SIPTOHSG-S1-202505101100_A6-knowledge",
+      "manifestSha256": "5b40a6c4029391263426f5d68ad7cc291461e334dd085440144cb0e583a92304",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-SIPTOHSG-S2-202505101400_A6",
+      "displayName": "cd-SIPTOHSG-S2-202505101400_A6",
+      "packageLocator": "Transform4SNsdemo/runs/cd-SIPTOHSG-S2-202505101400_A6-knowledge",
+      "manifestSha256": "7385b2e6902de1ead65064ac1a3f0a175c87c8cd152da01bf950d8c44d589854",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-SIPTOHSG-S5-202505161400_A6",
+      "displayName": "cd-SIPTOHSG-S5-202505161400_A6",
+      "packageLocator": "Transform4SNsdemo/runs/cd-SIPTOHSG-S5-202505161400_A6-knowledge",
+      "manifestSha256": "4c9d606344ff9454ca727ae721369bb64d6dbf719200c40fc261e945cab819fe",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "cd-SIPTOHSG-S7-202506141700_A6",
+      "displayName": "cd-SIPTOHSG-S7-202506141700_A6",
+      "packageLocator": "Transform4SNsdemo/runs/cd-SIPTOHSG-S7-202506141700_A6-knowledge",
+      "manifestSha256": "63065cd8f8f874cd3be27a1cd543f41626b631521a6b7cc11d832d47b209eead",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-1-2-4-0-1-20250219-新增SW上传-增加数据库密码",
+      "displayName": "js-1-2-4-0-1-20250219-新增SW上传-增加数据库密码",
+      "packageLocator": "Transform4SNsdemo/runs/js-1-2-4-0-1-20250219-新增SW上传-增加数据库密码-knowledge",
+      "manifestSha256": "282dfd2bf316bfbd1a08a9c65d9671cfbaff8c7a5d1b13ee354d863e9dea0f07",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-1-2-4-0-1-20250424-调机验证完成",
+      "displayName": "js-1-2-4-0-1-20250424-调机验证完成",
+      "packageLocator": "Transform4SNsdemo/runs/js-1-2-4-0-1-20250424-调机验证完成-knowledge",
+      "manifestSha256": "2b27d9ce5dc317a5fd4c64ae2f2465cd7a9d784bca4b4fe086191f1d6f20f09c",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-3-4-0-1-20250424-调机验证完成",
+      "displayName": "js-3-4-0-1-20250424-调机验证完成",
+      "packageLocator": "Transform4SNsdemo/runs/js-3-4-0-1-20250424-调机验证完成-knowledge",
+      "manifestSha256": "2e15ff8deaf85417920aef73510c0c37128e5dabc60c348b56d34c7b5a8a20de",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-3-Battery",
+      "displayName": "js-3-Battery",
+      "packageLocator": "Transform4SNsdemo/runs/js-3-Battery-knowledge",
+      "manifestSha256": "8a0355dc556d090ac5568f30c276a6b2abbf8b89042d178f7443e0034d5cf49d",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-3点20250414-2",
+      "displayName": "js-3点20250414-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-3点20250414-2-knowledge",
+      "manifestSha256": "b71d4ae0b579e416e2d4742a739bb26bd26f7bbe750a33508a97b3d6aa44adca",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-3点20250414",
+      "displayName": "js-3点20250414",
+      "packageLocator": "Transform4SNsdemo/runs/js-3点20250414-knowledge",
+      "manifestSha256": "1fc5e4575953879bcbcd23541919b43d60c3adfde4893119de22c4b5bd2721f5",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-3P-Flux_LE3_20250225",
+      "displayName": "js-3P-Flux_LE3_20250225",
+      "packageLocator": "Transform4SNsdemo/runs/js-3P-Flux_LE3_20250225-knowledge",
+      "manifestSha256": "bf739d57173402109d128bb3a053d6af1a99caf0e4dc6037bfd07dbbb695b7ad",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-4-4-0-1-20250416-TCM上传修改",
+      "displayName": "js-4-4-0-1-20250416-TCM上传修改",
+      "packageLocator": "Transform4SNsdemo/runs/js-4-4-0-1-20250416-TCM上传修改-knowledge",
+      "manifestSha256": "b025889b6f9261ddb62271ad145ea6fe7746cf598ef2be24a0cf5ec5293e6c3e",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-4-4-0-1-20250424-调机验证完成",
+      "displayName": "js-4-4-0-1-20250424-调机验证完成",
+      "packageLocator": "Transform4SNsdemo/runs/js-4-4-0-1-20250424-调机验证完成-knowledge",
+      "manifestSha256": "e26329f96411c61898b198fde2e78c7d373094f4b87521609397650f9ec9cbaa",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-6-4-0-1-20250310",
+      "displayName": "js-6-4-0-1-20250310",
+      "packageLocator": "Transform4SNsdemo/runs/js-6-4-0-1-20250310-knowledge",
+      "manifestSha256": "bc4ec513075e86bbd78d8022a64dcf083cab6e801e4768744ad1ece4a03bc175",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-6-4-0-1-20250424-调机验证完成",
+      "displayName": "js-6-4-0-1-20250424-调机验证完成",
+      "packageLocator": "Transform4SNsdemo/runs/js-6-4-0-1-20250424-调机验证完成-knowledge",
+      "manifestSha256": "0ed2ec5436f9307188abafb961b6bd8d3caa9a32fc18e0e29ecd0e12a4fafbc1",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-两点助焊剂20241205新增表格-LA6-P2专用-2",
+      "displayName": "js-两点助焊剂20241205新增表格-LA6-P2专用-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-两点助焊剂20241205新增表格-LA6-P2专用-2-knowledge",
+      "manifestSha256": "bbbee2ce6c22608fb7ac7228475e08630ca4556c1a78a3a9850679b901bb01fd",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-两点助焊剂20241205新增表格-LA6-P2专用",
+      "displayName": "js-两点助焊剂20241205新增表格-LA6-P2专用",
+      "packageLocator": "Transform4SNsdemo/runs/js-两点助焊剂20241205新增表格-LA6-P2专用-knowledge",
+      "manifestSha256": "8ab04fac3a588022075685d96f8faf0b28039c3100cf045ad3f8e62a9d6ab498",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-上料机-20250306-B",
+      "displayName": "js-上料机-20250306-B",
+      "packageLocator": "Transform4SNsdemo/runs/js-上料机-20250306-B-knowledge",
+      "manifestSha256": "f24e2bc1c6624b2a38b72553b498364af4d09d6a23488e46fd8be0e5a4e90d82",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-下料机250306-B2",
+      "displayName": "js-下料机250306-B2",
+      "packageLocator": "Transform4SNsdemo/runs/js-下料机250306-B2-knowledge",
+      "manifestSha256": "7d9ddd15f6dba5fb4333a3a0067025898c10c91dc704a9f640cebf10f0fb0e91",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-CleanBooth-S2_250422",
+      "displayName": "js-CleanBooth-S2_250422",
+      "packageLocator": "Transform4SNsdemo/runs/js-CleanBooth-S2_250422-knowledge",
+      "manifestSha256": "43ff62c060d90f0fbe4c773749c5435b208560075023b9f1010d7e07be189c8d",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Coil-UV_3-0_20250218",
+      "displayName": "js-Coil-UV_3-0_20250218",
+      "packageLocator": "Transform4SNsdemo/runs/js-Coil-UV_3-0_20250218-knowledge",
+      "manifestSha256": "8c706d1232561effbeaf9cdbd8ed5f2295ec6bdedb73f64528196b420aa9a703",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Coil-UV_LE3_3-0_20250225",
+      "displayName": "js-Coil-UV_LE3_3-0_20250225",
+      "packageLocator": "Transform4SNsdemo/runs/js-Coil-UV_LE3_3-0_20250225-knowledge",
+      "manifestSha256": "567109a57369a34bc7fa516188c0ed68ddf2192e57d4b9cbd588b2f4830fb9aa",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Crown-S1_202500411",
+      "displayName": "js-Crown-S1_202500411",
+      "packageLocator": "Transform4SNsdemo/runs/js-Crown-S1_202500411-knowledge",
+      "manifestSha256": "b924a3b1a3ba935bc75a3762f5a731d215753a52b0a8a94403ff3cfe30d2cb8f",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Crown-S1-20250411-1549",
+      "displayName": "js-Crown-S1-20250411-1549",
+      "packageLocator": "Transform4SNsdemo/runs/js-Crown-S1-20250411-1549-knowledge",
+      "manifestSha256": "39ae9c6ffba4e2ba9dfe95159539dee22dfd39b25588914e0f4a802857dc0653",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-CrownS1_v3-0_20250421修改图片路径",
+      "displayName": "js-CrownS1_v3-0_20250421修改图片路径",
+      "packageLocator": "Transform4SNsdemo/runs/js-CrownS1_v3-0_20250421修改图片路径-knowledge",
+      "manifestSha256": "fee153a1c036e857aa7d77818029cc75217c6ef98f29543f680feb67e274c274",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-2",
+      "displayName": "js-DataMining-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-2-knowledge",
+      "manifestSha256": "500ad1f4a5a3680f562b903bdc5f3e1cf2789332d139a9eda52b20bb1700b945",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-3",
+      "displayName": "js-DataMining-3",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-3-knowledge",
+      "manifestSha256": "5674ba9bc7f227ed9e36f452eab4959d8fce00bbf69de34bf922fb06f2731876",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-4",
+      "displayName": "js-DataMining-4",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-4-knowledge",
+      "manifestSha256": "ef31b0af1dba2fa58b9cbfdbcd1506df425c593dafa5f6caef339ea88c78b84a",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-5",
+      "displayName": "js-DataMining-5",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-5-knowledge",
+      "manifestSha256": "95b8decdf9d1f7b903043a68eb07039e6a0c4b52748001e8abaf2ae76e336dd9",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-6",
+      "displayName": "js-DataMining-6",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-6-knowledge",
+      "manifestSha256": "8cfef86d3d0c15e6dd07aa94c6e8c64bc645cca59e30946decd5a89b43da15cd",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-7",
+      "displayName": "js-DataMining-7",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-7-knowledge",
+      "manifestSha256": "c8016c9df5b354adb3b66533e62949067e8f5b47957d68a82173ea021f2cf8ae",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-8",
+      "displayName": "js-DataMining-8",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-8-knowledge",
+      "manifestSha256": "709d3044e241408de0b510edf556599aec8c6441f4d541428437454ae503ac90",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining-9",
+      "displayName": "js-DataMining-9",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-9-knowledge",
+      "manifestSha256": "2e1f80ce1dd3a5990554b1c4d710b61378613cf84279d4b53901b2905fc85ceb",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DataMining",
+      "displayName": "js-DataMining",
+      "packageLocator": "Transform4SNsdemo/runs/js-DataMining-knowledge",
+      "manifestSha256": "09ace38eb2742b6931a05298cfda9284fbedb5b2adc5d5dd229c6ccd309f02ac",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DC-Shield_250422-新增三个mes数据",
+      "displayName": "js-DC-Shield_250422-新增三个mes数据",
+      "packageLocator": "Transform4SNsdemo/runs/js-DC-Shield_250422-新增三个mes数据-knowledge",
+      "manifestSha256": "20f79859b53096ee2a2806cf1676c6f8a8b38fe407dec4e52236c12f1df84b3d",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-DC-Shield-大线-修改ui",
+      "displayName": "js-DC-Shield-大线-修改ui",
+      "packageLocator": "Transform4SNsdemo/runs/js-DC-Shield-大线-修改ui-knowledge",
+      "manifestSha256": "d0f140813a65a37f24c186ae32fa3b7eb85a46462b8e567ca471be708d37c5a4",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Dispense-Flux-on-LSJ-Pad_20241113修改UI第三版",
+      "displayName": "js-Dispense-Flux-on-LSJ-Pad_20241113修改UI第三版",
+      "packageLocator": "Transform4SNsdemo/runs/js-Dispense-Flux-on-LSJ-Pad_20241113修改UI第三版-knowledge",
+      "manifestSha256": "381c329111bc8861abe81fc29d2e1be1a705a62ed2f52bab082b6868d9ec1e26",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Folsom-LED-MSTM-获取mes三个数据-2",
+      "displayName": "js-Folsom-LED-MSTM-获取mes三个数据-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-Folsom-LED-MSTM-获取mes三个数据-2-knowledge",
+      "manifestSha256": "f4d17152748d3f3a3e3f93d085bd8c45ffed3f3adafd3c8f1daf529b39b73756",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Folsom-LED-MSTM-获取mes三个数据",
+      "displayName": "js-Folsom-LED-MSTM-获取mes三个数据",
+      "packageLocator": "Transform4SNsdemo/runs/js-Folsom-LED-MSTM-获取mes三个数据-knowledge",
+      "manifestSha256": "05b397952085380db3d622bfb572577f1617f3090cc25dfb9d955951379054ed",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_上料机_V3-0_20250303",
+      "displayName": "js-JS_ICT_上料机_V3-0_20250303",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_上料机_V3-0_20250303-knowledge",
+      "manifestSha256": "a8e6ab5c7a0eaa7cea4b5ea7d3e89cfbfdb73a2a0d339cd8162af8e023c7b891",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_下料机_V3-0_20250303",
+      "displayName": "js-JS_ICT_下料机_V3-0_20250303",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_下料机_V3-0_20250303-knowledge",
+      "manifestSha256": "b643fe817f803a6543d9ea5c411254d2b2e302aa999bd4b767cd4dc9bc25be1b",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_ACI_20250408",
+      "displayName": "js-JS_ICT_ACI_20250408",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_ACI_20250408-knowledge",
+      "manifestSha256": "75cfbdfc90a6bbd29af3ade73db0a3265aa31451f0e7d81098e9e3a13df99bc7",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_ACI_V3-0_20250305",
+      "displayName": "js-JS_ICT_ACI_V3-0_20250305",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_ACI_V3-0_20250305-knowledge",
+      "manifestSha256": "d63738a815669cd49ca6d8d2cf2356dffa19c6562ea9dd440c71914108b7fd6b",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Clean-Flux_V3-0_20250226-2",
+      "displayName": "js-JS_ICT_Clean-Flux_V3-0_20250226-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Clean-Flux_V3-0_20250226-2-knowledge",
+      "manifestSha256": "beaff9989fcbf81933966e9ab3cfc4b2d67568fb3624c7d3f7baf43e4e135863",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Clean-Flux_V3-0_20250226",
+      "displayName": "js-JS_ICT_Clean-Flux_V3-0_20250226",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Clean-Flux_V3-0_20250226-knowledge",
+      "manifestSha256": "1153fd5092ccbe6424c9618b0f896cdf8c4396f39872dff92a0d0a1997cabd3a",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Clean-Flux_V3-0_20250415",
+      "displayName": "js-JS_ICT_Clean-Flux_V3-0_20250415",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Clean-Flux_V3-0_20250415-knowledge",
+      "manifestSha256": "5dbc9564bb3fd4da748be14aea4726828faa67d317f71e379271ea164309e1a6",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250326",
+      "displayName": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250326",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250326-knowledge",
+      "manifestSha256": "1373c837e129c740b074fb8a98cfe51305e6858bb6ba1602eb0c53f5bbc7606d",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330-2",
+      "displayName": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330-2-knowledge",
+      "manifestSha256": "72a4734981e252c198a756895ed71c877cb8b18f3dcfcd73e604ebbbe1b65845",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330",
+      "displayName": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250330-knowledge",
+      "manifestSha256": "a25369078b950df44de60af94c27dc87b8ee18406360110edac4588d5f210569",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250418",
+      "displayName": "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250418",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250418-knowledge",
+      "manifestSha256": "12f9fd514b8eb15b2ac356a198f7171009488cb587a18efc204174725c51c0a9",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_FCM_CLEAN_V3-0_20250505",
+      "displayName": "js-JS_ICT_FCM_CLEAN_V3-0_20250505",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_FCM_CLEAN_V3-0_20250505-knowledge",
+      "manifestSha256": "11aad0e361ee2694bb960f2e8ca9c5fba82789b14a6dca993b2c69c385e27e42",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Link_V3-0_20250212-2",
+      "displayName": "js-JS_ICT_Link_V3-0_20250212-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Link_V3-0_20250212-2-knowledge",
+      "manifestSha256": "a95eb37a7517c2df0072c796ae9a1bb71fc99d17c00cdb06ec62d51469d31026",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Link_V3-0_20250212",
+      "displayName": "js-JS_ICT_Link_V3-0_20250212",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Link_V3-0_20250212-knowledge",
+      "manifestSha256": "bc3fafdf8599a4391f8214e331f8844b9758c8bce063d11277789be81b15ce26",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Link_V3-0_20250324",
+      "displayName": "js-JS_ICT_Link_V3-0_20250324",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Link_V3-0_20250324-knowledge",
+      "manifestSha256": "cf2d690d6958066de144c38791f72a1e1df92266c6169b88fdffdf03ddca1d34",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_Link_V3-0_20250415",
+      "displayName": "js-JS_ICT_Link_V3-0_20250415",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_Link_V3-0_20250415-knowledge",
+      "manifestSha256": "4f23d4f8f0047933e6ad1304d86813d413a172e11dd373705d26d7d6d761f60b",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205",
+      "displayName": "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205-knowledge",
+      "manifestSha256": "1364ee2425feff5f45df06ada18a70648756767d643f0909fba1c858d3a880a2",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S2_V3-0_20251205",
+      "displayName": "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S2_V3-0_20251205",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S2_V3-0_20251205-knowledge",
+      "manifestSha256": "e048c74973b506e52e14bffbac049370e0da4ca214b073cf091c7ba1b1932a7f",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_Magnet_Assy_V3-0_20251202",
+      "displayName": "js-JS_ICT_NPI_LA7_Magnet_Assy_V3-0_20251202",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_Magnet_Assy_V3-0_20251202-knowledge",
+      "manifestSha256": "264a8b9747c81ced18b36fb754ef23c758db06da8f9be6531b2b3de2c94d8f4f",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S1_V3-0_20251202",
+      "displayName": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S1_V3-0_20251202",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S1_V3-0_20251202-knowledge",
+      "manifestSha256": "88816a1d49c3f5b58ffeb8d62df1083cde2fec069a93c4bb191f3f7da9582b90",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S2_V3-0_20251202",
+      "displayName": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S2_V3-0_20251202",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S2_V3-0_20251202-knowledge",
+      "manifestSha256": "7192f927c1a91c1cea090dc1d76f7f2a791a771017075cee02e420a428824b36",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S3_V3-0_20251202",
+      "displayName": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S3_V3-0_20251202",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S3_V3-0_20251202-knowledge",
+      "manifestSha256": "81dc905a186526e9d2bd028c8d69ec3b039e2311723e2b99be46e6a05c4d5e17",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S4_V3-0_20251202",
+      "displayName": "js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S4_V3-0_20251202",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI_LA7_STICK_BOTTOM_TAPE_AND_PRESS_S4_V3-0_20251202-knowledge",
+      "manifestSha256": "48ce90d9224f1fc6ec68c9ce202a2c6f3cfb6ed88dddb05b3338e7c490e6dedd",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI-SIP-TO-HSG_S1_V3-0_20250425",
+      "displayName": "js-JS_ICT_NPI-SIP-TO-HSG_S1_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI-SIP-TO-HSG_S1_V3-0_20250425-knowledge",
+      "manifestSha256": "479104d21830e3e0f294549a283093d99a3a7740e90d38b01b4850e1b7e27e22",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI-SIP-TO-HSG_S2_V3-0_20250425",
+      "displayName": "js-JS_ICT_NPI-SIP-TO-HSG_S2_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI-SIP-TO-HSG_S2_V3-0_20250425-knowledge",
+      "manifestSha256": "78ef7d39659657c977dca407a7f3f35ed471b9e611cd3f07edc5d580fd1b53e1",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI-SIP-TO-HSG_S5_V3-0_20250425",
+      "displayName": "js-JS_ICT_NPI-SIP-TO-HSG_S5_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI-SIP-TO-HSG_S5_V3-0_20250425-knowledge",
+      "manifestSha256": "70a90d0c8b233e464531e38de4dc5538f5c305e0ba8d03d2ba1e8f7a51358f67",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_NPI-SIP-TO-HSG_S6+S8_V3-0_20250425",
+      "displayName": "js-JS_ICT_NPI-SIP-TO-HSG_S6+S8_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_NPI-SIP-TO-HSG_S6+S8_V3-0_20250425-knowledge",
+      "manifestSha256": "8c0e34ae5f205613ed8c91a74a15278db31091829db49146741dd558d84fbf20",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_SIP-TO-HSG-S1_V3-0_20250425",
+      "displayName": "js-JS_ICT_SIP-TO-HSG-S1_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_SIP-TO-HSG-S1_V3-0_20250425-knowledge",
+      "manifestSha256": "b4df1a8eb6ac1a87c1b6614d6ee71ff83b78b7a7b6a38790f5b48ee644c8d624",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_SIP-TO-HSG-S2_V3-0_20250425",
+      "displayName": "js-JS_ICT_SIP-TO-HSG-S2_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_SIP-TO-HSG-S2_V3-0_20250425-knowledge",
+      "manifestSha256": "fdf8dedb232ed023ea3e7b9086b447961cfd49b1c56ef38e6bc75141573829f0",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_SIP-TO-HSG-S5_V3-0_20250425",
+      "displayName": "js-JS_ICT_SIP-TO-HSG-S5_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_SIP-TO-HSG-S5_V3-0_20250425-knowledge",
+      "manifestSha256": "644439b5c22d3d6af4e86df08fcbb8a78c6245bce242232b371618a8cce06623",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-JS_ICT_SIP-TO-HSG-S7_V3-0_20250425",
+      "displayName": "js-JS_ICT_SIP-TO-HSG-S7_V3-0_20250425",
+      "packageLocator": "Transform4SNsdemo/runs/js-JS_ICT_SIP-TO-HSG-S7_V3-0_20250425-knowledge",
+      "manifestSha256": "62615f1304c0ada76f43fbc9d5ac15cada7be6497736f8dba5be6175ce9833d2",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-LA6-NEW",
+      "displayName": "js-LA6-NEW",
+      "packageLocator": "Transform4SNsdemo/runs/js-LA6-NEW-knowledge",
+      "manifestSha256": "6baafb56d251276aa81ef11652751da43d60e6485aa31efb8c738f35b7c2841c",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-NA_LE3_20250410",
+      "displayName": "js-NA_LE3_20250410",
+      "packageLocator": "Transform4SNsdemo/runs/js-NA_LE3_20250410-knowledge",
+      "manifestSha256": "5170622ecbcfadced8e4277036ce7b78ac32133bde4ca8cb1e83bd186fe011e3",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-NA-20250411-2",
+      "displayName": "js-NA-20250411-2",
+      "packageLocator": "Transform4SNsdemo/runs/js-NA-20250411-2-knowledge",
+      "manifestSha256": "8415f0739d3287f78bbfb1c4a0d3a660a8e98dcc6f7920b1034b8201ea1a92ee",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-NA-20250411",
+      "displayName": "js-NA-20250411",
+      "packageLocator": "Transform4SNsdemo/runs/js-NA-20250411-knowledge",
+      "manifestSha256": "6bc6f4b8cbc01b1b1b366422b0ebd8c09b539137fab111cd3165cd051cb16ddd",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-PNP_3-0_20250218改UI只记录生产",
+      "displayName": "js-PNP_3-0_20250218改UI只记录生产",
+      "packageLocator": "Transform4SNsdemo/runs/js-PNP_3-0_20250218改UI只记录生产-knowledge",
+      "manifestSha256": "184cb6f199612a61bbab268c45b120293e9aecfa29a6d093a9969b1c58c259d0",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Sedona-1130",
+      "displayName": "js-Sedona-1130",
+      "packageLocator": "Transform4SNsdemo/runs/js-Sedona-1130-knowledge",
+      "manifestSha256": "338998ec07b7e61144e6ca730cc1939f19a03b2aa4273c2dbbf682fb2a752449",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Sedona-20250314-同步A厂修改-LA6",
+      "displayName": "js-Sedona-20250314-同步A厂修改-LA6",
+      "packageLocator": "Transform4SNsdemo/runs/js-Sedona-20250314-同步A厂修改-LA6-knowledge",
+      "manifestSha256": "9d1ed232fccbc01055eed574ec29bec06313dab6e4224b1a952ea4c79aeb1494",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-Sensor-To-BC-MSMT-空跑",
+      "displayName": "js-Sensor-To-BC-MSMT-空跑",
+      "packageLocator": "Transform4SNsdemo/runs/js-Sensor-To-BC-MSMT-空跑-knowledge",
+      "manifestSha256": "dc4531db9406161aa86c439e54c955dad8553e56f2a10a6627e3e68979af6331",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
+    },
+    {
+      "sourceId": "js-UV-20250306-B",
+      "displayName": "js-UV-20250306-B",
+      "packageLocator": "Transform4SNsdemo/runs/js-UV-20250306-B-knowledge",
+      "manifestSha256": "eeff6b43cfbde63652d49d15e94c8225a5b682ce9614aa96e925a092849560e5",
+      "reviewConclusion": "20260828 批次：按代表机 digest 甄别后归入对应功能块与设备框架；同型号多机台按结构族去重，只深审代表机；固定信号编号、通道地址、工位数量、复制文本与测试流程不吸收。"
     }
   ]
 }

@@ -701,7 +701,7 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "get_process_design_guide"), Description(
             "Automation复杂流程设计的唯一按需知识入口。通常只按目标选择一个主主题；默认compact直接返回当前功能块的短规则、可执行阶段、完成证据、失败恢复和结构化功能槽，只有需要完整设计背景时才使用full。core通用不变量会自动返回。"
-            + "用户目标描述一台完整设备时选 composition：compact 只返回设备框架简索引（patternId+设备画像+摘要），选中后把 patternId 传入 patternIds 钻取该框架的完整功能单元表、单元间衔接、变化点与搭建顺序。知识库会持续变大：先看 compact 索引，再按 patternId 精确钻取，不整库取 full。"
+            + "用户目标描述一台完整设备时选 composition：compact 只返回设备框架简索引（patternId+设备画像+摘要+关联块清单 relatedPatternIds），选中后把 patternId 传入 patternIds 钻取该框架的完整功能单元表、单元间衔接、变化点与搭建顺序；钻取响应中的 relatedPatternIds 列出该框架全部关联功能块（含变量/数据结构/代码协作设计块），按清单一次 patternIds 调用拉全整套再搭建。知识库会持续变大：先看 compact 索引，再按 patternId 精确钻取，不整库取 full。"
             + "同时返回从旧项目证据中完成审核和归纳的可用规范；候选、审核过程和废弃内容不会进入运行时返回。"
             + "简单赋值、单字段编辑不需要调用。具体字段、资源、运行行为和启动条件仍以当前Schema、Behavior、资源工具和Readiness为准。")]
         public static string GetProcessDesignGuide(
@@ -2724,7 +2724,8 @@ namespace Automation.McpServer
 
         internal static string CompactChangeSetPreviewResult(string? raw)
         {
-            // 预演成功结果的紧凑投影：保留确认状态、合法迁移、稳定对象身份和待补齐事实；
+            // 预演成功结果的紧凑投影：保留确认状态、合法迁移、稳定对象身份、待补齐事实，
+            // 以及前台确认弹窗机械依赖的 changes 变化明细和 messages 摘要文案；
             // processSnapshot 与 createdObjects 重复罗列对象身份，编辑类变更的结构回读走
             // inspect_process，不随预演返回。失败结果（含 bindingRepair 候选）原样透传。
             try
@@ -2744,7 +2745,8 @@ namespace Automation.McpServer
                 CopyFields(data, compactData,
                     "previewId", "confirmed", "confirmedBy", "amendedPreviewId", "status",
                     "nextStep", "allowedTransitions", "expiresAt", "summary",
-                    "requiresConfirmation", "readinessStatus", "runnable", "message");
+                    "requiresConfirmation", "readinessStatus", "runnable", "message",
+                    "changes", "messages");
                 compactData["variableResolutions"] = CompactObjectArray(
                     data["variableResolutions"],
                     "variableId", "name", "valueType", "outcome", "changed", "index",

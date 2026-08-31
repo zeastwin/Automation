@@ -616,6 +616,312 @@
         "likai-primer:case-e3af2d8a1b1bef0d30f8",
         "likai-primer:case-23f6bbc2cf72bc68b310"
       ]
+    },
+    {
+      "patternId": "device-frame.acquisition-proxy",
+      "title": "PLC 主控-PC 采集代理设备框架",
+      "summary": "PLC/机器人主控工艺、PC 程序只做信息代理的设备框架：PLC-PC 通道群按业务拆分常驻循环，配套视觉辅助、曲线/视频采集、PDCA/MES/Hive 数据链路与点位治理。",
+      "topics": ["composition"],
+      "capabilities": ["machine-frame", "build-order", "seam-contract", "channel-fleet"],
+      "deviceTypes": ["plc", "camera", "mes", "hive"],
+      "processTypes": ["data-acquisition", "traceability", "vision-assist"],
+      "riskTags": ["channel-blocking", "duplicate-upload", "link-loss-blind"],
+      "file": "device-frame.acquisition-proxy.md",
+      "sourceRefs": [
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-1e03b470f51eb0b9022e",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-6569fe8ded58ed1ac152",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-0db30abbd732aeaaadef",
+        "cd-DataMining:case-64a3816446c7703e41b3",
+        "cd-DataMining:case-3d008036c99f709086da",
+        "cd-CD_Battery_LG_1-2-_V3-2-1_20250513:case-fa898a937a5770aefa92",
+        "cd-CD_Battery_LG_1-2-_V3-2-1_20250513:case-40d94dc3bd38039d1da3",
+        "js-CleanBooth-S2_250422:case-4d7c80c97e391b21c56c"
+      ]
+    },
+    {
+      "patternId": "device-frame.sip-assembly-transfer",
+      "title": "SIP 转移组装设备框架",
+      "summary": "SIP 载体扫码绑定→工位组装→拍摄→出料→测高→回流解绑的转移组装单机：联合查询防错配、电批曲线、副机接力与抛料定时落盘。",
+      "topics": ["composition"],
+      "capabilities": ["machine-frame", "build-order", "seam-contract", "identity-loop"],
+      "deviceTypes": ["plc", "camera", "electric-screwdriver"],
+      "processTypes": ["assembly", "traceability", "carrier-recycling"],
+      "riskTags": ["identity-mismatch", "unverified-assembly", "overflow-on-reject-bay"],
+      "file": "device-frame.sip-assembly-transfer.md",
+      "sourceRefs": [
+        "cd-SIPTOHSG-S7-202506141700_A6:case-87f2bce7c51c2e5c4fc9",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-44579fc1042a69e63535",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-0357ca7cbbd3135e10ec",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-c734d99f268fdacd981b",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-fb696cf1ce947db6c720",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-95c30931213d06906500",
+        "cd-SIPTOHSG-S1-202505101100_A6:case-10320d68d130317bf81b",
+        "cd-SIPTOHSG-S2-202505101400_A6:case-ec6b2bb5be923d9ba86d",
+        "cd-SIPTOHSG-S2-202505101400_A6:case-eed4c2b0a526adb89423"
+      ]
+    },
+    {
+      "patternId": "device-frame.multi-stage-assembly-line",
+      "title": "多段组装回流线设备框架",
+      "summary": "单机内多工艺段（缓存+组装同构段）串接的组装线：上下料仓拉料、取料换盘、每段独立回流线、磨吸嘴维护与段级标定+关联标定。",
+      "topics": ["composition"],
+      "capabilities": ["machine-frame", "build-order", "seam-contract", "segment-replication"],
+      "deviceTypes": ["conveyor", "robot", "rfid-reader"],
+      "processTypes": ["assembly", "carrier-recycling", "calibration"],
+      "riskTags": ["segment-divergence", "carrier-loss", "copy-paste-drift"],
+      "file": "device-frame.multi-stage-assembly-line.md",
+      "sourceRefs": [
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-0601c29c944f21441f2c",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-2be085c2e3a24336f123",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-3d31caf957176bfd3762",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-49476676baeaf55ce90f",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-7215e9e951478d3ce659",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-f1a1474ac129dcaceb20",
+        "be-LCF-and-MLA_3-0_2025-04-16_12-08-12号机12代-改机:case-24532d575c8c53a72cda",
+        "by-1_LCF_11G_2025-04_10-57-上传+保压检测:case-ebfd2d6637e035c5aa27"
+      ]
+    },
+    {
+      "patternId": "communication.plc-pc-channel",
+      "title": "PLC-PC 交互通道",
+      "summary": "按业务含义一条通道一个常驻循环流程，与 PLC 交换数据并翻转握手标志；初始化统一建连，通道间互不阻塞，同构通道复制必须改名核对。",
+      "topics": ["transaction", "monitoring"],
+      "capabilities": ["plc-channel", "data-mirror", "cyclic-exchange"],
+      "deviceTypes": ["plc"],
+      "processTypes": ["data-acquisition", "traceability"],
+      "riskTags": ["channel-blocking", "stale-data", "copy-paste-drift"],
+      "file": "communication.plc-pc-channel.md",
+      "sourceRefs": [
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-1e03b470f51eb0b9022e",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-2d478041b86b71231bdc",
+        "js-JS_ICT_NPI_LA7_Magnet_Assy_V3-0_20251202:case-4ec883f12d05f28272ca",
+        "cd-DataMining:case-2b60004359d3fe4e439d",
+        "cd-CD_NA_V3-1-1_20250918:case-937a3c7e899662e0bddf",
+        "cd-CD_PNP_V3-1-1_20250915:case-ccaa95b4b4fab53a25de"
+      ]
+    },
+    {
+      "patternId": "communication.heartbeat-and-connection",
+      "title": "心跳与连接监测",
+      "summary": "每个外部系统一条独立心跳循环，配合主动连接检测流程；断链只报警不代偿业务重试，恢复后自动续跑。",
+      "topics": ["monitoring"],
+      "capabilities": ["heartbeat", "link-watchdog", "self-recovery"],
+      "deviceTypes": ["plc", "mes"],
+      "processTypes": ["monitoring"],
+      "riskTags": ["link-loss-blind", "cross-dependency"],
+      "file": "communication.heartbeat-and-connection.md",
+      "sourceRefs": [
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-0db30abbd732aeaaadef",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-8471b0e55195cca2cfd7",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-11cf45c1a9a436816acb",
+        "cd-DataMining:case-3f495c3d15ce164cbebb",
+        "cd-CD_Battery_LG_1-2-_V3-2-1_20250513:case-40d94dc3bd38039d1da3"
+      ]
+    },
+    {
+      "patternId": "communication.hive-alarm-collection",
+      "title": "Hive 采集与报警上报",
+      "summary": "Hive 采集系统常驻会话 + 报警状态增量扫描循环的旁路观测链路；事件不丢、重复去重，采集故障不阻塞生产。",
+      "topics": ["monitoring"],
+      "capabilities": ["alarm-collection", "side-channel", "event-dedupe"],
+      "deviceTypes": ["hive"],
+      "processTypes": ["monitoring", "traceability"],
+      "riskTags": ["event-loss", "mainflow-intrusion"],
+      "file": "communication.hive-alarm-collection.md",
+      "sourceRefs": [
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-6569fe8ded58ed1ac152",
+        "cd-DataMining:case-5ea9ac53e8b903149205",
+        "js-3点20250414:case-1c0c2ac2b4c7ad61c923",
+        "cd-CD_Sedona_V3-1-1_20250925:case-cbc9aca380f0a49a9d26"
+      ]
+    },
+    {
+      "patternId": "communication.pdca-upload-retransmit",
+      "title": "PDCA 上传与漏传补传",
+      "summary": "生产数据本地留痕后异步上传，独立补传流程补齐失败记录；唯一键防重，多工位上传互不阻塞。",
+      "topics": ["transaction"],
+      "capabilities": ["async-upload", "retransmit", "idempotent-record"],
+      "deviceTypes": ["pdca", "mes"],
+      "processTypes": ["traceability"],
+      "riskTags": ["duplicate-upload", "data-loss"],
+      "file": "communication.pdca-upload-retransmit.md",
+      "sourceRefs": [
+        "js-CleanBooth-S2_250422:case-916bd8f03b858f6d82b4",
+        "cd-DataMining:case-7d66bf1e96821f9ccf44",
+        "cd-DataMining:case-3d008036c99f709086da",
+        "cd-CD_Sedona_V3-1-1_20250925:case-25cf2bd8cb793df94bcd",
+        "cd-CD_Sedona_V3-1-1_20250925:case-eb1373e5cae2e8d00b1b",
+        "js-JS_ICT_ACI_20250408:case-e68846fe62033ecd98fe"
+      ]
+    },
+    {
+      "patternId": "monitoring.curve-video-collection",
+      "title": "曲线与视频采集通道",
+      "summary": "按工位/保压点/相机拆分的常驻采集通道：PLC 触发被动跟随，数据绑定载体身份后交上传链路；一次触发一次会话，作废不补半条数据。",
+      "topics": ["monitoring"],
+      "capabilities": ["curve-capture", "video-capture", "identity-binding"],
+      "deviceTypes": ["plc", "camera"],
+      "processTypes": ["data-acquisition"],
+      "riskTags": ["partial-data", "identity-mismatch"],
+      "file": "monitoring.curve-video-collection.md",
+      "sourceRefs": [
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-c81a4951fc22f88342dd",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-0f9998a9cce976a9aade",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-0357ca7cbbd3135e10ec",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-0652d3ba048ae6af8a32",
+        "js-CleanBooth-S2_250422:case-06e5be630b49b77821d0"
+      ]
+    },
+    {
+      "patternId": "vision.plc-assisted-vision",
+      "title": "PC 视觉辅助判定",
+      "summary": "PC 只做扫码/定位/复检/测量/标定并把结果错误码化回传 PLC，运动补偿由 PLC 消化；标定独立成流程并有关联标定分层传导。",
+      "topics": ["vision"],
+      "capabilities": ["vision-assist", "result-relay", "calibration-tier"],
+      "deviceTypes": ["plc", "camera"],
+      "processTypes": ["vision-assist", "calibration"],
+      "riskTags": ["half-frame-read", "cross-station-reference"],
+      "file": "vision.plc-assisted-vision.md",
+      "sourceRefs": [
+        "cd-CD_PNP_V3-1-1_20250915:case-c2fe4c264dd0ea40ef56",
+        "cd-CD_PNP_V3-1-1_20250915:case-a74c05bf503dfde8b7c9",
+        "cd-CD_PNP_V3-1-1_20250915:case-9f8cf042d81757b04421",
+        "cd-CD_NA_V3-1-1_20250918:case-a0b4cc6e7c2e695e022e",
+        "cd-CD_NA_V3-1-1_20250918:case-e20bcc6441da02ed0228",
+        "js-3点20250414:case-866aef5dee0c16c21192",
+        "cd-CD_Battery_LG_1-2-_V3-2-1_20250513:case-ec22e28389c87c5d8931"
+      ]
+    },
+    {
+      "patternId": "maintenance.plc-point-governance",
+      "title": "PLC 点位与程序治理",
+      "summary": "只读治理旁路：点位快照+差异比较留痕、PLC 修改记录、视觉配置 Hash 校验、程序版本上报；治理停运不影响生产。",
+      "topics": ["monitoring", "lifecycle"],
+      "capabilities": ["point-backup", "change-audit", "integrity-check"],
+      "deviceTypes": ["plc"],
+      "processTypes": ["governance"],
+      "riskTags": ["silent-change", "no-baseline"],
+      "file": "maintenance.plc-point-governance.md",
+      "sourceRefs": [
+        "cd-SIPTOHSG-S7-202506141700_A6:case-0143b06891c0934a185c",
+        "js-JS_ICT_NPI_LA7_HSG_2D_Barcode_and_PF_S1_V3-0_20251205:case-7e6587346fe90b6752e3",
+        "cd-SIPTOHSG-S2-202505101400_A6:case-6417dd7332507f602d39",
+        "js-JS_ICT_ACI_20250408:case-e4489ccf49ef633b7b09",
+        "cd-SIPTOHSG-S2-202505101400_A6:case-2eab7412da6b517bbd4f",
+        "cd-CD_Sedona_V3-1-1_20250925:case-cc37d3f12d41cff8595f"
+      ]
+    },
+    {
+      "patternId": "variables.design",
+      "title": "变量设计总纲",
+      "summary": "跨流程状态变量的三层归属（流程私有/跨流程握手/常驻全局）、唯一写入者与清零责任、工位前缀命名与多副本隔离规则、复位恢复清单。",
+      "topics": ["orchestration"],
+      "capabilities": ["variable-layering", "ownership", "naming-convention", "replica-isolation"],
+      "deviceTypes": [],
+      "processTypes": ["data-design"],
+      "riskTags": ["dual-writer", "cross-station-reference", "signal-residue"],
+      "file": "variables.design.md",
+      "sourceRefs": [
+        "lianfeng-bc-v307:case-385793a665765b73724c",
+        "lianfeng-standstill:case-2d9e625f3bd9d82a3ecf",
+        "likai-standstill:case-57c20628bbcd5de689d8",
+        "likai-primer:case-14040e880e6a62dbffd6",
+        "js-3点20250414:case-a591b6ff3616a469fd62",
+        "cd-CD_Battery_LG_1-2-_V3-2-1_20250513:case-fa898a937a5770aefa92"
+      ]
+    },
+    {
+      "patternId": "data-struct.design",
+      "title": "数据结构与记录载体设计",
+      "summary": "记录载体四级决策树（变量>数据结构>自定义代码>本地文件）、结构字段骨架（身份键+状态+时间+备注）、唯一权威载体与账目校验、删除校验。",
+      "topics": ["custom-function"],
+      "capabilities": ["carrier-decision", "record-schema", "account-consistency"],
+      "deviceTypes": [],
+      "processTypes": ["data-design"],
+      "riskTags": ["dual-truth", "record-mismatch", "unverified-delete"],
+      "file": "data-struct.design.md",
+      "sourceRefs": [
+        "lianfeng-standstill:case-2d9e625f3bd9d82a3ecf",
+        "likai-bc-glass-loader:case-536699d8e9fd0bf09502",
+        "cd-SIPTOHSG-S7-202506141700_A6:case-d5149f3cf4ec3d517469",
+        "js-Crown-S1_202500411:case-400bd9c3c7f406f29864",
+        "likai-standstill:case-57c20628bbcd5de689d8"
+      ]
+    },
+    {
+      "patternId": "observability.design",
+      "title": "可观测性与故障定位设计",
+      "summary": "报警三级分层与对象+现象+建议文案、三色状态灯常驻映射、关键状态挂界面、业务事件记录埋点，形成报警→状态→握手→记录的故障定位链路。",
+      "topics": ["monitoring"],
+      "capabilities": ["alarm-layering", "status-visibility", "record-embedding", "fault-localization"],
+      "deviceTypes": [],
+      "processTypes": ["data-design"],
+      "riskTags": ["alarm-storm", "invisible-failure", "unlocatable-fault"],
+      "file": "observability.design.md",
+      "sourceRefs": [
+        "lianfeng-filmer:case-56c4d4bc84aa908a8dbf",
+        "lianfeng-bc-v307:case-47fac9086a5415f86f5f",
+        "lianfeng-bc-v307:case-2bcf9eb851aa768a8e4a",
+        "lianfeng-hsg-primer:case-35353841417ff5aa95c0",
+        "lianfeng-filmer:case-949806fddd4208336848"
+      ]
+    },
+    {
+      "patternId": "device-frame.ict-test-station",
+      "title": "ICT/FCT 测试工站设备框架",
+      "summary": "流水线进出料+CCD定位+压合测试+MES过站+数据链路的电测工站：测试由仪器/PLC主控，PC 承担定位视觉、过站事务、报表呈现与空跑三段。",
+      "topics": ["composition"],
+      "capabilities": ["test-station", "ccd-positioning", "trace-submit", "data-reporting"],
+      "deviceTypes": ["ict-tester"],
+      "processTypes": ["testing"],
+      "riskTags": ["identity-orphan", "wrong-position-clamp", "upload-blocking"],
+      "file": "device-frame.ict-test-station.md",
+      "sourceRefs": [
+        "js-JS_ICT_Link_V3-0_20250212:case-ee6d590b0022445b843b",
+        "js-JS_ICT_Link_V3-0_20250212:case-d433b3492e998b15e717",
+        "js-JS_ICT_Link_V3-0_20250212:case-e795654f43f5e7a287c0",
+        "js-JS_ICT_ACI_20250408:case-1ad0f96d8c9891f12e68",
+        "js-JS_ICT_ACI_20250408:case-4464102a521e4c8c782f",
+        "js-JS_ICT_Clean-Flux_V3-0_20250226:case-7697d41b84d80a95af50",
+        "js-JS_ICT_Dispense-Flux-on-LIPO_V3-0_20250326:case-c5fb779b8dfb9448e4d1"
+      ]
+    },
+    {
+      "patternId": "device-frame.robot-multi-zone",
+      "title": "机器人多工艺区轮询设备框架",
+      "summary": "单机器人轮询固定工艺区（吹水/检测/称重/加热/拍照）：调度与区工艺分离，料盘基准族按手号×取放×区组合管理，温控分区联动。",
+      "topics": ["composition"],
+      "capabilities": ["robot-polling", "zone-separation", "baseline-family", "zone-threshold"],
+      "deviceTypes": ["surface-treatment", "pnp"],
+      "processTypes": ["multi-process"],
+      "riskTags": ["baseline-gap", "shared-zone-state", "global-stop-on-zone-fault"],
+      "file": "device-frame.robot-multi-zone.md",
+      "sourceRefs": [
+        "cd-AutoRoxerS2-and-S4:case-9a4a3936085a8a1063a5",
+        "cd-AutoRoxerS2-and-S4:case-bd959782761381cf0cd2",
+        "cd-AutoRoxerS2-and-S4:case-c1dfcc511c8c237b2baf",
+        "cd-AutoRoxerS2-and-S4:case-6a30962cfb165160a73f",
+        "cd-AutoRoxerS2-and-S4:case-16817931225c7755a59b"
+      ]
+    },
+    {
+      "patternId": "device-frame.robot-tray-relay",
+      "title": "机器人 Tray 接驳接力设备框架",
+      "summary": "Bucket 机器人多目标上下料+Tray盘供给+接驳机/投料口/跨线下流线常驻接力：主链循环常驻化，换盘与取料互斥，空跑族覆盖每条循环。",
+      "topics": ["composition"],
+      "capabilities": ["bucket-robot", "tray-supply", "relay-chain", "pair-dry-run"],
+      "deviceTypes": ["assembly-relay"],
+      "processTypes": ["dispensing-assembly"],
+      "riskTags": ["swap-concurrent", "relay-deadlock", "dryrun-gap"],
+      "file": "device-frame.robot-tray-relay.md",
+      "sourceRefs": [
+        "js-Crown-S1_202500411:case-1e68f1ef05f82f31aa0b",
+        "js-Crown-S1_202500411:case-9a618a293b3991e00409",
+        "js-Crown-S1_202500411:case-a07feb2cb9dfe704d8c6",
+        "js-Crown-S1_202500411:case-67179b28412c5c47939f",
+        "js-Crown-S1_202500411:case-2cbac9085056ed9bda47",
+        "js-Crown-S1_202500411:case-7b0b672a7e44328a0c27"
+      ]
     }
   ]
 }

@@ -74,14 +74,21 @@ namespace Automation
                         ? string.Equals(status, "confirmed", StringComparison.Ordinal)
                         : confirmed == false
                             && string.Equals(status, "awaiting_confirmation", StringComparison.Ordinal);
-                if (!confirmed.HasValue || !validStatus
-                    || data["changes"] is not JArray directChanges
-                    || data["messages"] is not JArray directMessages)
+                if (!confirmed.HasValue || !validStatus)
                 {
                     return AiPreviewObservation.None;
                 }
-                changes = directChanges;
-                messages = directMessages;
+                // 等待前台确认的结果必须携带 changes/messages 供弹窗展示；
+                // 已确认结果（自动批准）不弹窗，允许投影结果省略展示字段。
+                if (!confirmed.Value
+                    && (data["changes"] is not JArray directChanges
+                        || data["messages"] is not JArray directMessages))
+                {
+                    return AiPreviewObservation.None;
+                }
+
+                changes = data["changes"] as JArray;
+                messages = data["messages"] as JArray;
                 if (confirmed.Value)
                     kind = AiPreviewObservationKind.Confirmed;
                 else if (autoApproveMode)

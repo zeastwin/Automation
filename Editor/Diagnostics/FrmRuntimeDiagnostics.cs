@@ -357,6 +357,7 @@ namespace Automation
                 Temperature = source.Temperature,
                 MaxTurns = source.MaxTurns,
                 MaxOutputTokens = source.MaxOutputTokens,
+                ThinkingEffort = source.ThinkingEffort,
                 AutoApproveMode = false,
                 ToolProfile = "RuntimeDiagnostic"
             };

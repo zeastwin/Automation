@@ -19,6 +19,9 @@ namespace Automation
         public DateTime Time { get; set; }
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string VisualizationJson { get; set; }
+        // 用户消息携带的图片缩略图 data URI；小尺寸预览，随会话历史持久化。
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> ImagePreviews { get; set; }
     }
 
     public sealed class AiConversation

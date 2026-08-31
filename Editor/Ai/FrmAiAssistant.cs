@@ -92,7 +92,6 @@ namespace Automation
         private const int MaxFileAttachmentCount = 4;
         private const long MaxFileAttachmentBytes = 10L * 1024L * 1024L;
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
-        private readonly Dictionary<string, string> fileAttachmentPreviews = new Dictionary<string, string>(StringComparer.Ordinal);
         private bool replayingTaskEvents;
 
         private bool HasRunningTasks => conversationCoordinator.HasRunningTasks || standardTestRunning;
@@ -502,11 +501,8 @@ namespace Automation
                 preparation.IsImage,
                 data,
                 preparation.ExtractedText,
-                preparation.Error));
-            if (!string.IsNullOrWhiteSpace(preview))
-            {
-                fileAttachmentPreviews[id] = preview;
-            }
+                preparation.Error,
+                preview));
             return true;
         }
 
@@ -549,7 +545,6 @@ namespace Automation
                 return;
             }
             pendingFileAttachments.RemoveAll(item => string.Equals(item.Id, attachmentId, StringComparison.Ordinal));
-            fileAttachmentPreviews.Remove(attachmentId);
             PushWebAppState();
         }
 
@@ -584,10 +579,9 @@ namespace Automation
             nudMaxOutputTokens.Value = Math.Max(nudMaxOutputTokens.Minimum,
                 Math.Min(nudMaxOutputTokens.Maximum, config.MaxOutputTokens));
             toolProfile = config.ToolProfile;
-            if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
-            {
-                fullPermissionEnabled = false;
-            }
+            // 完全权限默认值持久保存；仅编辑模式下生效，诊断模式保持关闭。
+            fullPermissionEnabled = string.Equals(toolProfile, "Editor", StringComparison.Ordinal)
+                && config.FullPermissionEnabled;
             autoApproveMode = config.AutoApproveMode;
             // 保存界面当前实际采用的配置。配置文件首次缺失或损坏时缓存可能为空，
             // 模式/权限切换必须与这份快照比较，不能因此误判为需要重建 Goose 会话。
@@ -721,7 +715,12 @@ namespace Automation
                         break;
                     }
                     toolProfile = requestedProfile;
-                    if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+                    if (string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
+                    {
+                        // 切回编辑模式时恢复持久化的默认完全权限（诊断模式运行期间不生效）。
+                        fullPermissionEnabled = (appliedConfig?.FullPermissionEnabled ?? false);
+                    }
+                    else
                     {
                         fullPermissionEnabled = false;
                     }
@@ -972,7 +971,9 @@ namespace Automation
                 || !SelectedModelServiceEqual(oldConfig, config)
                 || Math.Abs(oldConfig.Temperature - config.Temperature) > 0.0001d
                 || oldConfig.MaxTurns != config.MaxTurns
-                || oldConfig.MaxOutputTokens != config.MaxOutputTokens;
+                || oldConfig.MaxOutputTokens != config.MaxOutputTokens
+                || !string.Equals(
+                    oldConfig.ThinkingEffort, config.ThinkingEffort, StringComparison.Ordinal);
             bool uriChanged = oldConfig == null
                 || !string.Equals(oldConfig.McpUri, config.McpUri, StringComparison.Ordinal);
             bool profileChanged = oldConfig == null
@@ -1084,9 +1085,10 @@ namespace Automation
                 await AutomationMcpServerManager.SetToolProfileAsync(mcpUri, toolProfile, enabled)
                     .ConfigureAwait(true);
                 fullPermissionEnabled = enabled;
-                ShowWebToast(enabled
+                // 持久化默认值：下次启动或切回编辑模式时自动应用（与自动批准开关同路径保存）。
+                SaveWebConfig(enabled
                     ? "完全权限已开启，下一轮任务路由生效。"
-                    : "完全权限已关闭，下一轮任务路由生效。");
+                    : "完全权限已关闭，下一轮任务路由生效。", false);
             }
             catch (Exception ex)
             {
@@ -1146,8 +1148,15 @@ namespace Automation
                 Temperature = (double)nudTemperature.Value,
                 MaxTurns = (int)nudMaxTurns.Value,
                 MaxOutputTokens = (int)nudMaxOutputTokens.Value,
+                // 思考强度由平台统一接管为默认值，不开放用户调整。
+                ThinkingEffort = GooseConfigStorage.DefaultThinkingEffort,
                 ToolProfile = toolProfile,
-                AutoApproveMode = autoApproveMode
+                AutoApproveMode = autoApproveMode,
+                // 完全权限默认值仅由编辑模式下的运行开关写入；诊断模式保存时保留既有默认，
+                // 避免临时切换工具模式覆盖用户偏好。
+                FullPermissionEnabled = string.Equals(toolProfile, "Editor", StringComparison.Ordinal)
+                    ? fullPermissionEnabled
+                    : (appliedConfig?.FullPermissionEnabled ?? false)
             };
 
             if (TryResolveGooseExecutablePath(config.GooseExecutablePath, out string resolvedGoosePath))
@@ -1185,7 +1194,11 @@ namespace Automation
             if (conversationCoordinator.TaskHomeVisible
                 || conversationCoordinator.ActiveConversation == null)
             {
+                // 从任务首页新建会话会触发视图状态清理；已添加的附件属于
+                // 用户本次发送意图，先快照再回填，避免附件被静默丢弃。
+                List<GooseFileAttachment> pendingAttachments = pendingFileAttachments.ToList();
                 StartNewConversation();
+                pendingFileAttachments.AddRange(pendingAttachments);
             }
 
             await SendPromptAsync(ActiveTaskRuntime, txtPrompt.Text, pendingFileAttachments.ToList(), true).ConfigureAwait(true);
@@ -1253,7 +1266,11 @@ namespace Automation
             // 此时不能提前追加气泡，否则同一条用户消息会显示两次。
             if (webDocumentReady)
             {
-                AppendConversation("用户", conversationText, UiPalette.BrandPressed);
+                AppendConversation("用户", conversationText, UiPalette.BrandPressed,
+                    imagePreviews: preparedAttachments
+                        .Where(item => item.IsImage)
+                        .Select(item => item.PreviewDataUri)
+                        .ToList());
             }
             // 首个模型输出到达前先显示"正在思考"占位，避免长等待期无任何反馈。
             if (webDocumentReady)
@@ -1446,10 +1463,6 @@ namespace Automation
                 (attachments ?? Array.Empty<GooseFileAttachment>()).Select(item => item.Id),
                 StringComparer.Ordinal);
             pendingFileAttachments.RemoveAll(item => sentAttachmentIds.Contains(item.Id));
-            foreach (string attachmentId in sentAttachmentIds)
-            {
-                fileAttachmentPreviews.Remove(attachmentId);
-            }
         }
 
         private async Task<GooseConfig> PrepareTaskCapabilityAsync(
@@ -1977,14 +1990,13 @@ namespace Automation
                     : service.Name + "/" + service.Model;
                 error = $"当前模型 {modelLabel} 只支持文本，不能分析图片。";
             }
-            fileAttachmentPreviews.TryGetValue(attachment.Id, out string preview);
             return new JObject
             {
                 ["id"] = attachment.Id,
                 ["name"] = attachment.FileName,
                 ["typeLabel"] = attachment.TypeLabel,
                 ["isImage"] = attachment.IsImage,
-                ["preview"] = preview ?? string.Empty,
+                ["preview"] = attachment.PreviewDataUri ?? string.Empty,
                 ["error"] = error ?? string.Empty
             };
         }
@@ -2057,7 +2069,6 @@ namespace Automation
         private void ResetConversationViewState()
         {
             pendingFileAttachments.Clear();
-            fileAttachmentPreviews.Clear();
             previewCoordinator.Reset();
             streamingAssistant = false;
             streamingMarkdown.Clear();
@@ -2096,7 +2107,7 @@ namespace Automation
             {
                 AppendConversation(message.Role == "user" ? "用户" : "EW-AI", message.Text,
                     message.Role == "user" ? UiPalette.BrandPressed : UiPalette.SuccessHover,
-                    message.Time, message.VisualizationJson);
+                    message.Time, message.VisualizationJson, message.ImagePreviews);
             }
         }
 
@@ -2694,6 +2705,7 @@ namespace Automation
                     Temperature = config.Temperature,
                     MaxTurns = config.MaxTurns,
                     MaxOutputTokens = config.MaxOutputTokens,
+                    ThinkingEffort = config.ThinkingEffort,
                     ToolProfile = config.ToolProfile,
                     AutoApproveMode = config.AutoApproveMode
                 };

@@ -1980,7 +1980,6 @@ namespace Automation
                         Text = "所属流程缺失"
                     }
                 };
-                scopeColumn.DataSource = null;
                 scopeColumn.DataSource = variableScopeDisplayOptions;
             }
         }

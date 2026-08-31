@@ -6,6 +6,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace Automation
@@ -34,9 +35,14 @@ namespace Automation
 
         public int MaxOutputTokens { get; set; }
 
+        public string ThinkingEffort { get; set; }
+
         public bool AutoApproveMode { get; set; }
 
         public string ToolProfile { get; set; }
+
+        /// <summary>编辑模式下的默认完全权限：持久保存，启动或切回编辑模式时自动应用。</summary>
+        public bool FullPermissionEnabled { get; set; }
 
         /// <summary>本轮任务路由产生的临时权限说明，不持久化到用户配置。</summary>
         public string TaskCapabilityNotice { get; set; }
@@ -90,15 +96,22 @@ namespace Automation
         public const string TemperatureKey = "Temperature";
         public const string MaxTurnsKey = "MaxTurns";
         public const string MaxOutputTokensKey = "MaxOutputTokens";
+        public const string ThinkingEffortKey = "ThinkingEffort";
         public const string AutoApproveModeKey = "AutoApproveMode";
         private const string LegacyFullPermissionModeKey = "FullPermissionMode";
         public const string ToolProfileKey = "ToolProfile";
+        public const string FullPermissionEnabledKey = "FullPermissionEnabled";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
         public const int DefaultMaxOutputTokens = 16384;
-        public const double DefaultTemperature = 0.3d;
+        public const double DefaultTemperature = 0.25d;
         public const string DefaultProvider = "deepseek";
         public const string DefaultModel = "deepseek-v4-pro";
+        // 思考强度由平台统一接管，不开放用户调整：high 档是流程骨架任务多步自主
+        // 推进的驱动力（15:58 实测 medium 档每轮只建一个流程就收束），截断风险由
+        // "单次预演动作数有界"的知识规则与预演失败自愈兜底。
+        public const string DefaultThinkingEffort = "high";
+        public static readonly string[] SupportedThinkingEfforts = { "low", "medium", "high" };
 
         private static readonly object cacheLock = new object();
         private static GooseConfig cachedConfig;
@@ -145,11 +158,14 @@ namespace Automation
                     Temperature = ReadOptionalDouble(obj, TemperatureKey, DefaultTemperature),
                     MaxTurns = ReadRequiredInt(obj, MaxTurnsKey),
                     MaxOutputTokens = ReadOptionalInt(obj, MaxOutputTokensKey, DefaultMaxOutputTokens),
+                    // 思考强度是平台接管字段：不读取历史存储值，统一使用当前默认。
+                    ThinkingEffort = DefaultThinkingEffort,
                     AutoApproveMode = ReadOptionalBool(
                         obj,
                         AutoApproveModeKey,
                         ReadOptionalBool(obj, LegacyFullPermissionModeKey, false)),
-                    ToolProfile = ReadToolProfile(obj)
+                    ToolProfile = ReadToolProfile(obj),
+                    FullPermissionEnabled = ReadOptionalBool(obj, FullPermissionEnabledKey, false)
                 };
 
                 if (!Validate(config, out error))
@@ -160,10 +176,16 @@ namespace Automation
 
                 bool configMigrated = !obj.TryGetValue(
                     MaxOutputTokensKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(ThinkingEffortKey, StringComparison.Ordinal, out _)
+                    || !string.Equals(
+                        obj[ThinkingEffortKey]?.Value<string>(),
+                        DefaultThinkingEffort,
+                        StringComparison.Ordinal)
                     || !obj.TryGetValue(ModelServiceIdKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(ModelServicesKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(TemperatureKey, StringComparison.Ordinal, out _)
                     || !obj.TryGetValue(AutoApproveModeKey, StringComparison.Ordinal, out _)
+                    || !obj.TryGetValue(FullPermissionEnabledKey, StringComparison.Ordinal, out _)
                     || obj.TryGetValue(LegacyFullPermissionModeKey, StringComparison.Ordinal, out _);
                 // DeepSeek 已发布 V4-Pro/V4-Flash，并将在 2026-07-24 停用旧模型标识。
                 // 项目原先默认使用旧标识，统一迁移到面向复杂代理任务的 V4-Pro。
@@ -188,7 +210,11 @@ namespace Automation
                     config.MaxOutputTokens = DefaultMaxOutputTokens;
                     configMigrated = true;
                 }
-                if (Math.Abs(config.Temperature - 0.7d) < 0.000001d)
+                // 智谱等 API 校验温度最多两位小数；Goose 以 f32 解析再序列化，0.3/0.7
+                // 会被写成 0.30000001192092896 这类长小数导致 400。仅迁移平台曾发布过的
+                // 默认值到 f32 可精确表示的 0.25，保留用户主动设置的其他采样温度。
+                if (Math.Abs(config.Temperature - 0.7d) < 0.000001d
+                    || Math.Abs(config.Temperature - 0.3d) < 0.000001d)
                 {
                     config.Temperature = DefaultTemperature;
                     configMigrated = true;
@@ -250,8 +276,10 @@ namespace Automation
                 [TemperatureKey] = config.Temperature,
                 [MaxTurnsKey] = config.MaxTurns,
                 [MaxOutputTokensKey] = config.MaxOutputTokens,
+                [ThinkingEffortKey] = config.ThinkingEffort,
                 [AutoApproveModeKey] = config.AutoApproveMode,
-                [ToolProfileKey] = config.ToolProfile
+                [ToolProfileKey] = config.ToolProfile,
+                [FullPermissionEnabledKey] = config.FullPermissionEnabled
             };
 
             string path = ConfigPath;
@@ -279,6 +307,7 @@ namespace Automation
 
             config.ToolProfile = DefaultToolProfile;
             config.AutoApproveMode = false;
+            config.FullPermissionEnabled = false;
             if (!TrySave(config, out error))
             {
                 startupSafetyError = "EW-AI 启动安全默认值保存失败:" + error;
@@ -304,7 +333,9 @@ namespace Automation
                 Temperature = DefaultTemperature,
                 MaxTurns = DefaultMaxTurns,
                 MaxOutputTokens = DefaultMaxOutputTokens,
+                ThinkingEffort = DefaultThinkingEffort,
                 AutoApproveMode = false,
+                FullPermissionEnabled = false,
                 ToolProfile = DefaultToolProfile
             };
         }
@@ -432,6 +463,13 @@ namespace Automation
                 error = $"EW-AI MaxOutputTokens 必须在 1024..65536 之间:{config.MaxOutputTokens}";
                 return false;
             }
+            if (!SupportedThinkingEfforts.Contains(
+                    config.ThinkingEffort ?? string.Empty, StringComparer.Ordinal))
+            {
+                error = $"AI思考强度不支持:{config.ThinkingEffort}，可选"
+                    + string.Join("/", SupportedThinkingEfforts);
+                return false;
+            }
             if (!string.Equals(config.ToolProfile, "Diagnostic", StringComparison.Ordinal)
                 && !string.Equals(config.ToolProfile, "Editor", StringComparison.Ordinal))
             {
@@ -545,6 +583,7 @@ namespace Automation
                 Temperature = config.Temperature,
                 MaxTurns = config.MaxTurns,
                 MaxOutputTokens = config.MaxOutputTokens,
+                ThinkingEffort = config.ThinkingEffort,
                 AutoApproveMode = config.AutoApproveMode,
                 ToolProfile = config.ToolProfile
             };

@@ -316,11 +316,16 @@ namespace Automation
                     preparedAttachments.Select(item => item.FileName));
             }
             DateTime startedAt = DateTime.Now;
+            var previews = preparedAttachments
+                .Where(item => item.IsImage && !string.IsNullOrWhiteSpace(item.PreviewDataUri))
+                .Select(item => item.PreviewDataUri)
+                .ToList();
             runtime.Conversation.Messages.Add(new AiConversationMessage
             {
                 Role = "user",
                 Text = conversationText,
-                Time = startedAt
+                Time = startedAt,
+                ImagePreviews = previews.Count > 0 ? previews : null
             });
             if (runtime.Conversation.Messages.Count == 1)
             {
