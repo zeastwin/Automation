@@ -204,7 +204,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 - 只读流程检查使用 `automation-process-review` Skill；创建、修改、重构和复制使用 `automation-process-authoring` Skill。新建与修改都使用 ChangeSet V2；`ProcessCreate` 首阶段创建新流程，提交后使用目标收窄的创建工作区凭据连续完善该流程；独立既有对象修改使用 `ProcessEdit`。
 - 受管 Prompt、上下文和 Skill 在版本相同时仍核对内置资源内容；同版本内容漂移会重新同步，避免不同机器以同一版本运行不同规则。高于内置版本的本机文件仍按既有策略保留并校验。
 - 具体参数、枚举、模式矩阵、数量边界、资源候选和指令技巧来自 Schema、行为 Catalog、资源工具和按需 Guide，不复制到常驻 Prompt。
-- `get_process_design_guide` 是唯一的按需流程设计知识入口。服务端自动附带短 `core`，调用方通常只选一个主主题；默认 `detail=compact`，主题正文也必须返回真正的紧凑投影，并给出可直接传给作者目录的 `goalCoverage.resourceRequests`、结构化功能槽、完成证据、失败恢复和 `evidenceGapPolicy`，只有确实需要完整背景时才请求 `full`。功能槽用于最终核对已实现、占位和证据缺口，不规定固定工具顺序，也不把复杂目标变成一次提交闸门。相关资源存在而精确目标、角色、极性或终态证据缺失时，缺口不能被解释为该功能无需实现；替代机构会改变用户目标含义时应询问或保留占位。Readiness 只证明结构满足当前保存/启动契约，不替代用户目标覆盖判断。已审核知识块包含该场景自身的失败、超时和恢复写法，另一主题承担独立职责时才追加。
+- `get_process_design_guide` 是唯一的按需流程设计知识入口。服务端自动附带短 `core`，调用方通常只选一个主主题；默认 `detail=compact`，主题正文也必须返回真正的紧凑投影，并给出可直接传给作者目录的 `goalCoverage.resourceRequests`、结构化功能槽、完成证据、失败恢复、反模式、存在的定量惯例和 `evidenceGapPolicy`；设备框架首屏保持简索引，按 patternId 钻取后才返回反模式与黄金样例，只有确实需要其余完整背景时才请求 `full`。功能槽用于最终核对已实现、占位和证据缺口，不规定固定工具顺序，也不把复杂目标变成一次提交闸门。相关资源存在而精确目标、角色、极性或终态证据缺失时，缺口不能被解释为该功能无需实现；替代机构会改变用户目标含义时应询问或保留占位。Readiness 只证明结构满足当前保存/启动契约，不替代用户目标覆盖判断。已审核知识块包含该场景自身的失败、超时和恢复写法，另一主题承担独立职责时才追加。
 - `McpServer/ProcessKnowledge/` 只保存已完成甄别的可用规范：`catalog.json` 负责能力、设备、工艺和风险标签，`blocks/*.md` 保存完整写法，内部来源摘要不返回给运行时 AI。旧项目证据和审核过程留在 Transform 运行目录；AI 完成审核与归纳后才把结果登记到目录，并由 `get_process_design_guide` 按主题返回。知识体系按三层组织：`automation.md`「整机流程族」段常驻路由（一台设备由什么构成）、`composition` 主题按需返回 `device-frame.*` 单机设备框架（功能单元表、单元间衔接、变化点、搭建顺序；多机台产线编排不收录）、其余功能块按单主主题返回内部写法；层间只索引不复制。`get_process_design_guide` 支持可选 `patternIds`：先 compact 取索引，再按响应中的 patternId 精确钻取目标块，知识库增长不放大单次返回。主题是硬契约：条目 `topics` ⊆ `ProcessDesignGuideCatalog.SupportedTopics` 并与 `schema.json` 枚举、工具描述一致，每个非 core 主题在 `Guides/ProcessDesignGuide.md` 有区块标记；`Program.cs` 启动时校验整个目录，不同步直接拒启（exit code 2），错误消息指明问题条目而非请求主题。目录契约与库存现状详见 `McpServer/ProcessKnowledge/README.md`。
 - Automation 源码开发知识由 `get_platform_development_context` 按 `hmi`、`platform-api`、`custom-function` 精确加载；目标不明确时才读取 `catalog`。源码定位使用 `search_platform_source` 的字面量、目录、扩展名和最多 100 条结果边界，不把 Shell 开放给只读源码能力。
 - Prompt 主要陈述长期稳定的身份、真实性和安全边界；平台路由进入 `automation.md`，任务步骤进入 Skill，字段与行为进入工具契约。某类可靠复现的问题若不能仅靠代码契约表达，允许增加 1～3 句短而通用的行为规则并递增对应资源版本；确定性、安全和数据完整性仍由代码执行，不为单次措辞或单个案例增加补丁式训话。
@@ -226,6 +226,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 | 原生运行行为、通信重试和接收结果判定 | `OperationBehaviorCatalog`、`ProcessEngine.Operations.*` |
 | 语义 kind、Schema 和编译结果 | `SemanticOperationKinds`、`AiOperationCompilerRegistry` 及对应编译器 |
 | 资源配置 | 对应 Store；Bridge/MCP 只做候选和详情投影 |
+| AI 使用的 IO 状态 | IO 接口归一化后的逻辑状态；`true` 为打开/有效、`false` 为关闭/无效，`EffectLevel` 只负责底层硬件电平适配且不进入 AI 投影 |
 | 配置可保存性 | `AiChangeSetCompiler`、`ProcessDefinitionService` |
 | 流程可运行性 | `ProcessReadinessService` 和实际启动闸门 |
 | 运行实例、终态与 CT 样本 | `EngineSnapshot.RunId/State/TerminationReason`、`ProcessEngine.GetLatestCycleTimeSamples`、运行黑匣子 |

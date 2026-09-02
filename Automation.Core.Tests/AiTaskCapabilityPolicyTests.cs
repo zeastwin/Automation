@@ -73,6 +73,15 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void ProcessEdit_IncludesOnDemandDesignKnowledge()
+        {
+            IReadOnlyList<string> tools = AutomationToolProfiles.GetTaskToolNames(
+                AutomationToolProfiles.ProcessEdit);
+
+            Assert.IsTrue(tools.Contains("get_process_design_guide", StringComparer.Ordinal));
+        }
+
+        [TestMethod]
         public void TaskCoordinator_IncludesDeviceSummaryAndRequestCapability()
         {
             IReadOnlyList<string> tools = AutomationToolProfiles.GetTaskToolNames(

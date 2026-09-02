@@ -191,6 +191,8 @@ namespace Automation.Bridge
 
         private static JObject BuildIoJObject(IO io)
         {
+            // AI 只消费稳定的逻辑层语义：true=打开/有效，false=关闭/无效。
+            // EffectLevel 属于底层硬件电平适配，不进入 Bridge/MCP 的 AI 资源投影。
             return new JObject
             {
                 ["index"] = io.Index,

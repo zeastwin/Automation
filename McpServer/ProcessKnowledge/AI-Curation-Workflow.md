@@ -179,7 +179,7 @@ ProcessKnowledge/
 
 ## 7. 如何在 Automation 中生效
 
-`McpServer/ProcessKnowledgeCatalog.cs` 读取内嵌 `catalog.json` 和 `blocks/*.md`。`ProcessDesignGuideCatalog.Get(topics, detail, patternIds)` 按主题筛选后，把可用规范放入 `get_process_design_guide` 返回的 `knowledgeBlocks`；compact 投影携带功能块标准小节和设备框架的功能单元表等小节，`patternIds` 支持按块钻取，库变大时不放大单次返回。
+`McpServer/ProcessKnowledgeCatalog.cs` 读取内嵌 `catalog.json` 和 `blocks/*.md`。`ProcessDesignGuideCatalog.Get(topics, detail, patternIds)` 按主题筛选后，把可用规范放入 `get_process_design_guide` 返回的 `knowledgeBlocks`；compact 投影携带功能块标准小节、反模式和存在的定量惯例，设备框架首屏只返回简索引，按 patternId 钻取后再返回功能单元表、反模式与黄金样例，避免库变大后放大单次返回。
 
 新增普通规范时不需要新增 MCP 工具，也不需要修改 Prompt 或 Skill。通常委托只修改 `catalog.json`、对应 Markdown 和来源摘要；项目文件使用通配符嵌入规范正文。
 

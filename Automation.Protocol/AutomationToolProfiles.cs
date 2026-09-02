@@ -66,7 +66,8 @@ namespace Automation.Protocol
                     "preview_change_set", "apply_change_set",
                     "discard_change_set_preview", "validate_proc", "request_capability"),
                 [ProcessEdit] = Tools(
-                    "resolve_proc_target", "list_authoring_resources", "resolve_operation_capability",
+                    "resolve_proc_target", "get_process_design_guide",
+                    "list_authoring_resources", "resolve_operation_capability",
                     "inspect_process", "get_op_details", "get_operation_references",
                     "get_operation_context", "get_native_operation_field_contract",
                     "get_operation_guide", "get_semantic_operation_schema",

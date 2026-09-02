@@ -1,4 +1,4 @@
-﻿﻿[CmdletBinding()]
+[CmdletBinding()]
 param()
 
 Set-StrictMode -Version Latest
@@ -20,6 +20,7 @@ if (-not ($catalogRaw | Test-Json -Schema $schema)) {
 $catalog = $catalogRaw | ConvertFrom-Json
 $patternIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $files = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$blockContents = @{}
 $requiredHeadings = @(
     '## 可观察目标',
     '## 适用边界',
@@ -39,7 +40,14 @@ $requiredFrameHeadings = @(
     '## 搭建顺序',
     '## 完成证据',
     '## 关联块清单',
+    '## 反模式',
     '## 幂等与甄别结论'
+)
+$requiredFrameRelatedPatternIds = @(
+    'variables.design',
+    'data-struct.design',
+    'custom-function.code-process-collaboration',
+    'observability.design'
 )
 $forbiddenTerms = @(
     'candidate',
@@ -65,6 +73,13 @@ foreach ($block in @($catalog.blocks)) {
         throw "规范文件不存在：$contentPath"
     }
     $content = Get-Content -LiteralPath $contentPath -Raw
+    $blockContents[[string]$block.patternId] = $content
+    if ([string]$block.patternId -like 'device-frame.*') {
+        $blockTopics = @($block.topics)
+        if ($blockTopics.Count -ne 1 -or [string]$blockTopics[0] -ne 'composition') {
+            throw "设备框架 topics 必须且只能是 composition：$($block.patternId)"
+        }
+    }
     $headings = if ([string]$block.patternId -like 'device-frame.*') {
         $requiredFrameHeadings
     } else {
@@ -82,6 +97,33 @@ foreach ($block in @($catalog.blocks)) {
     }
 }
 
+foreach ($block in @($catalog.blocks | Where-Object { [string]$_.patternId -like 'device-frame.*' })) {
+    $content = [string]$blockContents[[string]$block.patternId]
+    $section = [regex]::Match(
+        $content,
+        '(?ms)^## 关联块清单\s*(?<body>.*?)(?=^## |\z)')
+    if (-not $section.Success) {
+        throw "设备框架缺少可解析的关联块清单：$($block.patternId)"
+    }
+    $relatedPatternIds = @(
+        [regex]::Matches(
+            $section.Groups['body'].Value,
+            '[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)+') |
+            ForEach-Object { $_.Value } |
+            Select-Object -Unique
+    )
+    foreach ($relatedPatternId in $relatedPatternIds) {
+        if (-not $patternIds.Contains([string]$relatedPatternId)) {
+            throw "设备框架引用了未知知识块：$($block.patternId) -> $relatedPatternId"
+        }
+    }
+    foreach ($requiredPatternId in $requiredFrameRelatedPatternIds) {
+        if ($requiredPatternId -notin $relatedPatternIds) {
+            throw "设备框架缺少必需设计块：$($block.patternId) -> $requiredPatternId"
+        }
+    }
+}
+
 $unlisted = Get-ChildItem -LiteralPath (Join-Path $knowledgeRoot 'blocks') -Filter '*.md' -File |
     Where-Object { -not $files.Contains($_.Name) }
 if ($unlisted) {
@@ -90,12 +132,89 @@ if ($unlisted) {
 
 $sourcesPath = Join-Path $knowledgeRoot 'provenance\sources.json'
 $sources = Get-Content -LiteralPath $sourcesPath -Raw | ConvertFrom-Json
-$sourceIds = @($sources.sources | ForEach-Object { [string]$_.sourceId })
+$sourceIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$sourcesById = @{}
+$manifestsBySourceId = @{}
+$automationRoot = Split-Path -Parent (Split-Path -Parent $knowledgeRoot)
+$workspaceRoot = Split-Path -Parent $automationRoot
+$runsRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'Transform4SNsdemo\runs')) +
+    [IO.Path]::DirectorySeparatorChar
+if ([string]$sources.documentType -ne 'Automation.ProcessKnowledgeSources' -or
+    [int]$sources.schemaVersion -ne 1) {
+    throw '来源目录类型或版本无效。'
+}
+foreach ($source in @($sources.sources)) {
+    $sourceId = [string]$source.sourceId
+    $packageLocator = [string]$source.packageLocator
+    $expectedManifestSha256 = ([string]$source.manifestSha256).ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($sourceId) -or
+        [string]::IsNullOrWhiteSpace([string]$source.displayName) -or
+        [string]::IsNullOrWhiteSpace($packageLocator) -or
+        [string]::IsNullOrWhiteSpace([string]$source.reviewConclusion) -or
+        $expectedManifestSha256 -notmatch '^[a-f0-9]{64}$' -or
+        -not $sourceIds.Add($sourceId)) {
+        throw "来源目录包含缺失字段、无效哈希或重复 sourceId：$sourceId"
+    }
+
+    $packagePath = [IO.Path]::GetFullPath((Join-Path $workspaceRoot $packageLocator))
+    if (-not $packagePath.StartsWith($runsRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "来源证据包路径越界：$sourceId -> $packagePath"
+    }
+    $manifestPath = Join-Path $packagePath 'knowledge_candidates\manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "来源证据包 manifest 不存在：$sourceId -> $manifestPath"
+    }
+    $actualManifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualManifestSha256 -ne $expectedManifestSha256) {
+        throw "来源证据包 manifest 哈希不一致：$sourceId"
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ([string]$manifest.DocumentType -ne 'Automation.LegacyProcessKnowledgeCandidates' -or
+        [int]$manifest.SchemaVersion -ne 1) {
+        throw "来源证据包 manifest 类型或版本无效：$sourceId"
+    }
+    $sourcesById[$sourceId] = $source
+    $manifestsBySourceId[$sourceId] = [pscustomobject]@{
+        PackagePath = $packagePath
+        Manifest = $manifest
+    }
+}
+
+$validatedCaseRefs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 foreach ($block in @($catalog.blocks)) {
     foreach ($sourceRef in @($block.sourceRefs)) {
-        $sourceId = ([string]$sourceRef).Split(':', 2)[0]
-        if ($sourceId -notin $sourceIds) {
+        $parts = ([string]$sourceRef).Split(':', 2)
+        $sourceId = $parts[0]
+        $caseId = if ($parts.Count -eq 2) { $parts[1] } else { '' }
+        if (-not $sourcesById.ContainsKey($sourceId)) {
             throw "规范引用了未知来源：$sourceRef"
+        }
+        if ([string]::IsNullOrWhiteSpace($caseId)) {
+            throw "规范来源引用缺少 caseId：$sourceRef"
+        }
+        if (-not $validatedCaseRefs.Add([string]$sourceRef)) {
+            continue
+        }
+        $manifestInfo = $manifestsBySourceId[$sourceId]
+        $case = @($manifestInfo.Manifest.Cases) |
+            Where-Object { [string]$_.CaseId -eq $caseId } |
+            Select-Object -First 1
+        if ($null -eq $case) {
+            throw "规范引用了来源 manifest 中不存在的案例：$sourceRef"
+        }
+        $candidateRoot = [IO.Path]::GetFullPath(
+            (Join-Path $manifestInfo.PackagePath 'knowledge_candidates')) +
+            [IO.Path]::DirectorySeparatorChar
+        $caseFilePath = [IO.Path]::GetFullPath((Join-Path $candidateRoot ([string]$case.CaseFile)))
+        if (-not $caseFilePath.StartsWith($candidateRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath $caseFilePath -PathType Leaf)) {
+            throw "规范引用的标准化案例文件不存在或路径越界：$sourceRef"
+        }
+        $expectedCaseSha256 = ([string]$case.CaseFileSha256).ToLowerInvariant()
+        $actualCaseSha256 = (Get-FileHash -LiteralPath $caseFilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expectedCaseSha256 -notmatch '^[a-f0-9]{64}$' -or
+            $actualCaseSha256 -ne $expectedCaseSha256) {
+            throw "规范引用的标准化案例哈希不一致：$sourceRef"
         }
     }
 }

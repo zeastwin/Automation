@@ -44,11 +44,20 @@ namespace Automation.McpServer
             // 不等到运行期让每次 get_process_design_guide 失败。
             try
             {
-                ProcessDesignGuideCatalog.Get(
+                string knowledgeValidation = ProcessDesignGuideCatalog.Get(
                     ProcessDesignGuideCatalog.SupportedTopics
                         .Where(topic => !string.Equals(topic, "core", StringComparison.Ordinal))
                         .ToArray(),
                     null);
+                JsonObject? validationRoot = JsonNode.Parse(knowledgeValidation) as JsonObject;
+                if (validationRoot?["ok"]?.GetValue<bool>() != true)
+                {
+                    string errorCode = validationRoot?["errorCode"]?.GetValue<string>()
+                        ?? "PROCESS_KNOWLEDGE_STARTUP_VALIDATION_FAILED";
+                    string message = validationRoot?["message"]?.GetValue<string>()
+                        ?? "知识目录返回了无效的启动校验结果。";
+                    throw new InvalidDataException(errorCode + "：" + message);
+                }
             }
             catch (Exception ex)
             {
@@ -612,10 +621,25 @@ namespace Automation.McpServer
                 || identifyKnowledgeBlocks.Any(block => block?["markdown"] != null)
                 || !identifyKnowledgeBlocks.Any(block =>
                     !string.IsNullOrWhiteSpace(block?["recommendedStages"]?.GetValue<string>()))
+                || !identifyKnowledgeBlocks.Any(block =>
+                    !string.IsNullOrWhiteSpace(block?["antiPatterns"]?.GetValue<string>()))
                 || Encoding.UTF8.GetByteCount(identifyCompactGuide)
                     >= Encoding.UTF8.GetByteCount(identifyFullGuide))
             {
-                throw new InvalidOperationException("流程设计知识未默认返回紧凑core、可执行阶段或可用规范。");
+                throw new InvalidOperationException("流程设计知识未默认返回紧凑core、可执行阶段、反模式或可用规范。");
+            }
+            foreach (string topic in ProcessDesignGuideCatalog.SupportedTopics.Where(topic =>
+                !string.Equals(topic, "core", StringComparison.Ordinal)))
+            {
+                string compactGuide = ProcessDesignGuideCatalog.Get(new[] { topic });
+                string fullGuide = ProcessDesignGuideCatalog.Get(new[] { topic }, "full");
+                if ((JsonNode.Parse(compactGuide) as JsonObject)?["ok"]?.GetValue<bool>() != true
+                    || (JsonNode.Parse(fullGuide) as JsonObject)?["ok"]?.GetValue<bool>() != true
+                    || Encoding.UTF8.GetByteCount(compactGuide) >= Encoding.UTF8.GetByteCount(fullGuide))
+                {
+                    throw new InvalidOperationException(
+                        "流程设计主题未保持 compact 小于 full 的投影边界：" + topic + "。");
+                }
             }
             // 设备框架简索引与 patternIds 钻取：compact 索引只带设备画像（框架会持续增多），
             // 钻取才返回功能单元表；未知 patternId 必须结构化拒绝而不是静默空结果。
@@ -631,6 +655,8 @@ namespace Automation.McpServer
                 || dispensingIndex == null
                 || string.IsNullOrWhiteSpace(dispensingIndex["deviceProfile"]?.GetValue<string>())
                 || dispensingIndex.ContainsKey("functionalUnits")
+                || dispensingIndex.ContainsKey("antiPatterns")
+                || dispensingIndex.ContainsKey("goldenExample")
                 || dispensingIndex.ContainsKey("markdown"))
             {
                 throw new InvalidOperationException("composition 索引必须是设备框架简索引（设备画像），不带功能单元表。");
@@ -645,9 +671,25 @@ namespace Automation.McpServer
                 || frameDrillBlocks?.Count != 1
                 || frameDrillBlocks[0]?["patternId"]?.GetValue<string>() != "device-frame.reinspect"
                 || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["functionalUnits"]?.GetValue<string>())
-                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["buildOrder"]?.GetValue<string>()))
+                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["buildOrder"]?.GetValue<string>())
+                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["antiPatterns"]?.GetValue<string>())
+                || string.IsNullOrWhiteSpace(frameDrillBlocks[0]?["goldenExample"]?.GetValue<string>()))
             {
-                throw new InvalidOperationException("patternIds 钻取未返回目标设备框架的功能单元表与搭建顺序。");
+                throw new InvalidOperationException("patternIds 钻取未返回目标设备框架的功能单元表、搭建顺序、反模式与黄金样例。");
+            }
+            string dataDesignGuide = ProcessDesignGuideCatalog.Get(
+                new[] { "orchestration" },
+                null,
+                new[] { "variables.design", "data-struct.design" });
+            JsonArray? dataDesignBlocks = (JsonNode.Parse(dataDesignGuide) as JsonObject)?["knowledgeBlocks"]
+                as JsonArray;
+            if (dataDesignBlocks?.Count != 2
+                || !dataDesignBlocks.Any(block =>
+                    !string.IsNullOrWhiteSpace(block?["quantitativeConventions"]?.GetValue<string>()))
+                || !dataDesignBlocks.Any(block =>
+                    !string.IsNullOrWhiteSpace(block?["capacityAndPersistenceConventions"]?.GetValue<string>())))
+            {
+                throw new InvalidOperationException("compact 知识投影缺少定量参考惯例或容量与周期惯例。");
             }
             string unknownPatternGuide = ProcessDesignGuideCatalog.Get(
                 new[] { "composition" },
@@ -849,6 +891,7 @@ namespace Automation.McpServer
             string[] edit = ToolNames(AutomationToolProfiles.ProcessEdit);
             if (!edit.Contains("preview_change_set", StringComparer.Ordinal)
                 || !edit.Contains("resolve_proc_target", StringComparer.Ordinal)
+                || !edit.Contains("get_process_design_guide", StringComparer.Ordinal)
                 || !edit.Contains("list_authoring_resources", StringComparer.Ordinal)
                 || !edit.Contains("resolve_operation_capability", StringComparer.Ordinal)
                 || !edit.Contains("inspect_process", StringComparer.Ordinal)

@@ -239,7 +239,8 @@ namespace Automation.McpServer
         {
             // compact 投影保留可信的充分信息。设备框架块未钻取时只返回简索引
             // （patternId/标题/摘要/设备画像/关联块清单）：框架会持续增多，先选型再按
-            // patternId 钻取完整功能单元表；功能块数量少，直接携带全部标准小节。
+            // patternId 钻取完整功能单元表、反模式与黄金样例；功能块数量少，直接携带
+            // 标准小节、反模式和存在的定量惯例。
             var projection = new Dictionary<string, object>
             {
                 ["patternId"] = block.PatternId,
@@ -273,6 +274,17 @@ namespace Automation.McpServer
             AddKnowledgeSection(projection, block, "unitSeams", "单元间衔接");
             AddKnowledgeSection(projection, block, "variationPoints", "框架变化点");
             AddKnowledgeSection(projection, block, "buildOrder", "搭建顺序");
+            AddKnowledgeSection(projection, block, "antiPatterns", "反模式");
+            AddKnowledgeSection(projection, block, "quantitativeConventions", "定量参考惯例");
+            AddKnowledgeSection(
+                projection,
+                block,
+                "capacityAndPersistenceConventions",
+                "容量与周期惯例");
+            if (drilled)
+            {
+                AddKnowledgeSection(projection, block, "goldenExample", "黄金样例");
+            }
             AddKnowledgeSection(projection, block, "curationNotes", "幂等与甄别结论");
             return projection;
         }
