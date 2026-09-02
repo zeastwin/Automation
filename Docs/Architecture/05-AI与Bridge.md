@@ -51,13 +51,11 @@ Goose 不直接连接 WinForms，也不直接访问 Named Pipe。它只看到 MC
 
 ACP 流式过程仍可在当前前台显示并进入底层取证日志，正常完成持久化当前工作阶段的最终 assistant 答复。工具过程、推理片段、重复阶段总结和多阶段拼接文本不另行复制进业务历史；用户停止或后续异常时才用已完成阶段的有限输出形成部分结果。同一条用户请求的能力阶段复用一个 Goose 原生会话，能力切换时不重复注入完整目标或阶段摘要；请求到达完成、停止或失败终态后标记可信滚动，下一条用户请求建立新原生会话，只恢复有限最终消息、结构化交接和机械阶段事实。业务 `conversationId` 继续保持，当前用户语句只作为本轮 prompt 发送一次，从而保留对话连续性而不跨请求累积工具 Schema、推理草稿和大型结果。
 
-每条用户请求持有一个 Goose ACP `sessionId`，同一请求的所有能力阶段连续复用它。请求开始先把工具面切到只含 `request_capability` 的 `TaskCoordinator`；不需要平台工具或需要用户补充时直接正常回复，需要工作能力时才提交一个 `run_stage`。代码批准后在当前 `sessionId` 内切换到固定 Profile。协调器和工作阶段使用同一会话级输出配置，默认输出预算为 16384 tokens、temperature 为 0.3；旧平台默认 8192/0.7 在加载时迁移，其他用户自定义值保持不变。所有工作 Profile 都保留同一个轻量控制工具，但它只负责换能力；当前能力足以完成或需要用户信息时直接输出。每轮第一条成功能力申请立即锁定并结束该模型轮；系统不提前生成完整阶段序列，也没有关键词路由或规划失败兜底。
+每条用户请求持有一个 Goose ACP `sessionId`，同一请求的所有能力阶段连续复用它。请求开始先把工具面切到只含 `request_capability` 的 `TaskCoordinator`；不需要平台工具或需要用户补充时直接正常回复，需要工作能力时才提交一个 `run_stage`。代码批准后在当前 `sessionId` 内切换到固定 Profile。协调器和工作阶段使用同一会话级输出配置，默认输出预算为 65536 tokens、temperature 为 0.25；旧平台默认 8192/16384/0.7/0.3 在加载时迁移，其他用户自定义值保持不变。所有工作 Profile 都保留同一个轻量控制工具，但它只负责换能力；当前能力足以完成或需要用户信息时直接输出。每轮第一条成功能力申请立即锁定并结束该模型轮；系统不提前生成完整阶段序列，也没有关键词路由或规划失败兜底。
 
 MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取消和阶段状态彼此独立。能力变化通过 Goose 1.46 的会话扩展接口 `_goose/unstable/session/extensions/add/remove/list` 原地重挂 Automation MCP；Automation TOM 只在工作 Profile 挂载，流程评审/创建/修改再挂载对应 Skills。Developer 扩展全量常驻所有能力面，工具面不做 `available_tools` 过滤；文件修改与 Shell 执行由前台权限闸门限制在 Editor 权限外壳 + SourceDevelopment 能力。`_goose/unstable/tools/list` 同时核对模型实际可见的完整 Automation 工具名集合和 `request_capability` 输入 Schema；所有 Profile 的控制 Schema 必须完全一致并通过指纹复核，缺字段、同名缓存漂移或必需工具缺失都立即停止当前任务。同一请求内切换成功必须保持原 `sessionId`；附件只发送一次并由该请求的原生会话保留。
 
 AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有会话、任务运行时、单轮执行、取消和历史收尾，`GooseAcpEventReader` 解析 ACP 工具结果，`AiPreviewConfirmationCoordinator` 归一化预演状态并去重，`AutomationBridgePreviewClient` 是前台确认/拒绝的最小 Named Pipe 客户端。`FrmAiAssistant` 只组合这些对象并负责输入、气泡和 Web 展示；模板、渲染和审核对话框分别位于对应 partial 文件。
-
-标准测试仍以场景 ID 绑定固定夹具和机械验收规则，但每个场景的逐轮用户语句可以在前台直接编辑、增加或删除。运行时请求必须携带实际语句，服务端校验场景 ID、1～12 轮、单轮 1～4000 字符及单场景总计不超过 20000 字符；未保存的当前编辑值也可直接运行。“保存语句”只把相对内置默认值的差异写入当前配置目录的 `AiStandardTests.json`，“恢复默认语句”清空这些覆盖，不修改测试夹具和验收代码。`standard_test.started` 记录本次真实语句，保证后续日志分析能够区分默认测试和人工改写。
 
 ## 工具 Profile
 
@@ -96,7 +94,7 @@ flowchart LR
 - 流程写入直接进入 `ProcessCreate`，不先绕行纯方案阶段。设计知识由 `get_process_design_guide` 按当前目标需要读取，不设置首次必读或完成闸门；简单且事实充分时可一次创建，复杂或知识依赖明显时先提交安全骨架，再使用提交结果中的创建工作区凭据留在 `ProcessCreate` 按稳定 ID 续建。普通文本声称“已参考知识库”不算读取证据，但没有知识依赖时也不要求仪式性调用。
 - `SourceReview/SourceDevelopment` 使用 `search_platform_source` 做根目录内的受限字面量检索，再配合 Developer 只读工具精确读取。纯读取不使运行实例过期；direct `write/edit` 标记源码已改变，`SourceDevelopment` 中的 Shell 标记修改状态不确定，两者都停止后续能力并要求重新构建加载。
 - 协调模型的申请不是授权或事实；当前请求的原生会话保留阶段对话和工具结果，但代码只接受工具结果中的机械证据。宿主从成功的作者资源目录、指令能力解析、ChangeSet apply 和 validate 结果提取阶段产物，包括已观察资源、已创建对象、稳定 ID、创建工作区凭据和 Readiness 摘要。阶段摘要不在同一请求的正常切换时重复注入；请求终态后的可信滚动或原生会话意外丢失只注入这些结构化产物和有限最终输出，也不扩大副作用授权。每个业务对话额外持久化有界的最近机械事实与观察时间，供下一请求理解“按刚才建议”等承接语义；用户说明配置已变化时必须重新读取。已完成阶段的输出和副作用事实保留，后续失败或用户停止时不恢复整单请求，防止重复提交。
-- 工作轮有正常 assistant 最终输出时即完成当前任务；只有模型既未完成输出、也未申请下一能力时才从当前进度续写。续写不以工具调用数判断思考是否有进展：模型可以在原会话跨输出分段继续必要分析或调用工具。输出分段数、能力阶段数、自然语言目标重复和固定纠错次数都不作为自动中断条件；不合法申请不执行，并把结构化校验错误交回模型修正。任务只在用户停止、正常完成/提问、Provider 或用户配置的真实资源预算到达、运行实现无法恢复，或权限、安全、事实与证据完整性、事务一致性等机械契约拒绝继续时停止。能力切换记录 `transition.started/prepared/completed/failed/cancelled`，Goose 实际核验工具面后记录 `surface.verified`。取消请求额外记录 `task.cancellation_requested.source`，执行端观察到取消后记录 `task.cancelled`；用户停止、标准测试停止和运行时释放不得再共用不可区分的“已取消”事实。
+- 工作轮有正常 assistant 最终输出时即完成当前任务；只有模型既未完成输出、也未申请下一能力时才从当前进度续写。续写不以工具调用数判断思考是否有进展：模型可以在原会话跨输出分段继续必要分析或调用工具。输出分段数、能力阶段数、自然语言目标重复和固定纠错次数都不作为自动中断条件；不合法申请不执行，并把结构化校验错误交回模型修正。任务只在用户停止、正常完成/提问、Provider 或用户配置的真实资源预算到达、运行实现无法恢复，或权限、安全、事实与证据完整性、事务一致性等机械契约拒绝继续时停止。能力切换记录 `transition.started/prepared/completed/failed/cancelled`，Goose 实际核验工具面后记录 `surface.verified`。取消请求额外记录 `task.cancellation_requested.source`，执行端观察到取消后记录 `task.cancelled`；用户停止和运行时释放不得再共用不可区分的“已取消”事实。
 - 阶段轨迹按能力记录工具调用数、工具结果体积、`modelSegmentBytes`、估算会话上下文、非工具耗时、首次预演尝试/成功耗时、首次成功前失败数以及聚合解析调用数；这些阈值只生成诊断信号，不改变调度。少量已恢复的工具失败只记录为 `recovered`。Provider 累计 token 不直接当作真实上下文大小；同一请求内无论这些观测值如何都保持原生连续性，请求终态后统一安排可信滚动，下一请求只恢复有限可信上下文。
 - 跨进程错误识别只用稳定错误码标记，不匹配自然语言文案：McpToolProfile 拒绝未开放工具时异常消息以 `AutomationMcpErrorCodes.ToolNotAvailable`（`TOOL_NOT_AVAILABLE`，定义在 `Automation.Protocol`）开头，ACP 客户端按同一常量识别并把该失败归类为 `sideEffects=none` 的可恢复错误；调整文案不得移除标记。Goose 能力面校验失败时，错误消息必须附 Goose 实际返回的事实（实际公布扩展清单、原始工具目录、工具对象实际键名），保证外部升级导致的契约偏差可快速定位而不是静默误杀。
 
@@ -152,7 +150,7 @@ stateDiagram-v2
 
 `turnId/seq` 用于关联用户输入、模型片段、工具开始/结束、预演、确认、提交和轮次结束。正常排查先看紧凑分析日志，只有证据不足时再看完整 ACP/MCP/Bridge 报文。
 
-轮次结束同时记录任务能力包、工具调用数、失败数、工具结果字节、`promptInputBytes`、`modelSegmentBytes`、`estimatedSessionContextTokens` 和 `trajectory` 评估。标准测试增加 `standard_test.run_started/run_completed` 的整轮关联，并保留每场景事件。持久输出体积使用 `assistantResponseChars/decisionMessageChars/persistedCandidateChars` 区分；能力决定记录 `termination_requested`，轮次结束再用 `terminationObserved/terminationOutcome` 区分取消是否真正被 ACP 观察。轨迹预算只标记需要复盘的低效路径，不中断模型。
+轮次结束同时记录任务能力包、工具调用数、失败数、工具结果字节、`promptInputBytes`、`modelSegmentBytes`、`estimatedSessionContextTokens` 和 `trajectory` 评估。持久输出体积使用 `assistantResponseChars/decisionMessageChars/persistedCandidateChars` 区分；能力决定记录 `termination_requested`，轮次结束再用 `terminationObserved/terminationOutcome` 区分取消是否真正被 ACP 观察。轨迹预算只标记需要复盘的低效路径，不中断模型。
 
 ## 已收敛边界
 
@@ -188,11 +186,11 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 - 不把“校验更严格”直接等同于“AI 更可靠”。校验必须对应明确不变量，并尽可能在模型提交前通过解析结果、Schema 和语义工具给出可行动信息。
 - 不用工具调用数、输出分段数、能力阶段数、是否立即调用工具、自然语言目标重复、固定纠错次数或耗时等代理指标自动判定模型没有进展；这些数据只用于观测。新增硬限制必须保护可机械验证的权限、安全、事实与证据完整性、事务一致性、数据/传输边界或用户配置资源预算，并在实现前说明正向收益、误杀风险以及为什么不能改善工具、Schema、状态机或错误反馈来替代。证据门槛只能阻止无依据的完成声明或副作用，不能阻止模型向用户澄清缺失事实。
 - 不用猜测资源、变量、原生指令类型或删减版探针预演来探索平台能力；流程编写先按目标相关类别查看有界作者资源目录，陌生动作再使用能力解析。
-- 不用增加输出 Token 掩盖工具发现、Schema 体积、错误反馈或会话连续性问题。默认输出预算为 `16384`，它提供复杂阶段的完成余量，但不是允许无限探索的阶段预算。
+- 不用增加输出 Token 掩盖工具发现、Schema 体积、错误反馈或会话连续性问题。默认输出预算为 `65536`（high 思考档单轮推理可达 ~15K tokens，`16384` 预算会被推理挤占导致预演参数在发出前被 `max_tokens` 截断，历史默认 `8192`/`16384` 在配置加载时迁移），它提供复杂阶段的完成余量，但不是允许无限探索的阶段预算。`max_tokens` 截断后的续跑提示必须区分“已有工具进展后截断”与“无新调用截断”：未发出的调用不会自动执行，引导模型丢弃半截输出并用更小的单次调用续做，不重复长推理。
 
 每项 AI 优化在实现前至少检查：它是否减少模型取得事实所需的往返；是否缩短 `firstPreviewAttemptMs` 或 `firstSuccessfulPreviewMs`；是否减少首次成功前的工具失败、输入 Token、工具结果字节和无归属耗时；是否能由代码消除一次确定性重试；是否仍由机械契约守住权限和安全；是否在其他 Prompt、Skill、Schema 或文档中已有重复规则。简单完整流程应优先一次创建，复杂或事实不全的流程应优先形成安全骨架和短闭环，两者不应被统一成大而全的单次提交策略。
 
-验证优化时先从分析日志还原 `request_capability`、事实读取、解析、预演、提交和回读的真实阶段轨迹，再判断瓶颈属于模型、上下文、工具契约、知识数据还是运行实现。短测试验证直接改动的契约；真实 AI 标准测试由用户显式启动并记录准确开始时间，不在构建或普通回归中自动执行。设计目标不是消灭模型的一切错误，而是在机械安全边界内提供可恢复、可分阶段、低试错成本的自主工作路径。
+验证优化时先从分析日志还原 `request_capability`、事实读取、解析、预演、提交和回读的真实阶段轨迹，再判断瓶颈属于模型、上下文、工具契约、知识数据还是运行实现。短测试验证直接改动的契约。设计目标不是消灭模型的一切错误，而是在机械安全边界内提供可恢复、可分阶段、低试错成本的自主工作路径。
 
 无人值守回归由已运行的正常平台实例通过 Bridge 管道触发：`POST /bridge/ai-test/start`（body `{autoApprove:true, prompts:[...], turnTimeoutMinutes:N}`，缺 autoApprove 直接拒绝；1..12 轮、单句 ≤4000 字符）在 UI 线程异步执行 `FrmAiAssistant` 完整能力切换与发送链路，`POST /bridge/ai-test/status` 轮询 `runId/running/completedPrompts/passedCount/failedCount/reportPath` 快照；测试进行中或 AI 助手有任务时 start 返回 409。配套客户端脚本 `Tools/AiHeadlessTest/Invoke-AiHeadlessTest.ps1` 封装管道帧协议（触发、轮询、摘要输出），示例语句见同目录 `prompts-sample.json`。该模式开启预演自动批准（`ai_headless_test.prepared` 事件显式记录 `autoApprove=true`，等价于前台逐次确认）、同一会话连续对话、每句独立超时并按 `conversationCoordinator.Cancel` 停止。过程事件 `ai_headless_test.run_started/prompt_started/prompt_completed/run_completed` 写入 `D:\AutomationLogs\AIExecution\Analysis`，Markdown 报告写 `D:\AutomationLogs\AIExecution\HeadlessTests`。语句内容自动批准后会产生真实配置写入与真实运行风险，语句来源必须与手工测试同样经过用户确认。
 

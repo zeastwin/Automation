@@ -85,8 +85,6 @@ namespace Automation
             new AiConversationCoordinator();
         private GooseAcpClient gooseClient;
         private bool sending;
-        private bool standardTestRunning;
-        private bool standardTestStopRequested;
         private bool autoApproveMode = false;
         private bool fullPermissionEnabled;
         private const int MaxFileAttachmentCount = 4;
@@ -94,7 +92,7 @@ namespace Automation
         private readonly List<GooseFileAttachment> pendingFileAttachments = new List<GooseFileAttachment>();
         private bool replayingTaskEvents;
 
-        private bool HasRunningTasks => conversationCoordinator.HasRunningTasks || standardTestRunning;
+        private bool HasRunningTasks => conversationCoordinator.HasRunningTasks;
         private AiTaskRuntime ActiveTaskRuntime => conversationCoordinator.ActiveRuntime;
         private bool IsActiveTaskRunning => !conversationCoordinator.TaskHomeVisible
             && ActiveTaskRuntime?.Running == true;
@@ -116,7 +114,7 @@ namespace Automation
         {
             bool busy = HasRunningTasks;
             txtPrompt.Enabled = true;
-            txtPrompt.ReadOnly = IsActiveTaskRunning || standardTestRunning;
+            txtPrompt.ReadOnly = IsActiveTaskRunning;
             txtGooseExecutable.ReadOnly = busy;
             txtWorkingDirectory.ReadOnly = busy;
             txtMcpUri.ReadOnly = busy;
@@ -612,39 +610,6 @@ namespace Automation
                     txtPrompt.Text = message["prompt"]?.Value<string>() ?? string.Empty;
                     BtnSend_Click(sender, EventArgs.Empty);
                     break;
-                case "runStandardTests":
-                    if (!TryReadStandardTestPromptSets(
-                        message["scenarios"], out List<AiStandardTestPromptSet> requestedTests, out string requestError))
-                    {
-                        ShowWebToast(requestError);
-                        break;
-                    }
-                    await RunStandardTestsAsync(
-                        requestedTests,
-                        message["separateConversations"]?.Value<bool?>() ?? true).ConfigureAwait(true);
-                    break;
-                case "saveStandardTestPrompts":
-                    if (!TryReadStandardTestPromptSets(
-                        message["scenarios"], out List<AiStandardTestPromptSet> promptSets, out string promptError)
-                        || !AiStandardTestSuite.TrySavePromptOverrides(promptSets, out promptError))
-                    {
-                        ShowWebToast(promptError);
-                        break;
-                    }
-                    ShowWebToast("标准测试语句已保存到本机配置。");
-                    PushWebAppState();
-                    EnqueueScript("if(window.renderStandardTests){window.renderStandardTests();}");
-                    break;
-                case "resetStandardTestPrompts":
-                    if (!AiStandardTestSuite.TryResetPromptOverrides(out string resetPromptError))
-                    {
-                        ShowWebToast(resetPromptError);
-                        break;
-                    }
-                    ShowWebToast("标准测试语句已恢复为内置默认值。");
-                    PushWebAppState();
-                    EnqueueScript("if(window.renderStandardTests){window.renderStandardTests();}");
-                    break;
                 case "chooseFile":
                     ChooseFileAttachments();
                     break;
@@ -658,7 +623,7 @@ namespace Automation
                     RemoveFileAttachment(message["id"]?.Value<string>());
                     break;
                 case "stop":
-                    if (IsActiveTaskRunning || standardTestRunning)
+                    if (IsActiveTaskRunning)
                     {
                         StopCurrentPrompt();
                     }
@@ -809,12 +774,9 @@ namespace Automation
             string providerText = string.IsNullOrWhiteSpace(cboProvider.Text) ? GooseConfigStorage.DefaultProvider : cboProvider.Text;
             string modelText = string.IsNullOrWhiteSpace(cboModel.Text) ? GooseConfigStorage.DefaultModel : cboModel.Text;
             string normalizedProvider = NormalizeGooseOverride(providerText);
-            IReadOnlyList<AiStandardTestScenario> configuredTests =
-                AiStandardTestSuite.GetConfiguredScenarios(out string standardTestWarning);
-            var defaultTests = AiStandardTestSuite.Scenarios.ToDictionary(item => item.Id, StringComparer.Ordinal);
             return new JObject
             {
-                ["sending"] = IsActiveTaskRunning || standardTestRunning,
+                ["sending"] = IsActiveTaskRunning,
                 ["taskHomeVisible"] = conversationCoordinator.TaskHomeVisible,
                 ["canEditConfig"] = !HasRunningTasks,
                 ["config"] = new JObject
@@ -850,16 +812,6 @@ namespace Automation
                         AiProviderSecretStorage.GetModelServiceSecretKey(item.Id))
                 })),
                 ["attachments"] = new JArray(pendingFileAttachments.Select(BuildAttachmentWebState)),
-                ["testScenarioWarning"] = standardTestWarning ?? string.Empty,
-                ["testScenarios"] = new JArray(configuredTests.Select(item => new JObject
-                {
-                    ["id"] = item.Id,
-                    ["name"] = item.Name,
-                    ["description"] = item.Description,
-                    ["prompts"] = new JArray(item.Prompts),
-                    ["customized"] = !item.Prompts.SequenceEqual(
-                        defaultTests[item.Id].Prompts, StringComparer.Ordinal)
-                })),
                 ["activeConversationId"] = conversationCoordinator.TaskHomeVisible
                     ? string.Empty
                     : conversationCoordinator.ActiveConversation?.Id ?? string.Empty,
@@ -1185,7 +1137,7 @@ namespace Automation
 
         private async void BtnSend_Click(object sender, EventArgs e)
         {
-            if (IsActiveTaskRunning || standardTestRunning)
+            if (IsActiveTaskRunning)
             {
                 StopCurrentPrompt();
                 return;
@@ -1705,243 +1657,8 @@ namespace Automation
 
         private void StopCurrentPrompt()
         {
-            if (standardTestRunning)
-            {
-                standardTestStopRequested = true;
-            }
             AiTaskRuntime runtime = ActiveTaskRuntime;
-            conversationCoordinator.Cancel(
-                runtime,
-                standardTestRunning ? "standard_test_user_stop" : "user_stop");
-        }
-
-        private static bool TryReadStandardTestPromptSets(
-            JToken token,
-            out List<AiStandardTestPromptSet> promptSets,
-            out string error)
-        {
-            promptSets = new List<AiStandardTestPromptSet>();
-            error = null;
-            if (token is not JArray scenarios || scenarios.Count == 0)
-            {
-                error = "请至少选择一个测试场景。";
-                return false;
-            }
-            foreach (JToken scenarioToken in scenarios)
-            {
-                if (scenarioToken is not JObject scenario
-                    || scenario["id"]?.Type != JTokenType.String
-                    || scenario["prompts"] is not JArray prompts
-                    || prompts.Any(item => item.Type != JTokenType.String))
-                {
-                    error = "标准测试语句请求结构无效。";
-                    return false;
-                }
-                promptSets.Add(new AiStandardTestPromptSet
-                {
-                    Id = scenario["id"].Value<string>(),
-                    Prompts = prompts.Values<string>().ToList()
-                });
-            }
-            return true;
-        }
-
-        private async Task RunStandardTestsAsync(
-            IEnumerable<AiStandardTestPromptSet> requestedTests,
-            bool separateConversations)
-        {
-            if (sending || standardTestRunning)
-            {
-                return;
-            }
-
-            List<AiStandardTestScenario> selectedScenarios =
-                AiStandardTestSuite.Select(requestedTests, out string selectionError);
-            if (selectedScenarios.Count == 0)
-            {
-                ShowWebToast(selectionError ?? "没有选择测试场景。");
-                return;
-            }
-            if (!string.Equals(toolProfile, "Editor", StringComparison.Ordinal))
-            {
-                ShowWebToast("这些标准测试包含配置变更，请先切换到编辑模式。");
-                return;
-            }
-
-            standardTestRunning = true;
-            standardTestStopRequested = false;
-            ApplyPermissions();
-            int completedTurns = 0;
-            int totalTurns = selectedScenarios.Sum(item => item.Prompts.Count);
-            int passedScenarios = 0;
-            int failedScenarios = 0;
-            bool executionFailed = false;
-            string standardTestRunId = Guid.NewGuid().ToString("N");
-            AiAnalysisLogger.Write(new JObject
-            {
-                ["event"] = "standard_test.run_started",
-                ["runId"] = standardTestRunId,
-                ["separateConversations"] = separateConversations,
-                ["scenarioIds"] = new JArray(selectedScenarios.Select(item => item.Id)),
-                ["scenarioCount"] = selectedScenarios.Count,
-                ["totalTurns"] = totalTurns
-            });
-            try
-            {
-                for (int scenarioIndex = 0; scenarioIndex < selectedScenarios.Count; scenarioIndex++)
-                {
-                    if (standardTestStopRequested)
-                    {
-                        break;
-                    }
-
-                    AiStandardTestScenario scenario = selectedScenarios[scenarioIndex];
-                    AiTaskRuntime scenarioRuntime = EnsureActiveConversation(separateConversations);
-                    if (scenarioRuntime == null)
-                    {
-                        executionFailed = true;
-                        failedScenarios++;
-                        AppendConversation(
-                            "错误",
-                            "标准测试无法创建任务会话，测试未启动。",
-                            UiPalette.Danger);
-                        AiAnalysisLogger.Write(new JObject
-                        {
-                            ["event"] = "standard_test.execution_failed",
-                            ["runId"] = standardTestRunId,
-                            ["scenarioId"] = scenario.Id,
-                            ["message"] = "AI 任务运行时不存在。"
-                        });
-                        break;
-                    }
-                    AppendConversation("系统", "标准测试：" + scenario.Name, UiPalette.TextSecondary);
-                    AiAnalysisLogger.Write(new JObject
-                    {
-                        ["event"] = "standard_test.started",
-                        ["runId"] = standardTestRunId,
-                        ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
-                        ["scenarioId"] = scenario.Id,
-                        ["promptCount"] = scenario.Prompts.Count,
-                        ["prompts"] = new JArray(scenario.Prompts)
-                    });
-
-                    if (!AiStandardTestSuite.Prepare(
-                        Workspace.Runtime,
-                        scenario, out AiStandardTestFixtureState fixture, out string prepareError))
-                    {
-                        failedScenarios++;
-                        AiAnalysisLogger.Write(new JObject
-                        {
-                            ["event"] = "standard_test.preparation_failed",
-                            ["runId"] = standardTestRunId,
-                            ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
-                            ["scenarioId"] = scenario.Id,
-                            ["message"] = prepareError ?? string.Empty
-                        });
-                        AppendConversation("系统",
-                            "### 未执行 · " + scenario.Name + "\n\n- ✗ 测试准备失败：" + prepareError,
-                            UiPalette.Danger);
-                        continue;
-                    }
-                    AppendConversation("系统",
-                        string.IsNullOrWhiteSpace(fixture.SelectedProcessName)
-                            ? "测试环境已清理：仅移除名称以“标准测试_”开头的测试对象。"
-                            : "测试夹具已准备并选中流程：" + fixture.SelectedProcessName,
-                        UiPalette.TextSecondary);
-
-                    bool scenarioCompleted = true;
-                    foreach (string prompt in scenario.Prompts)
-                    {
-                        if (standardTestStopRequested)
-                        {
-                            scenarioCompleted = false;
-                            break;
-                        }
-                        bool completed = await SendPromptAsync(
-                            scenarioRuntime,
-                            prompt,
-                            new List<GooseFileAttachment>(),
-                            false).ConfigureAwait(true);
-                        if (!completed)
-                        {
-                            scenarioCompleted = false;
-                            if (!standardTestStopRequested)
-                            {
-                                executionFailed = true;
-                                failedScenarios++;
-                                AiAnalysisLogger.Write(new JObject
-                                {
-                                    ["event"] = "standard_test.execution_failed",
-                                    ["runId"] = standardTestRunId,
-                                    ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
-                                    ["scenarioId"] = scenario.Id,
-                                    ["completedTurns"] = completedTurns,
-                                    ["message"] = "测试语句未能完成。"
-                                });
-                            }
-                            break;
-                        }
-                        completedTurns++;
-                    }
-
-                    if (scenarioCompleted)
-                    {
-                        AiStandardTestEvaluation evaluation = AiStandardTestSuite.Evaluate(
-                            Workspace.Runtime, scenario, fixture);
-                        if (evaluation.Passed) passedScenarios++;
-                        else failedScenarios++;
-                        AiAnalysisLogger.Write(new JObject
-                        {
-                            ["event"] = "standard_test.evaluated",
-                            ["runId"] = standardTestRunId,
-                            ["conversationId"] = scenarioRuntime.Conversation?.Id ?? string.Empty,
-                            ["scenarioId"] = scenario.Id,
-                            ["passed"] = evaluation.Passed,
-                            ["checks"] = new JArray(evaluation.Details)
-                        });
-                        AppendConversation("系统", evaluation.ToMarkdown(scenario.Name),
-                            evaluation.Passed
-                                ? UiPalette.Success
-                                : UiPalette.Danger);
-                    }
-
-                    if (executionFailed)
-                    {
-                        break;
-                    }
-
-                    if (separateConversations && conversationCoordinator.ActiveConversation != null)
-                    {
-                        conversationCoordinator.ActiveConversation.Title = "标准测试 · " + scenario.Name;
-                        conversationCoordinator.ActiveConversation.UpdatedAt = DateTime.Now;
-                        SaveConversationHistory();
-                        PushWebAppState();
-                    }
-                }
-            }
-            finally
-            {
-                bool stopped = standardTestStopRequested;
-                AiAnalysisLogger.Write(new JObject
-                {
-                    ["event"] = "standard_test.run_completed",
-                    ["runId"] = standardTestRunId,
-                    ["stoppedByUser"] = stopped,
-                    ["executionFailed"] = executionFailed,
-                    ["completedTurns"] = completedTurns,
-                    ["totalTurns"] = totalTurns,
-                    ["passedScenarios"] = passedScenarios,
-                    ["failedScenarios"] = failedScenarios
-                });
-                standardTestRunning = false;
-                standardTestStopRequested = false;
-                ApplyPermissions();
-                ShowWebToast(stopped
-                    ? $"标准测试已停止，完成 {completedTurns}/{totalTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。"
-                    : executionFailed
-                        ? $"标准测试执行中断，完成 {completedTurns}/{totalTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。请查看当前任务中的错误。"
-                    : $"标准测试已完成，共 {completedTurns} 轮；通过 {passedScenarios}，未通过 {failedScenarios}。");
-            }
+            conversationCoordinator.Cancel(runtime, "user_stop");
         }
 
         private void BtnResetSession_Click(object sender, EventArgs e)
@@ -1960,7 +1677,7 @@ namespace Automation
 
         public bool PreparePrompt(string prompt)
         {
-            if (standardTestRunning || conversationCoordinator.HasRunningTasks)
+            if (conversationCoordinator.HasRunningTasks)
             {
                 ShowWebToast("当前 AI 任务仍在运行，未覆盖输入框内容。");
                 return false;

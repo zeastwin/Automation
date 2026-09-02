@@ -1053,12 +1053,32 @@ namespace Automation
             string modelStopReason,
             bool madeToolProgress = false)
         {
-            string recovery = madeToolProgress
-                ? "上一轮已经取得新的工具事实，请从当前进度继续并优先复用；若新缺口会影响完成，可以继续精确读取。"
-                : string.Equals(
-                modelStopReason, "max_tokens", StringComparison.OrdinalIgnoreCase)
-                ? "上一轮达到输出边界，请从中断处继续当前能力阶段。"
-                : "继续当前能力阶段；不要重做已成功的工作。";
+            bool outputTruncated = string.Equals(
+                modelStopReason, "max_tokens", StringComparison.OrdinalIgnoreCase);
+            string recovery;
+            if (madeToolProgress && outputTruncated)
+            {
+                // 工具进展与输出截断可以同时发生：截断发生在轮内末段时，未发出的
+                // 调用不会执行，必须明确告知模型丢弃半截输出并用更小的单次调用续做，
+                // 否则模型会按"正常继续"重走长推理再被截断（20260902 实测空转循环）。
+                recovery = "上一轮已取得新的工具事实，但输出在中途达到上限被截断："
+                    + "未发出的工具调用不会自动执行，不要重写整段分析，"
+                    + "直接从当前进度用更小的单次调用继续。";
+            }
+            else if (!madeToolProgress && outputTruncated)
+            {
+                recovery = "上一轮输出达到上限且没有发出新的工具调用：被截断的内容不会自动执行，"
+                    + "请压缩分析，把计划中的大动作拆成多次最小调用逐步执行。";
+            }
+            else if (madeToolProgress)
+            {
+                recovery = "上一轮已经取得新的工具事实，请从当前进度继续并优先复用；"
+                    + "若新缺口会影响完成，可以继续精确读取。";
+            }
+            else
+            {
+                recovery = "继续当前能力阶段；不要重做已成功的工作。";
+            }
             return recovery
                 + "可以继续必要分析或调用工具。当前能力足以回答时直接给用户最终答复或提问；"
                 + "只有确实需要切换能力时才调用一次 request_capability。";

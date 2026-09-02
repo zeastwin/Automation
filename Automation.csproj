@@ -619,7 +619,6 @@
     <Compile Include="Runtime\Ai\AiConversationStorage.cs" />
     <Compile Include="Runtime\Ai\AiTaskCapabilityCoordinator.cs" />
     <Compile Include="Runtime\Ai\AiProviderSecretStorage.cs" />
-    <Compile Include="Runtime\Ai\AiStandardTestSuite.cs" />
     <Compile Include="Runtime\Ai\AttachmentTextExtractor.cs" />
     <Compile Include="Runtime\Ai\AutomationMcpServerManager.cs" />
     <Compile Include="Runtime\Ai\GooseAcpEventReader.cs" />

@@ -103,7 +103,10 @@ namespace Automation
         public const string FullPermissionEnabledKey = "FullPermissionEnabled";
         public const string DefaultToolProfile = "Diagnostic";
         public const int DefaultMaxTurns = 100;
-        public const int DefaultMaxOutputTokens = 16384;
+        // deepseek-v4 系 1M 上下文 + 384K 输出上限；high 思考档单轮推理可达 ~15K tokens，
+        // 16384 预算会被推理挤占导致预演参数截断（stopReason=max_tokens 且调用未发出）。
+        // 默认取宿主校验上限 65536，给推理与工具参数留足空间。
+        public const int DefaultMaxOutputTokens = 65536;
         public const double DefaultTemperature = 0.25d;
         public const string DefaultProvider = "deepseek";
         public const string DefaultModel = "deepseek-v4-pro";
@@ -204,8 +207,9 @@ namespace Automation
                     config.MaxTurns = DefaultMaxTurns;
                     configMigrated = true;
                 }
-                // 仅迁移平台曾经发布过的默认值，保留用户主动设置的其他输出预算和采样温度。
-                if (config.MaxOutputTokens == 8192)
+                // 仅迁移平台曾经发布过的默认值（8192、16384），保留用户主动设置的其他输出预算。
+                // 16384 预算在 high 思考档下会被推理挤占导致预演参数截断，统一升到 65536。
+                if (config.MaxOutputTokens == 8192 || config.MaxOutputTokens == 16384)
                 {
                     config.MaxOutputTokens = DefaultMaxOutputTokens;
                     configMigrated = true;

@@ -35,8 +35,12 @@ namespace Automation.Core.Tests
                     grid.CreateControl();
                     grid.Rows.Add(1, "测试变量", "double", "12", "");
 
-                    Assert.AreEqual(88, grid.Columns[2].Width,
-                        "类型列应使用加宽后的运行时列宽。");
+                    // 类型列已改为 Fill 比例缩放，宽度随表格宽度变化，
+                    // 只校验运行时最小列宽契约，避免窄窗口下被压缩到不可用。
+                    Assert.AreEqual(72, grid.Columns[2].MinimumWidth,
+                        "类型列应保留运行时最小列宽。");
+                    Assert.IsTrue(grid.Columns[2].Width >= grid.Columns[2].MinimumWidth,
+                        "类型列实际宽度不应低于最小列宽。");
                     foreach (int columnIndex in new[] { 1, 3 })
                     {
                         grid.CurrentCell = grid.Rows[0].Cells[0];

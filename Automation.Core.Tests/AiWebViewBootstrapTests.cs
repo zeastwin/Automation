@@ -209,7 +209,6 @@ namespace Automation.Core.Tests
                     {
                         "appState.canEditConfig===true"
                             + "&&!document.getElementById('promptInput').disabled"
-                            + "&&!document.getElementById('standardTestButton').disabled"
                             + "&&!document.getElementById('toolDiagnostic').disabled"
                             + "&&!document.getElementById('toolEditor').disabled"
                     });

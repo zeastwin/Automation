@@ -17,7 +17,9 @@ namespace Automation.Core.Tests
         {
             GooseConfig config = GooseConfigStorage.CreateDefaultConfig();
 
-            Assert.AreEqual(16384, config.MaxOutputTokens);
+            // 65536 预算：high 思考档单轮推理可达 ~15K tokens，16384 会被推理挤占
+            // 导致预演参数截断（20260902 实测 stopReason=max_tokens 且调用未发出）。
+            Assert.AreEqual(65536, config.MaxOutputTokens);
             Assert.AreEqual(0.25d, config.Temperature, 0.000001d);
             // 默认 high 且由平台统一接管，不开放用户调整：high 档是多流程骨架
             // 任务多步自主推进的驱动力（15:58 实测 medium 档每轮只建一个流程就

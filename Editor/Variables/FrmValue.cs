@@ -638,7 +638,11 @@ namespace Automation
             dgvValue.CellBeginEdit += dgvValue_CellBeginEdit;
             dgvValue.DataError += dgvValue_DataError;
             dgvValue.Scroll += (sender, args) => ScheduleViewportRefresh();
-            dgvValue.Resize += (sender, args) => ScheduleViewportRefresh();
+            dgvValue.Resize += (sender, args) =>
+            {
+                ScheduleViewportRefresh();
+                UpdateAdaptiveColumns();
+            };
             DoubleBuffered = true;
 
             dgvValue.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -657,10 +661,12 @@ namespace Automation
             panel1.Height = VariableToolbarHeight;
             panel1.Padding = Padding.Empty;
 
+            // 不启用 AutoScroll：窄工作区下滚动条会压缩 32px 按钮条高度，
+            // 导致按钮文字被垂直裁切；放不下的按钮直接在右缘裁掉，
+            // 关闭 AI 助手或拉宽窗口后自然恢复完整按钮。
             var actions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                AutoScroll = true,
                 WrapContents = false,
                 FlowDirection = FlowDirection.LeftToRight,
                 BackColor = UiPalette.Surface,
@@ -907,32 +913,35 @@ namespace Automation
             index.Width = 54;
             index.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
 
-            name.MinimumWidth = 160;
-            name.Width = 230;
-            name.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            // 列宽用 Fill 比例缩放：非全屏或打开 AI 助手时表格变窄，
+            // 各列按比例压缩而不是溢出被裁切；极窄时由 UpdateAdaptiveColumns 隐藏次要列。
+            name.MinimumWidth = 120;
+            name.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            name.FillWeight = 15;
             name.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            value.MinimumWidth = 220;
-            value.Width = 345;
-            value.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            value.MinimumWidth = 150;
+            value.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            value.FillWeight = 22;
             value.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            Note.MinimumWidth = 120;
-            Note.Width = 600;
-            Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            Note.MinimumWidth = 90;
+            Note.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            Note.FillWeight = 40;
             Note.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
 
             type.MinimumWidth = 72;
-            type.Width = 88;
-            type.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            type.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            type.FillWeight = 6;
 
-            scopeColumn.MinimumWidth = 160;
-            scopeColumn.Width = 230;
-            scopeColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            scopeColumn.MinimumWidth = 110;
+            scopeColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            scopeColumn.FillWeight = 15;
             scopeColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
             dgvValue.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
             dgvValue.ScrollBars = ScrollBars.Both;
+            UpdateAdaptiveColumns();
 
             index.DisplayIndex = 0;
             name.DisplayIndex = 1;
@@ -979,6 +988,40 @@ namespace Automation
             int splitterLeft = splitContainerMain.Left + splitContainerMain.SplitterDistance;
             variableToolbarLayout.ColumnStyles[0].Width = Math.Max(0, splitterLeft - toolbarLeft);
             variableToolbarLayout.ColumnStyles[1].Width = splitContainerMain.SplitterWidth;
+        }
+
+        // 依据表格实际宽度自适应显示次要列：
+        // 必需列（槽位/名称/当前值/类型）始终保留，作用域和备注只有在
+        // 剩余宽度足以放下各自最小列宽时才显示，避免非全屏或 AI 助手
+        // 侧边栏打开时右侧列被裁切遮挡。
+        private void UpdateAdaptiveColumns()
+        {
+            if (dgvValue.IsDisposed || dgvValue.Columns.Count == 0)
+            {
+                return;
+            }
+            int gridWidth = dgvValue.ClientSize.Width;
+            int essentialWidth = index.Width + name.MinimumWidth + value.MinimumWidth + type.MinimumWidth;
+            bool showScope = gridWidth >= essentialWidth + scopeColumn.MinimumWidth;
+            bool showNote = showScope && gridWidth >= essentialWidth + scopeColumn.MinimumWidth + Note.MinimumWidth;
+            if (!showScope || !showNote)
+            {
+                // 隐藏列前先离开该列的编辑态与选中位置，避免虚拟模式下的无效操作。
+                if (dgvValue.CurrentCell != null
+                    && (dgvValue.CurrentCell.OwningColumn == scopeColumn || dgvValue.CurrentCell.OwningColumn == Note))
+                {
+                    dgvValue.EndEdit();
+                    dgvValue.CurrentCell = null;
+                }
+            }
+            if (scopeColumn.Visible != showScope)
+            {
+                scopeColumn.Visible = showScope;
+            }
+            if (Note.Visible != showNote)
+            {
+                Note.Visible = showNote;
+            }
         }
 
         private static void ConfigureToolbarButton(Button button, string text, int width)

@@ -663,12 +663,39 @@ namespace Automation.Core.Tests
             string prompt = AiConversationCoordinator.BuildStageContinuationPrompt(
                 AutomationToolProfiles.ProcessCreate,
                 "max_tokens");
-            StringAssert.Contains(prompt, "从中断处继续");
+            StringAssert.Contains(prompt, "没有发出新的工具调用");
+            StringAssert.Contains(prompt, "被截断的内容不会自动执行");
             StringAssert.Contains(prompt, "可以继续必要分析或调用工具");
             StringAssert.Contains(prompt, "直接给用户最终答复或提问");
             Assert.IsTrue(prompt.IndexOf("ask_user", System.StringComparison.Ordinal) < 0);
             Assert.IsTrue(prompt.IndexOf("finish", System.StringComparison.Ordinal) < 0);
             Assert.IsTrue(prompt.IndexOf("config.placeholder", System.StringComparison.Ordinal) < 0);
+        }
+
+        [TestMethod]
+        public void StageContinuation_TruncationAfterToolProgressDiscardsUnsentCalls()
+        {
+            // 20260902 实测：整轮工具调用成功后模型又在轮内末段生成超大输出被
+            // max_tokens 截断，旧文案只提"工具事实"导致模型重走长推理空转。
+            string prompt = AiConversationCoordinator.BuildStageContinuationPrompt(
+                AutomationToolProfiles.ProcessCreate,
+                "max_tokens",
+                madeToolProgress: true);
+            StringAssert.Contains(prompt, "已取得新的工具事实");
+            StringAssert.Contains(prompt, "被截断");
+            StringAssert.Contains(prompt, "未发出的工具调用不会自动执行");
+            StringAssert.Contains(prompt, "更小的单次调用继续");
+        }
+
+        [TestMethod]
+        public void StageContinuation_ProgressWithoutTruncationKeepsToolFactWording()
+        {
+            string prompt = AiConversationCoordinator.BuildStageContinuationPrompt(
+                AutomationToolProfiles.ProcessCreate,
+                "end_turn",
+                madeToolProgress: true);
+            StringAssert.Contains(prompt, "上一轮已经取得新的工具事实");
+            Assert.IsTrue(prompt.IndexOf("被截断", System.StringComparison.Ordinal) < 0);
         }
 
         [TestMethod]

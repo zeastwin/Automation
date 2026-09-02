@@ -8,7 +8,7 @@ using System.Linq;
 
 namespace Automation
 {
-    /// <summary>headless 测试语句约束；与标准测试语句约束保持一致。</summary>
+    /// <summary>headless 测试语句约束；由 Bridge ai-test 端点使用。</summary>
     internal sealed class HeadlessAiTestOptions
     {
         internal const int MaximumPromptCount = 12;

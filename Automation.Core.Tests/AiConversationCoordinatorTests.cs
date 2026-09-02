@@ -83,9 +83,9 @@ namespace Automation.Core.Tests
             AiTaskRuntime runtime = coordinator.EnsureActive(false);
             runtime.Cancellation = new System.Threading.CancellationTokenSource();
 
-            coordinator.Cancel(runtime, "standard_test_user_stop");
+            coordinator.Cancel(runtime, "user_stop");
 
-            Assert.AreEqual("standard_test_user_stop", runtime.CancellationSource);
+            Assert.AreEqual("user_stop", runtime.CancellationSource);
             Assert.IsTrue(runtime.Cancellation.IsCancellationRequested);
             runtime.Cancellation.Dispose();
         }
