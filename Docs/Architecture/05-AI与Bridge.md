@@ -66,7 +66,7 @@ AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有�
 - `TaskCoordinator`：每次用户请求先切入此工具面，只开放无副作用的 `request_capability` Automation 工具，不加载 Skills 或 Automation TOM，不读取平台事实；无需平台工具时直接正常回复，需要工作能力时以第一条成功申请为准。Goose 原生 developer 扩展全量常驻所有能力面，协调阶段也可读取用户引用的外部文件。
 - `ProcessDesign`、`ProcessReview`、`ProcessCreate`、`ProcessEdit`、`ResourceEdit`、`RuntimeControl`、`SourceReview`、`SourceDevelopment`、`PlatformConfiguration`：工作阶段的最小业务工具加轻量 `request_capability` 控制面。独立变量、数据结构和报警维护归入 `ResourceEdit`，源码只读与写入分离；Automation TOM 在工作阶段启用，流程 Skill 只挂到评审/创建/修改能力。developer 扩展全量常驻且不做工具面过滤；write/edit/shell 调用由 Editor 权限外壳、SourceDevelopment 能力要求、Hmi 目录边界和前台确认闸门放行或拦截。
 
-能力申请不会改变用户权限。只读权限申请写入、运行或源码开发，或未开启完全权限时申请平台迁移，代码会拒绝该申请并让协调模型改为询问用户或结束；不会擅自降级成另一任务。`McpServer/Program.cs --verify-profile` 校验能力包边界、申请 Schema、必需工具、退役工具和工具描述。文档不复制完整工具清单，以免与 Profile 漂移。
+能力申请不会改变用户权限。AI 的 `Diagnostic/Editor` 外壳之外还必须通过当前账户权限上限：使用 AI 需要 `platform.ai.use`，源码读取/修改分别需要 `source.review/source.develop`，流程运行、流程编辑、资源编辑和平台配置工具继续映射到对应模块权限；停止流程保持无条件可用。账户退出或权限变化后，后续工具调用立即在前台权限请求边界失败，不能借已创建的 Goose 会话绕过。只读权限申请写入、运行或源码开发，或未开启完全权限时申请平台迁移，代码会拒绝该申请并让协调模型改为询问用户或结束；不会擅自降级成另一任务。`McpServer/Program.cs --verify-profile` 校验能力包边界、申请 Schema、必需工具、退役工具和工具描述。文档不复制完整工具清单，以免与 Profile 漂移。
 
 ## 动态能力调度
 

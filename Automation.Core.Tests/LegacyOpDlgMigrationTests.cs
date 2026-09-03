@@ -155,19 +155,30 @@ namespace Automation.Core.Tests
                         81F,
                         ((TableLayoutPanel)commandBar.Parent).RowStyles[0].Height,
                         "顶部栏应保持旧项目的 81px 紧凑高度。");
-                    Assert.IsFalse(
-                        Descendants(form).Any(control =>
-                            string.Equals(control.Name, "btnLogin", StringComparison.Ordinal)),
-                        "当前平台没有登录机制，顶部栏不应保留登录按钮。");
+                    Button accountButton = Descendants(form)
+                        .OfType<Button>()
+                        .Single(button => button.Name == "btnAccount");
+                    Assert.AreEqual("登录", accountButton.Text);
+                    Assert.IsNotNull(accountButton.Image);
+                    Assert.AreEqual(36, accountButton.Image.Width);
+                    Assert.AreEqual(TextImageRelation.ImageAboveText, accountButton.TextImageRelation,
+                        "HMI 账户入口应与其他顶部命令保持大图标、小文字的上下布局。");
+                    Assert.IsTrue(accountButton.Font.Size <= 9.5F);
+                    StringAssert.Contains(accountButton.AccessibleName, "未登录");
                     TableLayoutPanel statusLayout = Descendants(form)
                         .OfType<TableLayoutPanel>()
                         .Single(layout => layout.Name == "statusLayout");
                     Assert.AreEqual(1, statusLayout.RowCount);
+                    Assert.AreEqual(2, statusLayout.ColumnCount);
                     Assert.IsTrue(
                         statusLayout.Controls
                             .OfType<Label>()
                             .Any(label => label.Name == "lblFixtureStatus"),
-                        "移除登录按钮后，设备状态应占满右上角状态区域。");
+                        "设备状态应继续保留在 HMI 右上角状态区域。");
+                    Assert.AreEqual(
+                        1,
+                        statusLayout.GetCellPosition(accountButton).Column,
+                        "账户入口应位于设备状态右侧的最右上角。");
 
                     Assert.IsTrue(Descendants(form).Any(control => control is HmiHomePage));
                     Assert.IsTrue(Descendants(form).Any(control => control is HmiDebugPage));
@@ -238,7 +249,7 @@ namespace Automation.Core.Tests
                     string[] debugEntries =
                     {
                         "MES", "PDCA", "Hive", "PLC",
-                        "FingerPrint", "Tools", "Set", "Database"
+                        "账户登录", "Tools", "Set", "Database"
                     };
                     List<string> debugButtons = Descendants(debug)
                         .OfType<Button>()

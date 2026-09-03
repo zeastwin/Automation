@@ -4,6 +4,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -12,6 +13,7 @@ namespace Automation
         private const string SystemStatusValueName = "系统状态";
         private string basicInfo;
         private System.Windows.Forms.Timer systemStatusTimer;
+        private bool accountEventsAttached;
         private const int SystemStatusPollIntervalMs = 500;
 
         public FrmState()
@@ -38,6 +40,10 @@ namespace Automation
             SysInfo.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
             SysInfo.ForeColor = UiPalette.TextSecondary;
             SysInfo.TextAlign = ContentAlignment.MiddleLeft;
+            lblAccountLevel.AutoSize = false;
+            lblAccountLevel.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+            lblAccountLevel.ForeColor = UiPalette.TextMuted;
+            lblAccountLevel.TextAlign = ContentAlignment.MiddleRight;
             LayoutStatusBar();
         }
 
@@ -49,8 +55,83 @@ namespace Automation
                 lblSystemStatus.Font);
             int statusWidth = Math.Max(170, statusTextSize.Width + 24);
             lblSystemStatus.SetBounds(12, 1, statusWidth, height);
+            Size accountTextSize = TextRenderer.MeasureText(
+                string.IsNullOrEmpty(lblAccountLevel.Text) ? "账户：系统管理员" : lblAccountLevel.Text,
+                lblAccountLevel.Font);
+            int accountWidth = Math.Max(130, accountTextSize.Width + 20);
+            int accountLeft = Math.Max(
+                lblSystemStatus.Right + 12,
+                ClientSize.Width - accountWidth - 12);
+            lblAccountLevel.SetBounds(accountLeft, 1, accountWidth, height);
             SysInfo.SetBounds(lblSystemStatus.Right + 12, 1,
-                Math.Max(0, ClientSize.Width - lblSystemStatus.Right - 24), height);
+                Math.Max(0, accountLeft - lblSystemStatus.Right - 24), height);
+        }
+
+        internal void OnEditorWorkspaceAttached()
+        {
+            if (accountEventsAttached)
+            {
+                return;
+            }
+            Workspace.Runtime.Accounts.Changed += Accounts_Changed;
+            accountEventsAttached = true;
+            RefreshAccountLevel();
+        }
+
+        private void Accounts_Changed(object sender, AccountSessionChangedEventArgs e)
+        {
+            RefreshAccountLevel();
+        }
+
+        private void RefreshAccountLevel()
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke((Action)RefreshAccountLevel);
+                return;
+            }
+            AccountSessionSnapshot current = editorWorkspace?.Runtime.Accounts.CurrentUser;
+            string levelText;
+            Color levelColor;
+            if (current == null)
+            {
+                levelText = "未登录";
+                levelColor = UiPalette.TextMuted;
+            }
+            else
+            {
+                switch (current.Level)
+                {
+                    case AccountLevel.Operator:
+                        levelText = "操作员";
+                        levelColor = UiPalette.Success;
+                        break;
+                    case AccountLevel.Engineer:
+                        levelText = "工程师";
+                        levelColor = UiPalette.Brand;
+                        break;
+                    case AccountLevel.SystemAdministrator:
+                        levelText = "系统管理员";
+                        levelColor = UiPalette.Warning;
+                        break;
+                    default:
+                        levelText = current.Level.ToString();
+                        levelColor = UiPalette.TextPrimary;
+                        break;
+                }
+            }
+            string text = "账户：" + levelText;
+            bool layoutChanged = !string.Equals(lblAccountLevel.Text, text, StringComparison.Ordinal);
+            lblAccountLevel.Text = text;
+            lblAccountLevel.ForeColor = levelColor;
+            if (layoutChanged)
+            {
+                LayoutStatusBar();
+            }
         }
         private void FrmState_Load(object sender, EventArgs e)
         {
@@ -127,6 +208,11 @@ namespace Automation
 
         private void FrmState_Disposed(object sender, EventArgs e)
         {
+            if (accountEventsAttached && editorWorkspace != null)
+            {
+                editorWorkspace.Runtime.Accounts.Changed -= Accounts_Changed;
+                accountEventsAttached = false;
+            }
             VisibleChanged -= FrmState_VisibleChanged;
             Resize -= FrmState_Resize;
             if (systemStatusTimer == null)

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -133,7 +134,11 @@ namespace Automation
 
         private bool CanAccessConfiguration(out string error)
         {
-            error = null;
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableDebug, "使用变量调试", out error))
+            {
+                return false;
+            }
             if (runtime.Maintenance.Active)
             {
                 error = string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)

@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -484,6 +485,7 @@ namespace Automation
 
         private void SaveConfiguration(object sender, EventArgs e)
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcConfigure, "保存PLC配置")) return;
             if (!CommitMaps(currentDevice, out string error)) { ShowError(error); return; }
             if ((Workspace.Runtime.PlcRuntime?.GetSnapshots() ?? new List<PlcDeviceRuntimeSnapshot>())
                 .Any(item => item.State == PlcRuntimeState.Mapping))
@@ -530,6 +532,7 @@ namespace Automation
 
         private void ExecuteDeviceAction(string title, DeviceAction action)
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, title + "PLC设备")) return;
             if (currentDevice == null) { ShowError("请先选择PLC设备。" ); return; }
             if (action == null) { ShowError(title + "失败：PLC运行时未初始化。" ); return; }
             if (!action(currentDevice.Name, out string error)) { ShowError(error ?? title + "失败。" ); return; }
@@ -583,6 +586,7 @@ namespace Automation
 
         private void ResolveConflict(PlcConflictResolution resolution)
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, "处理PLC数据冲突")) return;
             if (currentDevice == null || mapGrid.CurrentRow == null) { ShowError("请选择冲突映射项。" ); return; }
             string mapId = Convert.ToString(mapGrid.CurrentRow.Cells["Id"].Value);
             PlcMapRuntimeSnapshot mapRuntime = GetCurrentRuntime()?.Mappings?.FirstOrDefault(item => item.MapId == mapId);
@@ -691,6 +695,7 @@ namespace Automation
 
         private async Task DebugReadAsync(string action)
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, "读取PLC数据")) return;
             if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
             Stopwatch watch = Stopwatch.StartNew();
             var result = await Task.Run(() =>
@@ -704,6 +709,7 @@ namespace Automation
 
         private async Task DebugWriteAsync()
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, "写入PLC数据")) return;
             if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
             object[] values = request.DataType == PlcDataType.String
                 ? new object[] { debugValue.Text }
@@ -727,6 +733,7 @@ namespace Automation
                 lastMonitorSignature = null;
                 return;
             }
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, "启动PLC监视")) return;
             if (!TryBuildDebugRequest(out _, out _, out string error))
             {
                 monitorLabel.Text = "监视未启动：" + error;
@@ -738,9 +745,25 @@ namespace Automation
             monitorLabel.Text = "监视中，等待首次数据";
         }
 
+        private bool AuthorizePlc(string permission, string action)
+        {
+            if (Workspace.Runtime.Accounts.Authorize(permission, action, out string error))
+            {
+                return true;
+            }
+            ShowError(error);
+            return false;
+        }
+
         private async Task MonitorOnceAsync()
         {
             if (monitorBusy) return;
+            if (!Workspace.Runtime.Accounts.CheckPermission(PlatformPermissionCodes.PlcOperate, out string permissionError))
+            {
+                monitorTimer.Stop();
+                monitorLabel.Text = "监视已停止：" + permissionError;
+                return;
+            }
             monitorBusy = true;
             try
             {
@@ -786,6 +809,7 @@ namespace Automation
 
         private async Task PerformanceTestAsync()
         {
+            if (!AuthorizePlc(PlatformPermissionCodes.PlcOperate, "执行PLC性能测试")) return;
             if (!TryBuildDebugRequest(out string deviceName, out PlcMapConfig request, out string error)) { ShowError(error); return; }
             monitorTimer.Stop();
             monitorLabel.Text = "性能测试中";

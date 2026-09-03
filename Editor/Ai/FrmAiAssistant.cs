@@ -2,6 +2,7 @@
 // 职责范围：AI 前台、ACP 会话、预演确认与对话渲染。
 
 using Automation.Bridge;
+using Automation.DeviceSdk;
 using Automation.Protocol;
 using Markdig;
 using Microsoft.Web.WebView2.WinForms;
@@ -1163,6 +1164,14 @@ namespace Automation
             bool restoreComposerOnFailure)
         {
             fileAttachments = fileAttachments ?? new List<GooseFileAttachment>();
+            if (!Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.PlatformAiUse,
+                "发送AI请求",
+                out string accountError))
+            {
+                ShowWebToast(accountError);
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(enteredPrompt) && fileAttachments.Count == 0)
             {
                 return false;
@@ -2034,6 +2043,11 @@ namespace Automation
                         }
                     };
             }
+            if (!TryAuthorizeAccountTool(capabilityProfile, toolName, normalizedToolName, out string accountError))
+            {
+                AppendConversation("系统", "⛔ " + accountError, UiPalette.Danger);
+                return BuildPermissionCancelled();
+            }
             if (taskClient?.HasLockedTaskDecision == true)
             {
                 AppendConversation(
@@ -2148,6 +2162,97 @@ namespace Automation
                 return true;
             }
             return false;
+        }
+
+        private bool TryAuthorizeAccountTool(
+            string capabilityProfile,
+            string rawToolName,
+            string toolName,
+            out string error)
+        {
+            if (!Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.PlatformAiUse, "AI工具调用", out error))
+            {
+                return false;
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.SourceDevelopment, StringComparison.Ordinal))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.SourceDevelop, "AI修改源码", out error);
+            }
+            if (GooseAcpClient.IsDeveloperWriteToolName(rawToolName)
+                || GooseAcpClient.IsDeveloperShellToolName(rawToolName))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.SourceDevelop, "AI修改源码或执行源码命令", out error);
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.SourceReview, StringComparison.Ordinal))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.SourceReview, "AI审查源码", out error);
+            }
+            if (GooseAcpClient.IsDeveloperToolName(rawToolName))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.SourceReview, "AI读取源码", out error);
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal)
+                || string.Equals(capabilityProfile, AutomationToolProfiles.ProcessEdit, StringComparison.Ordinal))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.ProcessEdit, "AI修改流程", out error);
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.RuntimeControl, StringComparison.Ordinal)
+                && (string.Equals(toolName, "start_proc", StringComparison.Ordinal)
+                    || string.Equals(toolName, "pause_proc", StringComparison.Ordinal)
+                    || string.Equals(toolName, "resume_proc", StringComparison.Ordinal)
+                    || string.Equals(toolName, "run_proc_test", StringComparison.Ordinal)))
+            {
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.ProcessRun, "AI控制流程", out error);
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.ResourceEdit, StringComparison.Ordinal))
+            {
+                string permission = toolName.IndexOf("data_struct", StringComparison.Ordinal) >= 0
+                    ? PlatformPermissionCodes.DataStructureConfigure
+                    : toolName.IndexOf("alarm", StringComparison.Ordinal) >= 0
+                        ? PlatformPermissionCodes.AlarmConfigure
+                        : toolName.IndexOf("io", StringComparison.Ordinal) >= 0
+                            ? PlatformPermissionCodes.IoConfigure
+                            : PlatformPermissionCodes.VariableConfigure;
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    permission, "AI修改资源配置", out error);
+            }
+            if (string.Equals(capabilityProfile, AutomationToolProfiles.PlatformConfiguration, StringComparison.Ordinal)
+                && (toolName.StartsWith("preview_", StringComparison.Ordinal)
+                    || toolName.StartsWith("apply_", StringComparison.Ordinal)))
+            {
+                // apply_migration_configuration 仅携带冻结预演ID，具体配置域由 Bridge
+                // 从预演记录重新解析并在提交边界校验，不能在此误判为硬件配置。
+                if (string.Equals(toolName, "apply_migration_configuration", StringComparison.Ordinal))
+                {
+                    error = null;
+                    return true;
+                }
+                if (toolName.IndexOf("motion_io", StringComparison.Ordinal) >= 0)
+                {
+                    return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                            PlatformPermissionCodes.HardwareConfigure, "AI修改控制卡配置", out error)
+                        && Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                            PlatformPermissionCodes.IoConfigure, "AI修改IO配置", out error);
+                }
+                string permission = toolName.IndexOf("plc", StringComparison.Ordinal) >= 0
+                    ? PlatformPermissionCodes.PlcConfigure
+                    : toolName.IndexOf("communication", StringComparison.Ordinal) >= 0
+                        ? PlatformPermissionCodes.CommunicationConfigure
+                        : toolName.IndexOf("io_debug", StringComparison.Ordinal) >= 0
+                            ? PlatformPermissionCodes.IoDebug
+                            : PlatformPermissionCodes.HardwareConfigure;
+                return Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    permission, "AI修改平台配置", out error);
+            }
+            error = null;
+            return true;
         }
 
         internal static bool IsDeveloperWriteBlockedByCapability(

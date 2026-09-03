@@ -34,6 +34,7 @@ namespace Automation
         {
             public int Index { get; set; }
             public string Name { get; set; }
+            public string Value { get; set; }
 
             public override string ToString()
             {
@@ -230,6 +231,7 @@ namespace Automation
             private readonly Button btnAdd;
             private readonly Button btnRemove;
             private readonly Label labelTitle;
+            private readonly DataGridView dgvMonitored;
             private readonly DataGridView dgvMonitor;
 
             public ValueMonitorForm(FrmValue owner)
@@ -238,8 +240,8 @@ namespace Automation
                 Font uiFont = new Font("宋体", 12F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(134)));
                 Text = "变量监控";
                 StartPosition = FormStartPosition.CenterScreen;
-                Size = new Size(780, 520);
-                MinimumSize = new Size(680, 400);
+                Size = new Size(880, 520);
+                MinimumSize = new Size(760, 400);
 
                 topPanel = new Panel
                 {
@@ -257,30 +259,43 @@ namespace Automation
                     Text = "变量监控(0)"
                 };
 
+                // 按钮放进右侧 Dock 宿主自动排列；此前用 Anchor=Right+固定
+                // Location，但 Location 在加入父容器前设置，锚定距离按默认
+                // 宽度 200 计算，面板变宽后按钮被推到窗口外（从未显示过）。
                 btnAdd = new MaterialButton
                 {
                     Text = "添加当前",
                     Font = uiFont,
-                    Size = new Size(96, 30),
-                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                    Location = new Point(300, 5)
+                    Size = new Size(96, 30)
                 };
                 btnAdd.Click += (s, e) => owner.AddMonitorFromSelection();
 
                 btnRemove = new MaterialButton
                 {
-                    Text = "移除选中",
+                    Text = "移除监控",
                     Font = uiFont,
-                    Size = new Size(96, 30),
-                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                    Location = new Point(400, 5)
+                    Size = new Size(96, 30)
                 };
                 btnRemove.Click += (s, e) => owner.RemoveMonitorFromMonitorSelection();
 
-                topPanel.Controls.Add(btnRemove);
-                topPanel.Controls.Add(btnAdd);
+                var buttonHost = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Right,
+                    Width = 212,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    BackColor = UiPalette.Background,
+                    Margin = Padding.Empty,
+                    Padding = new Padding(0, 5, 8, 0)
+                };
+                buttonHost.Controls.Add(btnAdd);
+                buttonHost.Controls.Add(btnRemove);
+
+                topPanel.Controls.Add(buttonHost);
                 topPanel.Controls.Add(labelTitle);
 
+                // 双区布局：左侧为当前监控清单（实时值），右侧为值变更流水
+                //（只记录真实变更事件，加入监控不写快照行，避免与清单重复）。
                 dgvMonitor = new DataGridView
                 {
                     Dock = DockStyle.Fill,
@@ -334,7 +349,57 @@ namespace Automation
                     FillWeight = 30
                 });
 
+                dgvMonitored = new DataGridView
+                {
+                    Dock = DockStyle.Left,
+                    Width = 264,
+                    AllowUserToAddRows = false,
+                    AllowUserToResizeRows = false,
+                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                    BackgroundColor = UiPalette.SurfaceSubtle,
+                    ColumnHeadersHeight = 32,
+                    ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                    ReadOnly = true,
+                    RowHeadersVisible = false,
+                    RowTemplate = { Height = 26 },
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                    MultiSelect = false,
+                    Font = uiFont
+                };
+                dgvMonitored.ColumnHeadersDefaultCellStyle.Font = new Font("宋体", 12F, FontStyle.Bold, GraphicsUnit.Point, ((byte)(134)));
+                dgvMonitored.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                dgvMonitored.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitoredIndex",
+                    HeaderText = "编号",
+                    MinimumWidth = 50,
+                    FillWeight = 14
+                });
+                dgvMonitored.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitoredName",
+                    HeaderText = "监控变量",
+                    MinimumWidth = 80,
+                    FillWeight = 26
+                });
+                dgvMonitored.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "monitoredValue",
+                    HeaderText = "当前值",
+                    MinimumWidth = 60,
+                    FillWeight = 16
+                });
+
+                var regionSeparator = new Panel
+                {
+                    Dock = DockStyle.Left,
+                    Width = 1,
+                    BackColor = UiPalette.Stroke
+                };
+
                 Controls.Add(dgvMonitor);
+                Controls.Add(regionSeparator);
+                Controls.Add(dgvMonitored);
                 Controls.Add(topPanel);
                 ApplyMonitorStyle();
             }
@@ -348,9 +413,11 @@ namespace Automation
                 ApplyButtonStyle(btnAdd, true, false);
                 ApplyButtonStyle(btnRemove, false, true);
                 ApplyGridStyle(dgvMonitor);
+                ApplyGridStyle(dgvMonitored);
             }
 
             public DataGridView Grid => dgvMonitor;
+            public DataGridView MonitoredGrid => dgvMonitored;
             public Label TitleLabel => labelTitle;
 
             protected override void OnFormClosing(FormClosingEventArgs e)
@@ -363,6 +430,90 @@ namespace Automation
                 }
                 base.OnFormClosing(e);
             }
+        }
+
+        // 与流程页右键菜单同风格：白底描边、选中圆角块加品牌色竖条、分隔线收窄。
+        private sealed class ValueContextMenuRenderer : ToolStripProfessionalRenderer
+        {
+            public ValueContextMenuRenderer()
+                : base(new ValueContextMenuColorTable())
+            {
+                RoundedEdges = false;
+            }
+
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                if (!e.Item.Selected)
+                {
+                    return;
+                }
+                Rectangle bounds = new Rectangle(3, 2, Math.Max(1, e.Item.Width - 6), Math.Max(1, e.Item.Height - 4));
+                bool destructive = e.Item.ForeColor.R > 160 && e.Item.ForeColor.G < 90;
+                Color background = destructive ? UiPalette.DangerSoft : UiPalette.BrandSoft;
+                Color accent = destructive ? UiPalette.Danger : UiPalette.Brand;
+                using (GraphicsPath path = CreateMenuItemPath(bounds, 5))
+                using (SolidBrush brush = new SolidBrush(background))
+                using (SolidBrush accentBrush = new SolidBrush(accent))
+                {
+                    e.Graphics.FillPath(brush, path);
+                    e.Graphics.FillRectangle(accentBrush, bounds.Left, bounds.Top + 5, 3, Math.Max(1, bounds.Height - 10));
+                }
+            }
+
+            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+            {
+                if (e.Item is ToolStripMenuItem)
+                {
+                    e.TextRectangle = new Rectangle(
+                        14,
+                        0,
+                        Math.Max(1, e.Item.Width - 28),
+                        e.Item.Height);
+                    e.TextFormat = TextFormatFlags.Left
+                        | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine
+                        | TextFormatFlags.NoPadding;
+                    e.TextColor = e.Item.Enabled ? e.Item.ForeColor : UiPalette.TextDisabled;
+                }
+                base.OnRenderItemText(e);
+            }
+
+            protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+            {
+                int y = e.Item.Height / 2;
+                using (Pen pen = new Pen(UiPalette.Divider))
+                {
+                    e.Graphics.DrawLine(pen, 12, y, Math.Max(12, e.Item.Width - 12), y);
+                }
+            }
+
+            private static GraphicsPath CreateMenuItemPath(Rectangle bounds, int radius)
+            {
+                int diameter = radius * 2;
+                var path = new GraphicsPath();
+                path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
+
+        private sealed class ValueContextMenuColorTable : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground => UiPalette.SurfaceStrong;
+            public override Color ImageMarginGradientBegin => UiPalette.Surface;
+            public override Color ImageMarginGradientMiddle => UiPalette.Surface;
+            public override Color ImageMarginGradientEnd => UiPalette.Surface;
+            public override Color MenuBorder => UiPalette.Stroke;
+            public override Color MenuItemBorder => Color.Transparent;
+            public override Color MenuItemSelected => Color.Transparent;
+            public override Color MenuItemPressedGradientBegin => UiPalette.BrandSoft;
+            public override Color MenuItemPressedGradientMiddle => UiPalette.BrandSoft;
+            public override Color MenuItemPressedGradientEnd => UiPalette.BrandSoft;
+            public override Color SeparatorDark => UiPalette.Divider;
+            public override Color SeparatorLight => UiPalette.SurfaceStrong;
         }
 
         private readonly HashSet<Guid> monitoredVariableIds = new HashSet<Guid>();
@@ -388,6 +539,7 @@ namespace Automation
         private readonly WorkspaceWindowButton workspaceWindowButton;
         private readonly Timer variableSearchTimer;
         private readonly Timer viewportRefreshTimer;
+        private ContextMenuStrip valueContextMenu;
         private readonly Timer runtimeValueRefreshTimer;
         private readonly Font scopeGroupFont;
         private readonly Font scopeChevronFont;
@@ -427,9 +579,12 @@ namespace Automation
         private long renderedProcessVersion = -1;
         private int variableGridUpdateDepth;
         private bool variableGridRedrawSuspended;
+        // 常用变量卡片重绘标记：值发生实际变化时置位，刷新周期内按需重绘。
+        private bool commonListDirty;
+        // 作用域树内容签名：命中时跳过整树重建（只恢复选中），消除定位场景闪烁。
+        private string scopeTreeContentSignature;
         private const int MaxMonitorHistoryRows = 2000;
         private const int MonitorHistoryTrimRows = 200;
-
         private VariableEditorService VariableEditor => variableEditorService
             ?? throw new InvalidOperationException("变量编辑服务尚未初始化。");
 
@@ -674,19 +829,18 @@ namespace Automation
                 Padding = Padding.Empty
             };
 
-            ConfigureToolbarButton(btnMonitorAdd, "加入监控", 88);
-            ConfigureToolbarButton(btnAddCommon, "加入常用", 88);
             ConfigureToolbarButton(btnMonitor, "监控记录", 88);
-            ConfigureToolbarButton(btnCopy, "复制", 62);
-            ConfigureToolbarButton(btnPaste, "粘贴", 62);
-            ConfigureToolbarButton(btnClearData, "清空变量", 86);
 
-            actions.Controls.Add(btnMonitorAdd);
-            actions.Controls.Add(btnAddCommon);
             actions.Controls.Add(btnMonitor);
-            actions.Controls.Add(btnCopy);
-            actions.Controls.Add(btnPaste);
-            actions.Controls.Add(btnClearData);
+
+            // 加入监控/加入常用/复制/粘贴/清空变量都是针对选中变量的操作，
+            // 统一收进表格右键菜单；工具栏只保留全局性的监控记录入口。
+            btnMonitorAdd.Visible = false;
+            btnAddCommon.Visible = false;
+            btnCopy.Visible = false;
+            btnPaste.Visible = false;
+            btnClearData.Visible = false;
+            EnsureValueContextMenu();
 
             btnMonitorRemove.Visible = false;
             btnSystemVariables.Visible = false;
@@ -975,6 +1129,72 @@ namespace Automation
             ResumeLayout();
         }
 
+        // 针对选中变量的操作统一入口：加入监控/加入常用/复制/粘贴/清空变量。
+        // 菜单直接复用原工具栏按钮的 Click 处理器，行为与提示保持一致。
+        private void EnsureValueContextMenu()
+        {
+            if (valueContextMenu != null) return;
+            valueContextMenu = new ContextMenuStrip
+            {
+                ShowImageMargin = false,
+                ShowItemToolTips = true,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                Renderer = new ValueContextMenuRenderer()
+            };
+            var addMonitorItem = new ToolStripMenuItem("加入监控")
+            {
+                ForeColor = UiPalette.TextPrimary,
+                ToolTipText = "把所选变量加入运行值监控"
+            };
+            addMonitorItem.Click += btnMonitorAdd_Click;
+            var addCommonItem = new ToolStripMenuItem("加入常用")
+            {
+                ForeColor = UiPalette.TextPrimary
+            };
+            addCommonItem.Click += btnAddCommon_Click;
+            var copyItem = new ToolStripMenuItem("复制")
+            {
+                ForeColor = UiPalette.TextPrimary
+            };
+            copyItem.Click += btnCopy_Click;
+            var pasteItem = new ToolStripMenuItem("粘贴")
+            {
+                ForeColor = UiPalette.TextPrimary
+            };
+            pasteItem.Click += btnPaste_Click;
+            var clearDataItem = new ToolStripMenuItem("清空变量")
+            {
+                ForeColor = UiPalette.Danger
+            };
+            clearDataItem.Click += btnClearData_Click;
+            valueContextMenu.Items.AddRange(new ToolStripItem[]
+            {
+                addMonitorItem,
+                addCommonItem,
+                new ToolStripSeparator(),
+                copyItem,
+                pasteItem,
+                new ToolStripSeparator(),
+                clearDataItem
+            });
+            valueContextMenu.Opening += ValueContextMenu_Opening;
+            dgvValue.ContextMenuStrip = valueContextMenu;
+        }
+
+        private void ValueContextMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (valueContextMenu == null) return;
+            int slotIndex = GetSelectedVariableSlotIndex();
+            bool hasVariable = slotIndex >= 0
+                && Workspace.Runtime.Stores.Values.TryGetValueByIndex(slotIndex, out _);
+            bool canEdit = Workspace.Runtime.ProcessEditing.CanEditVariableConfiguration();
+            valueContextMenu.Items[0].Enabled = hasVariable;
+            valueContextMenu.Items[1].Enabled = hasVariable && canEdit;
+            valueContextMenu.Items[3].Enabled = hasVariable;
+            valueContextMenu.Items[4].Enabled = hasVariable && canEdit && clipboardItem != null;
+            valueContextMenu.Items[6].Enabled = hasVariable && canEdit;
+        }
+
         private void AlignVariableToolbarWithSplit()
         {
             if (variableToolbarLayout == null
@@ -1030,7 +1250,8 @@ namespace Automation
             button.Width = width;
             button.Height = VariableToolbarButtonHeight;
             button.Margin = new Padding(2, 0, 2, 0);
-            button.Anchor = AnchorStyles.None;
+            // 不设 Anchor=None：FlowLayoutPanel 关闭 AutoScroll 后会把它按居中
+            // 语义压缩成字体首选高度，导致按钮文字被裁切。
             button.Cursor = Cursors.Hand;
         }
 
@@ -1047,7 +1268,7 @@ namespace Automation
             listCommon.BorderStyle = BorderStyle.FixedSingle;
             listCommon.Font = new Font("Microsoft YaHei UI", 10F);
             listCommon.DrawMode = DrawMode.OwnerDrawFixed;
-            listCommon.ItemHeight = 30;
+            listCommon.ItemHeight = 34;
             listCommon.DrawItem += listCommon_DrawItem;
 
             ApplyGridStyle(dgvValue);
@@ -1154,24 +1375,48 @@ namespace Automation
             button.UseVisualStyleBackColor = false;
         }
 
+        // 常用变量卡片：双列布局，左列名称、右列当前值，底部 1px 分隔线，
+        // 当前值绘制时实时读取存储值，配合 200ms 刷新保持最新。
+        private static readonly Font commonItemNameFont = new Font("Microsoft YaHei UI", 10F);
+        private static readonly Font commonItemValueFont = new Font("Microsoft YaHei UI", 10F);
+
         private void listCommon_DrawItem(object sender, DrawItemEventArgs e)
         {
             if (e.Index < 0)
             {
                 return;
             }
+            var item = listCommon.Items[e.Index] as CommonValueItem;
             bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
             using (var background = new SolidBrush(selected ? UiPalette.Selection
                 : e.Index % 2 == 0 ? UiPalette.SurfaceStrong : UiPalette.Input))
-            using (var foreground = new SolidBrush(selected ? UiPalette.SelectionText : UiPalette.TextPrimary))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
-                string text = listCommon.Items[e.Index]?.ToString() ?? string.Empty;
-                Rectangle textBounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y, e.Bounds.Width - 12, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, text, listCommon.Font, textBounds, foreground.Color,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
-            e.DrawFocusRectangle();
+            if (item == null)
+            {
+                return;
+            }
+            string name = string.IsNullOrWhiteSpace(item.Name) ? $"索引{item.Index}" : item.Name;
+            string currentValue = Workspace.Runtime?.Stores?.Values != null
+                && Workspace.Runtime.Stores.Values.TryGetValueByIndex(item.Index, out DicValue live)
+                ? live.Value ?? string.Empty
+                : item.Value ?? string.Empty;
+            Color textColor = selected ? UiPalette.SelectionText : UiPalette.TextPrimary;
+            Rectangle nameBounds = new Rectangle(
+                e.Bounds.X + 12, e.Bounds.Y, (int)(e.Bounds.Width * 0.52), e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, name, commonItemNameFont, nameBounds, textColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+            Rectangle valueBounds = new Rectangle(
+                e.Bounds.X + (int)(e.Bounds.Width * 0.52), e.Bounds.Y,
+                Math.Max(1, e.Bounds.Width - (int)(e.Bounds.Width * 0.52) - 12), e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, currentValue, commonItemValueFont, valueBounds,
+                selected ? textColor : UiPalette.Brand,
+                TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+            using (var pen = new Pen(UiPalette.Divider))
+            {
+                e.Graphics.DrawLine(pen, e.Bounds.Left + 8, e.Bounds.Bottom - 1, Math.Max(e.Bounds.Left + 8, e.Bounds.Right - 8), e.Bounds.Bottom - 1);
+            }
         }
 
         private void FrmValue_FormClosing(object sender, FormClosingEventArgs e)
@@ -1213,6 +1458,8 @@ namespace Automation
             variableSearchTimer?.Dispose();
             viewportRefreshTimer?.Dispose();
             runtimeValueRefreshTimer?.Dispose();
+            valueContextMenu?.Dispose();
+            valueContextMenu = null;
             if (isValueStoreHooked && hookedValueStore != null)
             {
                 hookedValueStore.ValueChanged -= ValueStore_ValueChanged;
@@ -1555,64 +1802,80 @@ namespace Automation
                 RefreshVariableSnapshot();
                 RefreshVariableScopeOptions();
             }
+            // 内容统计与签名：树内容只取决于分组数量与流程清单。点击常用变量等
+            // 定位场景只改变选中项，命中签名时仅恢复选中，不整树 Clear+Add（消除闪烁）。
+            int publicCount = 0;
+            int systemCount = 0;
+            int processCount = 0;
+            var processVariableCounts = new Dictionary<Guid, int>();
+            foreach (DicValue variable in variableSnapshot)
+            {
+                if (string.Equals(variable?.Scope, VariableScopeContract.Public, StringComparison.Ordinal))
+                {
+                    publicCount++;
+                }
+                else if (string.Equals(variable?.Scope, VariableScopeContract.System, StringComparison.Ordinal))
+                {
+                    systemCount++;
+                }
+                else if (string.Equals(variable?.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
+                {
+                    processCount++;
+                    if (variable.OwnerProcId.HasValue)
+                    {
+                        processVariableCounts.TryGetValue(variable.OwnerProcId.Value, out int ownedCount);
+                        processVariableCounts[variable.OwnerProcId.Value] = ownedCount + 1;
+                    }
+                }
+            }
+            List<Proc> processes = (Workspace.Runtime.Stores.Processes.Items ?? new List<Proc>())
+                .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
+                .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            string signature = ValueConfigStore.ValueCapacity
+                + "|" + publicCount + "|" + systemCount + "|" + processCount
+                + "|" + string.Join(";", processes.Select(proc =>
+                {
+                    processVariableCounts.TryGetValue(proc.head.Id, out int ownedCount);
+                    return proc.head.Id.ToString("N") + ":" + proc.head.Name + ":" + ownedCount;
+                }));
+            if (string.Equals(signature, scopeTreeContentSignature, StringComparison.Ordinal)
+                && scopeTree.Nodes.Count > 0)
+            {
+                SelectScopeTreeNode();
+                return;
+            }
+            scopeTreeContentSignature = signature;
+
             scopeTree.BeginUpdate();
             try
             {
                 scopeTree.Nodes.Clear();
-                List<DicValue> variables = variableSnapshot.Where(value => value != null).ToList();
-                int publicCount = 0;
-                int systemCount = 0;
-                int processCount = 0;
-                var processVariableCounts = new Dictionary<Guid, int>();
-                foreach (DicValue variable in variables)
-                {
-                    if (string.Equals(variable.Scope, VariableScopeContract.Public, StringComparison.Ordinal))
-                    {
-                        publicCount++;
-                    }
-                    else if (string.Equals(variable.Scope, VariableScopeContract.System, StringComparison.Ordinal))
-                    {
-                        systemCount++;
-                    }
-                    else if (string.Equals(variable.Scope, VariableScopeContract.Process, StringComparison.Ordinal))
-                    {
-                        processCount++;
-                        if (variable.OwnerProcId.HasValue)
-                        {
-                            processVariableCounts.TryGetValue(variable.OwnerProcId.Value, out int ownedCount);
-                            processVariableCounts[variable.OwnerProcId.Value] = ownedCount + 1;
-                        }
-                    }
-                }
-
-                TreeNode allNode = new TreeNode($"全部槽位    {ValueConfigStore.ValueCapacity}")
-                {
-                    Tag = new VariableScopeSelection { Scope = AllVariableScopes }
-                };
-                TreeNode publicNode = new TreeNode($"公共变量    {publicCount}")
-                {
-                    Tag = new VariableScopeSelection { Scope = VariableScopeContract.Public }
-                };
-                TreeNode systemNode = new TreeNode($"系统变量    {systemCount}")
-                {
-                    Tag = new VariableScopeSelection { Scope = VariableScopeContract.System }
-                };
-                TreeNode processRoot = new TreeNode($"流程私有变量    {processCount}");
-                IEnumerable<Proc> processes = (Workspace.Runtime.Stores.Processes.Items ?? new List<Proc>())
-                    .Where(proc => proc?.head != null && proc.head.Id != Guid.Empty)
-                    .OrderBy(proc => proc.head.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase);
+                TreeNode allNode = NewScopeNode(
+                    "全部槽位",
+                    ValueConfigStore.ValueCapacity.ToString(),
+                    new VariableScopeSelection { Scope = AllVariableScopes });
+                TreeNode publicNode = NewScopeNode(
+                    "公共变量",
+                    publicCount.ToString(),
+                    new VariableScopeSelection { Scope = VariableScopeContract.Public });
+                TreeNode systemNode = NewScopeNode(
+                    "系统变量",
+                    systemCount.ToString(),
+                    new VariableScopeSelection { Scope = VariableScopeContract.System });
+                TreeNode processRoot = NewScopeNode("流程私有变量", processCount.ToString());
                 foreach (Proc proc in processes)
                 {
                     processVariableCounts.TryGetValue(proc.head.Id, out int ownedCount);
                     string processName = proc.head.Name ?? proc.head.Id.ToString("D");
-                    processRoot.Nodes.Add(new TreeNode($"{processName}    {ownedCount}")
-                    {
-                        Tag = new VariableScopeSelection
+                    processRoot.Nodes.Add(NewScopeNode(
+                        processName,
+                        ownedCount.ToString(),
+                        new VariableScopeSelection
                         {
                             Scope = VariableScopeContract.Process,
                             OwnerProcId = proc.head.Id
-                        }
-                    });
+                        }));
                 }
                 if (processRoot.Nodes.Count == 0)
                 {
@@ -1623,27 +1886,48 @@ namespace Automation
                 scopeTree.Nodes.Add(processRoot);
                 scopeTree.Nodes.Add(systemNode);
                 processRoot.Expand();
-                TreeNode selectedNode = scopeTree.Nodes.Cast<TreeNode>()
-                    .SelectMany(FlattenTree)
-                    .FirstOrDefault(node => node.Tag is VariableScopeSelection selection
-                        && string.Equals(selection.Scope, selectedScope, StringComparison.Ordinal)
-                        && selection.OwnerProcId == selectedOwnerProcId)
-                    ?? allNode;
-                suppressScopeSelectionChanged = true;
-                try
-                {
-                    scopeTree.SelectedNode = selectedNode;
-                    selectedNode.EnsureVisible();
-                }
-                finally
-                {
-                    suppressScopeSelectionChanged = false;
-                }
+                SelectScopeTreeNode(allNode);
             }
             finally
             {
                 scopeTree.EndUpdate();
             }
+        }
+
+        // 恢复选中节点；重建后未命中时回退到根节点（全部槽位）。
+        private void SelectScopeTreeNode(TreeNode fallbackNode = null)
+        {
+            TreeNode selectedNode = scopeTree.Nodes.Cast<TreeNode>()
+                .SelectMany(FlattenTree)
+                .FirstOrDefault(node => node.Tag is VariableScopeSelection selection
+                    && string.Equals(selection.Scope, selectedScope, StringComparison.Ordinal)
+                    && selection.OwnerProcId == selectedOwnerProcId)
+                ?? fallbackNode
+                ?? (scopeTree.Nodes.Count > 0 ? scopeTree.Nodes[0] : null);
+            if (selectedNode == null)
+            {
+                return;
+            }
+            suppressScopeSelectionChanged = true;
+            try
+            {
+                scopeTree.SelectedNode = selectedNode;
+                selectedNode.EnsureVisible();
+            }
+            finally
+            {
+                suppressScopeSelectionChanged = false;
+            }
+        }
+
+        // 作用域树节点工厂：数量标签存入 Name 供绘制右对齐，Tag 携带作用域选择。
+        private static TreeNode NewScopeNode(string text, string countLabel, VariableScopeSelection selection = null)
+        {
+            return new TreeNode(text)
+            {
+                Name = countLabel ?? string.Empty,
+                Tag = selection
+            };
         }
 
         private void ScopeTree_DrawNode(object sender, DrawTreeNodeEventArgs e)
@@ -1671,6 +1955,21 @@ namespace Automation
                 }
             }
 
+            // 行间分割线：最后一行不画，避免列表底部悬空一条线。
+            if (e.Node.NextVisibleNode != null && scopeTree.ClientSize.Width > 24)
+            {
+                int separatorY = e.Bounds.Bottom - 1;
+                using (var pen = new Pen(UiPalette.Stroke))
+                {
+                    e.Graphics.DrawLine(
+                        pen,
+                        12,
+                        separatorY,
+                        scopeTree.ClientSize.Width - 12,
+                        separatorY);
+                }
+            }
+
             bool groupNode = e.Node.Parent == null && !selectable;
             bool placeholderNode = !selectable && e.Node.Parent != null;
             int left = e.Node.Level == 0 ? 18 : 36;
@@ -1690,6 +1989,26 @@ namespace Automation
                 textBounds,
                 textColor,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+            // 数量右对齐成列，用次要色与名称拉开视觉层次。
+            string countLabel = e.Node.Name;
+            if (!placeholderNode && !string.IsNullOrEmpty(countLabel))
+            {
+                bool hasChevron = groupNode && e.Node.Nodes.Count > 0;
+                int countRight = scopeTree.ClientSize.Width - (hasChevron ? 36 : 18);
+                int countLeft = Math.Max(textBounds.Right + 8, countRight - 76);
+                Rectangle countBounds = new Rectangle(
+                    countLeft,
+                    e.Bounds.Top,
+                    Math.Max(0, countRight - countLeft),
+                    scopeTree.ItemHeight);
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    countLabel,
+                    scopeTree.Font,
+                    countBounds,
+                    selected ? UiPalette.SelectionText : UiPalette.TextSecondary,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.Right);
+            }
             if (groupNode && e.Node.Nodes.Count > 0)
             {
                 Rectangle chevronBounds = new Rectangle(scopeTree.ClientSize.Width - 30, e.Bounds.Top, 18, scopeTree.ItemHeight);
@@ -2179,9 +2498,17 @@ namespace Automation
                     {
                         variableSnapshot[slotIndex].Value = currentValue;
                         dgvValue.InvalidateCell(3, rowIndex);
+                        commonListDirty = true;
                     }
                 }
                 rowIndex = dgvValue.Rows.GetNextRow(rowIndex, DataGridViewElementStates.Displayed);
+            }
+            // 常用变量卡片的当前值在绘制时实时读取；仅在可视值发生实际变化时
+            // 触发重绘，静止周期不做无效重绘。
+            if (commonListDirty && listCommon.Visible && listCommon.Items.Count > 0)
+            {
+                commonListDirty = false;
+                listCommon.Invalidate();
             }
         }
 
@@ -3054,7 +3381,8 @@ namespace Automation
                 .Select(variable => new CommonValueItem
                 {
                     Index = variable.Index,
-                    Name = variable.Name
+                    Name = variable.Name,
+                    Value = variable.Value
                 })
                 .ToList();
             suppressCommonSelectionChanged = true;
@@ -3128,6 +3456,16 @@ namespace Automation
             {
                 return;
             }
+            // 常用变量卡片：常用变量未必在监控集合中，值变化时先标记待重绘；
+            // 快照值仍由表格刷新周期统一更新，避免提前覆盖导致表格漏检变化。
+            var commonSnapshot = e.Index >= 0 && e.Index < variableSnapshot.Length
+                ? variableSnapshot[e.Index]
+                : null;
+            if (commonSnapshot != null && commonSnapshot.isMark
+                && !string.Equals(commonSnapshot.Value, e.NewValue, StringComparison.Ordinal))
+            {
+                commonListDirty = true;
+            }
             if (!monitoredVariableIds.Contains(e.Id))
             {
                 return;
@@ -3153,6 +3491,16 @@ namespace Automation
             row.Cells[2].Value = e.NewValue;
             row.Cells[3].Value = e.Source;
             row.Cells[4].Value = e.ChangedAt.ToString("yyyy-MM-dd HH:mm:ss");
+            // 左侧监控清单的当前值随变更同步，保持清单反映实时状态。
+            DataGridView monitoredGrid = monitorForm.MonitoredGrid;
+            foreach (DataGridViewRow monitoredRow in monitoredGrid.Rows)
+            {
+                if (monitoredRow.Tag is Guid monitoredId && monitoredId == e.Id)
+                {
+                    monitoredRow.Cells[2].Value = e.NewValue;
+                    break;
+                }
+            }
         }
 
         private void RefreshMonitorTitle()
@@ -3180,7 +3528,6 @@ namespace Automation
                 return;
             }
             EnsureMonitorForm();
-            DataGridView grid = monitorForm.Grid;
             if (!Workspace.Runtime.Stores.Values.TryGetValueByIndex(index, out DicValue value))
             {
                 return;
@@ -3188,17 +3535,9 @@ namespace Automation
             if (monitoredVariableIds.Contains(value.Id)) return;
             Workspace.Runtime.Stores.Values.SetMonitorFlag(index, true);
             monitoredVariableIds.Add(value.Id);
-            int rowIndex = grid.Rows.Add();
-            DataGridViewRow row = grid.Rows[rowIndex];
-            row.Tag = value.Id;
-            row.Cells[0].Value = index;
-            row.Cells[1].Value = value?.Name;
-            row.Cells[2].Value = value?.Value;
-            row.Cells[3].Value = value?.LastChangedBy;
-            row.Cells[4].Value = value != null && value.LastChangedAt != default
-                ? value.LastChangedAt.ToString("yyyy-MM-dd HH:mm:ss")
-                : string.Empty;
+            // 流水只记录真实变更事件；加入监控时写快照行会与左侧清单重复。
             RefreshMonitorTitle();
+            RefreshMonitoredList();
         }
 
         private void RemoveMonitor(int index)
@@ -3212,6 +3551,31 @@ namespace Automation
             if (!monitoredVariableIds.Remove(variableId)) return;
             Workspace.Runtime.Stores.Values.SetMonitorFlag(variableId, false);
             RefreshMonitorTitle();
+            RefreshMonitoredList();
+        }
+
+        // 左侧清单：列出当前已加入监控的变量（编号/名称/当前值），随监控集合变化重建。
+        private void RefreshMonitoredList()
+        {
+            if (monitorForm == null || monitorForm.IsDisposed)
+            {
+                return;
+            }
+            DataGridView grid = monitorForm.MonitoredGrid;
+            grid.Rows.Clear();
+            foreach (Guid variableId in monitoredVariableIds)
+            {
+                if (!Workspace.Runtime.Stores.Values.TryGetValueById(variableId, out DicValue value))
+                {
+                    continue;
+                }
+                int rowIndex = grid.Rows.Add();
+                DataGridViewRow row = grid.Rows[rowIndex];
+                row.Tag = value.Id;
+                row.Cells[0].Value = value.Index;
+                row.Cells[1].Value = value.Name;
+                row.Cells[2].Value = value.Value;
+            }
         }
 
         private void StopAllMonitor()
@@ -3233,6 +3597,7 @@ namespace Automation
                 monitorForm.Grid.Rows.Clear();
             }
             RefreshMonitorTitle();
+            RefreshMonitoredList();
             Workspace.Runtime.Stores.Values.SetMonitorEnabled(false);
         }
 
@@ -3244,6 +3609,7 @@ namespace Automation
             monitorForm.BringToFront();
             RefreshMonitorTitle();
             RefreshMonitorRows();
+            RefreshMonitoredList();
         }
 
         private void btnMonitorAdd_Click(object sender, EventArgs e)
@@ -3317,7 +3683,8 @@ namespace Automation
                 MessageBox.Show("监控窗口未打开");
                 return;
             }
-            DataGridView grid = monitorForm.Grid;
+            // 移除操作作用于左侧监控清单的选中项，而不是右侧变更记录。
+            DataGridView grid = monitorForm.MonitoredGrid;
             if (grid.CurrentRow == null)
             {
                 MessageBox.Show("没有选定的监控项");

@@ -269,7 +269,11 @@ namespace Automation
     {
         private EditorWorkspace editorWorkspace;
         internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmState));
-        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
+        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace)
+        {
+            editorWorkspace = workspace;
+            OnEditorWorkspaceAttached();
+        }
     }
 
     public partial class FrmAlarmConfig : IEditorWorkspaceParticipant

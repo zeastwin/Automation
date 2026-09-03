@@ -30,6 +30,7 @@
         {
             this.SysInfo = new System.Windows.Forms.Label();
             this.lblSystemStatus = new System.Windows.Forms.Label();
+            this.lblAccountLevel = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // SysInfo
@@ -53,11 +54,24 @@
             this.lblSystemStatus.TabIndex = 1;
             this.lblSystemStatus.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
+            // lblAccountLevel
+            //
+            this.lblAccountLevel.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblAccountLevel.AutoSize = false;
+            this.lblAccountLevel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Regular);
+            this.lblAccountLevel.Location = new System.Drawing.Point(912, 1);
+            this.lblAccountLevel.Name = "lblAccountLevel";
+            this.lblAccountLevel.Size = new System.Drawing.Size(141, 21);
+            this.lblAccountLevel.TabIndex = 2;
+            this.lblAccountLevel.Text = "账户：未登录";
+            this.lblAccountLevel.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            //
             // FrmState
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1065, 23);
+            this.Controls.Add(this.lblAccountLevel);
             this.Controls.Add(this.lblSystemStatus);
             this.Controls.Add(this.SysInfo);
             this.Name = "FrmState";
@@ -71,5 +85,6 @@
         #endregion
         public System.Windows.Forms.Label SysInfo;
         private System.Windows.Forms.Label lblSystemStatus;
+        private System.Windows.Forms.Label lblAccountLevel;
     }
 }

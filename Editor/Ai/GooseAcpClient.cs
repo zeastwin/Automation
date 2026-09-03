@@ -3245,6 +3245,24 @@ namespace Automation
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        internal static bool IsDeveloperToolName(string toolName)
+        {
+            string raw = (toolName ?? string.Empty).Trim();
+            if (raw.StartsWith("developer__", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("developer/", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("developer.", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("developer:", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            string leaf = NormalizeExtensionToolName(raw);
+            return new[]
+            {
+                "read_file", "tree", "list", "list_directory", "glob", "search", "search_files",
+                "write", "edit", "shell"
+            }.Contains(leaf, StringComparer.OrdinalIgnoreCase);
+        }
+
         private static bool IsPreviewTool(string toolName)
         {
             return string.Equals(toolName, "preview_change_set", StringComparison.Ordinal)

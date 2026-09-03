@@ -7,6 +7,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -62,6 +63,10 @@ namespace Automation
 
         internal void EnsureAiInfrastructureStarted()
         {
+            if (!Runtime.Accounts.CheckPermission(PlatformPermissionCodes.PlatformAiUse, out _))
+            {
+                return;
+            }
             if (Interlocked.CompareExchange(ref aiInfrastructureStartState, 1, 0) != 0)
             {
                 return;
@@ -207,6 +212,9 @@ namespace Automation
                 if (dataRun != null)
                     dataRun.SnapshotChanged -= CacheSnapshot;
             });
+            RunEditorShutdownStage(
+                "退出账户会话",
+                Runtime.Accounts.Logout);
             RunEditorShutdownStage(
                 "停止全部流程",
                 () => Runtime.Safety.StopAllProcesses("系统关闭，停止所有流程。"));

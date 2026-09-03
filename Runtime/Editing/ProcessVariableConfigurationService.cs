@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Generic;
 using System.Linq;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -91,6 +92,16 @@ namespace Automation
             IReadOnlyDictionary<Guid, string> runtimeValueOverrides,
             string runtimeValueSource)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.ProcessEdit, "提交流程与变量配置", out string processPermissionError))
+            {
+                return Failed(processPermissionError);
+            }
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableConfigure, "提交流程与变量配置", out string variablePermissionError))
+            {
+                return Failed(variablePermissionError);
+            }
             if (!runtime.ProcessEditing.CanEditStructure())
                 return Failed("流程结构当前不可编辑。");
             if (processes == null || variables == null)

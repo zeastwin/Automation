@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Automation.DeviceSdk;
 using Automation.Protocol;
 
 namespace Automation
@@ -160,7 +161,11 @@ namespace Automation
 
         public bool TrySetRuntimeValue(DicValue variable, string value, out string error)
         {
-            error = null;
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableRuntimeWrite, "变量页写入运行值", out error))
+            {
+                return false;
+            }
             if (variable == null)
             {
                 error = "变量不存在。";
@@ -174,7 +179,11 @@ namespace Automation
         public bool TryCommitRow(VariableRowUpdate update, out string error)
         {
             if (update == null) throw new ArgumentNullException(nameof(update));
-            error = null;
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableConfigure, "保存变量配置", out error))
+            {
+                return false;
+            }
             Dictionary<string, DicValue> draft = runtime.Stores.Values.BuildSaveData();
             DicValue current = draft.Values.FirstOrDefault(value => value?.Index == update.Index);
             if (draft.TryGetValue(update.Name, out DicValue sameName) && sameName.Index != update.Index)
@@ -208,6 +217,11 @@ namespace Automation
 
         public bool TryClearVariables(IEnumerable<DicValue> variables, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableConfigure, "清空变量配置", out error))
+            {
+                return false;
+            }
             Dictionary<string, DicValue> draft = runtime.Stores.Values.BuildSaveData();
             foreach (DicValue variable in variables ?? Enumerable.Empty<DicValue>())
             {
@@ -219,6 +233,11 @@ namespace Automation
 
         public bool TrySetCommonVariable(int index, bool isCommon, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableConfigure, "修改常用变量配置", out error))
+            {
+                return false;
+            }
             Dictionary<string, DicValue> draft = runtime.Stores.Values.BuildSaveData();
             DicValue variable = draft.Values.FirstOrDefault(value => value?.Index == index);
             if (variable == null)

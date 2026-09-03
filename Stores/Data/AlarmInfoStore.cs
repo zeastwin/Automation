@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using Automation.DeviceSdk;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -88,9 +89,38 @@ namespace Automation
             return true;
         }
 
-        public void UpdateAlarm(int index, string name, string category, string btn1, string btn2,
-            string btn3, string note)
+        public bool TrySaveConfiguration(string configPath, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.AlarmConfigure,
+                "保存报警配置",
+                out error))
+            {
+                return false;
+            }
+            try
+            {
+                bool saved = Save(configPath);
+                error = saved ? null : "报警配置保存失败。";
+                return saved;
+            }
+            catch (Exception ex)
+            {
+                error = "报警配置保存失败：" + ex.Message;
+                return false;
+            }
+        }
+
+        public bool TryUpdateAlarm(int index, string name, string category, string btn1, string btn2,
+            string btn3, string note, out string error)
+        {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.AlarmConfigure,
+                "修改报警配置",
+                out error))
+            {
+                return false;
+            }
             if (index < 0 || index >= AlarmCapacity)
             {
                 throw new ArgumentOutOfRangeException(nameof(index));
@@ -116,11 +146,13 @@ namespace Automation
                 target.Btn3 = candidate.Btn3;
                 target.Note = candidate.Note;
             }
+            error = null;
+            return true;
         }
 
-        public void ClearAlarm(int index)
+        public bool TryClearAlarm(int index, out string error)
         {
-            UpdateAlarm(index, null, null, null, null, null, null);
+            return TryUpdateAlarm(index, null, null, null, null, null, null, out error);
         }
 
         private static void ValidateSnapshot(IReadOnlyList<AlarmInfo> snapshot)

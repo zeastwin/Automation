@@ -4,6 +4,7 @@ using System;
 
 using System.Collections.Generic;
 using System.Linq;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -21,6 +22,12 @@ namespace Automation
 
         public bool CanEditProcess(int procIndex)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.ProcessEdit, "编辑流程", out string permissionError))
+            {
+                Warn(permissionError, "权限不足");
+                return false;
+            }
             if (runtime.Maintenance.Active)
             {
                 Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
@@ -45,6 +52,12 @@ namespace Automation
 
         public bool CanEditStructure()
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.ProcessEdit, "修改流程结构", out string permissionError))
+            {
+                Warn(permissionError, "权限不足");
+                return false;
+            }
             if (runtime.Maintenance.Active)
             {
                 Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
@@ -70,6 +83,12 @@ namespace Automation
         /// </summary>
         public bool CanEditVariableConfiguration()
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VariableConfigure, "修改变量配置", out string permissionError))
+            {
+                Warn(permissionError, "权限不足");
+                return false;
+            }
             if (runtime.Maintenance.Active)
             {
                 Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
@@ -207,6 +226,11 @@ namespace Automation
 
         public bool Publish(int procIndex)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.ProcessEdit, "发布流程", out string permissionError))
+            {
+                return Fail(permissionError);
+            }
             if (runtime.Maintenance.Active)
             {
                 runtime.EditorUi?.ShowMessage(runtime.Maintenance.Reason,

@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
 
 using Newtonsoft.Json.Linq;
+using Automation.DeviceSdk;
 using Automation.Protocol;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -375,6 +376,7 @@ namespace Automation.Bridge
                 }
                 draft = record.MigrationConfigurationPreview;
             }
+            EnsureMigrationAccountPermission(draft.Kind);
             EnsureAllProcsInactiveForAiStructureCommit("提交迁移平台配置");
             // 与 ChangeSet 提交闸门一致：维护模式、安全锁定和编辑会话期间禁止写配置文件。
             if (runtime.Maintenance.Active)
@@ -430,6 +432,28 @@ namespace Automation.Bridge
                 ["committed"] = true,
                 ["configurationSaved"] = true
             };
+        }
+
+        private void EnsureMigrationAccountPermission(string kind)
+        {
+            switch (kind)
+            {
+                case "motion_io":
+                    EnsureBridgePermission(PlatformPermissionCodes.HardwareConfigure, "通过AI提交控制卡配置");
+                    EnsureBridgePermission(PlatformPermissionCodes.IoConfigure, "通过AI提交IO配置");
+                    return;
+                case "io_debug":
+                    EnsureBridgePermission(PlatformPermissionCodes.IoDebug, "通过AI提交IO调试配置");
+                    return;
+                case "plc":
+                    EnsureBridgePermission(PlatformPermissionCodes.PlcConfigure, "通过AI提交PLC配置");
+                    return;
+                case "communication":
+                    EnsureBridgePermission(PlatformPermissionCodes.CommunicationConfigure, "通过AI提交通讯配置");
+                    return;
+                default:
+                    throw new BridgeRequestException(400, "MIGRATION_KIND_INVALID", "迁移配置类型无效。", kind);
+            }
         }
 
         private void ApplyMigrationConfiguration(MigrationConfigurationPreview draft)

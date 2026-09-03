@@ -857,6 +857,35 @@ namespace Automation.Core.Tests
             }
         }
 
+        [TestMethod]
+        public void AccountSecurityFile_IsExcludedFromProjectVersionSnapshots()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                string accountPath = Path.Combine(directory.FullPath, "AccountSecurity.json");
+                File.WriteAllText(accountPath, "{\"security\":\"before\"}", new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+
+                Assert.IsTrue(runtime.VersionService.CreateManualSnapshot(
+                    "账户文件排除验证", "测试", out string error), error);
+                ConfigurationVersionRecord snapshot = runtime.VersionService
+                    .GetHistory(out bool dirty, out error)
+                    .Single();
+                Assert.IsFalse(dirty);
+                Assert.IsTrue(string.IsNullOrEmpty(error), error);
+
+                File.WriteAllText(accountPath, "{\"security\":\"after\"}", new UTF8Encoding(false));
+                runtime.VersionService.GetHistory(out dirty, out error);
+                Assert.IsFalse(dirty, "账户安全文件变化不得使项目版本显示为脏状态。");
+                Assert.IsTrue(string.IsNullOrEmpty(error), error);
+                Assert.AreEqual(0, runtime.VersionService
+                    .GetStructuredDiff(snapshot.CommitId, false, out error)
+                    .Count);
+                Assert.IsTrue(string.IsNullOrEmpty(error), error);
+            }
+        }
+
         private static string CreateHmiSource(string root, string content)
         {
             string hmiRoot = Path.Combine(root, "Hmi");

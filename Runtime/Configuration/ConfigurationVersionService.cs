@@ -12,6 +12,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -138,6 +139,11 @@ namespace Automation
 
         public bool CreateManualSnapshot(string note, string userName, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VersionManage, "创建配置版本", out error))
+            {
+                return false;
+            }
             if (!runtime.Maintenance.TryBegin(
                 "正在创建项目版本",
                 out IDisposable maintenanceLease,
@@ -182,6 +188,12 @@ namespace Automation
 
         public IReadOnlyList<ConfigurationVersionRecord> GetHistory(out bool currentDirty, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VersionManage, "读取版本历史", out error))
+            {
+                currentDirty = false;
+                return Array.Empty<ConfigurationVersionRecord>();
+            }
             lock (syncRoot)
             {
                 currentDirty = false;
@@ -238,6 +250,11 @@ namespace Automation
 
         public bool DeleteSnapshot(string commitId, out string error)
         {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VersionManage, "删除配置版本", out error))
+            {
+                return false;
+            }
             lock (syncRoot)
             {
                 try
@@ -277,7 +294,11 @@ namespace Automation
 
         public IReadOnlyList<ConfigurationVersionDiffEntry> GetStructuredDiff(string commitId, bool compareWithPrevious, out string error)
         {
-            error = null;
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VersionManage, "读取版本差异", out error))
+            {
+                return Array.Empty<ConfigurationVersionDiffEntry>();
+            }
             lock (syncRoot)
             {
                 try
@@ -325,6 +346,12 @@ namespace Automation
             Func<bool> applyRestoredConfiguration)
         {
             var result = new ConfigurationRestoreResult();
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.VersionManage, "还原配置版本", out string permissionError))
+            {
+                result.Error = permissionError;
+                return result;
+            }
             if (!runtime.Maintenance.TryBegin("正在还原项目配置", out IDisposable maintenanceLease, out string beginError))
             {
                 result.Error = beginError;

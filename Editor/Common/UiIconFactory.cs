@@ -37,6 +37,7 @@ namespace Automation
         Monitor,
         Folder,
         Settings,
+        Account,
         StopAll,
         PopOut,
         DockBack,
@@ -384,6 +385,9 @@ namespace Automation
                         graphics.DrawEllipse(pen, 8.5F, 8.5F, 7, 7);
                         FillCircle(graphics, brush, 12, 12, 1.5F);
                         break;
+                    case UiIconKind.Account:
+                        DrawAccountPictogram(graphics, pen);
+                        break;
                     case UiIconKind.StopAll:
                         DrawRoundedRectangle(graphics, pen, 3, 3, 18, 18, 4);
                         FillRoundedRectangle(graphics, brush, 7, 7, 10, 10, 2);
@@ -474,6 +478,25 @@ namespace Automation
         private static void FillCircle(Graphics graphics, Brush brush, float centerX, float centerY, float radius)
         {
             graphics.FillEllipse(brush, centerX - radius, centerY - radius, radius * 2, radius * 2);
+        }
+
+        private static void DrawAccountPictogram(Graphics graphics, Pen pen)
+        {
+            graphics.DrawEllipse(pen, 8, 3, 8, 8);
+            using (GraphicsPath accountPath = new GraphicsPath())
+            {
+                accountPath.AddBezier(
+                    new PointF(4, 21),
+                    new PointF(4.4F, 16.3F),
+                    new PointF(7.2F, 14),
+                    new PointF(12, 14));
+                accountPath.AddBezier(
+                    new PointF(12, 14),
+                    new PointF(16.8F, 14),
+                    new PointF(19.6F, 16.3F),
+                    new PointF(20, 21));
+                graphics.DrawPath(pen, accountPath);
+            }
         }
 
         private static void DrawSparkle(Graphics graphics, Pen pen, float centerX, float centerY, float radius)

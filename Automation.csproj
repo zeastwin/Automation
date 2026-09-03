@@ -406,6 +406,8 @@
     </Compile>
     <Compile Include="Editor\Process\ProcessOutlineIconFactory.cs" />
     <Compile Include="Editor\Shell\EditorWorkspace.cs" />
+    <Compile Include="Editor\Security\AccountDialogs.cs" />
+    <Compile Include="Editor\Security\FrmAccountManagement.cs" />
     <Compile Include="Editor\Shell\FrmAppConfig.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -659,6 +661,10 @@
     <Compile Include="Runtime\Process\PlatformProcessStoreFacade.cs" />
     <Compile Include="Runtime\Process\PlatformValueStoreFacade.cs" />
     <Compile Include="Runtime\Process\ProcessRuntimeControl.cs" />
+    <Compile Include="Runtime\Security\AccountPasswordHasher.cs" />
+    <Compile Include="Runtime\Security\AccountSecurityModels.cs" />
+    <Compile Include="Runtime\Security\AccountSecurityService.cs" />
+    <Compile Include="Runtime\Security\AccountSecurityStore.cs" />
     <Compile Include="Stores\Data\AlarmInfoStore.cs" />
     <Compile Include="Stores\Data\DataStructModels.cs" />
     <Compile Include="Stores\Data\DataStructStore.cs" />

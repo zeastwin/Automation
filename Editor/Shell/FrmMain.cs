@@ -3,6 +3,7 @@
 // 导航提示：内核由宿主创建；本窗体只装配编辑页面。启动/关闭看 Lifecycle，页面切换看 Navigation。
 
 using Automation.Bridge;
+using Automation.DeviceSdk;
 using Automation.MotionControl;
 using Newtonsoft.Json;
 using System;
@@ -337,6 +338,14 @@ namespace Automation
 
         public void ShowRuntimeDiagnostics()
         {
+            if (!Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.PlatformDiagnosticsUse,
+                "打开运行诊断",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (!RuntimeDiagnosticsEnabled)
             {
                 throw new InvalidOperationException("智能诊断中心已在程序设置中停用。");
@@ -360,6 +369,14 @@ namespace Automation
 
         public void ShowPerformanceAnalysis()
         {
+            if (!Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.PlatformDiagnosticsUse,
+                "打开性能分析",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (frmPerformanceAnalysis == null || frmPerformanceAnalysis.IsDisposed)
             {
                 frmPerformanceAnalysis = new FrmPerformanceAnalysis(this);
@@ -569,6 +586,7 @@ namespace Automation
             frmCommunication.RefreshSerialPortInfo();
             frmControl?.RefreshMotionControlAvailability();
             platformInitialized = true;
+            frmToolBar.ApplyAccountPermissions();
             QueueEditorCachePrewarm();
         }
 

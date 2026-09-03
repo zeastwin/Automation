@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Globalization;
 using System.Threading;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -142,6 +143,10 @@ namespace Automation
         {
             created = false;
             error = string.Empty;
+            if (!CanConfigure("保存数据结构", out error))
+            {
+                return false;
+            }
             if (candidate == null || string.IsNullOrWhiteSpace(candidate.Name))
             {
                 error = "数据结构名称不能为空。";
@@ -179,6 +184,10 @@ namespace Automation
         public bool TryDeleteAndSave(string name, string configPath, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("删除数据结构", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(name))
             {
                 error = "数据结构名称不能为空。";
@@ -752,6 +761,10 @@ namespace Automation
         public bool AddStruct(string name, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("新增数据结构", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(name))
             {
                 error = "名称不能为空";
@@ -776,6 +789,10 @@ namespace Automation
         public bool RenameStruct(int index, string newName, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("重命名数据结构", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(newName))
             {
                 error = "名称不能为空";
@@ -804,6 +821,10 @@ namespace Automation
         public bool RemoveStructAt(int index, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("删除数据结构", out error))
+            {
+                return false;
+            }
             lock (dataLock)
             {
                 if (index < 0 || index >= dataStructs.Count)
@@ -826,6 +847,10 @@ namespace Automation
         {
             itemIndex = -1;
             error = string.Empty;
+            if (!CanConfigure("新增数据项", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(itemName))
             {
                 error = "名称不能为空";
@@ -870,6 +895,10 @@ namespace Automation
         public bool RenameItem(int structIndex, int itemIndex, string newName, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("重命名数据项", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(newName))
             {
                 error = "名称不能为空";
@@ -918,6 +947,10 @@ namespace Automation
         public bool DeleteItem(int structIndex, int itemIndex, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("删除数据项", out error))
+            {
+                return false;
+            }
             lock (dataLock)
             {
                 if (structIndex < 0 || structIndex >= dataStructs.Count)
@@ -944,6 +977,10 @@ namespace Automation
         {
             actualIndex = -1;
             error = string.Empty;
+            if (!CanConfigure("新增数据结构字段", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(fieldName))
             {
                 error = "字段名称不能为空";
@@ -1023,6 +1060,10 @@ namespace Automation
         public bool RenameField(int structIndex, int itemIndex, int fieldIndex, string newFieldName, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("重命名数据结构字段", out error))
+            {
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(newFieldName))
             {
                 error = "字段名称不能为空";
@@ -1059,6 +1100,10 @@ namespace Automation
         public bool SetFieldType(int structIndex, int itemIndex, int fieldIndex, DataStructValueType newType, out string message)
         {
             message = string.Empty;
+            if (!CanConfigure("修改数据结构字段类型", out message))
+            {
+                return false;
+            }
             lock (dataLock)
             {
                 if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
@@ -1178,6 +1223,10 @@ namespace Automation
             string fieldName, DataStructValueType type, string value, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("修改数据结构字段", out error))
+            {
+                return false;
+            }
             fieldName = fieldName?.Trim();
             if (string.IsNullOrWhiteSpace(fieldName))
             {
@@ -1243,6 +1292,10 @@ namespace Automation
         public bool RemoveField(int structIndex, int itemIndex, int fieldIndex, out string error)
         {
             error = string.Empty;
+            if (!CanConfigure("删除数据结构字段", out error))
+            {
+                return false;
+            }
             lock (dataLock)
             {
                 if (!TryGetItemNoLock(structIndex, itemIndex, out DataStructItem item))
@@ -1272,6 +1325,14 @@ namespace Automation
                 MarkStructChangedNoLock(structIndex);
                 return true;
             }
+        }
+
+        private bool CanConfigure(string action, out string error)
+        {
+            return runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.DataStructureConfigure,
+                action,
+                out error);
         }
 
         internal bool TryBindRuntimeField(

@@ -5,7 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -78,13 +80,13 @@ namespace Automation
         internal void SetRuntimeDiagnosticsEnabled(bool enabled)
         {
             runtimeDiagnosticsButtonVisible = enabled;
-            runtimeDiagnostics_Page.Enabled = enabled;
             runtimeDiagnostics_Page.Visible = enabled;
             if (!enabled && activeMenuButton == runtimeDiagnostics_Page)
             {
                 SetActiveMenuButton(process_Page);
             }
             AdjustMenuButtons();
+            ApplyAccountPermissions();
         }
 
         private void ConfigureMenuAppearance()
@@ -333,6 +335,43 @@ namespace Automation
             panel1.Invalidate();
         }
 
+        internal void ApplyAccountPermissions()
+        {
+            if (editorWorkspace == null || IsDisposed || Disposing)
+            {
+                return;
+            }
+            AccountSecurityService accounts = Workspace.Runtime.Accounts;
+            bool editorOpen = accounts.CheckPermission(PlatformPermissionCodes.PlatformEditorOpen, out _);
+            process_Page.Enabled = editorOpen;
+            station_Page.Enabled = editorOpen && HasAny(accounts,
+                PlatformPermissionCodes.MotionOperate, PlatformPermissionCodes.MotionConfigure);
+            value_Page.Enabled = editorOpen && HasAny(accounts,
+                PlatformPermissionCodes.VariableRuntimeWrite,
+                PlatformPermissionCodes.VariableConfigure,
+                PlatformPermissionCodes.DataStructureConfigure);
+            Io_Page.Enabled = editorOpen && accounts.CheckPermission(PlatformPermissionCodes.IoDebug, out _);
+            communication_Page.Enabled = editorOpen && HasAny(accounts,
+                PlatformPermissionCodes.CommunicationOperate, PlatformPermissionCodes.CommunicationConfigure);
+            Plc_Page.Enabled = editorOpen && HasAny(accounts,
+                PlatformPermissionCodes.PlcOperate, PlatformPermissionCodes.PlcConfigure);
+            Card_Page.Enabled = editorOpen && HasAny(accounts,
+                PlatformPermissionCodes.HardwareConfigure, PlatformPermissionCodes.IoConfigure);
+            valueDebug_Page.Enabled = editorOpen
+                && accounts.CheckPermission(PlatformPermissionCodes.VariableDebug, out _);
+            aiAssistant_Page.Enabled = editorOpen
+                && accounts.CheckPermission(PlatformPermissionCodes.PlatformAiUse, out _);
+            version_Page.Enabled = editorOpen
+                && accounts.CheckPermission(PlatformPermissionCodes.VersionManage, out _);
+            runtimeDiagnostics_Page.Enabled = runtimeDiagnosticsButtonVisible && editorOpen
+                && accounts.CheckPermission(PlatformPermissionCodes.PlatformDiagnosticsUse, out _);
+        }
+
+        private static bool HasAny(AccountSecurityService accounts, params string[] permissions)
+        {
+            return permissions.Any(value => accounts.CheckPermission(value, out _));
+        }
+
         private bool StartsNewMenuGroup(Button button)
         {
             return button == Io_Page || button == valueDebug_Page;
@@ -366,6 +405,14 @@ namespace Automation
 
         private void aiAssistant_Page_Click(object sender, EventArgs e)
         {
+            if (!Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.PlatformAiUse,
+                "打开AI助手",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             Workspace.Main.EnsureAiInfrastructureStarted();
             // 切换 ai_panel 显示/隐藏，不切换主页面（curPage 不变）
             var p = Workspace.Main.ai_panel;
@@ -432,6 +479,14 @@ namespace Automation
 
         private void version_Page_Click(object sender, EventArgs e)
         {
+            if (!Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.VersionManage,
+                "打开版本管理",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             ShowEmbeddedMainPage(Workspace.GetOrCreateVersionManager(), version_Page, VersionPageIndex);
         }
 

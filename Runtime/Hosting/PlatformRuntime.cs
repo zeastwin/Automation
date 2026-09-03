@@ -59,6 +59,19 @@ namespace Automation
             Safety = new PlatformSafetyCoordinator(this);
             ShutdownCoordinator = new PlatformShutdownCoordinator(this);
             Editor = new EditorSessionCoordinator(this);
+            Accounts = new AccountSecurityService(Paths.ConfigPath);
+            Accounts.SessionEnded += (sender, args) =>
+            {
+                try
+                {
+                    Editor.Cancel();
+                }
+                finally
+                {
+                    // 取消编辑失败也不能阻断手动运动的安全停止。
+                    ProcessEngine?.StopAllManualMotion();
+                }
+            };
             Stores = new PlatformStores(this);
             ProcessEditing = new ProcessEditingPolicy(this);
             OperationEditing = new OperationEditingService(this);
@@ -78,6 +91,7 @@ namespace Automation
         public PlatformSafetyCoordinator Safety { get; }
         internal PlatformShutdownCoordinator ShutdownCoordinator { get; }
         public EditorSessionCoordinator Editor { get; }
+        internal AccountSecurityService Accounts { get; }
         public ProcessEditingPolicy ProcessEditing { get; }
         public OperationEditingService OperationEditing { get; }
         public ProcessPublicationService ProcessPublication { get; }

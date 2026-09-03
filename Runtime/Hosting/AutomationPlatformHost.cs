@@ -87,6 +87,7 @@ namespace Automation
             exceptionSafetyRegistration = RuntimeExceptionLogger.RegisterSafetyCoordinator(runtime.Safety);
             Values = new PlatformValueStoreFacade(this);
             Processes = new PlatformProcessStoreFacade(this);
+            Authentication = runtime.Accounts;
         }
 
         public event EventHandler<PlatformRuntimeStateChangedEventArgs> RuntimeStateChanged;
@@ -97,6 +98,8 @@ namespace Automation
         public IValueStore Values { get; }
 
         public IProcessStore Processes { get; }
+
+        public IAuthenticationSession Authentication { get; }
 
         public string ApiVersion => PlatformApiInfo.ApiVersion;
 
@@ -332,6 +335,13 @@ namespace Automation
 
         public bool TryStartProcess(int procIndex, out string error)
         {
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ProcessRun,
+                "启动流程",
+                out error))
+            {
+                return false;
+            }
             if (!CanIssueRuntimeCommand(out error))
             {
                 return false;
@@ -371,11 +381,25 @@ namespace Automation
 
         public bool TryPauseProcess(int procIndex, out string error)
         {
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ProcessRun,
+                "暂停流程",
+                out error))
+            {
+                return false;
+            }
             return TryExecuteProcessCommand(procIndex, index => runtime.ProcessControl != null && runtime.ProcessControl.Pause(index), "暂停", false, out error);
         }
 
         public bool TryResumeProcess(int procIndex, out string error)
         {
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ProcessRun,
+                "继续流程",
+                out error))
+            {
+                return false;
+            }
             return TryExecuteProcessCommand(procIndex, index => runtime.ProcessControl != null && runtime.ProcessControl.Resume(index), "继续", true, out error);
         }
 
@@ -448,6 +472,13 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.PlatformDiagnosticsUse,
+                "打开运行诊断",
+                out string permissionError))
+            {
+                throw new UnauthorizedAccessException(permissionError);
+            }
             EnsurePlatformEditorCreated().ShowRuntimeDiagnostics();
         }
 
@@ -455,6 +486,13 @@ namespace Automation
         {
             EnsureUiThread();
             EnsureReadyOrFaulted();
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.PlatformDiagnosticsUse,
+                "打开性能分析",
+                out string permissionError))
+            {
+                throw new UnauthorizedAccessException(permissionError);
+            }
             EnsurePlatformEditorCreated().ShowPerformanceAnalysis();
         }
 
@@ -502,6 +540,13 @@ namespace Automation
 
         public bool TrySetValue(string name, object value, out string error)
         {
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.VariableRuntimeWrite,
+                "写入运行变量",
+                out error))
+            {
+                return false;
+            }
             if (!CanIssueRuntimeCommand(out error))
             {
                 return false;
@@ -526,6 +571,13 @@ namespace Automation
 
         public bool TrySetValue(int index, object value, out string error)
         {
+            if (!runtime.Accounts.Authorize(
+                PlatformPermissionCodes.VariableRuntimeWrite,
+                "写入运行变量",
+                out error))
+            {
+                return false;
+            }
             if (!CanIssueRuntimeCommand(out error))
             {
                 return false;
@@ -575,11 +627,13 @@ namespace Automation
             }
             if (state == PlatformRuntimeState.Created)
             {
+                Authentication.Logout();
                 ShutdownRuntimeCore();
                 SetState(PlatformRuntimeState.Stopped, "控制平台已关闭");
                 return;
             }
             SetState(PlatformRuntimeState.ShuttingDown, "正在安全关闭控制平台");
+            Authentication.Logout();
             DetachRuntimeEvents();
             try
             {

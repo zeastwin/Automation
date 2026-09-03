@@ -7,6 +7,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -93,6 +94,11 @@ namespace Automation
                 || runtime.ProcessEngine == null)
             {
                 error = "流程编辑依赖尚未初始化。";
+                return false;
+            }
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.ProcessEdit, "提交流程编辑", out error))
+            {
                 return false;
             }
             if (runtime.Safety.IsLocked)

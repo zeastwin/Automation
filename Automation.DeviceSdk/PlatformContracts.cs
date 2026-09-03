@@ -182,6 +182,9 @@ namespace Automation.DeviceSdk
         /// <summary>流程运行门面。</summary>
         IProcessStore Processes { get; }
 
+        /// <summary>当前平台实例的账户登录状态和权限校验入口。</summary>
+        IAuthenticationSession Authentication { get; }
+
         /// <summary>在宿主 UI 线程初始化平台；失败返回 false，已创建资源由平台统一清理。</summary>
         bool Initialize(out string error);
 

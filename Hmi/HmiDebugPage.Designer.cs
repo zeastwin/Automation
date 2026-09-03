@@ -129,7 +129,7 @@ namespace Automation.Hmi
             this.buttonFingerprint.Dock = System.Windows.Forms.DockStyle.Fill;
             this.buttonFingerprint.Font = new System.Drawing.Font("宋体", 10.5F);
             this.buttonFingerprint.Name = "buttonFingerprint";
-            this.buttonFingerprint.Text = "FingerPrint";
+            this.buttonFingerprint.Text = "账户登录";
             this.buttonFingerprint.UseVisualStyleBackColor = false;
             this.buttonTools.Dock = System.Windows.Forms.DockStyle.Fill;
             this.buttonTools.Font = new System.Drawing.Font("宋体", 10.5F);

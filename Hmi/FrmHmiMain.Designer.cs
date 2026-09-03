@@ -33,6 +33,7 @@ namespace Automation.Hmi
             this.btnLog = new System.Windows.Forms.Button();
             this.statusLayout = new System.Windows.Forms.TableLayoutPanel();
             this.lblFixtureStatus = new System.Windows.Forms.Label();
+            this.btnAccount = new System.Windows.Forms.Button();
             this.pageHost = new System.Windows.Forms.Panel();
             this.footerLayout = new System.Windows.Forms.TableLayoutPanel();
             this.lblDate = new System.Windows.Forms.Label();
@@ -340,10 +341,13 @@ namespace Automation.Hmi
             //
             // statusLayout
             //
-            this.statusLayout.ColumnCount = 1;
+            this.statusLayout.ColumnCount = 2;
             this.statusLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.statusLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 88F));
             this.statusLayout.Controls.Add(this.lblFixtureStatus, 0, 0);
+            this.statusLayout.Controls.Add(this.btnAccount, 1, 0);
             this.statusLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.statusLayout.Margin = new System.Windows.Forms.Padding(0);
             this.statusLayout.Name = "statusLayout";
             this.statusLayout.RowCount = 1;
             this.statusLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
@@ -358,6 +362,26 @@ namespace Automation.Hmi
             this.lblFixtureStatus.Text = "None";
             this.lblFixtureStatus.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             this.lblFixtureStatus.Click += new System.EventHandler(this.lblFixtureStatus_Click);
+            //
+            // btnAccount
+            //
+            this.btnAccount.AccessibleName = "账户：未登录";
+            this.btnAccount.BackColor = System.Drawing.Color.Transparent;
+            this.btnAccount.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnAccount.FlatAppearance.BorderSize = 0;
+            this.btnAccount.FlatAppearance.MouseDownBackColor = System.Drawing.Color.FromArgb(226, 232, 240);
+            this.btnAccount.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(239, 246, 255);
+            this.btnAccount.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnAccount.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.btnAccount.ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            this.btnAccount.ImageAlign = System.Drawing.ContentAlignment.TopCenter;
+            this.btnAccount.Margin = new System.Windows.Forms.Padding(3, 10, 6, 3);
+            this.btnAccount.Name = "btnAccount";
+            this.btnAccount.Text = "登录";
+            this.btnAccount.TextAlign = System.Drawing.ContentAlignment.BottomCenter;
+            this.btnAccount.TextImageRelation = System.Windows.Forms.TextImageRelation.ImageAboveText;
+            this.btnAccount.UseVisualStyleBackColor = false;
+            this.btnAccount.Click += new System.EventHandler(this.btnAccount_Click);
             //
             // pageHost
             //
@@ -478,6 +502,7 @@ namespace Automation.Hmi
         private System.Windows.Forms.Button btnLog;
         private System.Windows.Forms.TableLayoutPanel statusLayout;
         private System.Windows.Forms.Label lblFixtureStatus;
+        private System.Windows.Forms.Button btnAccount;
         private System.Windows.Forms.Panel pageHost;
         private System.Windows.Forms.TableLayoutPanel footerLayout;
         private System.Windows.Forms.Label lblDate;

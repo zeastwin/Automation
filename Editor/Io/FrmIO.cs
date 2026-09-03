@@ -10,6 +10,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 using static Automation.OperationTypePartial;
 
 namespace Automation
@@ -634,6 +635,14 @@ namespace Automation
 
         private bool TryCommitIoMap(List<List<IO>> candidate)
         {
+            if (!Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.IoConfigure,
+                "保存IO配置",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
             if (configurationStore.TryCommit(
                     Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
             {

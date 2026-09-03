@@ -262,7 +262,7 @@ namespace Automation
                 {
                     break;
                 }
-                Delay(5, evt);
+                Delay(1, evt);
             }
             Delay(DelayAfter, evt);
             return true;

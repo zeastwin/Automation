@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -92,11 +93,19 @@ namespace Automation
         private readonly ValueConfigStore valueStore;
         private readonly Func<bool> isConfigurationRestartRequired;
         private readonly Action<string> setSecurityLock;
+        private readonly AccountSecurityService accounts;
 
         public event EventHandler<ManualMotionRejectedEventArgs> CommandRejected;
 
         public ManualMotionService(IMotionRuntime motion, ProcessEngine engine, ValueConfigStore valueStore,
             Func<bool> isConfigurationRestartRequired, Action<string> setSecurityLock)
+            : this(motion, engine, valueStore, isConfigurationRestartRequired, setSecurityLock, null)
+        {
+        }
+
+        internal ManualMotionService(IMotionRuntime motion, ProcessEngine engine, ValueConfigStore valueStore,
+            Func<bool> isConfigurationRestartRequired, Action<string> setSecurityLock,
+            AccountSecurityService accounts)
         {
             this.motion = motion ?? throw new ArgumentNullException(nameof(motion));
             this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -104,6 +113,7 @@ namespace Automation
             this.isConfigurationRestartRequired = isConfigurationRestartRequired
                 ?? throw new ArgumentNullException(nameof(isConfigurationRestartRequired));
             this.setSecurityLock = setSecurityLock ?? throw new ArgumentNullException(nameof(setSecurityLock));
+            this.accounts = accounts;
         }
 
         public void ConfigureAxis(ushort card, ushort axis, ManualMotionParameters parameters)
@@ -120,6 +130,11 @@ namespace Automation
 
         public bool TryMove(ushort card, ushort axis, double distance, ushort positionMode, bool wait)
         {
+            if (!CanOperateMotion(out string permissionError))
+            {
+                Reject("权限不足", permissionError);
+                return false;
+            }
             if (!TryValidateGate(out string gateError))
             {
                 Reject("运动门禁", gateError);
@@ -170,6 +185,11 @@ namespace Automation
 
         public bool TryMoveAxes(IReadOnlyCollection<ManualAxisMoveRequest> commands)
         {
+            if (!CanOperateMotion(out string permissionError))
+            {
+                Reject("权限不足", permissionError);
+                return false;
+            }
             if (commands == null || commands.Count == 0)
             {
                 Reject("手动运动", "手动运动轴列表为空。");
@@ -259,6 +279,11 @@ namespace Automation
 
         public bool TryJog(ushort card, ushort axis, ushort direction)
         {
+            if (!CanOperateMotion(out string permissionError))
+            {
+                Reject("权限不足", permissionError);
+                return false;
+            }
             if (!TryValidateGate(out string gateError))
             {
                 Reject("运动门禁", gateError);
@@ -344,6 +369,19 @@ namespace Automation
             }
             error = null;
             return true;
+        }
+
+        private bool CanOperateMotion(out string error)
+        {
+            if (accounts == null)
+            {
+                error = null;
+                return true;
+            }
+            return accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.MotionOperate,
+                "执行手动运动",
+                out error);
         }
 
         private bool TryGetParameters(ushort card, ushort axis, out ManualMotionParameters parameters)

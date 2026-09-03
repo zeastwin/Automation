@@ -15,6 +15,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 using static Automation.OperationTypePartial;
 using static System.Windows.Forms.AxHost;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
@@ -1307,6 +1308,14 @@ namespace Automation
 
         private void startProc_Click(object sender, EventArgs e)
         {
+            if (!Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ProcessRun,
+                "启动流程",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (SelectedProcNum != -1)
             {
                 if (SelectedProcNum >= 0 && SelectedProcNum < procsList.Count && procsList[SelectedProcNum]?.head?.Disable == true)
@@ -1329,6 +1338,14 @@ namespace Automation
                 Message confirmForm = new Message(Workspace.Runtime, "启动确认", message,
                     () =>
                     {
+                        if (!Workspace.Runtime.Accounts.Authorize(
+                            PlatformPermissionCodes.ProcessRun,
+                            "启动流程",
+                            out string confirmedPermissionError))
+                        {
+                            MessageBox.Show(confirmedPermissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
                         if (Workspace.Runtime.ProcessEngine.StartProc(null, procIndex))
                         {
                             return;

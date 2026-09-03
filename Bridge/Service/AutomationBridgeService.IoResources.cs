@@ -405,8 +405,12 @@ namespace Automation.Bridge
                 return BridgeError(409, "ALARM_SLOT_OCCUPIED",
                     $"报警槽位 index={index} 已被“{alarm.Name}”占用；确认替换后请设置 allowOverwrite=true。");
             }
-            runtime.Stores.Alarms.UpdateAlarm(index, name, category, btn1, btn2, btn3, note);
-            runtime.Stores.Alarms.Save(runtime.Paths.ConfigPath);
+            if (!runtime.Stores.Alarms.TryUpdateAlarm(
+                    index, name, category, btn1, btn2, btn3, note, out string error)
+                || !runtime.Stores.Alarms.TrySaveConfiguration(runtime.Paths.ConfigPath, out error))
+            {
+                throw new BridgeRequestException(403, "ACCOUNT_PERMISSION_DENIED", error);
+            }
             runtime.Stores.Alarms.TryGetByIndex(index, out alarm);
             RefreshAlarmConfigView();
             return new JObject
@@ -431,10 +435,12 @@ namespace Automation.Bridge
             }
 
             string oldName = alarm.Name ?? string.Empty;
-            runtime.Stores.Alarms.ClearAlarm(index);
+            if (!runtime.Stores.Alarms.TryClearAlarm(index, out string error)
+                || !runtime.Stores.Alarms.TrySaveConfiguration(runtime.Paths.ConfigPath, out error))
+            {
+                throw new BridgeRequestException(403, "ACCOUNT_PERMISSION_DENIED", error);
+            }
             // Index 保持不变（固定槽位）
-
-            runtime.Stores.Alarms.Save(runtime.Paths.ConfigPath);
             RefreshAlarmConfigView();
             return new JObject
             {

@@ -402,6 +402,15 @@ namespace Automation
 
         public void ShowProcessFlowGraph()
         {
+            if (!Runtime.Accounts.Authorize(
+                Automation.DeviceSdk.PlatformPermissionCodes.PlatformEditorOpen,
+                "打开流程图",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
             if (flowGraphUnavailable)
             {
                 MessageBox.Show(this, "流程图模块当前不可用，请查看运行信息中的报警。", "流程图", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -492,6 +501,15 @@ namespace Automation
 
         public void ShowDataBreakpoints()
         {
+            if (!Runtime.Accounts.Authorize(
+                Automation.DeviceSdk.PlatformPermissionCodes.VariableDebug,
+                "打开数据断点",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
             if (frmDataBreakpoints == null || frmDataBreakpoints.IsDisposed)
             {
                 frmDataBreakpoints = new FrmDataBreakpoints(this, dataBreakpointService);

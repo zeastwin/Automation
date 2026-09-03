@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 // 模块：引擎 / 执行。
 // 职责范围：负责运行绑定、调度、状态管理以及各类流程指令的确定性执行。
 
@@ -139,7 +139,7 @@ namespace Automation
                             {
                                 break;
                             }
-                            Delay(5, evt);
+                            Delay(1, evt);
                         }
                     }
                 }
@@ -260,7 +260,7 @@ namespace Automation
                     Context.Motion.StopCoordinatedLinear(request.Card, request.CoordinateSystem, 0);
                     throw new TimeoutException($"{operationName}运动超时");
                 }
-                Delay(5, evt);
+                Delay(1, evt);
             }
         }
 
@@ -929,7 +929,7 @@ namespace Automation
                     {
                         break;
                     }
-                    Delay(5, evt);
+                    Delay(1, evt);
                 }
             }
 
@@ -1741,7 +1741,7 @@ namespace Automation
                 }
                 if (isInPos)
                     break;
-                Delay(5, evt);
+                Delay(1, evt);
             }
             return true;
         }

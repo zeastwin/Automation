@@ -2193,6 +2193,14 @@ namespace Automation
 
         private void IOButton_Click(object sender, EventArgs e)
         {
+            if (!Workspace.Runtime.Accounts.Authorize(
+                Automation.DeviceSdk.PlatformPermissionCodes.IoDebug,
+                "执行IO调试输出",
+                out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (!(sender is Button button))
             {
                 return;

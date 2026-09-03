@@ -51,6 +51,7 @@ namespace Automation
             runtimeValueRefreshTimer.Tick +=
                 (sender, args) => RefreshDisplayedRuntimeValues();
             ConfigureResponsiveLayout();
+            BackColor = UiPalette.Background;
             Font uiFont = new Font("微软雅黑", 10.5F, FontStyle.Regular, GraphicsUnit.Point, 134);
 
             dgvCheck.Font = uiFont;
@@ -64,7 +65,7 @@ namespace Automation
             dgvCheck.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvCheck.RowTemplate.Height = 28;
             dgvCheck.EditMode = DataGridViewEditMode.EditOnEnter;
-            ApplyColumnTheme(groupCheck, panelCheckBottom, dgvCheck, UiPalette.BrandSoft, UiPalette.Selection);
+            ApplyColumnTheme(groupCheck, panelCheckBottom, dgvCheck);
 
             dgvEdit.Font = uiFont;
             dgvEdit.ColumnHeadersDefaultCellStyle.Font = new Font("微软雅黑", 10F, FontStyle.Bold, GraphicsUnit.Point, 134);
@@ -78,7 +79,7 @@ namespace Automation
             dgvEdit.RowTemplate.Height = 28;
             dgvEdit.ReadOnly = false;
             dgvEdit.EditMode = DataGridViewEditMode.EditOnEnter;
-            ApplyColumnTheme(groupEdit, panelEditBottom, dgvEdit, UiPalette.SuccessSoft, UiPalette.SuccessSoft);
+            ApplyColumnTheme(groupEdit, panelEditBottom, dgvEdit);
 
             cboCheckVar.Font = uiFont;
             cboEditVar.Font = uiFont;
@@ -179,32 +180,49 @@ namespace Automation
         private static void ApplyButtonStyle(Button button, bool primary)
         {
             button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderColor = primary
-                ? UiPalette.Brand
-                : UiPalette.StrokeStrong;
-            button.BackColor = primary ? UiPalette.Brand : UiPalette.SurfaceStrong;
-            button.ForeColor = primary ? UiPalette.TextInverse : UiPalette.TextPrimary;
+            button.FlatAppearance.BorderSize = 1;
+            if (primary)
+            {
+                button.BackColor = UiPalette.Brand;
+                button.ForeColor = UiPalette.TextInverse;
+                button.FlatAppearance.BorderColor = UiPalette.Brand;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.BrandHover;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.BrandPressed;
+            }
+            else
+            {
+                button.BackColor = UiPalette.SurfaceStrong;
+                button.ForeColor = UiPalette.TextPrimary;
+                button.FlatAppearance.BorderColor = UiPalette.StrokeStrong;
+                button.FlatAppearance.MouseOverBackColor = UiPalette.SurfaceHover;
+                button.FlatAppearance.MouseDownBackColor = UiPalette.SurfacePressed;
+            }
         }
 
-        private void ApplyColumnTheme(GroupBox groupBox, Panel bottomPanel, DataGridView grid, Color baseColor, Color headerColor)
+        private static void ApplyColumnTheme(GroupBox groupBox, Panel bottomPanel, DataGridView grid)
         {
             if (groupBox != null)
             {
-                groupBox.BackColor = baseColor;
+                groupBox.BackColor = UiPalette.Background;
             }
             if (bottomPanel != null)
             {
-                bottomPanel.BackColor = baseColor;
+                bottomPanel.BackColor = UiPalette.SurfaceSubtle;
             }
             if (grid != null)
             {
-                grid.BackgroundColor = baseColor;
+                grid.BackgroundColor = UiPalette.SurfaceStrong;
+                grid.GridColor = UiPalette.Stroke;
                 grid.EnableHeadersVisualStyles = false;
-                grid.ColumnHeadersDefaultCellStyle.BackColor = headerColor;
+                grid.ColumnHeadersDefaultCellStyle.BackColor = UiPalette.Background;
                 grid.ColumnHeadersDefaultCellStyle.ForeColor = UiPalette.TextPrimary;
-                grid.DefaultCellStyle.BackColor = UiPalette.Surface;
+                grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = UiPalette.Background;
+                grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = UiPalette.TextPrimary;
+                grid.DefaultCellStyle.BackColor = UiPalette.SurfaceStrong;
                 grid.DefaultCellStyle.ForeColor = UiPalette.TextPrimary;
-                grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.Background;
+                grid.DefaultCellStyle.SelectionBackColor = UiPalette.Selection;
+                grid.DefaultCellStyle.SelectionForeColor = UiPalette.SelectionText;
+                grid.AlternatingRowsDefaultCellStyle.BackColor = UiPalette.SurfaceSubtle;
             }
         }
 

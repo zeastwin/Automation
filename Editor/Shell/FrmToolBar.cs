@@ -16,6 +16,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 using WinFormsButton = System.Windows.Forms.Button;
 using static Automation.OperationTypePartial;
 using static System.Collections.Specialized.BitVector32;
@@ -37,6 +38,13 @@ namespace Automation
         private readonly WinFormsButton btnFlowGraph = new WinFormsButton();
         private readonly WinFormsButton btnPerformanceAnalysis = new WinFormsButton();
         private readonly WinFormsButton btnContinue = new WinFormsButton();
+        private readonly WinFormsButton btnAccount = new WinFormsButton();
+        private ProcRunState currentProcessState = ProcRunState.Ready;
+        private bool canRunProcesses;
+        private bool canOpenEditorWorkspace;
+        private bool navigationBackAvailable;
+        private bool navigationForwardAvailable;
+        private int? displayedAccountIconColor;
 
         public FrmToolBar()
         {
@@ -49,6 +57,7 @@ namespace Automation
             ToolBar_Panel.Controls.Add(btnFlowGraph);
             ToolBar_Panel.Controls.Add(btnPerformanceAnalysis);
             ToolBar_Panel.Controls.Add(btnContinue);
+            ToolBar_Panel.Controls.Add(btnAccount);
             btnNavigateBack.Click += (sender, args) => Workspace.Main?.NavigateEditorBack();
             btnNavigateForward.Click += (sender, args) => Workspace.Main?.NavigateEditorForward();
             btnUndo.Click += (sender, args) => ExecuteHistoryAction(true);
@@ -57,6 +66,7 @@ namespace Automation
             btnFlowGraph.Click += (sender, args) => Workspace.Main?.ShowProcessFlowGraph();
             btnPerformanceAnalysis.Click += (sender, args) => Workspace.Main?.ShowPerformanceAnalysis();
             btnContinue.Click += btnContinue_Click;
+            btnAccount.Click += BtnAccount_Click;
             ConfigureToolbarAppearance();
             btnSave.Enabled = false;
             btnCancel.Enabled = false;
@@ -71,6 +81,7 @@ namespace Automation
                 if (editorWorkspace != null)
                 {
                     editorWorkspace.Runtime.Editor.History.StateChanged -= EditorHistory_StateChanged;
+                    editorWorkspace.Runtime.Accounts.Changed -= Accounts_Changed;
                 }
                 hoverAnimator.Dispose();
                 toolbarToolTip.Dispose();
@@ -80,7 +91,9 @@ namespace Automation
         internal void OnEditorWorkspaceAttached()
         {
             Workspace.Runtime.Editor.History.StateChanged += EditorHistory_StateChanged;
+            Workspace.Runtime.Accounts.Changed += Accounts_Changed;
             RefreshHistoryAvailability();
+            ApplyAccountPermissions();
         }
 
         private void ConfigureToolbarAppearance()
@@ -105,6 +118,7 @@ namespace Automation
             ConfigureButton(btnIOMonitor, UiIconKind.Monitor, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(button1, UiIconKind.Folder, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnAppConfig, UiIconKind.Settings, 44, UiPalette.TextPrimary, UiPalette.Surface, UiPalette.SurfaceHover);
+            ConfigureButton(btnAccount, UiIconKind.Account, 44, UiPalette.TextMuted, UiPalette.Surface, UiPalette.SurfaceHover);
             ConfigureButton(btnStopAll, UiIconKind.StopAll, 110, UiPalette.DangerHover, UiPalette.DangerSoft, UiPalette.DangerSoft);
             ConfigureIconOnlyButton(btnSearch, "查找");
             ConfigureIconOnlyButton(btnNavigateBack, "后退（鼠标侧键后退）");
@@ -123,6 +137,7 @@ namespace Automation
             ConfigureIconOnlyButton(btnIOMonitor, "IO监视");
             ConfigureIconOnlyButton(button1, "打开程序文件夹");
             ConfigureIconOnlyButton(btnAppConfig, "程序设置");
+            ConfigureIconOnlyButton(btnAccount, "账户：未登录");
             btnStopAll.FlatAppearance.BorderSize = 1;
             btnStopAll.FlatAppearance.BorderColor = UiPalette.Danger;
 
@@ -179,11 +194,12 @@ namespace Automation
                 return;
             }
 
-            btnPause.Enabled = state == ProcRunState.Running
-                || state == ProcRunState.Alarming;
-            btnContinue.Enabled = state == ProcRunState.Paused
-                || state == ProcRunState.SingleStep;
-            SingleRun.Enabled = state == ProcRunState.SingleStep;
+            currentProcessState = state;
+            btnPause.Enabled = canRunProcesses && (state == ProcRunState.Running
+                || state == ProcRunState.Alarming);
+            btnContinue.Enabled = canRunProcesses && (state == ProcRunState.Paused
+                || state == ProcRunState.SingleStep);
+            SingleRun.Enabled = canRunProcesses && state == ProcRunState.SingleStep;
             btnStop.Enabled = !state.IsInactive();
         }
 
@@ -204,7 +220,7 @@ namespace Automation
                 btnUndo, btnRedo,
                 btnPause, btnContinue, btnStop, SingleRun, btnLocate,
                 btnDataBreakpoints, btnAlarm, btnSearch, btnFlowGraph, btnPerformanceAnalysis, btnIOMonitor,
-                button1, btnAppConfig, btnStopAll
+                button1, btnAppConfig, btnAccount, btnStopAll
             };
         }
 
@@ -251,6 +267,7 @@ namespace Automation
             {
                 separatorPositions.Add(right + 9);
             }
+            PlaceFromRight(btnAccount, ref right, top, 2);
             PlaceFromRight(btnAppConfig, ref right, top, 2);
             PlaceFromRight(button1, ref right, top, 0);
             PlaceFromRight(btnPerformanceAnalysis, ref right, top, 2);
@@ -267,6 +284,7 @@ namespace Automation
                 PlaceFromLeft(btnPerformanceAnalysis, ref left, top, 2);
                 PlaceFromLeft(button1, ref left, top, 6);
                 PlaceFromLeft(btnAppConfig, ref left, top, 6);
+                PlaceFromLeft(btnAccount, ref left, top, 6);
                 PlaceFromLeft(btnStopAll, ref left, top, 0);
             }
             ToolBar_Panel.Invalidate();
@@ -283,8 +301,10 @@ namespace Automation
                 BeginInvoke((Action)(() => SetNavigationAvailability(canNavigateBack, canNavigateForward)));
                 return;
             }
-            btnNavigateBack.Enabled = canNavigateBack;
-            btnNavigateForward.Enabled = canNavigateForward;
+            navigationBackAvailable = canNavigateBack;
+            navigationForwardAvailable = canNavigateForward;
+            btnNavigateBack.Enabled = canOpenEditorWorkspace && navigationBackAvailable;
+            btnNavigateForward.Enabled = canOpenEditorWorkspace && navigationForwardAvailable;
         }
 
         internal void RefreshHistoryAvailability()
@@ -300,12 +320,13 @@ namespace Automation
             }
 
             IEditSession editSession = Workspace.Runtime.Editor.ActiveSession;
+            bool canEdit = CanConfigureAnything();
             bool canUndo = editSession?.CanUndo ?? Workspace.Runtime.Editor.History.CanUndo;
             bool canRedo = editSession?.CanRedo ?? Workspace.Runtime.Editor.History.CanRedo;
             string undoDescription = editSession?.Name ?? Workspace.Runtime.Editor.History.UndoDescription;
             string redoDescription = editSession?.Name ?? Workspace.Runtime.Editor.History.RedoDescription;
-            btnUndo.Enabled = canUndo;
-            btnRedo.Enabled = canRedo;
+            btnUndo.Enabled = canEdit && canUndo;
+            btnRedo.Enabled = canEdit && canRedo;
             btnUndo.AccessibleName = canUndo
                 ? $"撤销：{undoDescription}"
                 : "撤销";
@@ -400,7 +421,12 @@ namespace Automation
 
         private void btnAppConfig_Click(object sender, EventArgs e)
         {
-            using (FrmAppConfig frm = new FrmAppConfig())
+            if (!CanOpenProgramSettings(out string permissionError))
+            {
+                MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            using (FrmAppConfig frm = new FrmAppConfig(Workspace.Runtime))
             {
                 if (frm.ShowDialog(this) == DialogResult.OK
                     && AppConfigStorage.TryGetCached(out AppConfig config, out _))
@@ -408,6 +434,173 @@ namespace Automation
                     Workspace.Main?.ApplyRuntimeDiagnosticsConfiguration(config.EnableRuntimeDiagnostics);
                 }
             }
+        }
+
+        internal void ApplyAccountPermissions()
+        {
+            if (editorWorkspace == null || IsDisposed || Disposing)
+            {
+                return;
+            }
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)ApplyAccountPermissions);
+                return;
+            }
+            AccountSessionSnapshot current = Workspace.Runtime.Accounts.CurrentUser;
+            UpdateAccountButtonVisual(current);
+            canOpenEditorWorkspace = Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.PlatformEditorOpen, out _);
+            canRunProcesses = canOpenEditorWorkspace && Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.ProcessRun, out _);
+            ApplyProcessRunState(currentProcessState);
+            btnAppConfig.Enabled = Workspace.Runtime.Accounts.CheckPermission(
+                    PlatformPermissionCodes.ApplicationConfigure, out _)
+                || current != null
+                    && current.Level == AccountLevel.SystemAdministrator
+                    && Workspace.Runtime.Accounts.CheckPermission(
+                        PlatformPermissionCodes.AccountManage, out _);
+            button1.Enabled = canOpenEditorWorkspace && Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.ApplicationConfigure, out _);
+            btnPerformanceAnalysis.Enabled = canOpenEditorWorkspace && Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.PlatformDiagnosticsUse, out _);
+            btnAlarm.Enabled = canOpenEditorWorkspace;
+            btnSearch.Enabled = canOpenEditorWorkspace;
+            btnFlowGraph.Enabled = canOpenEditorWorkspace;
+            btnLocate.Enabled = canOpenEditorWorkspace;
+            btnDataBreakpoints.Enabled = canOpenEditorWorkspace && Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.VariableDebug, out _);
+            btnIOMonitor.Enabled = canOpenEditorWorkspace && Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.IoDebug, out _);
+            btnNavigateBack.Enabled = canOpenEditorWorkspace && navigationBackAvailable;
+            btnNavigateForward.Enabled = canOpenEditorWorkspace && navigationForwardAvailable;
+            bool canEdit = CanConfigureAnything();
+            btnSave.Enabled = canEdit && Workspace.Runtime.Editor.ActiveSession != null;
+            btnCancel.Enabled = canEdit && Workspace.Runtime.Editor.ActiveSession != null;
+            btnUndo.Enabled = canEdit && Workspace.Runtime.Editor.History.CanUndo;
+            btnRedo.Enabled = canEdit && Workspace.Runtime.Editor.History.CanRedo;
+            Workspace.Menu.ApplyAccountPermissions();
+            LayoutToolbarButtons();
+        }
+
+        private void UpdateAccountButtonVisual(AccountSessionSnapshot current)
+        {
+            Color color;
+            string stateText;
+            if (current == null)
+            {
+                color = UiPalette.TextDisabled;
+                stateText = "未登录";
+            }
+            else
+            {
+                switch (current.Level)
+                {
+                    case AccountLevel.Operator:
+                        color = UiPalette.Success;
+                        stateText = "操作员";
+                        break;
+                    case AccountLevel.Engineer:
+                        color = UiPalette.Brand;
+                        stateText = "工程师";
+                        break;
+                    case AccountLevel.SystemAdministrator:
+                        color = UiPalette.Warning;
+                        stateText = "系统管理员";
+                        break;
+                    default:
+                        color = UiPalette.TextPrimary;
+                        stateText = current.Level.ToString();
+                        break;
+                }
+            }
+
+            if (displayedAccountIconColor != color.ToArgb())
+            {
+                Image previous = btnAccount.Image;
+                btnAccount.Image = UiIconFactory.Create(UiIconKind.Account, color, 28);
+                displayedAccountIconColor = color.ToArgb();
+                previous?.Dispose();
+            }
+            btnAccount.Text = string.Empty;
+            btnAccount.AccessibleName = "账户：" + stateText;
+            toolbarToolTip.SetToolTip(btnAccount, current == null
+                ? "未登录；单击登录"
+                : $"{current.UserName}（{stateText}）；单击退出");
+        }
+
+        private bool CanOpenProgramSettings(out string error)
+        {
+            if (Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.ApplicationConfigure, out _))
+            {
+                error = null;
+                return true;
+            }
+            AccountSessionSnapshot current = Workspace.Runtime.Accounts.CurrentUser;
+            if (current != null
+                && current.Level == AccountLevel.SystemAdministrator
+                && Workspace.Runtime.Accounts.CheckPermission(PlatformPermissionCodes.AccountManage, out _))
+            {
+                error = null;
+                return true;
+            }
+            return Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ApplicationConfigure,
+                "打开程序设置",
+                out error);
+        }
+
+        private bool CanConfigureAnything()
+        {
+            if (!Workspace.Runtime.Accounts.IsEnforcementActive)
+            {
+                return true;
+            }
+            if (!Workspace.Runtime.Accounts.CheckPermission(
+                PlatformPermissionCodes.PlatformEditorOpen, out _))
+            {
+                return false;
+            }
+            string[] permissions =
+            {
+                PlatformPermissionCodes.ProcessEdit,
+                PlatformPermissionCodes.VariableConfigure,
+                PlatformPermissionCodes.VariableDebug,
+                PlatformPermissionCodes.MotionConfigure,
+                PlatformPermissionCodes.IoConfigure,
+                PlatformPermissionCodes.PlcConfigure,
+                PlatformPermissionCodes.CommunicationConfigure,
+                PlatformPermissionCodes.HardwareConfigure,
+                PlatformPermissionCodes.AlarmConfigure,
+                PlatformPermissionCodes.DataStructureConfigure
+            };
+            return permissions.Any(value => Workspace.Runtime.Accounts.CheckPermission(value, out _));
+        }
+
+        private void BtnAccount_Click(object sender, EventArgs e)
+        {
+            if (Workspace.Runtime.Accounts.IsAuthenticated)
+            {
+                string warning = Workspace.Runtime.Editor.ActiveSession == null
+                    ? "确定退出当前账户吗？"
+                    : "退出登录将取消当前未保存的编辑，确定继续吗？";
+                if (MessageBox.Show(this, warning, "退出登录", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    Workspace.Runtime.Accounts.Logout();
+                }
+                return;
+            }
+            using (var dialog = new FrmAccountLogin(Workspace.Runtime.Accounts))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void Accounts_Changed(object sender, AccountSessionChangedEventArgs e)
+        {
+            ApplyAccountPermissions();
         }
       
         private void btnSave_Click(object sender, EventArgs e)
@@ -464,6 +657,11 @@ namespace Automation
         
         private void btnSearch_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeToolbarOperation(
+                PlatformPermissionCodes.PlatformEditorOpen, "打开查找窗口"))
+            {
+                return;
+            }
             Workspace.Search.StartPosition = FormStartPosition.CenterScreen;
             Workspace.Search.Show();
             Workspace.Search.BringToFront();
@@ -473,6 +671,10 @@ namespace Automation
 
         private void btnIOMonitor_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeToolbarOperation(PlatformPermissionCodes.IoDebug, "切换IO监视"))
+            {
+                return;
+            }
             if (Workspace.IO == null)
             {
                 return;
@@ -484,6 +686,10 @@ namespace Automation
 
         private void btnPause_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeProcessRun("暂停流程"))
+            {
+                return;
+            }
             int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex < 0)
             {
@@ -499,6 +705,10 @@ namespace Automation
 
         private async void btnContinue_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeProcessRun("继续流程"))
+            {
+                return;
+            }
             int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex < 0)
             {
@@ -566,6 +776,10 @@ namespace Automation
                 {
                     return;
                 }
+                if (!AuthorizeProcessRun("继续流程"))
+                {
+                    return;
+                }
                 EngineSnapshot current = Workspace.Runtime.ProcessEngine.GetSnapshot(procIndex);
                 if (current == null
                     || current.State != expectedState
@@ -599,6 +813,10 @@ namespace Automation
 
         private void SingleRun_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeProcessRun("单步运行流程"))
+            {
+                return;
+            }
             int procIndex = Workspace.Proc.SelectedProcNum;
             if (procIndex != -1)
             {
@@ -635,6 +853,29 @@ namespace Automation
 
         }
 
+        private bool AuthorizeProcessRun(string action)
+        {
+            if (Workspace.Runtime.Accounts.Authorize(
+                PlatformPermissionCodes.ProcessRun,
+                action,
+                out string error))
+            {
+                return true;
+            }
+            MessageBox.Show(error, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
+        private bool AuthorizeToolbarOperation(string permission, string action)
+        {
+            if (Workspace.Runtime.Accounts.Authorize(permission, action, out string error))
+            {
+                return true;
+            }
+            MessageBox.Show(error, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
         private void btnStopAll_Click(object sender, EventArgs e)
         {
             if (Workspace.Proc?.procsList == null)
@@ -658,6 +899,11 @@ namespace Automation
 
         private void btnAlarm_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeToolbarOperation(
+                PlatformPermissionCodes.PlatformEditorOpen, "打开报警信息"))
+            {
+                return;
+            }
             Workspace.AlarmConfig.StartPosition = FormStartPosition.CenterScreen;
             Workspace.AlarmConfig.Show();
             Workspace.AlarmConfig.BringToFront();

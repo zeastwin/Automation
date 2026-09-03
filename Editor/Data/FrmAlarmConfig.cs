@@ -5,6 +5,7 @@ using System;
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -36,6 +37,7 @@ namespace Automation
             doubleBuffered?.SetValue(dataGridView1, true, null);
 
             ApplyLightStyle();
+            dataGridView1.CellBeginEdit += dataGridView1_CellBeginEdit;
             dataGridView1.RowValidating += dataGridView1_RowValidating;
             dataGridView1.RowValidated += dataGridView1_RowValidated;
             dataGridView1.DataError += dataGridView1_DataError;
@@ -99,6 +101,19 @@ namespace Automation
             }
         }
 
+        private void dataGridView1_CellBeginEdit(object sender, DataGridViewCellCancelEventArgs e)
+        {
+            if (Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.AlarmConfigure,
+                "编辑报警配置",
+                out string error))
+            {
+                return;
+            }
+            e.Cancel = true;
+            MessageBox.Show(error, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
         private void dataGridView1_RowValidating(object sender, DataGridViewCellCancelEventArgs e)
         {
             if (isLoading || e.RowIndex < 0)
@@ -150,13 +165,19 @@ namespace Automation
             alarm.Btn3 = alarm.Btn3?.Trim();
             try
             {
-                Workspace.Runtime.Stores.Alarms.Save(Workspace.Runtime.Paths.ConfigPath);
+                if (!Workspace.Runtime.Stores.Alarms.TrySaveConfiguration(
+                    Workspace.Runtime.Paths.ConfigPath,
+                    out string error))
+                {
+                    throw new InvalidOperationException(error);
+                }
                 row.ErrorText = string.Empty;
             }
             catch (Exception ex)
             {
                 row.ErrorText = "保存失败：" + ex.Message;
                 MessageBox.Show(row.ErrorText, "报警配置保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                BeginInvoke((Action)RefreshAlarmInfo);
             }
         }
 

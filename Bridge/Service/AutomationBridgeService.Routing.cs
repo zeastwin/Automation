@@ -1,4 +1,5 @@
 using Automation.Protocol;
+using Automation.DeviceSdk;
 // 模块：Bridge / 服务。
 // 职责范围：实现 Named Pipe 请求的路由、投影、诊断、预演和事务提交。
 // 排查入口：工具存在但请求未到业务 handler 时，核对 route、method、线程切换和本文件的分发表。
@@ -40,6 +41,7 @@ namespace Automation.Bridge
                 }
 
                 JObject request = ParseRequestBody(body);
+                EnsureBridgeAccountAccess(normalizedPath);
                 switch (normalizedPath)
                 {
                     // ---------- proc_query 拆分端点 ----------
@@ -228,6 +230,80 @@ namespace Automation.Bridge
             {
                 LogBridgeException(method, normalizedPath, body, ex);
                 return AutomationBridgeResponse.Error(500, "UNHANDLED_EXCEPTION", "Automation Bridge 处理失败。", ex.Message);
+            }
+        }
+
+        private void EnsureBridgeAccountAccess(string path)
+        {
+            // 停止属于安全动作；即使账户配置损坏或尚未登录也必须保持可用。
+            if (string.Equals(path, "/bridge/proc/stop", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            EnsureBridgePermission(PlatformPermissionCodes.PlatformAiUse, "使用Automation Bridge");
+            switch (path)
+            {
+                case "/bridge/change-set/preview":
+                case "/bridge/change-set/apply":
+                    EnsureBridgePermission(PlatformPermissionCodes.ProcessEdit, "通过AI修改流程");
+                    break;
+                case "/bridge/proc/start":
+                case "/bridge/proc/pause":
+                case "/bridge/proc/resume":
+                case "/bridge/proc/test_run":
+                case "/bridge/ai-test/start":
+                    EnsureBridgePermission(PlatformPermissionCodes.ProcessRun, "通过AI控制流程");
+                    break;
+                case "/bridge/variable/set":
+                    EnsureBridgePermission(PlatformPermissionCodes.VariableRuntimeWrite, "通过AI写入运行变量");
+                    break;
+                case "/bridge/variable/add":
+                case "/bridge/variable/update":
+                case "/bridge/variable/delete":
+                    EnsureBridgePermission(PlatformPermissionCodes.VariableConfigure, "通过AI修改变量配置");
+                    break;
+                case "/bridge/station/add":
+                case "/bridge/station/update":
+                case "/bridge/station/delete":
+                case "/bridge/point/plan":
+                case "/bridge/point/set":
+                case "/bridge/point/delete":
+                    EnsureBridgePermission(PlatformPermissionCodes.MotionConfigure, "通过AI修改运动配置");
+                    break;
+                case "/bridge/data_struct/set_field":
+                case "/bridge/data_struct/upsert":
+                case "/bridge/data_struct/delete":
+                    EnsureBridgePermission(PlatformPermissionCodes.DataStructureConfigure, "通过AI修改数据结构");
+                    break;
+                case "/bridge/migration/motion-io/preview":
+                    EnsureBridgePermission(PlatformPermissionCodes.HardwareConfigure, "通过AI修改控制卡配置");
+                    EnsureBridgePermission(PlatformPermissionCodes.IoConfigure, "通过AI修改IO配置");
+                    break;
+                case "/bridge/migration/io-debug/preview":
+                    EnsureBridgePermission(PlatformPermissionCodes.IoDebug, "通过AI修改IO调试配置");
+                    break;
+                case "/bridge/migration/plc/preview":
+                    EnsureBridgePermission(PlatformPermissionCodes.PlcConfigure, "通过AI修改PLC配置");
+                    break;
+                case "/bridge/migration/communication/preview":
+                    EnsureBridgePermission(PlatformPermissionCodes.CommunicationConfigure, "通过AI修改通讯配置");
+                    break;
+                case "/bridge/io/update_note":
+                    EnsureBridgePermission(PlatformPermissionCodes.IoConfigure, "通过AI修改IO备注");
+                    break;
+                case "/bridge/alarm/set":
+                case "/bridge/alarm/delete":
+                    EnsureBridgePermission(PlatformPermissionCodes.AlarmConfigure, "通过AI修改报警配置");
+                    break;
+            }
+        }
+
+        private void EnsureBridgePermission(string permission, string action)
+        {
+            if (!runtime.Accounts.AuthorizeApplicationOperation(permission, action, out string error))
+            {
+                throw new BridgeRequestException(403, "ACCOUNT_PERMISSION_DENIED", error);
             }
         }
 

@@ -226,6 +226,12 @@ namespace Automation
 
         private void AddCard_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.HardwareConfigure,
+                "新增控制卡"))
+            {
+                return;
+            }
             //新建控制卡
             if (IsCardRootSelected)
             {
@@ -370,6 +376,12 @@ namespace Automation
 
         private void Modify_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.HardwareConfigure,
+                "修改控制卡或轴配置"))
+            {
+                return;
+            }
             if (TryGetSelectedAxisIndex(out int cardIndex, out int axisIndex)
                 && Workspace.Runtime.Stores.Cards.TryGetAxis(cardIndex, axisIndex, out Axis sourceAxis))
             {
@@ -468,6 +480,12 @@ namespace Automation
         }
         private void Remove_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.HardwareConfigure,
+                "删除控制卡"))
+            {
+                return;
+            }
             if (editKey.Kind == EditKind.Card && TryGetSelectedCardIndex(out int cardIndex))
             {
                 if (MessageBox.Show("确认删除选中的控制卡？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -522,6 +540,12 @@ namespace Automation
 
         private void AddStation_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.MotionConfigure,
+                "新增工站"))
+            {
+                return;
+            }
             dataStationTemp = new DataStation(false);
             treeView1.Enabled = false;
             treeView2.Enabled = false;
@@ -552,6 +576,12 @@ namespace Automation
 
         private void ModifyStation_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.MotionConfigure,
+                "修改工站"))
+            {
+                return;
+            }
             if (TryGetSelectedStationIndex(out int stationIndex))
             {
                 dataStationTemp = CloneForEdit(dataStation[stationIndex]);
@@ -589,6 +619,12 @@ namespace Automation
 
         private void RemoveStation_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeConfiguration(
+                Automation.DeviceSdk.PlatformPermissionCodes.MotionConfigure,
+                "删除工站"))
+            {
+                return;
+            }
             if (TryGetSelectedStationIndex(out int stationIndex))
             {
                 if (MessageBox.Show("确认删除选中的工站？", "删除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -606,6 +642,16 @@ namespace Automation
                 Workspace.Card.RefreshStationList();
                 Workspace.Card.RefreshStationTree();
             }
+        }
+
+        private bool AuthorizeConfiguration(string permission, string action)
+        {
+            if (Workspace.Runtime.Accounts.Authorize(permission, action, out string error))
+            {
+                return true;
+            }
+            MessageBox.Show(error, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
         }
 
         private void treeView2_AfterSelect(object sender, TreeViewEventArgs e)

@@ -31,6 +31,11 @@ namespace Automation
 
             // 持久化事务必须先恢复，否则后续 Store 可能分别读到新旧两代配置。
             RecoverTransactions(runtime);
+            // 账户配置损坏时保持 HMI 和停止能力可用，但所有受控操作必须失败关闭。
+            if (!runtime.Accounts.Initialize(out string accountError))
+            {
+                Log(runtime, accountError, LogLevel.Error);
+            }
             // 流程和变量互相引用：先得到流程集合，再加载变量并补齐平台保留变量。
             List<Proc> processes = LoadProcesses(runtime);
             runtime.Stores.Values.Load(runtime.Paths.ConfigPath, processes);

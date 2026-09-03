@@ -2,6 +2,7 @@
 // 职责范围：数据结构与报警配置的编辑交互。
 
 using Automation.ParamFrm;
+using Automation.DeviceSdk;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -1000,6 +1001,18 @@ namespace Automation
                 {
                     inlineValueEditor.Visible = false;
                     inlineValueNode = null;
+                    return true;
+                }
+
+                if (!Workspace.Runtime.Accounts.AuthorizeApplicationOperation(
+                    PlatformPermissionCodes.DataStructureConfigure,
+                    "编辑数据结构字段值",
+                    out string permissionError))
+                {
+                    inlineValueEditor.Visible = false;
+                    inlineValueNode = null;
+                    MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
                     return true;
                 }
 

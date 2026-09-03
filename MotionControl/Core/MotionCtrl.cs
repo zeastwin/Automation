@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 // 模块：运动控制 / 核心。
 // 职责范围：定义统一运动运行契约、运动协调和轴状态缓存。
 // 安全边界：命令先经过 Readiness、Safety 和 ValidateAxesForCommand；驱动事件只在 InitCardType 中绑定。
@@ -263,9 +263,14 @@ namespace Automation.MotionControl
             mov?.Invoke(card, axis, dDist, sPosi_mode, false);
             if (wait)
             {
-                while (!GetInPos(card, axis))
+                // 到位轮询用高精度等待器：等待期间不占 CPU，且不受系统定时器 15.6ms 默认粒度影响，
+                // 避免 Thread.Sleep 在到位后叠加最长约一个间隔的节拍延迟。
+                using (var waiter = new HighResolutionWaiter(CancellationToken.None))
                 {
-                    Thread.Sleep(5);
+                    while (!GetInPos(card, axis))
+                    {
+                        waiter.Wait(1);
+                    }
                 }
             }
         }

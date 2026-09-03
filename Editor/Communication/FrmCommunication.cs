@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -509,6 +510,10 @@ namespace Automation
 
         private bool TryPersistSocketConfigs()
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "保存TCP配置"))
+            {
+                return false;
+            }
             string error = null;
             if (Workspace.Runtime.Stores.Communication == null
                 || !Workspace.Runtime.Stores.Communication.TryReplaceSocketsAndSave(socketInfos, Workspace.Runtime.Paths.ConfigPath, out error))
@@ -526,6 +531,10 @@ namespace Automation
 
         private bool TryPersistSerialConfigs()
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "保存串口配置"))
+            {
+                return false;
+            }
             string error = null;
             if (Workspace.Runtime.Stores.Communication == null
                 || !Workspace.Runtime.Stores.Communication.TryReplaceSerialPortsAndSave(serialPortInfos, Workspace.Runtime.Paths.ConfigPath, out error))
@@ -630,6 +639,7 @@ namespace Automation
 
         private void AddItem_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "新增TCP配置")) return;
             int id = socketInfos.LastOrDefault() == null ? 1 : socketInfos.LastOrDefault().ID + 1;
             string name = BuildUniqueName(socketInfos.Select(item => item?.Name), "Tcp");
             SocketInfo socketInfo = new SocketInfo
@@ -658,6 +668,7 @@ namespace Automation
 
         private async void RemoveItem_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "删除TCP配置")) return;
             if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
             {
                 return;
@@ -715,6 +726,11 @@ namespace Automation
 
         private async void dataGridView1_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "修改TCP配置"))
+            {
+                RefleshSocketDgv();
+                return;
+            }
             if (e.RowIndex < 0 || e.RowIndex >= socketInfos.Count)
             {
                 return;
@@ -909,6 +925,7 @@ namespace Automation
 
         public async Task SendMessageAsync()
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationOperate, "发送通讯调试消息")) return;
             string text = SendTextBox.Text;
             bool convert = checkBox1.Checked;
             bool loopSend = checkBox2.Checked;
@@ -970,6 +987,11 @@ namespace Automation
             {
                 do
                 {
+                    if (!Workspace.Runtime.Accounts.CheckPermission(
+                        PlatformPermissionCodes.CommunicationOperate, out _))
+                    {
+                        break;
+                    }
                     using (CancellationTokenSource sendTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                     {
                     sendTimeoutCts.CancelAfter(DebugSendTimeoutMs);
@@ -1030,6 +1052,7 @@ namespace Automation
 
         private async void connect_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationOperate, "启动TCP通讯")) return;
             if (iSelectedSocketRow < 0 || iSelectedSocketRow >= socketInfos.Count)
             {
                 return;
@@ -1133,6 +1156,7 @@ namespace Automation
 
         private void AddSerial_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "新增串口配置")) return;
             int id = serialPortInfos.LastOrDefault() == null ? 1 : serialPortInfos.LastOrDefault().ID + 1;
             string name = BuildUniqueName(serialPortInfos.Select(item => item?.Name), "COM");
             SerialPortInfo serialPortInfo = new SerialPortInfo
@@ -1159,6 +1183,7 @@ namespace Automation
 
         private async void RemoveSerial_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "删除串口配置")) return;
             if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
             {
                 return;
@@ -1208,6 +1233,7 @@ namespace Automation
 
         private async void OpenSerial_Click(object sender, EventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationOperate, "打开串口")) return;
             if (iSelectedSerialPortRow < 0 || iSelectedSerialPortRow >= serialPortInfos.Count)
             {
                 return;
@@ -1254,6 +1280,11 @@ namespace Automation
 
         private async void dataGridView2_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
+            if (!AuthorizeCommunication(PlatformPermissionCodes.CommunicationConfigure, "修改串口配置"))
+            {
+                RefleshSerialPortDgv();
+                return;
+            }
             if (e.RowIndex < 0 || e.RowIndex >= serialPortInfos.Count)
             {
                 return;
@@ -1471,6 +1502,16 @@ namespace Automation
         private async void send_Click(object sender, EventArgs e)
         {
             await SendMessageAsync();
+        }
+
+        private bool AuthorizeCommunication(string permission, string action)
+        {
+            if (Workspace.Runtime.Accounts.Authorize(permission, action, out string error))
+            {
+                return true;
+            }
+            MessageBox.Show(error, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
         }
 
         private static void SetRowCellValue(DataGridViewRow row, string columnName, object value)

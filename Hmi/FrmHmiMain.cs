@@ -31,6 +31,7 @@ namespace Automation.Hmi
         private LegacyEquipmentServices equipmentServices;
         private bool closingConfirmed;
         private bool hostEventsDetached;
+        private int displayedAccountIconColor = int.MinValue;
 
         public FrmHmiMain()
         {
@@ -76,6 +77,8 @@ namespace Automation.Hmi
             Shown += FrmHmiMain_Shown;
             FormClosing += FrmHmiMain_FormClosing;
             Disposed += FrmHmiMain_Disposed;
+            UpdateAccountButtonVisual(null);
+            btnAccount.Enabled = false;
             ShowPage(homePage, btnHome);
         }
 
@@ -112,6 +115,10 @@ namespace Automation.Hmi
             : this()
         {
             this.platform = platform ?? throw new ArgumentNullException(nameof(platform));
+#if DEBUG
+            // 仅调试构建使用默认管理员自动登录；发布构建不包含自动登录行为。
+            this.platform.Authentication?.Login("system", "software_123", out _);
+#endif
             this.processMessages = processMessages;
             this.equipmentServices = equipmentServices;
             homePage.AttachPlatform(platform, processMessages);
@@ -125,6 +132,11 @@ namespace Automation.Hmi
             platform.RuntimeStatusChanged += Platform_RuntimeStatusChanged;
             platform.Processes.Changed += Processes_Changed;
             platform.Values.Changed += Values_Changed;
+            if (platform.Authentication != null)
+            {
+                platform.Authentication.Changed += Authentication_Changed;
+            }
+            RefreshAccountButton();
         }
 
         private void FrmHmiMain_Shown(object sender, EventArgs e)
@@ -156,10 +168,18 @@ namespace Automation.Hmi
                 ? deviceName
                 : "JS_ICT_NPI_LAX_XXXX";
             lblVersion.Text = "版本号: V" + (platform.PlatformVersion ?? "3.0.0");
-            lblFooterUser.Text = TryReadValue("登录用户名称", out string userName)
-                && !string.IsNullOrWhiteSpace(userName)
-                ? userName
-                : "User";
+            AccountSessionSnapshot currentUser = platform.Authentication?.CurrentUser;
+            lblFooterUser.Text = currentUser == null
+                ? "未登录"
+                : $"{currentUser.UserName}（{GetAccountLevelText(currentUser.Level)}）";
+            RefreshAccountButton();
+
+            bool canRun = platform.Authentication != null
+                && platform.Authentication.CheckPermission(PlatformPermissionCodes.ProcessRun, out _);
+            btnStart.Enabled = canRun;
+            btnPause.Enabled = canRun;
+            // 停止是安全动作，任何登录状态都必须保持可用。
+            btnStop.Enabled = true;
 
             IReadOnlyList<ProcessSnapshot> processes = platform.Processes.GetAll();
             ProcessSnapshot main = processes.FirstOrDefault(process => process.Index == 0);
@@ -305,6 +325,82 @@ namespace Automation.Hmi
             }
         }
 
+        private void btnAccount_Click(object sender, EventArgs e)
+        {
+            IAuthenticationSession authentication = platform?.Authentication;
+            if (authentication == null)
+            {
+                return;
+            }
+            if (authentication.IsAuthenticated)
+            {
+                if (MessageBox.Show(
+                    this,
+                    "确定退出当前账户吗？",
+                    "退出登录",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    authentication.Logout();
+                }
+                return;
+            }
+            using (var dialog = new Automation.FrmAccountLogin(authentication))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void RefreshAccountButton()
+        {
+            IAuthenticationSession authentication = platform?.Authentication;
+            btnAccount.Enabled = authentication != null;
+            UpdateAccountButtonVisual(authentication?.CurrentUser);
+        }
+
+        private void UpdateAccountButtonVisual(AccountSessionSnapshot current)
+        {
+            Color color;
+            string stateText;
+            if (current == null)
+            {
+                color = UiPalette.TextDisabled;
+                stateText = "未登录";
+            }
+            else
+            {
+                switch (current.Level)
+                {
+                    case AccountLevel.Operator:
+                        color = UiPalette.Success;
+                        stateText = "操作员";
+                        break;
+                    case AccountLevel.Engineer:
+                        color = UiPalette.Brand;
+                        stateText = "工程师";
+                        break;
+                    case AccountLevel.SystemAdministrator:
+                        color = UiPalette.Warning;
+                        stateText = "系统管理员";
+                        break;
+                    default:
+                        color = UiPalette.TextPrimary;
+                        stateText = current.Level.ToString();
+                        break;
+                }
+            }
+
+            if (displayedAccountIconColor != color.ToArgb())
+            {
+                Image previous = btnAccount.Image;
+                btnAccount.Image = UiIconFactory.Create(UiIconKind.Account, color, 36);
+                displayedAccountIconColor = color.ToArgb();
+                previous?.Dispose();
+            }
+            btnAccount.Text = current == null ? "登录" : "退出";
+            btnAccount.AccessibleName = "账户：" + stateText;
+        }
+
         protected override bool ProcessCmdKey(
             ref System.Windows.Forms.Message msg,
             Keys keyData)
@@ -399,6 +495,16 @@ namespace Automation.Hmi
             // 统一由 UI 定时器读取快照，流程线程不直接操作 WinForms 控件。
         }
 
+        private void Authentication_Changed(object sender, AccountSessionChangedEventArgs e)
+        {
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke((Action)RefreshHeader);
+                return;
+            }
+            RefreshHeader();
+        }
+
         private void FrmHmiMain_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (!closingConfirmed && e.CloseReason == CloseReason.UserClosing)
@@ -443,6 +549,8 @@ namespace Automation.Hmi
                 button.Image?.Dispose();
                 button.Image = null;
             }
+            btnAccount.Image?.Dispose();
+            btnAccount.Image = null;
             DetachHostEvents();
         }
 
@@ -456,6 +564,21 @@ namespace Automation.Hmi
             platform.RuntimeStatusChanged -= Platform_RuntimeStatusChanged;
             platform.Processes.Changed -= Processes_Changed;
             platform.Values.Changed -= Values_Changed;
+            if (platform.Authentication != null)
+            {
+                platform.Authentication.Changed -= Authentication_Changed;
+            }
+        }
+
+        private static string GetAccountLevelText(AccountLevel level)
+        {
+            switch (level)
+            {
+                case AccountLevel.Operator: return "操作员";
+                case AccountLevel.Engineer: return "工程师";
+                case AccountLevel.SystemAdministrator: return "系统管理员";
+                default: return level.ToString();
+            }
         }
 
         private bool TryReadValue(string name, out string value)

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Automation.DeviceSdk;
 
 namespace Automation
 {
@@ -29,6 +30,11 @@ namespace Automation
         private bool TryCommit(IODebugMap candidate, out IODebugMap committed, out string error)
         {
             committed = null;
+            if (!runtime.Accounts.AuthorizeApplicationOperation(
+                PlatformPermissionCodes.IoDebug, "保存IO调试配置", out error))
+            {
+                return false;
+            }
             if (!runtime.Stores.IoDebug.TryCommit(runtime.Paths.ConfigPath, candidate, out error))
                 return false;
             committed = runtime.Stores.IoDebug.Current;

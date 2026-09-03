@@ -100,7 +100,8 @@ namespace Automation
                 processEngine,
                 runtime.Stores.Values,
                 () => runtime.Readiness.MotionConfigRestartRequired,
-                runtime.Safety.Lock);
+                runtime.Safety.Lock,
+                runtime.Accounts);
             runtime.Devices = new PlatformDeviceCoordinator(runtime);
 
             return new PlatformRuntimeComposition(processEngine, motion, io);
