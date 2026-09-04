@@ -359,24 +359,7 @@ namespace Automation
         {
             EnsureProcessStarted();
             string sessionWorkingDirectory = ResolveWorkingDirectory();
-            AiModelServiceConfig modelService = GooseConfigStorage.FindModelService(config);
-            string configuredProvider = modelService == null ? config.Provider?.Trim() : "openai";
-            string configuredModel = modelService == null ? config.Model?.Trim() : modelService.Model?.Trim();
-            JObject sessionMeta = new JObject
-            {
-                ["sessionName"] = runtimeSessionName,
-                ["maxTurns"] = config.MaxTurns
-            };
-            if (!string.IsNullOrWhiteSpace(configuredProvider))
-            {
-                sessionMeta["provider"] = string.Equals(configuredProvider, "deepseek", StringComparison.OrdinalIgnoreCase)
-                    ? "custom_deepseek"
-                    : configuredProvider;
-            }
-            if (!string.IsNullOrWhiteSpace(configuredModel))
-            {
-                sessionMeta["model"] = configuredModel;
-            }
+            JObject sessionMeta = BuildSessionMeta(runtimeSessionName, config.MaxTurns);
             JObject result = await SendRequestAsync("session/new", new JObject
             {
                 ["cwd"] = sessionWorkingDirectory,
@@ -420,6 +403,18 @@ namespace Automation
                 throw;
             }
             Report("lifecycle", $"EW-AI 会话已创建：{sessionId}", result);
+        }
+
+        internal static JObject BuildSessionMeta(string sessionName, int maxTurns)
+        {
+            // Provider 和 Model 已由当前 Goose 子进程的 GOOSE_PROVIDER/GOOSE_MODEL 注入。
+            // Goose ACP 会把 _meta.provider 解释为切换 Provider，并把模型重置为该
+            // Provider 的默认值（OpenAI 为 gpt-4o）；这里不能把观测信息重复当控制字段发送。
+            return new JObject
+            {
+                ["sessionName"] = sessionName ?? string.Empty,
+                ["maxTurns"] = maxTurns
+            };
         }
 
         public async Task EnsureSessionAsync(CancellationToken cancellationToken)
