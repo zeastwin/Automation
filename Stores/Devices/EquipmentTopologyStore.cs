@@ -18,6 +18,7 @@ namespace Automation
         private const int MaxNodeCount = 2000;
         private const int MaxRelationCount = 5000;
         private const int MaxBindingsPerNode = 100;
+        private const int MaxSkillsPerNode = 100;
         private const int MaxEvidencePerRelation = 50;
 
         private static readonly HashSet<string> NodeKinds = NewSet(
@@ -30,9 +31,11 @@ namespace Automation
         private static readonly HashSet<string> ReviewStates = NewSet(
             "confirmed", "candidate", "conflict");
         private static readonly HashSet<string> BindingSourceKinds = NewSet(
-            "io", "variable", "axis", "vision", "runtime");
+            "io", "variable", "axis", "runtime");
         private static readonly HashSet<string> BindingOperators = NewSet(
             "equals", "not_equals", "greater_than", "less_than", "active", "inactive");
+        private static readonly HashSet<string> IoBindingOperators = NewSet(
+            "equals", "not_equals", "active", "inactive");
 
         private readonly object syncRoot = new object();
         private EquipmentTopologyDefinition current = CreateEmpty();
@@ -164,6 +167,11 @@ namespace Automation
                     error = $"节点“{node.Label}”类型无效：{node.Kind}";
                     return false;
                 }
+                if (string.Equals(node.ResourceKind, "vision", StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"节点“{node.Label}”当前版本不支持视觉资源。";
+                    return false;
+                }
                 if (!IsFinite(node.X) || !IsFinite(node.Y)
                     || Math.Abs(node.X) > 100000 || Math.Abs(node.Y) > 100000)
                 {
@@ -175,6 +183,11 @@ namespace Automation
                     error = $"节点“{node.Label}”状态绑定集合无效或超过 {MaxBindingsPerNode} 条。";
                     return false;
                 }
+                if (node.Skills == null || node.Skills.Count > MaxSkillsPerNode)
+                {
+                    error = $"节点“{node.Label}”技能绑定集合无效或超过 {MaxSkillsPerNode} 条。";
+                    return false;
+                }
                 if (!ReviewStates.Contains(node.ReviewState ?? string.Empty)
                     || !IsFinite(node.Confidence)
                     || node.Confidence < 0 || node.Confidence > 1
@@ -184,6 +197,10 @@ namespace Automation
                     return false;
                 }
                 if (!TryValidateBindings(node, out error))
+                {
+                    return false;
+                }
+                if (!TryValidateSkills(node, out error))
                 {
                     return false;
                 }
@@ -246,6 +263,35 @@ namespace Automation
             return true;
         }
 
+        /// <summary>
+        /// 只有仍处于候选态、且每条证据都带有确定性规则来源的对象，才允许规则重扫接管其生命周期。
+        /// 空证据、混合来源和缺少来源引用都按人工或未知来源保守保留。
+        /// </summary>
+        internal static bool IsRuleManagedCandidate(
+            string reviewState,
+            IEnumerable<EquipmentTopologyEvidence> evidence)
+        {
+            if (!string.Equals(reviewState, "candidate", StringComparison.Ordinal)
+                || evidence == null)
+            {
+                return false;
+            }
+
+            bool found = false;
+            foreach (EquipmentTopologyEvidence item in evidence)
+            {
+                if (item == null
+                    || !string.Equals(item.SourceType, "rule", StringComparison.Ordinal)
+                    || string.IsNullOrWhiteSpace(item.SourceRef)
+                    || !item.SourceRef.StartsWith("fact-", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                found = true;
+            }
+            return found;
+        }
+
         private static bool TryValidateBindings(EquipmentTopologyNode node, out string error)
         {
             error = null;
@@ -270,12 +316,87 @@ namespace Automation
                     error = $"节点“{node.Label}”状态绑定“{binding.Id}”字段不完整或类型无效。";
                     return false;
                 }
+                if (string.Equals(binding.SourceKind, "io", StringComparison.Ordinal)
+                    && (!IoBindingOperators.Contains(binding.Operator ?? string.Empty)
+                        || !TryParseIoBoolean(binding.ExpectedValue, out _)))
+                {
+                    error = $"节点“{node.Label}”状态绑定“{binding.Id}”的 IO 比较方式或布尔期望值无效。"
+                        + "IO 只支持 equals/not_equals/active/inactive，期望值必须是明确的布尔值。";
+                    return false;
+                }
                 if (!ReviewStates.Contains(binding.ReviewState ?? string.Empty)
                     || !IsFinite(binding.Confidence)
                     || binding.Confidence < 0 || binding.Confidence > 1
                     || binding.Evidence == null || binding.Evidence.Count > MaxEvidencePerRelation)
                 {
                     error = $"节点“{node.Label}”状态绑定“{binding.Id}”审核状态、置信度或证据集合无效。";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 解析拓扑 IO 状态绑定允许的显式布尔值。未知文字必须失败，不能静默解释为 false。
+        /// </summary>
+        internal static bool TryParseIoBoolean(string value, out bool result)
+        {
+            string normalized = (value ?? string.Empty).Trim();
+            if (string.Equals(normalized, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "1", StringComparison.Ordinal)
+                || string.Equals(normalized, "on", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "active", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "高", StringComparison.Ordinal)
+                || string.Equals(normalized, "开", StringComparison.Ordinal))
+            {
+                result = true;
+                return true;
+            }
+            if (string.Equals(normalized, "false", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "0", StringComparison.Ordinal)
+                || string.Equals(normalized, "off", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "inactive", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "低", StringComparison.Ordinal)
+                || string.Equals(normalized, "关", StringComparison.Ordinal))
+            {
+                result = false;
+                return true;
+            }
+            result = false;
+            return false;
+        }
+
+        private static bool TryValidateSkills(EquipmentTopologyNode node, out string error)
+        {
+            error = null;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < node.Skills.Count; index++)
+            {
+                EquipmentTopologySkillBinding skill = node.Skills[index];
+                if (skill == null || string.IsNullOrWhiteSpace(skill.Id) || !ids.Add(skill.Id))
+                {
+                    error = $"节点“{node.Label}”第 {index + 1} 条技能为空、无标识或标识重复。";
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(skill.Name)
+                    || !string.Equals(skill.ActionKind, "process_operation", StringComparison.Ordinal)
+                    || !Guid.TryParse(skill.ProcessId, out Guid processId) || processId == Guid.Empty
+                    || !Guid.TryParse(skill.OperationId, out Guid operationId) || operationId == Guid.Empty
+                    || !Automation.Protocol.MachineExecutionModes.IsSupported(skill.ExecutionMode)
+                    || string.IsNullOrWhiteSpace(skill.Objective)
+                    || string.IsNullOrWhiteSpace(skill.ExpectedOutcome)
+                    || skill.Preconditions == null || skill.Preconditions.Count > 30
+                    || skill.Preconditions.Any(string.IsNullOrWhiteSpace))
+                {
+                    error = $"节点“{node.Label}”技能“{skill.Id}”的流程指令绑定、模式或动作语义不完整。";
+                    return false;
+                }
+                if (!ReviewStates.Contains(skill.ReviewState ?? string.Empty)
+                    || !IsFinite(skill.Confidence)
+                    || skill.Confidence < 0 || skill.Confidence > 1
+                    || skill.Evidence == null || skill.Evidence.Count > MaxEvidencePerRelation)
+                {
+                    error = $"节点“{node.Label}”技能“{skill.Id}”审核状态、置信度或证据集合无效。";
                     return false;
                 }
             }

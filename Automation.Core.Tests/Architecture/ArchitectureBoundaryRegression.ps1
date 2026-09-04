@@ -165,7 +165,9 @@ foreach ($retiredRoute in @(
     "/bridge/proc/create",
     "/bridge/proc/delete",
     "/bridge/proc/reorder",
-    "/bridge/proc/copy"))
+    "/bridge/proc/copy",
+    "/bridge/machine/process-entry/execute",
+    "/bridge/machine/process-stop/execute"))
 {
     $bridgeFiles | Select-String -SimpleMatch $retiredRoute | ForEach-Object {
         $violations.Add("Bridge 仍暴露已退役写入路由：$($_.Line.Trim())")

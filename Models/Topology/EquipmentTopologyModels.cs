@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 // 模块：设备拓扑孪生 / 配置模型。
 // 职责范围：描述具体设备对象、状态绑定、关系和证据，不承载设备动作或安全联锁执行。
@@ -37,10 +38,12 @@ namespace Automation
     {
         public EquipmentTopologyNode()
         {
-            ReviewState = "confirmed";
+            // 缺少审核字段时必须保持不可执行，不能把旧文件或不完整输入静默升级为已确认事实。
+            ReviewState = "candidate";
             Confidence = 1d;
             Evidence = new List<EquipmentTopologyEvidence>();
             StateBindings = new List<EquipmentTopologyStateBinding>();
+            Skills = new List<EquipmentTopologySkillBinding>();
         }
 
         public string Id { get; set; }
@@ -53,10 +56,44 @@ namespace Automation
         public double X { get; set; }
         public double Y { get; set; }
         public bool LayoutPinned { get; set; }
+        [JsonProperty(Required = Required.Always)]
         public string ReviewState { get; set; }
         public double Confidence { get; set; }
         public List<EquipmentTopologyEvidence> Evidence { get; set; }
         public List<EquipmentTopologyStateBinding> StateBindings { get; set; }
+        public List<EquipmentTopologySkillBinding> Skills { get; set; }
+    }
+
+    /// <summary>
+    /// 当前具体节点可由 Machine Agent 调用的受控技能入口。
+    /// 首版只绑定工程师已经编写好的流程指令；它不是新流程 DSL，也不直接保存 IO 写入脚本。
+    /// </summary>
+    public sealed class EquipmentTopologySkillBinding
+    {
+        public EquipmentTopologySkillBinding()
+        {
+            ActionKind = "process_operation";
+            ExecutionMode = Automation.Protocol.MachineExecutionModes.SingleOperation;
+            Preconditions = new List<string>();
+            ReviewState = "candidate";
+            Confidence = 1d;
+            Evidence = new List<EquipmentTopologyEvidence>();
+        }
+
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string ActionKind { get; set; }
+        public string ProcessId { get; set; }
+        public string OperationId { get; set; }
+        public string ExecutionMode { get; set; }
+        public string Objective { get; set; }
+        public string ExpectedOutcome { get; set; }
+        public List<string> Preconditions { get; set; }
+        [JsonProperty(Required = Required.Always)]
+        public string ReviewState { get; set; }
+        public double Confidence { get; set; }
+        public List<EquipmentTopologyEvidence> Evidence { get; set; }
     }
 
     /// <summary>
@@ -67,7 +104,7 @@ namespace Automation
     {
         public EquipmentTopologyStateBinding()
         {
-            ReviewState = "confirmed";
+            ReviewState = "candidate";
             Confidence = 1d;
             Evidence = new List<EquipmentTopologyEvidence>();
         }
@@ -80,6 +117,7 @@ namespace Automation
         public string ExpectedValue { get; set; }
         public string Meaning { get; set; }
         public int Priority { get; set; }
+        [JsonProperty(Required = Required.Always)]
         public string ReviewState { get; set; }
         public double Confidence { get; set; }
         public List<EquipmentTopologyEvidence> Evidence { get; set; }
@@ -92,6 +130,7 @@ namespace Automation
     {
         public EquipmentTopologyRelation()
         {
+            ReviewState = "candidate";
             Evidence = new List<EquipmentTopologyEvidence>();
         }
 
@@ -103,6 +142,7 @@ namespace Automation
         public string Label { get; set; }
         public string Condition { get; set; }
         public string Description { get; set; }
+        [JsonProperty(Required = Required.Always)]
         public string ReviewState { get; set; }
         public double Confidence { get; set; }
         public string ConflictsWithId { get; set; }

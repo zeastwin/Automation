@@ -29,6 +29,7 @@ namespace Automation
         private int gotoFlag;
         private int pauseBySignalFlag;
         private int completionRequestedFlag;
+        private int singleOperationTargetCompletedFlag;
         private string alarmMessage;
         private long appliedRevision;
         private int cooperativeOperationCount;
@@ -89,12 +90,20 @@ namespace Automation
             internal set => Volatile.Write(ref alarmMessage, value);
         }
         public bool IsSingleOperation { get; internal set; }
+        /// <summary>仅当目标指令正常返回且由工作线程成功认领自停原因时为真。</summary>
+        internal bool SingleOperationTargetCompleted
+        {
+            get => Volatile.Read(ref singleOperationTargetCompletedFlag) == 1;
+            set => Volatile.Write(ref singleOperationTargetCompletedFlag, value ? 1 : 0);
+        }
         // 取消状态直接来自 ProcessControl，不在句柄中重复保存令牌。
         public CancellationToken CancellationToken => Control?.CancellationToken ?? System.Threading.CancellationToken.None;
         internal ProcessControl Control { get; set; }
         public ConcurrentBag<Task> RunningTasks { get; } = new ConcurrentBag<Task>();
         internal ConcurrentDictionary<long, byte> OwnedAxes { get; } = new ConcurrentDictionary<long, byte>();
         internal ConcurrentDictionary<long, byte> OwnedCoordinateSystems { get; } = new ConcurrentDictionary<long, byte>();
+        // 同一运行句柄可能同时收到人工停止和工作线程收尾；驱动停止调用必须串行。
+        internal object MotionStopSync { get; } = new object();
         public bool PauseBySignal
         {
             get => Volatile.Read(ref pauseBySignalFlag) == 1;
@@ -253,7 +262,9 @@ namespace Automation
                 maxSampledOperationTicks,
                 DurationSamplingInterval,
                 handle?.TerminationReason ?? ProcTerminationReason.None,
-                handle?.alarmMsg);
+                handle?.alarmMsg,
+                handle?.IsSingleOperation == true,
+                handle?.SingleOperationTargetCompleted == true);
         }
     }
 
@@ -262,7 +273,8 @@ namespace Automation
         public ProcessRunAuditSnapshot(int procIndex, Guid procId, Guid runId,
             long operationCount, long failedCount, long retryCount,
             long durationSampleCount, long totalSampledOperationTicks, long maxSampledOperationTicks,
-            int durationSamplingInterval, ProcTerminationReason terminationReason, string alarmMessage)
+            int durationSamplingInterval, ProcTerminationReason terminationReason, string alarmMessage,
+            bool isSingleOperation, bool singleOperationTargetCompleted)
         {
             ProcIndex = procIndex;
             ProcId = procId;
@@ -276,6 +288,8 @@ namespace Automation
             DurationSamplingInterval = durationSamplingInterval;
             TerminationReason = terminationReason;
             AlarmMessage = alarmMessage;
+            IsSingleOperation = isSingleOperation;
+            SingleOperationTargetCompleted = singleOperationTargetCompleted;
         }
 
         public int ProcIndex { get; }
@@ -290,20 +304,94 @@ namespace Automation
         public int DurationSamplingInterval { get; }
         public ProcTerminationReason TerminationReason { get; }
         public string AlarmMessage { get; }
+        public bool IsSingleOperation { get; }
+        public bool SingleOperationTargetCompleted { get; }
     }
 
     internal readonly struct ProcessRunStartedSnapshot
     {
-        public ProcessRunStartedSnapshot(int procIndex, Guid procId, Guid runId)
+        public ProcessRunStartedSnapshot(
+            int procIndex,
+            Guid procId,
+            Guid runId,
+            int stepIndex,
+            int operationIndex,
+            Guid operationId,
+            bool isSingleOperation)
         {
             ProcIndex = procIndex;
             ProcId = procId;
             RunId = runId;
+            StepIndex = stepIndex;
+            OperationIndex = operationIndex;
+            OperationId = operationId;
+            IsSingleOperation = isSingleOperation;
         }
 
         public int ProcIndex { get; }
         public Guid ProcId { get; }
         public Guid RunId { get; }
+        public int StepIndex { get; }
+        public int OperationIndex { get; }
+        public Guid OperationId { get; }
+        public bool IsSingleOperation { get; }
+    }
+
+    internal readonly struct ProcessRunStopRequestedSnapshot
+    {
+        public ProcessRunStopRequestedSnapshot(
+            int procIndex,
+            Guid procId,
+            Guid runId,
+            Guid attemptId,
+            bool isReassertion)
+        {
+            ProcIndex = procIndex;
+            ProcId = procId;
+            RunId = runId;
+            AttemptId = attemptId;
+            IsReassertion = isReassertion;
+        }
+
+        public int ProcIndex { get; }
+        public Guid ProcId { get; }
+        public Guid RunId { get; }
+        /// <summary>停止发起方提供的本次尝试标识；空值表示未请求外部归因。</summary>
+        public Guid AttemptId { get; }
+        public bool IsReassertion { get; }
+    }
+
+    public enum ProcessStopRequestStatus
+    {
+        Rejected = 0,
+        Accepted = 1,
+        Reasserted = 2
+    }
+
+    /// <summary>按 runId 精确停止的原子接受结果。</summary>
+    public readonly struct ProcessStopRequestResult
+    {
+        public ProcessStopRequestResult(
+            ProcessStopRequestStatus status,
+            Guid runId,
+            Guid attemptId)
+        {
+            Status = status;
+            RunId = runId;
+            AttemptId = attemptId;
+        }
+
+        public ProcessStopRequestStatus Status { get; }
+        public Guid RunId { get; }
+        public Guid AttemptId { get; }
+        public bool Accepted => Status != ProcessStopRequestStatus.Rejected;
+        public bool IsReassertion => Status == ProcessStopRequestStatus.Reasserted;
+
+        internal static ProcessStopRequestResult Reject(Guid runId, Guid attemptId)
+        {
+            return new ProcessStopRequestResult(
+                ProcessStopRequestStatus.Rejected, runId, attemptId);
+        }
     }
 
     internal sealed class CycleTimeProbeState

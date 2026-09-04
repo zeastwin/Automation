@@ -90,6 +90,20 @@ namespace Automation.Bridge
                         return WrapResponse("diagnostics.audit", ExecuteOnUiThread(() => HandleAuditProcBatch(request)));
                     case "/bridge/diagnostics/issue":
                         return WrapResponse("diagnostics.issue", ExecuteOnUiThread(() => HandleDiagnoseIssue(request)));
+                    // ---------- 独立 Machine Agent 能力面 ----------
+                    case "/bridge/machine/context":
+                        return WrapResponse("machine.context", ExecuteOnUiThread(() => HandleGetMachineContext(request)));
+                    case "/bridge/machine/state-history":
+                        return WrapResponse("machine.state_history", ExecuteOnUiThread(() => HandleGetMachineStateHistory(request)));
+                    case "/bridge/machine/process-entry/preview":
+                        return WrapResponse("machine.process_entry.preview",
+                            ExecuteOnUiThread(() => HandlePreviewMachineProcessEntry(request)));
+                    case "/bridge/machine/process-entry/discard":
+                        return WrapResponse("machine.process_entry.discard",
+                            ExecuteOnUiThread(() => HandleDiscardMachineProcessEntry(request)));
+                    case "/bridge/machine/process-stop/preview":
+                        return WrapResponse("machine.process_stop.preview",
+                            ExecuteOnUiThread(() => HandlePreviewMachineProcessStop(request)));
                     // ---------- AI 语义变更集 V2 ----------
                     case "/bridge/change-set/preview":
                     AiChangeSet changeSet = ParseChangeSet(request);

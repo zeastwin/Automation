@@ -76,6 +76,7 @@ namespace Automation
         private bool editorCachePrewarmStarted;
         private bool allowFinalClose;
         private int aiInfrastructureStartState;
+        private int machineAgentInfrastructureStartState;
         private int shutdownStarted;
         private const int MinimumWorkspaceWidthWithAi = 1000;
         private const int MinimumAiPanelWidth = 320;

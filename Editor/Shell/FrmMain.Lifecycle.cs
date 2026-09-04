@@ -107,6 +107,63 @@ namespace Automation
             }
         }
 
+        internal bool TryEnsureMachineAgentInfrastructureStarted(out string error)
+        {
+            error = null;
+            if (!Runtime.Accounts.CheckPermission(PlatformPermissionCodes.PlatformAiUse, out error))
+            {
+                return false;
+            }
+            int currentState = Interlocked.CompareExchange(
+                ref machineAgentInfrastructureStartState, 1, 0);
+            if (currentState == 2) return true;
+            if (currentState == 1)
+            {
+                error = "Machine Agent 基础设施正在启动，请稍后重试。";
+                return false;
+            }
+
+            try
+            {
+                if (!GooseConfigStorage.TryGetCached(out GooseConfig config, out string configError))
+                {
+                    error = "Machine Agent 模型配置不可用：" + configError;
+                    return false;
+                }
+                if (!GooseRuntimeEnvironment.TryValidate(config.GooseExecutablePath, out string runtimeError))
+                {
+                    error = runtimeError;
+                    return false;
+                }
+                if (!MachineAgentPromptProvisioner.TryEnsure(out string promptMessage))
+                {
+                    error = promptMessage;
+                    return false;
+                }
+                if (!string.IsNullOrWhiteSpace(promptMessage))
+                {
+                    dataRun?.Logger?.Log(promptMessage, LogLevel.Normal);
+                    frmInfo?.PrintInfo(promptMessage, FrmInfo.Level.Normal);
+                }
+
+                automationBridgeHost.Start();
+                Interlocked.Exchange(ref machineAgentInfrastructureStartState, 2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "Machine Agent 基础设施启动失败：" + ex.Message;
+                return false;
+            }
+            finally
+            {
+                if (Volatile.Read(ref machineAgentInfrastructureStartState) != 2)
+                {
+                    Interlocked.Exchange(ref machineAgentInfrastructureStartState, 0);
+                }
+            }
+        }
+
         private void ReportAiInfrastructureUnavailable(string message)
         {
             string scopedMessage = "AI 基础设施未启动：" + message;
@@ -228,7 +285,11 @@ namespace Automation
             });
 
             // Goose 必须先于 UI 线程和 Bridge 释放，避免后台权限请求同步回调已关闭的窗体。
-            RunEditorShutdownStage("关闭Goose客户端", () => frmAiAssistant?.DisposeGooseClient());
+            RunEditorShutdownStage("关闭Goose客户端", () =>
+            {
+                frmAiAssistant?.DisposeGooseClient();
+                editorWorkspace?.MachineAgent?.DisposeGooseClient();
+            });
             RunEditorShutdownStage("关闭MCP Server", () => automationMcpServerManager?.Dispose());
             RunEditorShutdownStage("关闭Bridge Host", () => automationBridgeHost?.Stop());
             RunEditorShutdownStage("释放编辑器诊断资源", () =>

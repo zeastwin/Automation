@@ -22,7 +22,9 @@ namespace Automation
         private readonly IIoRuntime ioRuntime;
         private readonly EquipmentStateHistoryService history;
         private readonly TimeSpan pollInterval;
+        private readonly Func<DateTime> utcNow;
         private readonly object configurationSync = new object();
+        private readonly object stateSync = new object();
         private readonly Dictionary<string, SignalObservation> lastSignals =
             new Dictionary<string, SignalObservation>(StringComparer.Ordinal);
         private readonly Dictionary<string, EvaluatedNodeState> lastNodeStates =
@@ -32,6 +34,7 @@ namespace Automation
         private long compiledTopologyStoreVersion = -1;
         private long compiledIoStoreVersion = -1;
         private long topologyRevision;
+        private string lastObservationError;
         private int polling;
         private int disposed;
 
@@ -40,13 +43,15 @@ namespace Automation
             IoConfigurationStore ioStore,
             IIoRuntime ioRuntime,
             EquipmentStateHistoryService history,
-            TimeSpan? pollInterval = null)
+            TimeSpan? pollInterval = null,
+            Func<DateTime> utcNow = null)
         {
             this.topologyStore = topologyStore ?? throw new ArgumentNullException(nameof(topologyStore));
             this.ioStore = ioStore ?? throw new ArgumentNullException(nameof(ioStore));
             this.ioRuntime = ioRuntime ?? throw new ArgumentNullException(nameof(ioRuntime));
             this.history = history ?? throw new ArgumentNullException(nameof(history));
             this.pollInterval = pollInterval ?? DefaultPollInterval;
+            this.utcNow = utcNow ?? (() => DateTime.UtcNow);
             if (this.pollInterval < TimeSpan.FromMilliseconds(20))
             {
                 throw new ArgumentOutOfRangeException(nameof(pollInterval));
@@ -54,7 +59,30 @@ namespace Automation
         }
 
         public bool IsRunning => timer != null && Volatile.Read(ref disposed) == 0;
-        public string LastObservationError { get; private set; }
+        public string LastObservationError => Volatile.Read(ref lastObservationError);
+
+        /// <summary>
+        /// 返回感知器当前运行态。最近成功观测时间会在每次现场读取成功时刷新，
+        /// 即使语义状态没有变化也不会写入新的历史事件。
+        /// </summary>
+        public EquipmentPerceptionSnapshot GetCurrentSnapshot()
+        {
+            lock (stateSync)
+            {
+                return new EquipmentPerceptionSnapshot
+                {
+                    CapturedAtUtc = utcNow(),
+                    TopologyRevision = Interlocked.Read(ref topologyRevision),
+                    IsRunning = IsRunning,
+                    LastObservationError = LastObservationError ?? string.Empty,
+                    NodeStates = lastNodeStates
+                        .OrderBy(pair => pair.Value.NodeLabel, StringComparer.Ordinal)
+                        .ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                        .Select(pair => ToPerceptionState(pair.Key, pair.Value))
+                        .ToList()
+                };
+            }
+        }
 
         public void Start()
         {
@@ -85,11 +113,11 @@ namespace Automation
                 lock (configurationSync) nodes = compiledNodes.ToList();
                 if (nodes.Count == 0)
                 {
-                    LastObservationError = null;
+                    Volatile.Write(ref lastObservationError, null);
                     return;
                 }
 
-                DateTime observedAtUtc = DateTime.UtcNow;
+                DateTime observedAtUtc = utcNow();
                 Dictionary<string, CompiledBinding> uniqueBindings = nodes
                     .SelectMany(item => item.Bindings)
                     .GroupBy(item => item.ResourceRef, StringComparer.Ordinal)
@@ -109,7 +137,7 @@ namespace Automation
                     catch (Exception ex)
                     {
                         succeeded = false;
-                        LastObservationError = ex.Message;
+                        Volatile.Write(ref lastObservationError, ex.Message);
                     }
                     var observation = new SignalObservation
                     {
@@ -137,13 +165,13 @@ namespace Automation
                 }
                 if (observations.Values.Any(item => item.HasValue))
                 {
-                    LastObservationError = null;
+                    Volatile.Write(ref lastObservationError, null);
                 }
             }
             catch (Exception ex)
             {
                 // 感知旁路异常只降低历史质量，不改变设备和流程运行状态。
-                LastObservationError = ex.Message;
+                Volatile.Write(ref lastObservationError, ex.Message);
             }
             finally
             {
@@ -177,12 +205,24 @@ namespace Automation
 
             HashSet<string> activeNodeIds = new HashSet<string>(
                 next.Select(item => item.Id), StringComparer.Ordinal);
-            foreach (KeyValuePair<string, EvaluatedNodeState> previous in lastNodeStates.ToList())
+            List<KeyValuePair<string, EvaluatedNodeState>> retiredStates;
+            lock (stateSync)
             {
-                if (activeNodeIds.Contains(previous.Key)) continue;
+                retiredStates = lastNodeStates
+                    .Where(pair => !activeNodeIds.Contains(pair.Key))
+                    .Select(pair => new KeyValuePair<string, EvaluatedNodeState>(
+                        pair.Key, CloneNodeState(pair.Value)))
+                    .ToList();
+                foreach (KeyValuePair<string, EvaluatedNodeState> retired in retiredStates)
+                {
+                    lastNodeStates.Remove(retired.Key);
+                }
+            }
+            foreach (KeyValuePair<string, EvaluatedNodeState> previous in retiredStates)
+            {
                 history.Append(new EquipmentStateHistoryEvent
                 {
-                    ObservedAtUtc = DateTime.UtcNow,
+                    ObservedAtUtc = utcNow(),
                     TopologyRevision = topology.Revision,
                     EventType = EquipmentStateEventTypes.NodeStateChanged,
                     NodeId = previous.Key,
@@ -195,19 +235,18 @@ namespace Automation
                     Confidence = 1,
                     SourceKind = "topology"
                 });
-                lastNodeStates.Remove(previous.Key);
             }
 
             lock (configurationSync)
             {
                 compiledNodes = next;
-                topologyRevision = topology.Revision;
+                Interlocked.Exchange(ref topologyRevision, topology.Revision);
                 compiledTopologyStoreVersion = topologyStoreVersion;
                 compiledIoStoreVersion = ioStoreVersion;
             }
             history.Append(new EquipmentStateHistoryEvent
             {
-                ObservedAtUtc = DateTime.UtcNow,
+                ObservedAtUtc = utcNow(),
                 TopologyRevision = topology.Revision,
                 EventType = EquipmentStateEventTypes.TopologyChanged,
                 Aspect = EquipmentStateAspects.Topology,
@@ -273,7 +312,7 @@ namespace Automation
             EquipmentStateHistoryEvent appended = history.Append(new EquipmentStateHistoryEvent
             {
                 ObservedAtUtc = next.ObservedAtUtc,
-                TopologyRevision = topologyRevision,
+                TopologyRevision = Interlocked.Read(ref topologyRevision),
                 EventType = valueChanged
                     ? EquipmentStateEventTypes.SignalChanged
                     : EquipmentStateEventTypes.SignalQualityChanged,
@@ -365,18 +404,36 @@ namespace Automation
             EvaluatedNodeState next,
             DateTime observedAtUtc)
         {
-            lastNodeStates.TryGetValue(node.Id, out EvaluatedNodeState previous);
-            if (previous != null
-                && string.Equals(previous.StateName, next.StateName, StringComparison.Ordinal)
-                && string.Equals(previous.Quality, next.Quality, StringComparison.Ordinal)
-                && string.Equals(previous.BindingId, next.BindingId, StringComparison.Ordinal))
+            EvaluatedNodeState previous;
+            lock (stateSync)
             {
+                lastNodeStates.TryGetValue(node.Id, out previous);
+                previous = CloneNodeState(previous);
+            }
+            bool stateChanged = previous == null
+                || !string.Equals(previous.StateName, next.StateName, StringComparison.Ordinal)
+                || !string.Equals(previous.Quality, next.Quality, StringComparison.Ordinal)
+                || !string.Equals(previous.BindingId, next.BindingId, StringComparison.Ordinal);
+            next.LastSuccessfulObservationAtUtc = string.Equals(
+                    next.Quality, EquipmentStateQualities.Good, StringComparison.Ordinal)
+                ? observedAtUtc
+                : previous?.LastSuccessfulObservationAtUtc ?? default(DateTime);
+            next.StateChangedAtUtc = stateChanged
+                ? observedAtUtc
+                : previous.StateChangedAtUtc;
+            next.Sequence = previous?.Sequence ?? 0;
+            if (!stateChanged)
+            {
+                lock (stateSync)
+                {
+                    lastNodeStates[node.Id] = CloneNodeState(next);
+                }
                 return;
             }
-            history.Append(new EquipmentStateHistoryEvent
+            EquipmentStateHistoryEvent appended = history.Append(new EquipmentStateHistoryEvent
             {
                 ObservedAtUtc = observedAtUtc,
-                TopologyRevision = topologyRevision,
+                TopologyRevision = Interlocked.Read(ref topologyRevision),
                 EventType = EquipmentStateEventTypes.NodeStateChanged,
                 NodeId = node.Id,
                 NodeLabel = node.Label,
@@ -393,12 +450,19 @@ namespace Automation
                     ? (long?)next.CausedBySequence
                     : null
             });
-            lastNodeStates[node.Id] = next;
+            next.Sequence = appended?.Sequence ?? next.Sequence;
+            lock (stateSync)
+            {
+                lastNodeStates[node.Id] = CloneNodeState(next);
+            }
         }
 
         private static bool Matches(CompiledBinding binding, bool actual)
         {
-            bool expected = ParseBoolean(binding.ExpectedValue);
+            if (!EquipmentTopologyStore.TryParseIoBoolean(binding.ExpectedValue, out bool expected))
+            {
+                return false;
+            }
             switch (binding.Operator)
             {
                 case "not_equals": return actual != expected;
@@ -409,14 +473,46 @@ namespace Automation
             }
         }
 
-        private static bool ParseBoolean(string value)
+        private static EvaluatedNodeState CloneNodeState(EvaluatedNodeState source)
         {
-            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "1", StringComparison.Ordinal)
-                || string.Equals(value, "on", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "active", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "高", StringComparison.Ordinal)
-                || string.Equals(value, "开", StringComparison.Ordinal);
+            if (source == null) return null;
+            return new EvaluatedNodeState
+            {
+                NodeLabel = source.NodeLabel,
+                StateName = source.StateName,
+                Meaning = source.Meaning,
+                Quality = source.Quality,
+                Confidence = source.Confidence,
+                SourceKind = source.SourceKind,
+                ResourceRef = source.ResourceRef,
+                BindingId = source.BindingId,
+                CausedBySequence = source.CausedBySequence,
+                StateChangedAtUtc = source.StateChangedAtUtc,
+                LastSuccessfulObservationAtUtc = source.LastSuccessfulObservationAtUtc,
+                Sequence = source.Sequence
+            };
+        }
+
+        private EquipmentNodePerceptionState ToPerceptionState(
+            string nodeId,
+            EvaluatedNodeState source)
+        {
+            return new EquipmentNodePerceptionState
+            {
+                NodeId = nodeId,
+                NodeLabel = source.NodeLabel,
+                StateName = source.StateName,
+                Meaning = source.Meaning,
+                Quality = source.Quality,
+                Confidence = source.Confidence,
+                StateChangedAtUtc = source.StateChangedAtUtc,
+                LastSuccessfulObservationAtUtc = source.LastSuccessfulObservationAtUtc,
+                Sequence = source.Sequence,
+                TopologyRevision = Interlocked.Read(ref topologyRevision),
+                SourceKind = source.SourceKind,
+                ResourceRef = source.ResourceRef,
+                BindingId = source.BindingId
+            };
         }
 
         public void Dispose()
@@ -474,6 +570,9 @@ namespace Automation
             public string ResourceRef { get; set; }
             public string BindingId { get; set; }
             public long CausedBySequence { get; set; }
+            public DateTime StateChangedAtUtc { get; set; }
+            public DateTime LastSuccessfulObservationAtUtc { get; set; }
+            public long Sequence { get; set; }
         }
     }
 }

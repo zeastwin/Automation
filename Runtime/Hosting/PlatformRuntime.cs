@@ -84,6 +84,7 @@ namespace Automation
             Communication = new CommunicationHub();
             PlcRuntime = new PlcRuntimeService(Stores.Plc, Stores.Values);
             VersionService = new ConfigurationVersionService(Paths.ConfigPath, this);
+            MachineAgent = new MachineAgentRuntimeService(this);
         }
 
         public PlatformPaths Paths { get; }
@@ -112,9 +113,11 @@ namespace Automation
         public CommunicationHub Communication { get; }
         public PlcRuntimeService PlcRuntime { get; }
         public ConfigurationVersionService VersionService { get; }
+        internal MachineAgentRuntimeService MachineAgent { get; }
         public IPlatformEditorUiAdapter EditorUi { get; internal set; }
         internal EquipmentStateHistoryService StateHistory { get; set; }
         internal EquipmentStatePerceptionService StatePerception { get; set; }
+        internal EquipmentProcessTimelineService ProcessTimeline { get; set; }
         internal RuntimeBlackBoxRecorder RuntimeBlackBoxRecorder { get; set; }
 
         public ProcessDefinitionValidationContext CreateProcessValidationContext()

@@ -100,20 +100,36 @@ namespace Automation
             {
                 runtime.StateHistory = new EquipmentStateHistoryService(
                     Path.Combine(@"D:\AutomationLogs", "StateHistory"));
-                runtime.StatePerception = new EquipmentStatePerceptionService(
+                runtime.ProcessTimeline = new EquipmentProcessTimelineService(
+                    runtime.ProcessEngine,
                     runtime.Stores.Topology,
-                    runtime.Stores.IoConfiguration,
-                    runtime.Io,
                     runtime.StateHistory);
-                runtime.StatePerception.Start();
             }
             catch (Exception ex)
             {
-                runtime.StatePerception?.Dispose();
-                runtime.StatePerception = null;
+                runtime.ProcessTimeline?.Dispose();
+                runtime.ProcessTimeline = null;
                 runtime.StateHistory?.Dispose();
                 runtime.StateHistory = null;
-                Log(runtime, "设备状态感知初始化失败：" + ex.Message, LogLevel.Error);
+                Log(runtime, "设备状态时间线初始化失败：" + ex.Message, LogLevel.Error);
+            }
+            if (runtime.StateHistory != null)
+            {
+                try
+                {
+                    runtime.StatePerception = new EquipmentStatePerceptionService(
+                        runtime.Stores.Topology,
+                        runtime.Stores.IoConfiguration,
+                        runtime.Io,
+                        runtime.StateHistory);
+                    runtime.StatePerception.Start();
+                }
+                catch (Exception ex)
+                {
+                    runtime.StatePerception?.Dispose();
+                    runtime.StatePerception = null;
+                    Log(runtime, "设备状态感知初始化失败：" + ex.Message, LogLevel.Error);
+                }
             }
             runtime.SystemStatus = new PlatformSystemStatusService(runtime);
             runtime.SystemStatus.Start();

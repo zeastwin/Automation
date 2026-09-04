@@ -195,6 +195,7 @@
     <Compile Include="Bridge\Service\AutomationBridgeService.HardwareResources.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.IoResources.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.Migration.cs" />
+    <Compile Include="Bridge\Service\AutomationBridgeService.MachineAgent.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.OperationProjection.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.PreviewState.cs" />
     <Compile Include="Bridge\Service\AutomationBridgeService.ProcessCommands.cs" />
@@ -323,6 +324,12 @@
     </Compile>
     <Compile Include="Editor\Io\IoDebugConfigurationEditorService.cs" />
     <Compile Include="Editor\Io\IoDebugMonitorService.cs" />
+    <Compile Include="Editor\MachineAgent\FrmMachineAgent.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Editor\MachineAgent\FrmMachineAgent.Agent.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Editor\Motion\FrmCard.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -664,6 +671,9 @@
     <Compile Include="Runtime\Lifecycle\PlatformLifecycleServices.cs" />
     <Compile Include="Runtime\Lifecycle\PlatformShutdownCoordinator.cs" />
     <Compile Include="Runtime\Lifecycle\PlatformSystemStatusService.cs" />
+    <Compile Include="Runtime\MachineAgent\MachineAgentRuntimeService.cs" />
+    <Compile Include="Runtime\MachineAgent\MachineAgentConversationStorage.cs" />
+    <Compile Include="Runtime\MachineAgent\MachineAgentPromptProvisioner.cs" />
     <Compile Include="Runtime\Motion\ManualMotionService.cs" />
     <Compile Include="Runtime\Process\PlatformProcessStoreFacade.cs" />
     <Compile Include="Runtime\Process\PlatformValueStoreFacade.cs" />
@@ -674,6 +684,7 @@
     <Compile Include="Runtime\Security\AccountSecurityStore.cs" />
     <Compile Include="Runtime\Topology\EquipmentStateHistoryService.cs" />
     <Compile Include="Runtime\Topology\EquipmentStatePerceptionService.cs" />
+    <Compile Include="Runtime\Topology\EquipmentProcessTimelineService.cs" />
     <Compile Include="Stores\Data\AlarmInfoStore.cs" />
     <Compile Include="Stores\Data\DataStructModels.cs" />
     <Compile Include="Stores\Data\DataStructStore.cs" />
@@ -705,6 +716,9 @@
     <EmbeddedResource Include="Assets\Goose\automation.md">
       <LogicalName>Automation.Assets.Goose.automation.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Assets\Goose\machine-agent-system.md">
+      <LogicalName>Automation.Assets.Goose.machine-agent-system.md</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">
       <LogicalName>Automation.Assets.Goose.Skills.automation-process-authoring.skill-version</LogicalName>
     </EmbeddedResource>
@@ -728,6 +742,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\EquipmentTopology\index.html">
       <LogicalName>Automation.Assets.EquipmentTopology.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\MachineAgent\index.html">
+      <LogicalName>Automation.Assets.MachineAgent.index.html</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Assets\RuntimeDiagnostics\index.html">
       <LogicalName>Automation.Assets.RuntimeDiagnostics.index.html</LogicalName>
@@ -811,6 +828,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\Goose\automation.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Goose\machine-agent-system.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Goose\Skills\automation-process-authoring\.automation-skill-version">

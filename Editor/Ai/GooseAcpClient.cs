@@ -884,14 +884,16 @@ namespace Automation
             bool tomEnabled = !string.Equals(
                     normalized, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal)
                 && !string.Equals(
-                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal)
+                && !string.Equals(
+                    normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
             bool skillsEnabled = string.Equals(normalized, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessEdit, StringComparison.Ordinal);
-            // Goose 原生 developer 工具全量常驻所有能力面：不设置 available_tools 白名单，
-            // 原生工具（read_file/tree 等）任何阶段都可直接使用；文件修改与 Shell 执行
-            // 仍由前台权限闸门（Editor 权限外壳 + SourceDevelopment 能力）拦截。
-            bool developerEnabled = true;
+            // 原 AI 助手的 developer 工具继续全量常驻；Machine Agent 进程完全移除
+            // developer 扩展，避免它看到与设备理解和冻结预演无关的源码/终端能力。
+            bool developerEnabled = !string.Equals(
+                normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
             var desiredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (skillsEnabled) desiredNames.Add("skills");
             if (tomEnabled) desiredNames.Add("tom");
@@ -899,6 +901,19 @@ namespace Automation
 
             Dictionary<string, JObject> active = await GetSessionExtensionsAsync(cancellationToken)
                 .ConfigureAwait(false);
+            if (string.Equals(normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
+            {
+                // Machine Agent 使用封闭的单扩展工具面。除 session/new 注入的 automation MCP 外，
+                // 无论扩展来自 Goose 默认配置还是本机用户配置，都必须从当前会话移除。
+                foreach (string extensionName in active.Keys
+                    .Where(name => !string.Equals(name, "automation", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+                {
+                    await RemoveSessionExtensionAsync(extensionName, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                return;
+            }
             foreach (string managedName in capabilityBuiltinExtensionNames)
             {
                 bool desired = desiredNames.Contains(managedName);
@@ -1007,10 +1022,17 @@ namespace Automation
             if (!extensions.ContainsKey("automation"))
                 throw new InvalidOperationException("Goose 能力切换后未发现 Automation MCP 扩展。");
 
+            if (string.Equals(normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
+            {
+                ValidateMachineAgentExtensionNames(extensions.Keys);
+            }
+
             bool expectsTom = !string.Equals(
                     normalized, AutomationToolProfiles.TaskCoordinator, StringComparison.Ordinal)
                 && !string.Equals(
-                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+                    normalized, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal)
+                && !string.Equals(
+                    normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
             bool expectsSkills = string.Equals(normalized, AutomationToolProfiles.ProcessReview, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessCreate, StringComparison.Ordinal)
                 || string.Equals(normalized, AutomationToolProfiles.ProcessEdit, StringComparison.Ordinal);
@@ -1020,9 +1042,14 @@ namespace Automation
                 throw new InvalidOperationException("Goose 指导扩展与当前能力包不一致。");
             }
 
-            // developer 扩展全量常驻：任何能力面都必须存在，工具面不做过滤。
-            if (!extensions.ContainsKey("developer"))
-                throw new InvalidOperationException("Goose Developer 常驻扩展缺失。");
+            bool expectsDeveloper = !string.Equals(
+                normalized, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
+            if (extensions.ContainsKey("developer") != expectsDeveloper)
+            {
+                throw new InvalidOperationException(expectsDeveloper
+                    ? "Goose Developer 常驻扩展缺失。"
+                    : "Machine Agent 会话意外加载 Developer 扩展。");
+            }
 
             JArray automationToolCatalog = await GetExtensionToolsAsync(
                 "automation", cancellationToken).ConfigureAwait(false);
@@ -1043,22 +1070,30 @@ namespace Automation
                     + $"原始目录（含前缀）={rawCatalog}。"
                     + "若原始目录与缺少项仅前缀格式不同，说明 Goose 更改了 MCP 工具命名格式。");
             }
-            JObject controlSurface = ValidateCapabilityControlToolCatalog(automationToolCatalog);
-            string currentControlSchemaSha256 = controlSurface["schemaSha256"]?.Value<string>()
-                ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(verifiedControlSchemaSha256)
-                && !string.Equals(
-                    verifiedControlSchemaSha256,
-                    currentControlSchemaSha256,
-                    StringComparison.Ordinal))
+            if (expectedToolNames.Contains("request_capability"))
             {
-                throw new InvalidOperationException(
-                    "Goose 能力切换后同名 request_capability 的实际 Schema 发生变化；"
-                    + "当前工具面不可信，已停止任务。旧=" + verifiedControlSchemaSha256
-                    + "，新=" + currentControlSchemaSha256 + "。" );
+                JObject controlSurface = ValidateCapabilityControlToolCatalog(automationToolCatalog);
+                string currentControlSchemaSha256 = controlSurface["schemaSha256"]?.Value<string>()
+                    ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(verifiedControlSchemaSha256)
+                    && !string.Equals(
+                        verifiedControlSchemaSha256,
+                        currentControlSchemaSha256,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "Goose 能力切换后同名 request_capability 的实际 Schema 发生变化；"
+                        + "当前工具面不可信，已停止任务。旧=" + verifiedControlSchemaSha256
+                        + "，新=" + currentControlSchemaSha256 + "。" );
+                }
+                verifiedControlSchemaSha256 = currentControlSchemaSha256;
+                verifiedControlSchemaBytes = controlSurface["schemaBytes"]?.Value<int?>() ?? 0;
             }
-            verifiedControlSchemaSha256 = currentControlSchemaSha256;
-            verifiedControlSchemaBytes = controlSurface["schemaBytes"]?.Value<int?>() ?? 0;
+            else
+            {
+                verifiedControlSchemaSha256 = string.Empty;
+                verifiedControlSchemaBytes = 0;
+            }
             verifiedAutomationToolCount = automationToolCatalog.Count;
             lock (executionLock)
             {
@@ -1066,7 +1101,8 @@ namespace Automation
                     automationToolCatalog.ToString(Formatting.None));
             }
 
-            // 常驻 developer 扩展：每个能力面都记录实际工具目录快照（全量，无白名单过滤）。
+            // 原 AI 助手常驻 developer 扩展时记录实际工具目录；Machine Agent 不加载它。
+            if (expectsDeveloper)
             {
                 HashSet<string> developerTools = await GetExtensionToolNamesAsync(
                     "developer", cancellationToken).ConfigureAwait(false);
@@ -1084,6 +1120,28 @@ namespace Automation
                     ["normalizedToolNames"] = new JArray(normalizedNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
                 });
             }
+        }
+
+        /// <summary>
+        /// Machine Agent 的活动扩展必须严格等于 automation。该校验独立于工具目录校验，
+        /// 防止额外扩展的指令或工具进入专属会话。
+        /// </summary>
+        internal static void ValidateMachineAgentExtensionNames(IEnumerable<string> extensionNames)
+        {
+            string[] names = (extensionNames ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (names.Length == 1
+                && string.Equals(names[0], "automation", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                "Machine Agent 会话扩展集合必须严格等于 automation；实际="
+                + (names.Length == 0 ? "（空）" : string.Join(",", names)) + "。");
         }
 
         private static string NormalizeExtensionToolName(string name)
@@ -1292,13 +1350,26 @@ namespace Automation
             {
                 throw new InvalidOperationException(runtimeError);
             }
-            if (!GooseRuntimeProvisioner.IsManagedContextAvailable)
+            bool machineAgent = string.Equals(
+                config.ToolProfile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
+            if (machineAgent)
+            {
+                if (!MachineAgentPromptProvisioner.IsAvailable
+                    || !File.Exists(MachineAgentPromptProvisioner.PromptPath))
+                {
+                    throw new InvalidOperationException(
+                        "Machine Agent 独立 System Prompt 未通过部署校验，当前会话不可用。");
+                }
+            }
+            else if (!GooseRuntimeProvisioner.IsManagedContextAvailable)
             {
                 throw new InvalidOperationException("EW-AI 受管上下文未通过启动校验，当前会话不可用。");
             }
 
             bool runtimeDiagnostic = string.Equals(
-                config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal);
+                    config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal)
+                || string.Equals(
+                    config.ToolProfile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal);
             string sessionWorkingDirectory = ResolveWorkingDirectory();
             string skillProvisionMessage = null;
             if (!runtimeDiagnostic
@@ -1324,6 +1395,12 @@ namespace Automation
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
+
+            if (machineAgent)
+            {
+                startInfo.EnvironmentVariables["GOOSE_SYSTEM_PROMPT_FILE_PATH"] =
+                    MachineAgentPromptProvisioner.PromptPath;
+            }
 
             startInfo.EnvironmentVariables["PATH"] = GooseRuntimeEnvironment.MachineGitCommandPath + Path.PathSeparator
                 + (startInfo.EnvironmentVariables["PATH"] ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
@@ -1355,13 +1432,13 @@ namespace Automation
             // Hmi 是客户可修改目录，不从其中加载平台内部规范。
             // Automation 专用上下文由 TOM 注入编辑会话；运行诊断会话不加载流程编写路由。
             startInfo.EnvironmentVariables["CONTEXT_FILE_NAMES"] = "[]";
-            if (!File.Exists(GooseRuntimeProvisioner.IntegrationContextPath))
-            {
-                throw new FileNotFoundException("Automation 专用 Goose 上下文不存在。",
-                    GooseRuntimeProvisioner.IntegrationContextPath);
-            }
             if (!runtimeDiagnostic)
             {
+                if (!File.Exists(GooseRuntimeProvisioner.IntegrationContextPath))
+                {
+                    throw new FileNotFoundException("Automation 专用 Goose 上下文不存在。",
+                        GooseRuntimeProvisioner.IntegrationContextPath);
+                }
                 startInfo.EnvironmentVariables["GOOSE_MOIM_MESSAGE_FILE"] =
                     GooseRuntimeProvisioner.IntegrationContextPath;
             }
@@ -1471,6 +1548,13 @@ namespace Automation
             startupInfo.Append(" mcpUri=").Append(config.McpUri);
             startupInfo.Append(" sessionName=").Append(runtimeSessionName);
             startupInfo.Append(" developerShell=").Append(developerShellPath ?? "cmd");
+            if (machineAgent)
+            {
+                startupInfo.Append(" systemPrompt=").Append(MachineAgentPromptProvisioner.PromptPath);
+                startupInfo.Append(" systemPromptVersion=")
+                    .Append(MachineAgentPromptProvisioner.SystemPromptVersion);
+                startupInfo.Append(" isolation=machine-agent");
+            }
             if (!runtimeDiagnostic)
             {
                 startupInfo.Append(" builtinExtensions=dynamic-session-scope");
@@ -2489,6 +2573,11 @@ namespace Automation
 
         private string BuildPrompt(string prompt)
         {
+            if (string.Equals(
+                config.ToolProfile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
+            {
+                return (prompt ?? string.Empty).Trim();
+            }
             string context;
             switch (config.ToolProfile)
             {
@@ -2571,10 +2660,26 @@ namespace Automation
             return string.Join("\n\n", contextParts) + "\n\n" + prompt.Trim();
         }
 
-        private static JObject BuildManagedContextAnalysis()
+        private JObject BuildManagedContextAnalysis()
         {
             try
             {
+                if (string.Equals(
+                    config.ToolProfile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
+                {
+                    return new JObject
+                    {
+                        ["managedAvailable"] = MachineAgentPromptProvisioner.IsAvailable,
+                        ["isolation"] = "machine-agent",
+                        ["system"] = BuildManagedFileAnalysis(
+                            MachineAgentPromptProvisioner.PromptPath,
+                            MachineAgentPromptProvisioner.VersionPath,
+                            MachineAgentPromptProvisioner.SystemPromptVersion),
+                        ["automationContextLoaded"] = false,
+                        ["processSkillsLoaded"] = false,
+                        ["developerExtensionLoaded"] = false
+                    };
+                }
                 string promptVersionPath = Path.Combine(
                     Path.GetDirectoryName(GooseRuntimeProvisioner.PromptPath),
                     ".automation-system-prompt-version");
@@ -2821,7 +2926,8 @@ namespace Automation
             {
                 throw new DirectoryNotFoundException(error);
             }
-            if (string.Equals(config.ToolProfile, "RuntimeDiagnostic", StringComparison.Ordinal))
+            if (string.Equals(config.ToolProfile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal)
+                || string.Equals(config.ToolProfile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
             {
                 return source.SourceDirectory;
             }

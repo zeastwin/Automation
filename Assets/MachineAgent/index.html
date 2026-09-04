@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Machine Agent</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-subtle: #f1f5f9;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-secondary: #475569;
+    --muted: #64748b;
+    --brand: #2563eb;
+    --brand-hover: #1d4ed8;
+    --brand-soft: #eff6ff;
+    --selection: #dbeafe;
+    --success: #15803d;
+    --success-soft: #f0fdf4;
+    --warning: #b45309;
+    --warning-soft: #fffbeb;
+    --danger: #dc2626;
+    --danger-soft: #fef2f2;
+    --shadow: 0 8px 24px rgba(15, 23, 42, .07);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  body {
+    color: var(--text);
+    background: var(--bg);
+    font: 14px/1.55 "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  }
+  button, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
+
+  .app, .viewport { width: 100%; height: 100%; }
+  .view { display: none; height: 100%; overflow: auto; padding: 20px 24px 26px; animation: view-in .2s ease both; }
+  .view.active { display: block; }
+  #agentView.active { overflow: hidden; }
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .panel-head {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .panel-head strong { color: var(--text); font-size: 15px; }
+
+  .agent-shell { height: 100%; max-width: 1480px; margin: 0 auto; }
+  .chat-panel { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; overflow: hidden; }
+  .agent-head { min-height: 56px; }
+  .agent-title { display: flex; align-items: center; gap: 10px; }
+  .agent-title strong { font-size: 16px; }
+  .agent-pulse {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--brand);
+    box-shadow: 0 0 0 5px var(--selection);
+  }
+  .agent-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .agent-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+  .agent-state.running { color: var(--brand); }
+  .agent-state.running i { background: var(--brand); animation: pulse 1.2s infinite; }
+  .agent-state.success { color: var(--success); }
+  .agent-state.success i { background: var(--success); }
+  .agent-state.error { color: var(--danger); }
+  .agent-state.error i { background: var(--danger); }
+
+  .messages { min-height: 0; overflow: auto; padding: 24px clamp(22px, 6vw, 88px); scroll-behavior: smooth; }
+  .welcome { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .welcome-mark {
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 16px;
+    border: 1px solid var(--selection);
+    border-radius: 16px;
+    color: var(--brand);
+    background: var(--brand-soft);
+    font-size: 30px;
+    font-weight: 700;
+  }
+  .welcome h2 { margin: 0; font-size: 23px; line-height: 1.3; }
+  .welcome p { margin: 9px 0 20px; color: var(--text-secondary); font-size: 14px; }
+  .quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .chip, .ghost, .primary, .send, .discard, .execute {
+    min-height: 40px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+  .chip {
+    padding: 0 16px;
+    border: 1px solid var(--line-strong);
+    color: var(--text-secondary);
+    background: var(--surface);
+  }
+  .chip:hover, .ghost:hover { color: var(--brand); border-color: #93c5fd; background: var(--brand-soft); }
+
+  .message { display: flex; gap: 12px; margin: 0 auto 20px; max-width: 980px; animation: message-in .18s ease both; }
+  .message.user { flex-direction: row-reverse; }
+  .avatar {
+    flex: 0 0 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    color: var(--brand);
+    background: var(--brand-soft);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .message.user .avatar { color: var(--text-secondary); background: var(--surface-subtle); }
+  .bubble {
+    max-width: min(82%, 820px);
+    padding: 12px 15px;
+    border: 1px solid var(--line);
+    border-radius: 5px 12px 12px;
+    color: var(--text);
+    background: var(--surface);
+    white-space: pre-wrap;
+    font-size: 14px;
+  }
+  .message.user .bubble { border-color: var(--selection); border-radius: 12px 5px 12px 12px; background: var(--brand-soft); }
+  .message.notice .bubble { border-color: #fde68a; background: var(--warning-soft); }
+  .bubble.cursor::after { content: ""; display: inline-block; width: 2px; height: 16px; margin-left: 4px; vertical-align: -2px; background: var(--brand); animation: blink .85s infinite; }
+
+  .tool-strip { min-height: 0; padding: 0 clamp(22px, 6vw, 88px); }
+  .tool-strip span { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--selection); border-radius: 8px; color: var(--brand); background: var(--brand-soft); font-size: 13px; }
+  .tool-strip i { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); animation: pulse 1.2s infinite; }
+
+  .preview-wrap { display: none; margin: 10px clamp(22px, 6vw, 88px) 0; border: 1px solid #fcd34d; border-radius: 10px; background: var(--warning-soft); overflow: hidden; }
+  .preview-wrap.visible { display: block; }
+  .preview-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 15px; border-bottom: 1px solid #fde68a; }
+  .preview-top > div { display: grid; gap: 3px; }
+  .preview-top small { color: var(--warning); font-size: 13px; font-weight: 800; letter-spacing: .04em; }
+  .preview-top strong { font-size: 14px; }
+  .preview-mode { padding: 5px 9px; border: 1px solid #fcd34d; border-radius: 999px; color: var(--warning); background: #fff; font-size: 13px; font-weight: 700; }
+  .preview-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #fde68a; }
+  .preview-meta div { display: grid; gap: 3px; padding: 10px 15px; background: #fff; }
+  .preview-meta span { color: var(--muted); font-size: 13px; }
+  .preview-meta b { font-size: 13px; }
+  .preview-contract { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #fde68a; border-top: 1px solid #fde68a; }
+  .preview-contract > div { min-width: 0; padding: 10px 15px; background: #fff; }
+  .preview-contract span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 13px; }
+  .preview-contract b { display: block; overflow-wrap: anywhere; font-size: 13px; font-weight: 650; }
+  .preview-parameters { margin: 0; padding: 10px 15px; max-height: 142px; overflow: auto; border-top: 1px solid #fde68a; color: #334155; background: #fff; font: 13px/1.55 Consolas, "SFMono-Regular", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .check-list { display: grid; gap: 5px; padding: 10px 15px 0; border-top: 1px solid #fde68a; background: #fff; font-size: 13px; }
+  .check { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 5px; color: var(--text-secondary); }
+  .check.good { color: var(--success); }
+  .check.bad { color: var(--danger); }
+  .check.unknown { color: var(--warning); }
+  .risk-list { display: grid; gap: 6px; padding: 10px 15px; color: var(--success); font-size: 13px; }
+  .risk-list .blocked { color: var(--danger); }
+  .risk-list .warn { color: var(--warning); }
+  .preview-actions { display: flex; justify-content: flex-end; gap: 9px; padding: 0 15px 13px; }
+  .discard, .execute { padding: 0 16px; }
+  .discard { border: 1px solid var(--line-strong); color: var(--text-secondary); background: #fff; }
+  .execute { border: 1px solid var(--brand); color: #fff; background: var(--brand); }
+  .execute:hover { background: var(--brand-hover); }
+  .execute:disabled { border-color: var(--line-strong); color: #94a3b8; background: var(--surface-subtle); cursor: not-allowed; }
+
+  .composer { padding: 14px clamp(22px, 6vw, 88px) 16px; border-top: 1px solid var(--line); background: #fbfcfe; }
+  .compose-box { display: grid; grid-template-columns: 1fr 44px; gap: 10px; align-items: end; padding: 8px; border: 1px solid var(--line-strong); border-radius: 11px; background: #fff; transition: border-color .18s, box-shadow .18s; }
+  .compose-box:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(37, 99, 235, .1); }
+  textarea { min-height: 42px; max-height: 112px; resize: none; border: 0; outline: 0; padding: 10px 8px; color: var(--text); background: transparent; font-size: 14px; }
+  textarea::placeholder { color: #94a3b8; }
+  .send { width: 44px; border: 0; color: #fff; background: var(--brand); font-size: 18px; }
+  .send:hover { background: var(--brand-hover); }
+  .send.stop { background: var(--danger); }
+  .compose-hint { display: flex; justify-content: space-between; gap: 16px; padding: 7px 3px 0; color: var(--muted); font-size: 13px; }
+
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; max-width: 1500px; margin: 0 auto 16px; }
+  .page-head h1 { margin: 0; font-size: 24px; line-height: 1.3; }
+  .page-actions { display: flex; gap: 9px; }
+  .primary, .ghost { padding: 0 16px; }
+  .primary { border: 1px solid var(--brand); color: #fff; background: var(--brand); }
+  .primary:hover { background: var(--brand-hover); }
+  .ghost { border: 1px solid var(--line-strong); color: var(--text-secondary); background: var(--surface); }
+  .link { border: 0; padding: 4px 0; color: var(--brand); background: transparent; font-size: 13px; font-weight: 600; }
+  .link:hover { color: var(--brand-hover); }
+
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; max-width: 1500px; margin: 0 auto 14px; }
+  .metric { position: relative; min-height: 116px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .metric::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--brand); }
+  .metric.green::before { background: var(--success); }
+  .metric.amber::before { background: #d97706; }
+  .metric.violet::before { background: #7c3aed; }
+  .metric span { display: block; color: var(--text-secondary); font-size: 13px; }
+  .metric strong { display: block; margin-top: 4px; font-size: 29px; line-height: 1.2; }
+  .metric small { color: var(--muted); font-size: 13px; }
+
+  .overview-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 14px; max-width: 1500px; margin: 0 auto; }
+  .overview-grid .panel { min-width: 0; overflow: hidden; }
+  .node-panel { grid-column: 1 / -1; }
+  .process-list, .insights { min-height: 220px; max-height: 330px; overflow: auto; }
+  .process { display: grid; grid-template-columns: 10px minmax(180px, 1fr) minmax(180px, .9fr) auto; align-items: center; gap: 12px; min-height: 66px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  .process:last-child { border-bottom: 0; }
+  .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+  .state-dot.running { background: var(--brand); box-shadow: 0 0 0 4px var(--selection); }
+  .state-dot.success { background: var(--success); }
+  .state-dot.error { background: var(--danger); }
+  .process-name, .process-location { min-width: 0; display: grid; gap: 2px; }
+  .process-name strong, .process-location strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .process-name span, .process-location span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
+  .state-pill { padding: 4px 9px; border-radius: 999px; color: var(--text-secondary); background: var(--surface-subtle); font-size: 13px; font-weight: 700; }
+  .state-pill.running { color: var(--brand); background: var(--brand-soft); }
+  .state-pill.success { color: var(--success); background: var(--success-soft); }
+  .state-pill.error { color: var(--danger); background: var(--danger-soft); }
+
+  .node-grid { display: grid; grid-template-columns: repeat(4, minmax(190px, 1fr)); gap: 11px; padding: 14px; max-height: 290px; overflow: auto; }
+  .node { min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfe; }
+  .node.confirmed { border-left: 4px solid var(--success); }
+  .node.uncertain { border-left: 4px solid #d97706; }
+  .node-title { display: flex; justify-content: space-between; gap: 8px; }
+  .node-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .node-title span { color: var(--muted); font-size: 13px; }
+  .node-state { margin-top: 8px; color: var(--brand); font-size: 15px; font-weight: 700; }
+  .node small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
+
+  .insight { display: grid; grid-template-columns: 9px 1fr; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .insight:last-child { border-bottom: 0; }
+  .insight-mark { width: 9px; height: 9px; margin-top: 6px; border-radius: 50%; background: var(--brand); }
+  .insight-mark.success { background: var(--success); }
+  .insight-mark.warning { background: #d97706; }
+  .insight-mark.error { background: var(--danger); }
+  .insight strong { font-size: 14px; }
+  .insight p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+
+  .timeline { padding: 6px 18px 14px; }
+  .timeline-full { min-height: 320px; }
+  .event { display: grid; grid-template-columns: 82px 18px minmax(200px, 1fr) minmax(160px, .45fr) 66px; gap: 10px; min-height: 61px; align-items: center; border-bottom: 1px solid var(--line); }
+  .event:last-child { border-bottom: 0; }
+  .event-time, .event-source, .event-seq { color: var(--muted); font-size: 13px; }
+  .event-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-seq { text-align: right; font-variant-numeric: tabular-nums; }
+  .event-track { align-self: stretch; position: relative; }
+  .event-track::before { content: ""; position: absolute; top: 0; bottom: 0; left: 8px; width: 1px; background: var(--line); }
+  .event-track i { position: absolute; top: calc(50% - 5px); left: 4px; width: 9px; height: 9px; border: 2px solid var(--brand); border-radius: 50%; background: #fff; z-index: 1; }
+  .event-body { min-width: 0; display: grid; gap: 2px; }
+  .event-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .event-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 13px; }
+  .empty { display: grid; place-items: center; min-height: 120px; padding: 24px; color: var(--muted); font-size: 13px; text-align: center; }
+
+  @keyframes view-in { from { opacity: 0; transform: translateY(4px); } }
+  @keyframes message-in { from { opacity: 0; transform: translateY(7px); } }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  @media (max-width: 1100px) {
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .overview-grid { grid-template-columns: 1fr; }
+    .node-panel { grid-column: auto; }
+    .node-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
+    .preview-contract { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="viewport">
+    <section id="agentView" class="view active">
+      <div class="agent-shell">
+        <section class="panel chat-panel">
+          <div class="panel-head agent-head">
+            <div class="agent-title"><i class="agent-pulse"></i><strong>Machine Agent</strong></div>
+            <div id="agentState" class="agent-state"><i></i><span>等待指令</span></div>
+          </div>
+          <div id="messages" class="messages">
+            <div id="welcome" class="welcome">
+              <div class="welcome-mark">⌁</div>
+              <h2>设备上下文已就绪</h2>
+              <p>查询状态、回看异常，或生成受控动作预演。</p>
+              <div class="quick">
+                <button class="chip" data-prompt="总结当前设备状态和需要注意的异常。">总结设备状态</button>
+                <button class="chip" data-prompt="根据状态时间线分析刚才发生了什么。">分析最近异常</button>
+                <button class="chip" data-prompt="检查当前有哪些流程适合从指定指令恢复，以及还缺少哪些证据。">评估恢复入口</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div id="toolStrip" class="tool-strip"></div>
+            <div id="preview" class="preview-wrap"></div>
+          </div>
+          <div class="composer">
+            <div class="compose-box">
+              <textarea id="prompt" placeholder="询问设备状态、分析异常，或生成动作预演…"></textarea>
+              <button id="send" class="send" title="发送">➤</button>
+            </div>
+            <div class="compose-hint"><span>Enter 发送 · Shift+Enter 换行</span><span>AI 无直接执行权 · 所有动作需前台确认</span></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="overview" class="view">
+      <div class="page-head"><h1>运行总览</h1><button class="primary" onclick="post('openTopology')">拓扑工作台</button></div>
+      <div class="metrics">
+        <div class="metric cyan"><span>拓扑节点</span><strong id="mNodes">0</strong><small id="mRelations">0 条关系</small></div>
+        <div class="metric violet"><span>状态绑定</span><strong id="mBindings">0</strong><small id="mKnown">0 个已知状态</small></div>
+        <div class="metric green"><span>活动流程</span><strong id="mActive">0</strong><small id="mProcesses">0 个流程已加载</small></div>
+        <div class="metric amber"><span>待确认事实</span><strong id="mEvidence">0</strong><small id="mConflicts">0 个冲突</small></div>
+      </div>
+      <div class="overview-grid">
+        <section class="panel">
+          <div class="panel-head"><strong>流程运行态势</strong><span id="processCaption">流程快照</span></div>
+          <div id="processList" class="process-list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><strong>判断依据</strong><span>事实与缺口</span></div>
+          <div id="insights" class="insights"></div>
+        </section>
+        <section class="panel node-panel">
+          <div class="panel-head"><strong>设备节点状态</strong><button class="link" onclick="post('openTopology')">查看拓扑 →</button></div>
+          <div id="nodeGrid" class="node-grid"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="timelineView" class="view">
+      <div class="page-head">
+        <h1>设备状态时间线</h1>
+        <div class="page-actions"><button class="ghost" onclick="post('showAgent')">询问 Agent</button><button class="ghost" onclick="post('refresh')">刷新</button></div>
+      </div>
+      <section class="panel" style="max-width:1500px;margin:0 auto">
+        <div class="panel-head"><strong>语义状态事件</strong><span id="timelineSequence">SEQ 0</span></div>
+        <div id="allEvents" class="timeline timeline-full"></div>
+      </section>
+    </section>
+  </main>
+</div>
+<script>
+  'use strict';
+  let model=null,currentView='agent',busy=false,streamBubble=null,currentPreview=null;
+  const $=id=>document.getElementById(id),esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function post(action,payload){if(window.chrome&&chrome.webview)chrome.webview.postMessage(JSON.stringify(Object.assign({action},payload||{})));}
+  function localTime(v){if(!v)return'--:--:--';const d=new Date(v);return isNaN(d.getTime())?'--:--:--':d.toLocaleTimeString('zh-CN',{hour12:false});}
+  function empty(t){return'<div class="empty">'+esc(t)+'</div>'}
+  function setView(v){currentView=v==='timeline'?'timeline':v==='overview'?'overview':'agent';$('agentView').classList.toggle('active',currentView==='agent');$('overview').classList.toggle('active',currentView==='overview');$('timelineView').classList.toggle('active',currentView==='timeline');}
+  function render(data){model=data;const t=data.topology||{},s=data.summary||{},seq=(data.perception||{}).latestSequence||0;$('mNodes').textContent=t.nodes||0;$('mRelations').textContent=(t.relations||0)+' 条关系';$('mBindings').textContent=t.bindings||0;$('mKnown').textContent=(s.knownNodeStates||0)+' 个状态 · '+(t.skills||0)+' 个技能';$('mActive').textContent=s.activeProcesses||0;$('mProcesses').textContent=(s.processes||0)+' 个流程已加载';$('mEvidence').textContent=(t.candidates||0)+(s.uncertainStates||0);$('mConflicts').textContent=(t.conflicts||0)+' 个冲突';$('timelineSequence').textContent='SEQ '+seq;renderProcesses(data.processes||[]);renderNodes(data.nodes||[]);renderInsights(data.insights||[]);renderEvents('allEvents',data.events||[],true);if(data.view)setView(data.view);}
+  function renderProcesses(a){$('processCaption').textContent=a.length?a.filter(x=>x.stateTone==='running').length+' 个正在运行':'尚无流程快照';$('processList').innerHTML=a.length?a.slice(0,10).map(p=>'<div class="process"><i class="state-dot '+esc(p.stateTone)+'"></i><div class="process-name"><strong>'+esc(p.name)+'</strong><span>'+esc(p.runId?'RUN '+p.runId.slice(0,8):'未建立运行实例')+'</span></div><div class="process-location"><strong>'+esc(p.location)+'</strong><span>'+esc(p.operationType||p.alarm||'等待流程位置')+'</span></div><span class="state-pill '+esc(p.stateTone)+'">'+esc(p.state)+'</span></div>').join(''):empty('当前没有流程运行快照。');}
+  function renderNodes(a){$('nodeGrid').innerHTML=a.length?a.slice(0,12).map(n=>'<div class="node '+esc(n.quality)+'"><div class="node-title"><strong>'+esc(n.label)+'</strong><span>'+esc(n.kind)+'</span></div><div class="node-state">'+esc(n.state)+'</div><small>'+esc(n.meaning)+'</small></div>').join(''):empty('尚未建立拓扑节点。');}
+  function renderInsights(a){$('insights').innerHTML=a.length?a.map(x=>'<div class="insight"><i class="insight-mark '+esc(x.tone)+'"></i><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.detail)+'</p></div></div>').join(''):empty('尚无判断依据。');}
+  function renderEvents(id,a,full){$(id).innerHTML=a.length?a.map(e=>{const title=e.nodeLabel||e.processName||e.operationName||e.resourceRef||e.eventType,position=e.operationName?e.operationName+(e.operationIndex!=null?' #'+e.operationIndex:''):'',detail=[position,(e.oldValue?e.oldValue+' → ':'')+(e.newValue||e.meaning||e.eventType),e.outcome&&e.outcome!==e.newValue?e.outcome:''].filter(Boolean).join(' · '),source=[e.sourceKind,e.skillId?'skill '+e.skillId:'',e.resourceRef].filter(Boolean).join(' · ');return '<div class="event"><span class="event-time">'+localTime(e.timeUtc)+'</span><span class="event-track"><i></i></span><div class="event-body"><strong>'+esc(title)+'</strong><span>'+esc(detail)+'</span></div>'+(full?'<span class="event-source">'+esc(source)+'</span>':'')+'<span class="event-seq">#'+esc(e.sequence)+'</span></div>';}).join(''):empty('状态历史中还没有事件。');}
+  function addMessage(role,text,notice){$('welcome').style.display='none';const row=document.createElement('div');row.className='message '+role+(notice?' notice':'');const avatar=document.createElement('div');avatar.className='avatar';avatar.textContent=role==='user'?'YOU':'MA';const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text||'';row.append(avatar,bubble);$('messages').appendChild(row);$('messages').scrollTop=$('messages').scrollHeight;return bubble;}
+  function bootstrapChat(a){if(!a.messages||!a.messages.length)return;$('welcome').style.display='none';$('messages').innerHTML='';a.messages.forEach(m=>addMessage(m.role,m.text));busy=!!a.busy;updateSend();}
+  function appendChunk(t){if(!streamBubble){streamBubble=addMessage('assistant','');streamBubble.classList.add('cursor');}streamBubble.textContent+=t;$('messages').scrollTop=$('messages').scrollHeight;}
+  function completeAgent(t){if(t){if(!streamBubble)streamBubble=addMessage('assistant','');streamBubble.textContent+=t;}if(streamBubble)streamBubble.classList.remove('cursor');streamBubble=null;busy=false;updateSend();}
+  function setAgentStatus(d){busy=!!d.running;const s=$('agentState');s.className='agent-state '+esc(d.tone||'');s.querySelector('span').textContent=d.status||'等待指令';updateSend();if(!busy)$('toolStrip').innerHTML='';}
+  function updateSend(){const b=$('send');b.classList.toggle('stop',busy);b.textContent=busy?'■':'➤';$('prompt').disabled=busy;}
+  function sendPrompt(text){const p=(text==null?$('prompt').value:text).trim();if(!p||busy)return;$('prompt').value='';post('sendAgentMessage',{text:p});}
+  function renderCheck(c,label,relationBlocked){const known=!!c.evaluable,good=known&&(relationBlocked==null?!!c.satisfied:!relationBlocked),tone=good?'good':known?'bad':'unknown',mark=good?'✓':known?'×':'?';return '<div class="check '+tone+'"><b>'+mark+'</b><span>'+esc(label+(c.expression?' · '+c.expression:'')+(c.detail?' — '+c.detail:''))+'</span></div>';}
+  function renderStopPreview(p){const t=p.target||{},blocks=p.blockingReasons||[],warn=p.warnings||[],ok=!!p.executable;$('preview').classList.add('visible');$('preview').innerHTML='<div class="preview-top"><div><small>流程停止预演</small><strong>'+esc(t.procName||t.procId)+' · RUN '+esc((t.runId||'').slice(0,8))+'</strong></div><span class="preview-mode">停止当前实例</span></div><div class="preview-meta"><div><span>当前状态</span><b>'+esc(t.state||'未知')+'</b></div><div><span>当前位置</span><b>'+esc((t.stepIndex==null?'--':t.stepIndex)+' : '+(t.opIndex==null?'--':t.opIndex))+'</b></div><div><span>冻结 runId</span><b>'+esc(t.runId||'缺失')+'</b></div></div><div class="preview-contract"><div><span>停止原因</span><b>'+esc(p.reason||'未填写')+'</b></div><div><span>动作边界</span><b>只停止当前冻结的运行实例；实例换代后自动失效</b></div></div><div class="risk-list">'+blocks.map(x=>'<div class="blocked">● '+esc(x)+'</div>').join('')+warn.map(x=>'<div class="warn">△ '+esc(x)+'</div>').join('')+(blocks.length+warn.length?'':'<div>✓ 当前 runId 可进入前台停止确认</div>')+'</div><div class="preview-actions"><button class="discard" onclick="discardPreview()">放弃预演</button><button class="execute" '+(ok?'':'disabled')+' onclick="executePreview()">前台确认停止</button></div>';}
+  function renderPreview(p){
+    currentPreview=p;
+    if(p.actionKind==='stop_process'||p.contract==='machine.process_stop.preview.v1'){renderStopPreview(p);return;}
+    const t=p.target||{},skill=p.skill||{},blocks=p.blockingReasons||[],warn=p.warnings||[],pre=p.preconditionChecks||[],relations=p.relationChecks||[],ok=!!p.executable,mode=p.mode==='single_operation'?'只执行一次':'从此继续流程';
+    const checks=pre.map(c=>renderCheck(c,'技能前置条件',null)).join('')+relations.map(r=>renderCheck(r.condition||{},'拓扑 '+(r.kind||'关系')+(r.blocksExecution?'（阻塞）':''),!!r.blocksExecution)).join('');
+    let parameters='{}';try{parameters=JSON.stringify(t.parameters||{},null,2);}catch(_){parameters='参数无法格式化';}
+    $('preview').classList.add('visible');
+    $('preview').innerHTML='<div class="preview-top"><div><small>执行预演 · '+esc(skill.name||skill.skillId||'未绑定技能')+'</small><strong>'+esc(t.procName)+' · '+esc(t.stepName)+' · '+esc(t.operationName||t.operationType)+'</strong></div><span class="preview-mode">'+esc(mode)+'</span></div>'+
+      '<div class="preview-meta"><div><span>指令类型</span><b>'+esc(t.operationType)+'</b></div><div><span>节点技能</span><b>'+esc(skill.nodeLabel||'无')+'</b></div><div><span>外部作用</span><b>'+esc(p.operationEffect||'unknown')+'</b></div></div>'+
+      '<div class="preview-contract"><div><span>动作目标</span><b>'+esc(p.objective||'未填写')+'</b></div><div><span>预期结果</span><b>'+esc(p.expectedOutcome||'未填写')+'</b></div></div>'+
+      '<pre class="preview-parameters">'+esc(parameters)+'</pre>'+(checks?'<div class="check-list">'+checks+'</div>':'')+
+      '<div class="risk-list">'+blocks.map(x=>'<div class="blocked">● '+esc(x)+'</div>').join('')+warn.map(x=>'<div class="warn">△ '+esc(x)+'</div>').join('')+(blocks.length+warn.length?'':'<div>✓ 当前冻结事实未发现机械阻塞项</div>')+'</div>'+
+      '<div class="preview-actions"><button class="discard" onclick="discardPreview()">放弃预演</button><button class="execute" '+(ok?'':'disabled')+' onclick="executePreview()">前台确认执行</button></div>';
+  }
+  function executePreview(){if(currentPreview)post('executePreview',{previewId:currentPreview.previewId});}
+  function discardPreview(){if(currentPreview)post('discardPreview',{previewId:currentPreview.previewId});}
+  function executionResult(d){addMessage('assistant',d.message||'',true);currentPreview=null;$('preview').classList.remove('visible');$('preview').innerHTML='';}
+  $('send').addEventListener('click',()=>busy?post('cancelAgent'):sendPrompt());
+  $('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();}});
+  document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>sendPrompt(b.dataset.prompt)));
+  setInterval(()=>{if(!currentPreview||!currentPreview.expiresAtUtc)return;const expires=new Date(currentPreview.expiresAtUtc).getTime();if(!isNaN(expires)&&Date.now()>=expires){currentPreview=null;$('preview').classList.remove('visible');$('preview').innerHTML='';addMessage('assistant','执行预演已到期，请基于最新现场状态重新分析。',true);}},1000);
+  if(window.chrome&&chrome.webview)chrome.webview.addEventListener('message',e=>{const d=e.data||{};if(d.type==='bootstrap')render(d);else if(d.type==='view')setView(d.view);else if(d.type==='agentBootstrap')bootstrapChat(d);else if(d.type==='agentUser')addMessage('user',d.text);else if(d.type==='agentChunk')appendChunk(d.text||'');else if(d.type==='agentComplete')completeAgent(d.text||'');else if(d.type==='agentStatus')setAgentStatus(d);else if(d.type==='agentTool')$('toolStrip').innerHTML='<span><i></i>'+esc(d.status||'正在读取设备事实')+'</span>';else if(d.type==='agentPreview')renderPreview(d.preview||{});else if(d.type==='agentExecution')executionResult(d);else if(d.type==='agentError'){addMessage('assistant',d.message||'发生错误',true);completeAgent('');}});
+  post('ready');
+</script>
+</body>
+</html>

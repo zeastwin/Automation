@@ -20,6 +20,7 @@ namespace Automation
         ControlCard,
         History,
         Topology,
+        MachineAgent,
         Ai,
         Save,
         Cancel,
@@ -255,6 +256,16 @@ namespace Automation
                         FillCircle(graphics, primaryBrush, 5.5F, 18, 2.6F);
                         FillCircle(graphics, primaryBrush, 18.5F, 18, 2.6F);
                         FillCircle(graphics, secondaryBrush, 12, 12.5F, 1.8F);
+                        break;
+                    case UiIconKind.MachineAgent:
+                        DrawRoundedRectangle(graphics, secondaryPen, 4, 7, 16, 13, 3);
+                        graphics.DrawLine(primaryPen, 12, 7, 12, 4);
+                        FillCircle(graphics, primaryBrush, 12, 3.5F, 1.5F);
+                        FillCircle(graphics, primaryBrush, 9, 12, 1.5F);
+                        FillCircle(graphics, primaryBrush, 15, 12, 1.5F);
+                        graphics.DrawLine(secondaryPen, 8.5F, 16.5F, 15.5F, 16.5F);
+                        graphics.DrawLine(primaryPen, 4, 12, 2, 12);
+                        graphics.DrawLine(primaryPen, 20, 12, 22, 12);
                         break;
                     case UiIconKind.Ai:
                         DrawSparkle(graphics, secondaryPen, 12, 11, 6.5F);

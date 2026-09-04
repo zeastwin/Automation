@@ -213,6 +213,7 @@ namespace Automation.McpServer
             HashSet<string> profiledToolNames = editorTools
                 .Concat(McpToolProfile.CreateTools("Diagnostic"))
                 .Concat(McpToolProfile.CreateTools("RuntimeDiagnostic"))
+                .Concat(McpToolProfile.CreateTools(AutomationToolProfiles.MachineAgent))
                 .Concat(McpToolProfile.CreateTools("Editor", true))
                 .Concat(AutomationToolProfiles.TaskProfiles.SelectMany(
                     profile => McpToolProfile.CreateTools(profile)))
@@ -754,6 +755,22 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException(
                     "RuntimeDiagnostic Profile 必须严格等于运行现场取证工具集合。");
+            }
+            string[] machineAgentNames = McpToolProfile.CreateTools(AutomationToolProfiles.MachineAgent)
+                .Select(tool => tool.ProtocolTool.Name).ToArray();
+            string[] expectedMachineAgentNames = expectedRuntimeDiagnosticNames
+                .Concat(new[]
+                {
+                    "get_machine_context", "get_equipment_state_history",
+                    "preview_process_entry_execution", "preview_process_stop"
+                })
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (!machineAgentNames.SequenceEqual(expectedMachineAgentNames, StringComparer.Ordinal)
+                || machineAgentNames.Contains("request_capability", StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "MachineAgent Profile 必须严格限制为现场读取与无副作用执行预演。" );
             }
             string[] fullPermissionNames = McpToolProfile.CreateTools("Editor", true)
                 .Select(tool => tool.ProtocolTool.Name).ToArray();
@@ -1747,6 +1764,7 @@ namespace Automation.McpServer
             IReadOnlyList<McpServerTool> tools = McpToolProfile.CreateTools("Editor")
                 .Concat(McpToolProfile.CreateTools("Diagnostic"))
                 .Concat(McpToolProfile.CreateTools("RuntimeDiagnostic"))
+                .Concat(McpToolProfile.CreateTools(AutomationToolProfiles.MachineAgent))
                 .GroupBy(tool => tool.ProtocolTool.Name, StringComparer.Ordinal)
                 .Select(group => group.First())
                 .ToList();

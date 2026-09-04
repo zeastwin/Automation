@@ -13,6 +13,7 @@ namespace Automation.Protocol
         public const string Diagnostic = "Diagnostic";
         public const string Editor = "Editor";
         public const string RuntimeDiagnostic = "RuntimeDiagnostic";
+        public const string MachineAgent = "MachineAgent";
 
         public const string TaskCoordinator = "TaskCoordinator";
         public const string ProcessDesign = "ProcessDesign";
@@ -27,7 +28,7 @@ namespace Automation.Protocol
 
         public static readonly IReadOnlyList<string> All = new[]
         {
-            Diagnostic, Editor, RuntimeDiagnostic,
+            Diagnostic, Editor, RuntimeDiagnostic, MachineAgent,
             TaskCoordinator,
             ProcessDesign, ProcessReview, ProcessCreate, ProcessEdit, ResourceEdit,
             RuntimeControl, SourceReview, SourceDevelopment, PlatformConfiguration
@@ -49,6 +50,24 @@ namespace Automation.Protocol
         private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TaskToolCatalog =
             new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
             {
+                [RuntimeDiagnostic] = Tools(
+                    "diagnose_issue", "get_snapshot", "get_info_log_tail",
+                    "get_operation_context", "get_step_detail", "get_flow_graph",
+                    "get_operation_references", "trace_resource",
+                    "get_variable_by_name", "get_variable_by_index",
+                    "get_io", "search_io", "get_io_state", "get_communication",
+                    "list_plc_devices", "get_plc_device", "search_alarms", "get_alarm"),
+                // Machine Agent 是固定独立工具面：模型只能读取现场和创建冻结预演，
+                // 正式执行工具不进入 MCP，由前台确认后直接进入运行时服务。
+                [MachineAgent] = Tools(
+                    "diagnose_issue", "get_snapshot", "get_info_log_tail",
+                    "get_operation_context", "get_step_detail", "get_flow_graph",
+                    "get_operation_references", "trace_resource",
+                    "get_variable_by_name", "get_variable_by_index",
+                    "get_io", "search_io", "get_io_state", "get_communication",
+                    "list_plc_devices", "get_plc_device", "search_alarms", "get_alarm",
+                    "get_machine_context", "get_equipment_state_history",
+                    "preview_process_entry_execution", "preview_process_stop"),
                 [TaskCoordinator] = Tools("get_device_summary", "request_capability"),
                 [ProcessDesign] = Tools("get_process_design_guide", "request_capability"),
                 [ProcessReview] = Tools(
@@ -127,7 +146,7 @@ namespace Automation.Protocol
         }
 
         /// <summary>
-        /// 动态任务 Profile 的精确 Automation 工具集合。MCP 过滤与 Goose 实际工具面核验共用，
+        /// 动态任务与固定 Agent Profile 的精确 Automation 工具集合。MCP 过滤与 Goose 实际工具面核验共用，
         /// 避免只比较数量或在客户端复制另一份白名单。
         /// </summary>
         public static IReadOnlyList<string> GetTaskToolNames(string value)

@@ -11,7 +11,7 @@ namespace Automation.McpServer
 {
     internal static class McpToolProfile
     {
-        // Editor/Diagnostic 共享平台知识与读取能力；RuntimeDiagnostic 使用独立的现场取证最小集合。
+        // Editor/Diagnostic 共享平台知识与读取能力；RuntimeDiagnostic 与 MachineAgent 各自使用固定最小集合。
         private static readonly HashSet<string> KnowledgeAndReadTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "get_platform_development_context", "get_process_design_guide",
@@ -43,7 +43,7 @@ namespace Automation.McpServer
             "list_io"
         };
 
-        // 运行诊断中心只获取现场根因分析所需事实，不加载平台开发、流程设计、Schema、批量审计或控制工具。
+        // 运行诊断中心保持原有现场取证边界，不承载 Machine Agent 控制预演。
         private static readonly HashSet<string> RuntimeDiagnosticTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "diagnose_issue", "get_snapshot", "get_info_log_tail",
@@ -53,6 +53,20 @@ namespace Automation.McpServer
             "get_io", "search_io", "get_io_state",
             "get_communication", "list_plc_devices", "get_plc_device",
             "search_alarms", "get_alarm"
+        };
+
+        // Machine Agent 能读现场并创建冻结预演，但没有直接执行、配置写入或能力切换工具。
+        private static readonly HashSet<string> MachineAgentTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "diagnose_issue", "get_snapshot", "get_info_log_tail",
+            "get_operation_context", "get_step_detail", "get_flow_graph",
+            "get_operation_references", "trace_resource",
+            "get_variable_by_name", "get_variable_by_index",
+            "get_io", "search_io", "get_io_state",
+            "get_communication", "list_plc_devices", "get_plc_device",
+            "search_alarms", "get_alarm",
+            "get_machine_context", "get_equipment_state_history",
+            "preview_process_entry_execution", "preview_process_stop"
         };
 
         private static readonly HashSet<string> EditorMutationTools = new HashSet<string>(StringComparer.Ordinal)
@@ -86,6 +100,10 @@ namespace Automation.McpServer
             else if (string.Equals(profile, AutomationToolProfiles.RuntimeDiagnostic, StringComparison.Ordinal))
             {
                 enabled.UnionWith(RuntimeDiagnosticTools);
+            }
+            else if (string.Equals(profile, AutomationToolProfiles.MachineAgent, StringComparison.Ordinal))
+            {
+                enabled.UnionWith(MachineAgentTools);
             }
             else if (string.Equals(profile, AutomationToolProfiles.Diagnostic, StringComparison.Ordinal))
             {
@@ -191,6 +209,26 @@ namespace Automation.McpServer
                 else if (string.Equals(toolName, "get_info_log_tail", StringComparison.Ordinal))
                 {
                     ApplyToolNumericRange(tool, "maxCount", 1, 100);
+                }
+                else if (string.Equals(toolName, "get_machine_context", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "eventLimit", 1, 80);
+                    ApplyToolNumericRange(tool, "nodeOffset", 0, 2000);
+                    ApplyToolNumericRange(tool, "nodeLimit", 1, 200);
+                    ApplyToolNumericRange(tool, "relationOffset", 0, 5000);
+                    ApplyToolNumericRange(tool, "relationLimit", 1, 500);
+                }
+                else if (string.Equals(toolName, "get_equipment_state_history", StringComparison.Ordinal))
+                {
+                    ApplyToolNumericRange(tool, "limit", 1, 500);
+                }
+                else if (string.Equals(toolName, "preview_process_entry_execution", StringComparison.Ordinal))
+                {
+                    ApplyMachineProcessEntryPreviewSchema(tool);
+                }
+                else if (string.Equals(toolName, "preview_process_stop", StringComparison.Ordinal))
+                {
+                    ApplyMachineProcessStopPreviewSchema(tool);
                 }
                 else if (string.Equals(toolName, "diagnose_proc", StringComparison.Ordinal))
                 {
@@ -627,6 +665,83 @@ namespace Automation.McpServer
             }
             propertySchema["enum"] = new JsonArray(
                 allowedValues.Select(value => JsonValue.Create(value)).ToArray());
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyMachineProcessEntryPreviewSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? requestSchema = FindObjectSchemaWithProperties(
+                root, "skillId", "procId", "operationId", "mode", "objective", "expectedOutcome");
+            if (root == null || requestSchema?["properties"] is not JsonObject properties)
+                throw new InvalidOperationException(
+                    "preview_process_entry_execution 参数Schema缺少MachineProcessEntryPreviewRequest定义。");
+            root["additionalProperties"] = false;
+            requestSchema["additionalProperties"] = false;
+            requestSchema.Remove("required");
+            requestSchema["anyOf"] = new JsonArray(
+                new JsonObject { ["required"] = new JsonArray("skillId") },
+                new JsonObject
+                {
+                    ["required"] = new JsonArray(
+                        "procId", "operationId", "mode", "objective", "expectedOutcome")
+                });
+            if (properties["skillId"] is JsonObject skillSchema)
+            {
+                skillSchema["type"] = "string";
+                skillSchema["minLength"] = 1;
+                skillSchema["maxLength"] = 200;
+            }
+            foreach (string idField in new[] { "procId", "operationId" })
+            {
+                if (properties[idField] is JsonObject idSchema)
+                {
+                    idSchema["type"] = "string";
+                    idSchema["format"] = "uuid";
+                    idSchema["minLength"] = 36;
+                }
+            }
+            if (properties["mode"] is JsonObject modeSchema)
+            {
+                modeSchema["enum"] = new JsonArray(
+                    MachineExecutionModes.SingleOperation,
+                    MachineExecutionModes.ContinueFlow);
+            }
+            foreach (string textField in new[] { "objective", "expectedOutcome" })
+            {
+                if (properties[textField] is JsonObject textSchema)
+                {
+                    textSchema["type"] = "string";
+                    textSchema["minLength"] = 1;
+                    textSchema["maxLength"] = 1000;
+                }
+            }
+            tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
+        }
+
+        private static void ApplyMachineProcessStopPreviewSchema(McpServerTool tool)
+        {
+            JsonObject? root = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) as JsonObject;
+            JsonObject? requestSchema = FindObjectSchemaWithProperties(root, "procId", "reason");
+            if (root == null || requestSchema?["properties"] is not JsonObject properties)
+                throw new InvalidOperationException(
+                    "preview_process_stop 参数Schema缺少MachineProcessStopPreviewRequest定义。");
+            root["additionalProperties"] = false;
+            requestSchema["additionalProperties"] = false;
+            requestSchema["required"] = new JsonArray("procId", "reason");
+            if (properties["procId"] is JsonObject idSchema)
+            {
+                idSchema["type"] = "string";
+                idSchema["format"] = "uuid";
+                idSchema["minLength"] = 36;
+                idSchema["maxLength"] = 36;
+            }
+            if (properties["reason"] is JsonObject reasonSchema)
+            {
+                reasonSchema["type"] = "string";
+                reasonSchema["minLength"] = 1;
+                reasonSchema["maxLength"] = 1000;
+            }
             tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(root);
         }
 

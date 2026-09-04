@@ -21,6 +21,7 @@ namespace Automation
         private const string McpProcessName = "Automation.McpServer";
         private const string EditorInstanceName = "editor";
         private const string RuntimeDiagnosticInstanceName = "runtime_diagnostic";
+        private const string MachineAgentInstanceName = "machine_agent";
         private readonly object processLock = new object();
         private readonly Dictionary<string, ManagedMcpInstance> instances =
             new Dictionary<string, ManagedMcpInstance>(StringComparer.Ordinal);
@@ -86,6 +87,40 @@ namespace Automation
         }
 
         /// <summary>
+        /// 启动 Machine Agent 专属 MCP 进程。它与编辑助手、运行诊断使用不同端口和进程，
+        /// 固定在无直接执行工具的 MachineAgent 最小能力面。
+        /// </summary>
+        public async Task<string> EnsureMachineAgentStartedAsync(
+            System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken))
+        {
+            ManagedMcpInstance active = null;
+            lock (processLock)
+            {
+                ThrowIfDisposedLocked();
+                if (instances.TryGetValue(MachineAgentInstanceName, out ManagedMcpInstance current)
+                    && IsRunning(current.Process))
+                {
+                    active = current;
+                }
+            }
+            if (active != null)
+            {
+                string info = await ReadHttpAsync(active.BaseUri + "/info", 1000).ConfigureAwait(false);
+                if (HasExpectedProfile(info, AutomationToolProfiles.MachineAgent)) return active.BaseUri;
+            }
+
+            string baseUri = AllocateLoopbackUri();
+            await EnsureInstanceStartedAsync(
+                MachineAgentInstanceName,
+                baseUri,
+                AutomationToolProfiles.MachineAgent,
+                enableTrayIcon: false,
+                allowToolProfileChanges: false,
+                cancellationToken).ConfigureAwait(false);
+            return baseUri;
+        }
+
+        /// <summary>
         /// 为任务级能力包启动工具集合固定的 MCP 实例。
         /// 实例按档位共享复用；任务会话彼此独立，且不得通过全局 Profile 切换共享工具面。
         /// </summary>
@@ -145,6 +180,18 @@ namespace Automation
                 lastMessage = stoppedCount > 0
                     ? "智能诊断已停用，RuntimeDiagnostic MCP 实例已停止。"
                     : "智能诊断已停用，RuntimeDiagnostic MCP 实例未运行。";
+            }
+        }
+
+        public void StopMachineAgent()
+        {
+            lock (processLock)
+            {
+                if (disposed) return;
+                int stoppedCount = StopInstanceLocked(MachineAgentInstanceName);
+                lastMessage = stoppedCount > 0
+                    ? "Machine Agent MCP 实例已停止。"
+                    : "Machine Agent MCP 实例未运行。";
             }
         }
 

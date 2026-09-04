@@ -6,25 +6,26 @@
   <title>设备拓扑孪生</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #07101d;
-      --surface: rgba(15, 27, 44, .88);
-      --surface-strong: #111f32;
-      --surface-soft: rgba(24, 39, 61, .72);
-      --line: rgba(151, 174, 207, .14);
-      --line-strong: rgba(151, 174, 207, .28);
-      --text: #edf5ff;
-      --muted: #8ea2bb;
-      --muted-2: #627790;
-      --cyan: #35d8f5;
-      --cyan-soft: rgba(53, 216, 245, .14);
-      --violet: #8a7dff;
-      --violet-soft: rgba(138, 125, 255, .16);
-      --green: #4ce0aa;
-      --amber: #ffbd69;
-      --red: #ff6b7f;
-      --shadow: 0 22px 60px rgba(0, 0, 0, .28);
-      --radius: 16px;
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-strong: #ffffff;
+      --surface-soft: #f1f5f9;
+      --line: #e2e8f0;
+      --line-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --muted: #475569;
+      --muted-2: #64748b;
+      --cyan: #2563eb;
+      --cyan-soft: #eff6ff;
+      --violet: #7c3aed;
+      --violet-soft: #f5f3ff;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #dc2626;
+      --shadow: 0 8px 24px rgba(15, 23, 42, .07);
+      --radius: 12px;
       font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
     }
 
@@ -374,8 +375,95 @@
     @keyframes toast-in { from { opacity: 0; transform: translateX(16px) scale(.97); } }
     @keyframes toast-out { to { opacity: 0; transform: translateX(12px) scale(.98); } }
 
+    /* 与 Automation 主界面一致的浅色工作区，并保证操作文字无需放大查看。 */
+    body::before, .canvas-glow { display: none; }
+    .app { grid-template-rows: 58px minmax(0, 1fr); }
+    .topbar { gap: 14px; padding: 0 18px; background: var(--surface-strong); backdrop-filter: none; }
+    .metric { height: 36px; color: var(--muted); background: var(--surface-soft); font-size: 13px; }
+    .metric-dot { box-shadow: none; }
+    .button { height: 38px; border-radius: 8px; color: var(--text-secondary, #475569); background: var(--surface); font-size: 13px; }
+    .button:hover { border-color: #93c5fd; background: var(--cyan-soft); }
+    .button.primary { color: #fff; border-color: var(--cyan); background: var(--cyan); box-shadow: none; }
+    .button.primary:hover { background: #1d4ed8; box-shadow: none; }
+    .button.active { color: var(--cyan); border-color: #93c5fd; background: var(--cyan-soft); }
+    .button.subtle { color: var(--muted); background: var(--surface); }
+    .button.danger { color: var(--red); border-color: #fecaca; background: #fef2f2; }
+    .workspace { grid-template-columns: 280px minmax(420px, 1fr) 350px; gap: 10px; padding: 12px; }
+    .panel { background: var(--surface); box-shadow: var(--shadow); backdrop-filter: none; }
+    .panel-head { padding: 16px; }
+    .panel-title strong { font-size: 15px; }
+    .panel-title span { font-size: 13px; }
+    .segmented { background: var(--surface-soft); }
+    .segment { height: 34px; color: var(--muted); font-size: 13px; }
+    .segment.active { color: var(--cyan); background: var(--surface); box-shadow: 0 1px 3px rgba(15, 23, 42, .08); }
+    .search input { height: 40px; color: var(--text); background: var(--surface); font-size: 13px; }
+    .search input:focus, .field input:focus, .field select:focus, .field textarea:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(37, 99, 235, .1); }
+    .quick-create button { height: 38px; color: var(--text-secondary, #475569); background: var(--surface); font-size: 13px; }
+    .resource-group-title { font-size: 13px; letter-spacing: .06em; }
+    .resource-card, .candidate-card { min-height: 60px; border-color: var(--line); background: #fbfcfe; }
+    .resource-card:hover, .candidate-card:hover { border-color: #93c5fd; background: var(--cyan-soft); }
+    .resource-icon { color: var(--cyan); background: var(--cyan-soft); font-size: 13px; }
+    .resource-icon.motionPoint { color: var(--amber); background: #fffbeb; }
+    .resource-copy strong, .candidate-top strong { font-size: 13px; }
+    .resource-copy span, .candidate-path { font-size: 13px; }
+    .empty-list { font-size: 13px; }
+    .resource-add, .mini-button { color: var(--muted); background: var(--surface); }
+    .mini-button { min-height: 32px; font-size: 13px; }
+    .badge { min-height: 25px; font-size: 13px; }
+    .badge.candidate { color: var(--amber); background: #fffbeb; }
+    .badge.conflict { color: var(--red); background: #fef2f2; }
+    .badge.confirmed { color: var(--green); background: #f0fdf4; }
+    .canvas-panel { grid-template-rows: 52px minmax(0, 1fr) 42px; }
+    .canvas-toolbar, .canvas-footer { background: var(--surface); }
+    .layer-tabs { background: var(--surface-soft); }
+    .layer-tab { height: 34px; font-size: 13px; }
+    .layer-tab.active { color: var(--cyan); background: var(--surface); }
+    .icon-button { width: 34px; height: 34px; color: var(--muted); background: var(--surface); }
+    .icon-button:hover, .icon-button.active { color: var(--cyan); border-color: #93c5fd; background: var(--cyan-soft); }
+    .canvas-wrap { background: #f8fafc; }
+    .canvas-hint { color: var(--cyan); border-color: #93c5fd; background: var(--surface); box-shadow: var(--shadow); font-size: 13px; }
+    .empty-card { background: var(--surface); backdrop-filter: none; }
+    .empty-card p { font-size: 13px; }
+    .canvas-footer { font-size: 13px; }
+    .history-dock { border-color: var(--line-strong); background: rgba(255, 255, 255, .96); box-shadow: 0 10px 30px rgba(15, 23, 42, .12); backdrop-filter: blur(10px); }
+    .history-title { font-size: 13px; }
+    .history-mode, .history-summary, .history-action, .history-track time, .history-event strong, .history-event span { font-size: 13px; }
+    .history-action { min-height: 30px; color: var(--muted); background: var(--surface); }
+    .history-action:hover, .history-action.active { color: var(--cyan); border-color: #93c5fd; background: var(--cyan-soft); }
+    .canvas-wrap.replaying::after { color: var(--amber); background: #fffbeb; font-size: 13px; }
+    .edge-label { fill: var(--muted); stroke: #f8fafc; font-size: 13px; }
+    .edge.physical .edge-path { stroke: #3b82f6; }
+    .edge.state .edge-path { stroke: #7c3aed; }
+    .edge.interlock .edge-path { stroke: #d97706; }
+    .edge.recovery .edge-path { stroke: #15803d; }
+    .node .body { fill: #ffffff; stroke: var(--line-strong); }
+    .node:hover .body { fill: var(--cyan-soft); stroke: #60a5fa; }
+    .node-title { fill: var(--text); font-size: 14px; }
+    .node-meta, .node-state { fill: var(--muted); font-size: 13px; }
+    .pin-mark { fill: var(--muted); font-size: 13px; }
+    .inspector-empty .symbol { background: var(--cyan-soft); }
+    .inspector-empty strong, .section-head strong { font-size: 14px; }
+    .inspector-empty p, .section-head small, .field label { font-size: 13px; }
+    .field input, .field select, .field textarea { color: var(--text); border-color: var(--line-strong); background: var(--surface); font-size: 13px; }
+    .field input, .field select { height: 38px; }
+    .field select option { background: var(--surface); }
+    .range-row output { color: var(--cyan); font-size: 13px; }
+    .binding-card, .evidence-card { background: #fbfcfe; }
+    .binding-summary strong { font-size: 13px; }
+    .remove-x { color: var(--red); background: #fef2f2; }
+    .small-grid .field label { font-size: 13px; }
+    .small-grid .field input, .small-grid .field select { height: 38px; font-size: 13px; }
+    .add-row { height: 40px; color: var(--muted); background: var(--surface); font-size: 13px; }
+    .add-row:hover { color: var(--cyan); border-color: #93c5fd; background: var(--cyan-soft); }
+    .danger-zone .button { height: 40px; font-size: 13px; }
+    .safety-note { color: var(--muted); border-color: #fde68a; background: #fffbeb; font-size: 13px; }
+    .safety-note b { color: var(--amber); }
+    .toast { background: var(--surface); box-shadow: 0 14px 36px rgba(15, 23, 42, .15); backdrop-filter: none; }
+    .toast strong { font-size: 13px; }
+    .toast p { font-size: 13px; }
+
     @media (max-width: 1260px) {
-      .workspace { grid-template-columns: 238px minmax(390px, 1fr) 308px; }
+      .workspace { grid-template-columns: 250px minmax(390px, 1fr) 320px; }
       .metric { padding: 0 8px; }
       .metric span { display: none; }
       .brand { min-width: 225px; }
@@ -388,10 +476,6 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark"><span></span></div>
-        <div class="brand-copy"><strong>设备拓扑孪生</strong><small>Semantic Equipment Twin</small></div>
-      </div>
       <div class="metric-strip">
         <div class="metric"><i class="metric-dot"></i><span>节点</span><b id="nodeCount">0</b></div>
         <div class="metric"><i class="metric-dot"></i><span>关系</span><b id="relationCount">0</b></div>
@@ -447,17 +531,17 @@
           <div class="canvas-hint" id="canvasHint"></div>
           <svg id="graph" aria-label="设备拓扑关系画布">
             <defs>
-              <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#29405a" opacity=".46" /></pattern>
-              <pattern id="gridLarge" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#gridSmall)" /><path d="M100 0H0V100" fill="none" stroke="#34506c" stroke-width=".7" opacity=".25" /></pattern>
-              <filter id="nodeShadow" x="-30%" y="-40%" width="160%" height="190%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".32" /></filter>
-              <filter id="nodeGlow" x="-40%" y="-50%" width="180%" height="210%"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#35d8f5" flood-opacity=".28" /><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".3" /></filter>
+              <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#cbd5e1" opacity=".72" /></pattern>
+              <pattern id="gridLarge" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#gridSmall)" /><path d="M100 0H0V100" fill="none" stroke="#cbd5e1" stroke-width=".7" opacity=".5" /></pattern>
+              <filter id="nodeShadow" x="-30%" y="-40%" width="160%" height="190%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0f172a" flood-opacity=".14" /></filter>
+              <filter id="nodeGlow" x="-40%" y="-50%" width="180%" height="210%"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#2563eb" flood-opacity=".2" /><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0f172a" flood-opacity=".12" /></filter>
               <filter id="softGlow" x="-40%" y="-200%" width="180%" height="500%"><feGaussianBlur stdDeviation="2.8" result="b" /><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
               <filter id="softGlowRed" x="-40%" y="-200%" width="180%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#ff6b7f" flood-opacity=".52" /></filter>
               <filter id="softGlowGreen" x="-200%" y="-200%" width="500%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#4ce0aa" flood-opacity=".75" /></filter>
-              <marker id="arrow-physical" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#4fcce8" /></marker>
-              <marker id="arrow-state" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8a7dff" /></marker>
-              <marker id="arrow-interlock" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#ffbd69" /></marker>
-              <marker id="arrow-recovery" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#4ce0aa" /></marker>
+              <marker id="arrow-physical" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#3b82f6" /></marker>
+              <marker id="arrow-state" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#7c3aed" /></marker>
+              <marker id="arrow-interlock" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#d97706" /></marker>
+              <marker id="arrow-recovery" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#15803d" /></marker>
             </defs>
             <g id="scene"><rect id="gridRect" x="-5000" y="-5000" width="10000" height="10000" fill="url(#gridLarge)" /><g id="edgeLayer"></g><g id="nodeLayer"></g></g>
           </svg>
@@ -465,7 +549,7 @@
             <div class="empty-card">
               <div class="empty-orbit"></div>
               <h2>建立设备的语义地图</h2>
-              <p>从左侧添加现场资源或具体对象，再建立物理、状态、防呆与异常恢复关系。这里表达的是具体设备事实，不是零部件类型库。</p>
+              <p>添加现场资源或具体对象，建立关系与状态绑定。</p>
               <button class="button primary" id="demoButton">加载交互示例</button>
             </div>
           </div>
@@ -485,7 +569,7 @@
             <div class="history-event">
               <i class="history-pulse"></i>
               <strong id="historyEventNode">尚无状态事件</strong>
-              <span id="historyEventDetail">确认拓扑状态绑定后，变化会按全局顺序记录并可回放。</span>
+              <span id="historyEventDetail">状态变化会按全局顺序记录。</span>
             </div>
           </section>
         </div>
@@ -505,7 +589,7 @@
           <div class="panel-title"><strong id="inspectorTitle">属性与语义</strong><span id="selectionType">未选择</span></div>
         </div>
         <div class="inspector-scroll" id="inspectorContent"></div>
-        <div class="safety-note"><b>边界：</b><span id="safetyNotice">拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。</span></div>
+        <div class="safety-note"><span id="safetyNotice">拓扑不替代控制器安全联锁。</span></div>
       </aside>
     </div>
   </div>
@@ -533,6 +617,7 @@
       const state = {
         definition: emptyDefinition(),
         catalog: [],
+        operationCatalog: [],
         libraryTab: "resources",
         layer: "all",
         selected: null,
@@ -546,6 +631,7 @@
         replaySequence: null,
         playbackTimer: null,
         perceptionRunning: false,
+        perceptionLastSuccessfulAtUtc: "",
         observationError: "",
         transform: { x: 0, y: 0, k: 1 },
         history: [],
@@ -594,10 +680,11 @@
           node.x = Number.isFinite(Number(node.x)) ? Number(node.x) : 160 + (index % 4) * 240;
           node.y = Number.isFinite(Number(node.y)) ? Number(node.y) : 130 + Math.floor(index / 4) * 150;
           node.layoutPinned = Boolean(node.layoutPinned);
-          node.reviewState = node.reviewState || "confirmed";
+          node.reviewState = node.reviewState || "candidate";
           node.confidence = clamp(Number(node.confidence == null ? 1 : node.confidence), 0, 1);
           node.evidence = Array.isArray(node.evidence) ? node.evidence : [];
           node.stateBindings = Array.isArray(node.stateBindings) ? node.stateBindings : [];
+          node.skills = Array.isArray(node.skills) ? node.skills : [];
           node.stateBindings.forEach(binding => {
             binding.id = binding.id || uid("binding");
             binding.stateName = binding.stateName || "激活";
@@ -607,9 +694,24 @@
             binding.expectedValue = String(binding.expectedValue == null ? "true" : binding.expectedValue);
             binding.meaning = binding.meaning || "";
             binding.priority = Number(binding.priority || 0);
-            binding.reviewState = binding.reviewState || "confirmed";
+            binding.reviewState = binding.reviewState || "candidate";
             binding.confidence = clamp(Number(binding.confidence == null ? 1 : binding.confidence), 0, 1);
             binding.evidence = Array.isArray(binding.evidence) ? binding.evidence : [];
+          });
+          node.skills.forEach(skill => {
+            skill.id = skill.id || uid("skill");
+            skill.name = skill.name || "未命名节点技能";
+            skill.description = skill.description || "";
+            skill.actionKind = "process_operation";
+            skill.processId = skill.processId || "";
+            skill.operationId = skill.operationId || "";
+            skill.executionMode = skill.executionMode || "single_operation";
+            skill.objective = skill.objective || "";
+            skill.expectedOutcome = skill.expectedOutcome || "";
+            skill.preconditions = Array.isArray(skill.preconditions) ? skill.preconditions : [];
+            skill.reviewState = skill.reviewState || "candidate";
+            skill.confidence = clamp(Number(skill.confidence == null ? 1 : skill.confidence), 0, 1);
+            skill.evidence = Array.isArray(skill.evidence) ? skill.evidence : [];
           });
         });
         value.relations.forEach(relation => {
@@ -619,7 +721,7 @@
           relation.label = relation.label || "";
           relation.condition = relation.condition || "";
           relation.description = relation.description || "";
-          relation.reviewState = relation.reviewState || "confirmed";
+          relation.reviewState = relation.reviewState || "candidate";
           relation.confidence = clamp(Number(relation.confidence == null ? 1 : relation.confidence), 0, 1);
           relation.evidence = Array.isArray(relation.evidence) ? relation.evidence : [];
         });
@@ -682,7 +784,8 @@
           reviewState: "confirmed",
           confidence: 1,
           evidence: [],
-          stateBindings: []
+          stateBindings: [],
+          skills: []
         };
         mutate(() => { state.definition.nodes.push(node); state.selected = { type: "node", id: node.id }; }, { keepSelection: true });
       }
@@ -1069,8 +1172,90 @@
       }
 
       function options(map, selected) { return Object.entries(map).map(([value, text]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(text)}</option>`).join(""); }
-      function sourceKindOptions(selected) { return options({ io: "IO 信号", variable: "变量", axis: "轴状态", vision: "视觉结果", runtime: "运行时状态" }, selected); }
-      function operatorOptions(selected) { return options({ equals: "等于", not_equals: "不等于", greater_than: "大于", less_than: "小于", active: "有效", inactive: "无效" }, selected); }
+      function sourceKindOptions(selected) { return [{ value: "io", text: "IO 信号", enabled: true }, { value: "variable", text: "变量（暂不实时采集）" }, { value: "axis", text: "轴状态（暂不实时采集）" }, { value: "runtime", text: "运行时状态（暂不实时采集）" }].map(item => `<option value="${item.value}" ${item.value === selected ? "selected" : ""} ${item.enabled || item.value === selected ? "" : "disabled"}>${item.text}</option>`).join(""); }
+      function operatorOptions(selected, sourceKind) {
+        const supported = sourceKind === "io"
+          ? { equals: "等于", not_equals: "不等于", active: "有效", inactive: "无效" }
+          : { equals: "等于", not_equals: "不等于", greater_than: "大于", less_than: "小于", active: "有效", inactive: "无效" };
+        const invalid = selected && !Object.prototype.hasOwnProperty.call(supported, selected)
+          ? `<option value="${esc(selected)}" selected disabled>不支持：${esc(selected)}</option>`
+          : "";
+        return invalid + options(supported, selected);
+      }
+
+      function hasRuleProvenance(item) {
+        const evidence = Array.isArray(item && item.evidence) ? item.evidence : [];
+        return evidence.length > 0 && evidence.every(entry => entry
+          && entry.sourceType === "rule"
+          && typeof entry.sourceRef === "string"
+          && entry.sourceRef.startsWith("fact-"));
+      }
+
+      function appendManualEditEvidence(item) {
+        item.evidence = Array.isArray(item.evidence) ? item.evidence : [];
+        if (!item.evidence.some(entry => entry && entry.sourceType === "manual_edit")) {
+          item.evidence.push({
+            sourceType: "manual_edit",
+            sourceRef: "topology-editor",
+            operationType: "",
+            parameterPath: "",
+            detail: "人工修改后脱离规则重扫的生命周期管理。"
+          });
+        }
+      }
+
+      function detachRelationFromRule(relation) {
+        if (!hasRuleProvenance(relation)) return;
+        const previousId = relation.id;
+        relation.id = uid("relation");
+        appendManualEditEvidence(relation);
+        state.definition.relations.forEach(item => {
+          if (item && item.conflictsWithId === previousId) item.conflictsWithId = relation.id;
+        });
+        if (state.selected && state.selected.type === "relation" && state.selected.id === previousId) {
+          state.selected.id = relation.id;
+        }
+      }
+
+      function detachBindingFromRule(binding) {
+        if (!hasRuleProvenance(binding)) return;
+        binding.id = uid("binding");
+        appendManualEditEvidence(binding);
+      }
+
+      function detachSkillFromRule(skill) {
+        if (!hasRuleProvenance(skill)) return;
+        skill.id = uid("skill");
+        appendManualEditEvidence(skill);
+      }
+
+      function detachNodeFromRule(node) {
+        if (!hasRuleProvenance(node)) return;
+        const previousId = node.id;
+        node.id = uid("node");
+        appendManualEditEvidence(node);
+        (node.stateBindings || []).forEach(detachBindingFromRule);
+        (node.skills || []).forEach(detachSkillFromRule);
+        state.definition.relations.forEach(relation => {
+          const connected = relation.sourceNodeId === previousId || relation.targetNodeId === previousId;
+          if (!connected) return;
+          if (relation.sourceNodeId === previousId) relation.sourceNodeId = node.id;
+          if (relation.targetNodeId === previousId) relation.targetNodeId = node.id;
+          detachRelationFromRule(relation);
+        });
+        if (state.selected && state.selected.type === "node" && state.selected.id === previousId) {
+          state.selected.id = node.id;
+        }
+      }
+      function skillProcessOptions(selected) {
+        const seen = new Set();
+        const items = state.operationCatalog.filter(item => item.processId && !seen.has(item.processId) && seen.add(item.processId));
+        return `<option value="">请选择流程</option>` + items.map(item => `<option value="${esc(item.processId)}" ${item.processId === selected ? "selected" : ""}>${esc(item.processName)} · ${esc(item.processId.slice(0, 8))}</option>`).join("");
+      }
+      function skillOperationOptions(skill) {
+        const items = state.operationCatalog.filter(item => item.processId === skill.processId);
+        return `<option value="">请选择真实指令</option>` + items.map(item => `<option value="${esc(item.operationId)}" ${item.operationId === skill.operationId ? "selected" : ""}>${item.disabled ? "[禁用] " : ""}${esc(item.stepName)} / ${esc(item.operationName)} · ${esc(item.operationType)}</option>`).join("");
+      }
 
       function evidencePreview(evidence) {
         const items = Array.isArray(evidence) ? evidence : [];
@@ -1087,10 +1272,11 @@
       function renderNodeInspector(container, node) {
         $("#inspectorTitle").textContent = node.label;
         $("#selectionType").textContent = labels.nodeKinds[node.kind] || "节点";
-        const bindings = (node.stateBindings || []).map((binding, index) => `<div class="binding-card" data-binding-index="${index}"><div class="binding-summary"><span class="badge ${esc(binding.reviewState)}">${esc(labels.review[binding.reviewState])} · P${Number(binding.priority || 0)}</span><strong>${esc(binding.stateName || "未命名状态")}</strong>${binding.reviewState !== "confirmed" ? `<button class="mini-button accept" data-accept-binding="${index}">接受</button>` : ""}<button class="remove-x" data-remove-binding="${index}" title="删除状态绑定">×</button></div><div class="small-grid"><div class="field"><label>信号来源</label><select data-binding-field="sourceKind">${sourceKindOptions(binding.sourceKind)}</select></div><div class="field"><label>资源引用</label><input data-binding-field="resourceRef" value="${esc(binding.resourceRef)}" list="ioResources" /></div><div class="field"><label>比较方式</label><select data-binding-field="operator">${operatorOptions(binding.operator)}</select></div><div class="field"><label>期望值</label><input data-binding-field="expectedValue" value="${esc(binding.expectedValue)}" /></div><div class="field"><label>状态名称</label><input data-binding-field="stateName" value="${esc(binding.stateName)}" /></div><div class="field"><label>优先级</label><input type="number" data-binding-field="priority" value="${Number(binding.priority || 0)}" /></div><div class="field full"><label>具体物理含义</label><input data-binding-field="meaning" value="${esc(binding.meaning)}" placeholder="例如：true 时打开真空进行吸取" /></div></div><div class="candidate-path">${esc(evidencePreview(binding.evidence))}</div></div>`).join("");
+        const bindings = (node.stateBindings || []).map((binding, index) => `<div class="binding-card" data-binding-index="${index}"><div class="binding-summary"><span class="badge ${esc(binding.reviewState)}">${esc(labels.review[binding.reviewState])} · P${Number(binding.priority || 0)}</span><strong>${esc(binding.stateName || "未命名状态")}</strong>${binding.reviewState !== "confirmed" ? `<button class="mini-button accept" data-accept-binding="${index}">接受</button>` : ""}<button class="remove-x" data-remove-binding="${index}" title="删除状态绑定">×</button></div><div class="small-grid"><div class="field"><label>信号来源</label><select data-binding-field="sourceKind">${sourceKindOptions(binding.sourceKind)}</select></div><div class="field"><label>资源引用</label><input data-binding-field="resourceRef" value="${esc(binding.resourceRef)}" list="ioResources" /></div><div class="field"><label>比较方式</label><select data-binding-field="operator">${operatorOptions(binding.operator, binding.sourceKind)}</select></div><div class="field"><label>期望值</label><input data-binding-field="expectedValue" value="${esc(binding.expectedValue)}" /></div><div class="field"><label>状态名称</label><input data-binding-field="stateName" value="${esc(binding.stateName)}" /></div><div class="field"><label>优先级</label><input type="number" data-binding-field="priority" value="${Number(binding.priority || 0)}" /></div><div class="field full"><label>具体物理含义</label><input data-binding-field="meaning" value="${esc(binding.meaning)}" placeholder="例如：true 时打开真空进行吸取" /></div></div><div class="candidate-path">${esc(evidencePreview(binding.evidence))}</div></div>`).join("");
+        const skills = (node.skills || []).map((skill, index) => `<div class="binding-card" data-skill-index="${index}"><div class="binding-summary"><span class="badge ${esc(skill.reviewState)}">${esc(labels.review[skill.reviewState])} · ${esc(skill.executionMode === "continue_flow" ? "继续流程" : "单指令")}</span><strong>${esc(skill.name || "未命名技能")}</strong>${skill.reviewState !== "confirmed" ? `<button class="mini-button accept" data-accept-skill="${index}">接受</button>` : ""}<button class="remove-x" data-remove-skill="${index}" title="删除节点技能">×</button></div><div class="small-grid"><div class="field full"><label>技能名称</label><input data-skill-field="name" value="${esc(skill.name)}" /></div><div class="field full"><label>既有流程</label><select data-skill-field="processId">${skillProcessOptions(skill.processId)}</select></div><div class="field full"><label>既有流程指令</label><select data-skill-field="operationId">${skillOperationOptions(skill)}</select></div><div class="field"><label>执行模式</label><select data-skill-field="executionMode"><option value="single_operation" ${skill.executionMode === "single_operation" ? "selected" : ""}>只执行该指令一次</option><option value="continue_flow" ${skill.executionMode === "continue_flow" ? "selected" : ""}>从该指令继续流程</option></select></div><div class="field"><label>审核状态</label><select data-skill-field="reviewState">${options(labels.review, skill.reviewState)}</select></div><div class="field full"><label>动作目标</label><input data-skill-field="objective" value="${esc(skill.objective)}" placeholder="例如：补发出料完成握手" /></div><div class="field full"><label>预期结果</label><input data-skill-field="expectedOutcome" value="${esc(skill.expectedOutcome)}" placeholder="应由时间线或下游状态验证的结果" /></div><div class="field full"><label>前置条件（分号分隔）</label><input data-skill-field="preconditions" value="${esc((skill.preconditions || []).join("；"))}" /></div><div class="field full"><label>说明</label><input data-skill-field="description" value="${esc(skill.description)}" /></div></div><div class="candidate-path">${esc(evidencePreview(skill.evidence))}</div></div>`).join("");
         const ioOptions = state.catalog.filter(item => item.kind === "ioInput" || item.kind === "ioOutput").map(item => `<option value="${esc(item.resourceRef)}"></option>`).join("");
         const nodeEvidence = readOnlyEvidenceCards(node.evidence);
-        container.innerHTML = `<section class="section"><div class="section-head"><strong>具体对象</strong><small>${esc(labels.review[node.reviewState])} · ${Math.round(node.confidence * 100)}%</small></div><div class="form-grid"><div class="field full"><label>对象名称</label><input data-node-field="label" value="${esc(node.label)}" /></div><div class="field"><label>对象类别</label><select data-node-field="kind">${options(labels.nodeKinds, node.kind)}</select></div><div class="field"><label>区域 / 工位</label><input data-node-field="zone" value="${esc(node.zone)}" /></div><div class="field"><label>资源类型</label><select data-node-field="resourceKind">${options({ "": "未绑定", station: "工站", motionPoint: "运动点位", io: "IO", ioOutput: "IO 输出", ioInput: "IO 输入", variable: "变量", vision: "视觉" }, node.resourceKind)}</select></div><div class="field"><label>资源引用</label><input data-node-field="resourceRef" value="${esc(node.resourceRef)}" /></div><div class="field full"><label>说明</label><textarea data-node-field="description">${esc(node.description)}</textarea></div><div class="field full"><label><input type="checkbox" data-node-field="layoutPinned" ${node.layoutPinned ? "checked" : ""} style="width:auto;height:auto;margin-right:7px;vertical-align:-1px"/>自动排布时固定位置</label></div></div></section><section class="section"><div class="section-head"><strong>对象证据</strong><small>${node.evidence.length} SOURCES</small></div>${nodeEvidence || `<div class="empty-list">人工创建对象，没有自动推断证据。</div>`}</section><section class="section"><div class="section-head"><strong>状态语义绑定</strong><small>${node.stateBindings.length} BINDINGS</small></div>${bindings || `<div class="empty-list">尚未配置状态含义。为具体对象绑定真实信号后，实时状态会在画布上显示。</div>`}<button class="add-row" id="addBindingButton">＋ 添加状态绑定</button><datalist id="ioResources">${ioOptions}</datalist></section><div class="danger-zone">${node.reviewState !== "confirmed" ? `<button class="button" id="acceptNodeButton">接受对象候选</button>` : ""}<button class="button subtle" id="duplicateButton">复制对象</button><button class="button danger" id="deleteButton">删除对象</button></div>`;
+        container.innerHTML = `<section class="section"><div class="section-head"><strong>具体对象</strong><small>${esc(labels.review[node.reviewState])} · ${Math.round(node.confidence * 100)}%</small></div><div class="form-grid"><div class="field full"><label>对象名称</label><input data-node-field="label" value="${esc(node.label)}" /></div><div class="field"><label>对象类别</label><select data-node-field="kind">${options(labels.nodeKinds, node.kind)}</select></div><div class="field"><label>区域 / 工位</label><input data-node-field="zone" value="${esc(node.zone)}" /></div><div class="field"><label>资源类型</label><select data-node-field="resourceKind">${options({ "": "未绑定", station: "工站", motionPoint: "运动点位", io: "IO", ioOutput: "IO 输出", ioInput: "IO 输入", variable: "变量" }, node.resourceKind)}</select></div><div class="field"><label>资源引用</label><input data-node-field="resourceRef" value="${esc(node.resourceRef)}" /></div><div class="field full"><label>说明</label><textarea data-node-field="description">${esc(node.description)}</textarea></div><div class="field full"><label><input type="checkbox" data-node-field="layoutPinned" ${node.layoutPinned ? "checked" : ""} style="width:auto;height:auto;margin-right:7px;vertical-align:-1px"/>自动排布时固定位置</label></div></div></section><section class="section"><div class="section-head"><strong>对象证据</strong><small>${node.evidence.length} SOURCES</small></div>${nodeEvidence || `<div class="empty-list">人工创建对象，没有自动推断证据。</div>`}</section><section class="section"><div class="section-head"><strong>状态语义绑定</strong><small>${node.stateBindings.length} BINDINGS</small></div>${bindings || `<div class="empty-list">尚未配置状态含义。为具体对象绑定真实信号后，实时状态会在画布上显示。</div>`}<button class="add-row" id="addBindingButton">＋ 添加状态绑定</button><datalist id="ioResources">${ioOptions}</datalist></section><section class="section"><div class="section-head"><strong>Machine Agent 节点技能</strong><small>${node.skills.length} SKILLS</small></div>${skills || `<div class="empty-list">尚未绑定节点技能。技能只引用工程师已编写的真实流程指令，不在拓扑中另写控制流程。</div>`}<button class="add-row" id="addSkillButton">＋ 绑定既有流程指令</button></section><div class="danger-zone">${node.reviewState !== "confirmed" ? `<button class="button" id="acceptNodeButton">接受对象候选</button>` : ""}<button class="button subtle" id="duplicateButton">复制对象</button><button class="button danger" id="deleteButton">删除对象</button></div>`;
         bindNodeInspector(node);
       }
 
@@ -1098,6 +1284,7 @@
         $$(`[data-node-field]`, $("#inspectorContent")).forEach(control => {
           control.addEventListener("change", () => mutate(() => {
             const field = control.dataset.nodeField;
+            if (field !== "layoutPinned") detachNodeFromRule(node);
             node[field] = control.type === "checkbox" ? control.checked : control.value;
           }, { keepSelection: true }));
         });
@@ -1106,6 +1293,7 @@
           $$(`[data-binding-field]`, card).forEach(control => control.addEventListener("change", () => mutate(() => {
             const binding = node.stateBindings[index]; if (!binding) return;
             const field = control.dataset.bindingField;
+            detachBindingFromRule(binding);
             binding[field] = field === "priority" ? Number(control.value || 0) : control.value;
           }, { keepSelection: true })));
         });
@@ -1115,11 +1303,27 @@
           if (binding) { binding.reviewState = "confirmed"; binding.confidence = 1; }
         }, { keepSelection: true })));
         $("#addBindingButton").addEventListener("click", () => mutate(() => node.stateBindings.push({ id: uid("binding"), stateName: "激活", sourceKind: "io", resourceRef: "", operator: "equals", expectedValue: "true", meaning: "", priority: 10, reviewState: "confirmed", confidence: 1, evidence: [] }), { keepSelection: true }));
+        $$(`[data-skill-index]`, $("#inspectorContent")).forEach(card => {
+          const index = Number(card.dataset.skillIndex);
+          $$(`[data-skill-field]`, card).forEach(control => control.addEventListener("change", () => mutate(() => {
+            const skill = node.skills[index]; if (!skill) return;
+            const field = control.dataset.skillField;
+            if (field !== "reviewState") detachSkillFromRule(skill);
+            if (field === "preconditions") skill[field] = control.value.split(/[；;]/).map(x => x.trim()).filter(Boolean);
+            else { skill[field] = control.value; if (field === "processId") skill.operationId = ""; }
+          }, { keepSelection: true })));
+        });
+        $$(`[data-remove-skill]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => node.skills.splice(Number(button.dataset.removeSkill), 1), { keepSelection: true })));
+        $$(`[data-accept-skill]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => {
+          const skill = node.skills[Number(button.dataset.acceptSkill)];
+          if (skill) { skill.reviewState = "confirmed"; skill.confidence = 1; }
+        }, { keepSelection: true })));
+        $("#addSkillButton").addEventListener("click", () => mutate(() => node.skills.push({ id: uid("skill"), name: "节点动作", description: "绑定工程师已编写的流程指令", actionKind: "process_operation", processId: "", operationId: "", executionMode: "single_operation", objective: "", expectedOutcome: "", preconditions: [], reviewState: "confirmed", confidence: 1, evidence: [] }), { keepSelection: true }));
         const acceptNode = $("#acceptNodeButton");
         if (acceptNode) acceptNode.addEventListener("click", () => mutate(() => { node.reviewState = "confirmed"; node.confidence = 1; }, { keepSelection: true }));
         $("#deleteButton").addEventListener("click", deleteSelection);
         $("#duplicateButton").addEventListener("click", () => mutate(() => {
-          const copy = clone(node); copy.id = uid("node"); copy.label += " 副本"; copy.x += 36; copy.y += 36; copy.stateBindings.forEach(item => item.id = uid("binding")); state.definition.nodes.push(copy); state.selected = { type: "node", id: copy.id };
+          const copy = clone(node); copy.id = uid("node"); appendManualEditEvidence(copy); copy.label += " 副本"; copy.x += 36; copy.y += 36; copy.stateBindings.forEach(item => { item.id = uid("binding"); appendManualEditEvidence(item); }); copy.skills.forEach(item => { item.id = uid("skill"); appendManualEditEvidence(item); }); state.definition.nodes.push(copy); state.selected = { type: "node", id: copy.id };
         }, { keepSelection: true }));
       }
 
@@ -1142,17 +1346,19 @@
           });
           control.addEventListener("change", () => mutate(() => {
             const field = control.dataset.relationField;
+            if (field !== "reviewState") detachRelationFromRule(relation);
             relation[field] = field === "confidence" ? Number(control.value) : control.value;
           }, { keepSelection: true }));
         });
         $$(`[data-evidence-index]`, $("#inspectorContent")).forEach(card => {
           const index = Number(card.dataset.evidenceIndex);
           $$(`[data-evidence-field]`, card).forEach(control => control.addEventListener("change", () => mutate(() => {
+            detachRelationFromRule(relation);
             const evidence = relation.evidence[index]; if (evidence) evidence[control.dataset.evidenceField] = control.value;
           }, { keepSelection: true })));
         });
-        $$(`[data-remove-evidence]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => relation.evidence.splice(Number(button.dataset.removeEvidence), 1), { keepSelection: true })));
-        $("#addEvidenceButton").addEventListener("click", () => mutate(() => relation.evidence.push({ sourceType: "process_parameter", sourceRef: "", operationType: "", parameterPath: "", detail: "" }), { keepSelection: true }));
+        $$(`[data-remove-evidence]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => { detachRelationFromRule(relation); relation.evidence.splice(Number(button.dataset.removeEvidence), 1); }, { keepSelection: true })));
+        $("#addEvidenceButton").addEventListener("click", () => mutate(() => { detachRelationFromRule(relation); relation.evidence.push({ sourceType: "process_parameter", sourceRef: "", operationType: "", parameterPath: "", detail: "" }); }, { keepSelection: true }));
         $("#deleteButton").addEventListener("click", deleteSelection);
         const accept = $("#acceptRelationButton");
         if (accept) accept.addEventListener("click", () => mutate(() => { relation.reviewState = "confirmed"; relation.confidence = 1; }, { keepSelection: true }));
@@ -1309,8 +1515,8 @@
           .sort((a, b) => Number(a.sequence) - Number(b.sequence));
         state.liveNodeStates = projectionMap(message.currentSnapshot);
         state.perceptionRunning = Boolean(message.perceptionRunning);
+        state.perceptionLastSuccessfulAtUtc = message.lastSuccessfulObservationAtUtc || "";
         state.observationError = message.observationError || "";
-        state.runtimeAt = Date.now();
         if (state.historyMode === "replay") {
           const minimum = Number(window?.baseline?.sequence || 0);
           setReplaySequence(Math.max(minimum, Number(state.replaySequence || minimum)));
@@ -1323,12 +1529,17 @@
 
       function renderRuntimeIndicator() {
         const indicator = $("#runtimeIndicator");
-        const live = state.runtimeAt && Date.now() - state.runtimeAt < 5000;
+        const lastSuccessfulAt = Date.parse(state.perceptionLastSuccessfulAtUtc);
+        const perceptionLive = state.perceptionRunning
+          && !state.observationError
+          && Number.isFinite(lastSuccessfulAt);
+        const signalLive = Boolean(state.runtimeAt);
+        const live = state.stateHistoryWindow ? perceptionLive : signalLive;
         indicator.classList.toggle("live", Boolean(live));
         if (state.historyMode === "replay") {
           $("#runtimeText").textContent = `回放 #${state.replaySequence || 0}`;
         } else if (state.liveNodeStates.size) {
-          $("#runtimeText").textContent = live ? `${state.liveNodeStates.size} 个节点状态` : "状态感知连接超时";
+          $("#runtimeText").textContent = live ? `${state.liveNodeStates.size} 个节点状态` : "状态感知不可用";
         } else {
           $("#runtimeText").textContent = live ? `${state.signals.size} 个实时信号` : "等待实时状态";
         }
@@ -1360,9 +1571,10 @@
         if (message.type === "bootstrap") {
           state.definition = normalizeDefinition(clone(message.definition));
           state.catalog = Array.isArray(message.catalog) ? message.catalog : [];
+          state.operationCatalog = Array.isArray(message.operationCatalog) ? message.operationCatalog : [];
           state.canEdit = message.canEdit !== false;
           state.history = []; state.future = []; state.dirty = false; state.saving = false; state.bootstrapped = true;
-          $("#safetyNotice").textContent = message.safetyNotice || "拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。";
+          $("#safetyNotice").textContent = message.safetyNotice || "拓扑不替代控制器安全联锁。";
           renderAll();
           requestAnimationFrame(fitGraph);
         } else if (message.type === "runtime") {
@@ -1438,6 +1650,7 @@
       });
       window.addEventListener("resize", () => { if (state.bootstrapped && state.definition.nodes.length) applyTransform(); });
 
+      setInterval(renderRuntimeIndicator, 1000);
       renderAll();
       renderStateTimeline();
       if (host) post("ready");
@@ -1447,7 +1660,7 @@
           { kind: "ioOutput", resourceRef: "真空电磁阀", label: "真空电磁阀", subtitle: "输出 · 电磁阀", defaultNodeKind: "actuator" },
           { kind: "ioInput", resourceRef: "真空检测", label: "真空检测", subtitle: "输入 · 压力开关", defaultNodeKind: "sensor" }
         ];
-        handleMessage({ type: "bootstrap", definition: buildDemoDefinition(), catalog: demoCatalog, canEdit: true, safetyNotice: "浏览器预览：拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。" });
+        handleMessage({ type: "bootstrap", definition: buildDemoDefinition(), catalog: demoCatalog, canEdit: true, safetyNotice: "拓扑不替代控制器安全联锁。" });
       }
     })();
   </script>

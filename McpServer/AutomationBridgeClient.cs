@@ -370,6 +370,48 @@ namespace Automation.McpServer
             return PostAsync("/bridge/point/get", payload);
         }
 
+        // ---------- Machine Agent 独立上下文与预演 ----------
+
+        public Task<string> GetMachineContextAsync(
+            int? eventLimit,
+            int? nodeOffset,
+            int? nodeLimit,
+            int? relationOffset,
+            int? relationLimit)
+        {
+            JsonObject payload = new JsonObject();
+            if (eventLimit.HasValue) payload["eventLimit"] = eventLimit.Value;
+            if (nodeOffset.HasValue) payload["nodeOffset"] = nodeOffset.Value;
+            if (nodeLimit.HasValue) payload["nodeLimit"] = nodeLimit.Value;
+            if (relationOffset.HasValue) payload["relationOffset"] = relationOffset.Value;
+            if (relationLimit.HasValue) payload["relationLimit"] = relationLimit.Value;
+            return PostAsync("/bridge/machine/context", payload);
+        }
+
+        public Task<string> GetMachineStateHistoryAsync(long? afterSequence, int? limit)
+        {
+            JsonObject payload = new JsonObject();
+            if (afterSequence.HasValue) payload["afterSequence"] = afterSequence.Value;
+            if (limit.HasValue) payload["limit"] = limit.Value;
+            return PostAsync("/bridge/machine/state-history", payload);
+        }
+
+        public Task<string> PreviewMachineProcessEntryAsync(MachineProcessEntryPreviewRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            JsonNode payload = JsonSerializer.SerializeToNode(request, jsonOptions)
+                ?? throw new ArgumentException("Machine Agent 预演参数不能为空。", nameof(request));
+            return PostAsync("/bridge/machine/process-entry/preview", payload.AsObject());
+        }
+
+        public Task<string> PreviewMachineProcessStopAsync(MachineProcessStopPreviewRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            JsonNode payload = JsonSerializer.SerializeToNode(request, jsonOptions)
+                ?? throw new ArgumentException("Machine Agent 停止预演参数不能为空。", nameof(request));
+            return PostAsync("/bridge/machine/process-stop/preview", payload.AsObject());
+        }
+
         public Task<string> PlanMotionPointsAsync(int stationIndex, IReadOnlyList<string> pointNames)
         {
             var names = new JsonArray();

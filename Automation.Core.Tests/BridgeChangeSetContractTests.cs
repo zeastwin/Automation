@@ -30,7 +30,9 @@ namespace Automation.Core.Tests
                         "/bridge/proc/create",
                         "/bridge/proc/delete",
                         "/bridge/proc/reorder",
-                        "/bridge/proc/copy"
+                        "/bridge/proc/copy",
+                        "/bridge/machine/process-entry/execute",
+                        "/bridge/machine/process-stop/execute"
                     })
                     {
                         AutomationBridgeResponse response = service.Handle("POST", route, "{}");

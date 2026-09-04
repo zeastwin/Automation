@@ -47,6 +47,70 @@ namespace Automation.McpServer
             return result;
         }
 
+        [McpServerTool(Name = "get_machine_context"), Description(
+            "读取 Machine Agent 的设备上下文快照：安全锁、运行流程、已确认/候选拓扑节点与关系、节点实时状态和最近状态时间线。"
+            + "拓扑节点和关系分别分页；必须根据 nodeWindow/relationWindow.hasMore 继续读取，不能把单页当成完整设备。"
+            + "拓扑是物理语义主模型，时间线是有序事实源；流程名、指令名和显示标签都不是物理证据。纯只读。")]
+        public static async Task<string> GetMachineContext(
+            [Description("随上下文返回的最近状态事件数量，1..80，默认40")] int? eventLimit = null,
+            [Description("拓扑节点分页偏移，0..2000，默认0")] int? nodeOffset = null,
+            [Description("拓扑节点页大小，1..200，默认80")] int? nodeLimit = null,
+            [Description("拓扑关系分页偏移，0..5000，默认0")] int? relationOffset = null,
+            [Description("拓扑关系页大小，1..500，默认160")] int? relationLimit = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetMachineContext),
+                args: new { eventLimit, nodeOffset, nodeLimit, relationOffset, relationLimit },
+                action: client => client.GetMachineContextAsync(
+                    eventLimit,
+                    nodeOffset,
+                    nodeLimit,
+                    relationOffset,
+                    relationLimit)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "get_equipment_state_history"), Description(
+            "按全局 sequence 读取设备状态历史，用于回答刚才发生了什么、动作前后状态是否一致和异常时序。"
+            + "节点当前状态只是历史投影，不能代替事件明细。纯只读。")]
+        public static async Task<string> GetEquipmentStateHistory(
+            [Description("只返回大于该 sequence 的事件；首次读取可省略")] long? afterSequence = null,
+            [Description("返回数量，1..500，默认120")] int? limit = null)
+        {
+            return await ExecuteAsync(
+                toolName: nameof(GetEquipmentStateHistory),
+                args: new { afterSequence, limit },
+                action: client => client.GetMachineStateHistoryAsync(afterSequence, limit)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_process_entry_execution"), Description(
+            "创建节点技能或无外部副作用诊断指令的冻结预演，不执行任何设备动作。设备、通讯、PLC、人员界面或其他流程交互必须提供已确认 skillId；目标流程、指令、执行模式、动作目标和预期结果由技能权威解析，不能由请求覆盖。"
+            + "预演会机械求值技能前置条件、已确认 requires/blocks/interlock 关系、实时状态质量和最近成功观测。无法求值的已确认约束会阻塞。"
+            + "不要按流程名、指令名或显示标签猜测。返回 executable=false 时只能解释阻塞项；返回 true 仍必须由 Machine Agent 前台人工确认，AI 没有执行工具。")]
+        public static async Task<string> PreviewProcessEntryExecution(
+            [Description("优先只提供已确认节点技能 skillId。仅无外部副作用的兼容诊断可改用 procId/operationId/mode/objective/expectedOutcome。")]
+            MachineProcessEntryPreviewRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewProcessEntryExecution),
+                args: request,
+                action: client => client.PreviewMachineProcessEntryAsync(request)).ConfigureAwait(false);
+        }
+
+        [McpServerTool(Name = "preview_process_stop"), Description(
+            "为一个当前活动的流程 runId 创建停止预演，不直接停止流程。仅在用户确实要求停止、终止或为重新选择入口而先结束当前运行时使用。"
+            + "停止预演冻结稳定 procId 与当前 runId；运行实例换代后预演失效，绝不停止新实例。AI 没有执行工具，仍由 Machine Agent 前台人工确认。")]
+        public static async Task<string> PreviewProcessStop(
+            [Description("目标流程稳定 procId 与具体停止原因。不要使用流程显示名代替稳定 ID。")]
+            MachineProcessStopPreviewRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await ExecuteAsync(
+                toolName: nameof(PreviewProcessStop),
+                args: request,
+                action: client => client.PreviewMachineProcessStopAsync(request)).ConfigureAwait(false);
+        }
+
         [McpServerTool(Name = "get_device_summary"), Description(
             "设备自我画像：一次返回本机运行状态（安全锁/流程状态/活动报警/选中流程）、工站与轴、IO、通讯和PLC资源的真实计数与名称。"
             + "纯只读、无副作用；回答\"这台设备/你\"的状态或配置数量类问题（有几个轴、什么状态、有没有报警、配了哪些通讯）时直接调用，"

@@ -20,6 +20,7 @@ namespace Automation
     public sealed class EquipmentStateHistoryService : IDisposable
     {
         private const int DefaultMaximumRetainedEvents = 100000;
+        private const int MaximumReportedSequenceGaps = 100;
         private static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(24);
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
         private static readonly JsonSerializerSettings PersistenceJsonSettings =
@@ -37,11 +38,15 @@ namespace Automation
             new Dictionary<string, EquipmentNodeStateProjection>(StringComparer.Ordinal);
         private readonly Dictionary<string, EquipmentNodeStateProjection> current =
             new Dictionary<string, EquipmentNodeStateProjection>(StringComparer.Ordinal);
+        private readonly List<EquipmentStateSequenceGap> knownSequenceGaps =
+            new List<EquipmentStateSequenceGap>();
         private readonly int maximumRetainedEvents;
         private readonly TimeSpan retention;
         private readonly string persistenceRoot;
         private readonly object persistenceSync = new object();
         private Task persistenceTail = Task.CompletedTask;
+        private string lastWriteError;
+        private string lastRecoveryError;
         private long nextSequence;
         private long retainedBaselineSequence;
         private long retainedBaselineTopologyRevision;
@@ -60,12 +65,166 @@ namespace Automation
             this.persistenceRoot = persistenceRoot;
             this.maximumRetainedEvents = maximumRetainedEvents;
             this.retention = retention ?? DefaultRetention;
+            RecoverPersistedHistory();
         }
 
         public event EventHandler<EquipmentStateHistoryEvent> EventAppended;
 
         public long Revision => Interlocked.Read(ref nextSequence);
-        public string LastPersistenceError { get; private set; }
+        public string LastRecoveryError => Volatile.Read(ref lastRecoveryError);
+        public string LastPersistenceError
+        {
+            get
+            {
+                string writeError = Volatile.Read(ref lastWriteError);
+                string recoveryError = LastRecoveryError;
+                if (string.IsNullOrWhiteSpace(writeError)) return recoveryError;
+                if (string.IsNullOrWhiteSpace(recoveryError)) return writeError;
+                return writeError + "；" + recoveryError;
+            }
+        }
+
+        private void RecoverPersistedHistory()
+        {
+            if (string.IsNullOrWhiteSpace(persistenceRoot)
+                || !Directory.Exists(persistenceRoot))
+            {
+                return;
+            }
+
+            var recoveredBySequence =
+                new Dictionary<long, EquipmentStateHistoryEvent>();
+            var errorSamples = new List<string>();
+            int skippedLines = 0;
+            IEnumerable<string> paths;
+            try
+            {
+                paths = Directory.EnumerateFiles(
+                        persistenceRoot,
+                        "equipment-state.jsonl",
+                        SearchOption.AllDirectories)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Volatile.Write(
+                    ref lastRecoveryError,
+                    "设备状态历史恢复失败，已按空历史启动：" + ex.Message);
+                return;
+            }
+
+            foreach (string path in paths)
+            {
+                int lineNumber = 0;
+                try
+                {
+                    foreach (string line in File.ReadLines(path, Utf8NoBom))
+                    {
+                        lineNumber++;
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        try
+                        {
+                            EquipmentStateHistoryEvent item =
+                                JsonConvert.DeserializeObject<EquipmentStateHistoryEvent>(
+                                    line,
+                                    PersistenceJsonSettings);
+                            if (item == null || item.Sequence <= 0)
+                            {
+                                throw new JsonSerializationException(
+                                    "缺少有效的 sequence。");
+                            }
+                            if (item.ObservedAtUtc == default(DateTime))
+                            {
+                                if (item.ReceivedAtUtc == default(DateTime))
+                                {
+                                    throw new JsonSerializationException(
+                                        "缺少有效的 observedAtUtc。");
+                                }
+                                item.ObservedAtUtc = item.ReceivedAtUtc;
+                            }
+                            if (item.ReceivedAtUtc == default(DateTime))
+                            {
+                                item.ReceivedAtUtc = item.ObservedAtUtc;
+                            }
+                            Normalize(item);
+                            if (recoveredBySequence.ContainsKey(item.Sequence))
+                            {
+                                skippedLines++;
+                                AddRecoveryErrorSample(
+                                    errorSamples,
+                                    path,
+                                    lineNumber,
+                                    "sequence 重复，采用后出现的记录。");
+                            }
+                            recoveredBySequence[item.Sequence] = item;
+                        }
+                        catch (Exception ex)
+                        {
+                            skippedLines++;
+                            AddRecoveryErrorSample(
+                                errorSamples, path, lineNumber, ex.Message);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    skippedLines++;
+                    AddRecoveryErrorSample(errorSamples, path, lineNumber, ex.Message);
+                }
+            }
+
+            DateTime nowUtc = DateTime.UtcNow;
+            lock (syncRoot)
+            {
+                List<EquipmentStateHistoryEvent> recovered = recoveredBySequence.Values
+                    .OrderBy(candidate => candidate.Sequence)
+                    .ToList();
+                long previousSequence = 0;
+                foreach (EquipmentStateHistoryEvent item in recovered)
+                {
+                    if (item.Sequence > previousSequence + 1)
+                    {
+                        knownSequenceGaps.Add(new EquipmentStateSequenceGap
+                        {
+                            FirstMissingSequence = previousSequence + 1,
+                            LastMissingSequence = item.Sequence - 1
+                        });
+                    }
+                    events.Enqueue(item);
+                    nextSequence = Math.Max(nextSequence, item.Sequence);
+                    currentTopologyRevision = item.TopologyRevision;
+                    ApplyProjection(current, item);
+                    PruneLocked(nowUtc);
+                    previousSequence = item.Sequence;
+                }
+            }
+            if (skippedLines > 0 || knownSequenceGaps.Count > 0)
+            {
+                string detail = string.Join("；", errorSamples);
+                string gapDetail = knownSequenceGaps.Count == 0
+                    ? string.Empty
+                    : $"；检测到 {knownSequenceGaps.Count} 个 sequence 缺口";
+                Volatile.Write(
+                    ref lastRecoveryError,
+                    $"设备状态历史恢复跳过 {skippedLines} 条损坏或重复记录"
+                    + (string.IsNullOrWhiteSpace(detail) ? string.Empty : "：" + detail)
+                    + gapDetail + "。");
+            }
+        }
+
+        private static void AddRecoveryErrorSample(
+            ICollection<string> samples,
+            string path,
+            int lineNumber,
+            string error)
+        {
+            if (samples.Count >= 3) return;
+            string location = Path.GetFileName(Path.GetDirectoryName(path))
+                + "/" + Path.GetFileName(path)
+                + ":" + Math.Max(1, lineNumber).ToString(CultureInfo.InvariantCulture);
+            samples.Add(location + " " + (error ?? "未知错误"));
+        }
 
         public EquipmentStateHistoryEvent Append(EquipmentStateHistoryEvent source)
         {
@@ -135,16 +294,40 @@ namespace Automation
             return GetWindow(null, null, maximumEvents, null);
         }
 
+        /// <summary>
+        /// 按全局序列读取状态历史。有游标时从最早的未读事实开始向前分页；
+        /// 未提供游标时返回最近窗口，便于首次读取直接取得当前上下文。
+        /// </summary>
+        public EquipmentStateHistoryWindow GetWindowAfterSequence(
+            long? afterSequence,
+            int maximumEvents)
+        {
+            ValidateMaximumEvents(maximumEvents);
+            lock (syncRoot)
+            {
+                DateTime nowUtc = DateTime.UtcNow;
+                PruneLocked(nowUtc);
+                List<EquipmentStateHistoryEvent> eligible = afterSequence.HasValue
+                    ? events.Where(item => item.Sequence > afterSequence.Value).ToList()
+                    : events.ToList();
+                bool truncated = eligible.Count > maximumEvents;
+                IEnumerable<EquipmentStateHistoryEvent> page = afterSequence.HasValue
+                    ? eligible.Take(maximumEvents)
+                    : eligible.Skip(Math.Max(0, eligible.Count - maximumEvents));
+                return BuildWindowLocked(
+                    page.Select(CloneEvent).ToList(),
+                    truncated,
+                    nowUtc);
+            }
+        }
+
         public EquipmentStateHistoryWindow GetWindow(
             DateTime? startUtc,
             DateTime? endUtc,
             int maximumEvents,
             string nodeId)
         {
-            if (maximumEvents < 1 || maximumEvents > 5000)
-            {
-                throw new ArgumentOutOfRangeException(nameof(maximumEvents));
-            }
+            ValidateMaximumEvents(maximumEvents);
             lock (syncRoot)
             {
                 DateTime nowUtc = DateTime.UtcNow;
@@ -160,36 +343,82 @@ namespace Automation
                     .Skip(Math.Max(0, eligible.Count - maximumEvents))
                     .Select(CloneEvent)
                     .ToList();
-                long firstSequence = selected.Count > 0
-                    ? selected[0].Sequence
-                    : nextSequence + 1;
-                Dictionary<string, EquipmentNodeStateProjection> baseline = CloneProjection(retainedBaseline);
-                DateTime baselineTime = selected.Count > 0
-                    ? selected[0].ObservedAtUtc
-                    : nowUtc;
-                long baselineTopologyRevision = retainedBaselineTopologyRevision;
-                foreach (EquipmentStateHistoryEvent item in events)
-                {
-                    if (item.Sequence >= firstSequence) break;
-                    ApplyProjection(baseline, item);
-                    baselineTime = item.ObservedAtUtc;
-                    baselineTopologyRevision = item.TopologyRevision;
-                }
-                return new EquipmentStateHistoryWindow
-                {
-                    EarliestAvailableSequence = events.Count > 0
-                        ? events.Peek().Sequence
-                        : retainedBaselineSequence,
-                    LatestSequence = nextSequence,
-                    Truncated = truncated,
-                    Baseline = BuildSnapshotLocked(
-                        Math.Max(retainedBaselineSequence, firstSequence - 1),
-                        baselineTime,
-                        baselineTopologyRevision,
-                        baseline),
-                    Events = selected
-                };
+                return BuildWindowLocked(selected, truncated, nowUtc);
             }
+        }
+
+        private static void ValidateMaximumEvents(int maximumEvents)
+        {
+            if (maximumEvents < 1 || maximumEvents > 5000)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maximumEvents));
+            }
+        }
+
+        private EquipmentStateHistoryWindow BuildWindowLocked(
+            List<EquipmentStateHistoryEvent> selected,
+            bool truncated,
+            DateTime nowUtc)
+        {
+            long firstSequence = selected.Count > 0
+                ? selected[0].Sequence
+                : nextSequence + 1;
+            Dictionary<string, EquipmentNodeStateProjection> baseline =
+                CloneProjection(retainedBaseline);
+            DateTime baselineTime = selected.Count > 0
+                ? selected[0].ObservedAtUtc
+                : nowUtc;
+            long baselineTopologyRevision = retainedBaselineTopologyRevision;
+            long baselineSequence = retainedBaselineSequence;
+            foreach (EquipmentStateHistoryEvent item in events)
+            {
+                if (item.Sequence >= firstSequence) break;
+                ApplyProjection(baseline, item);
+                baselineTime = item.ObservedAtUtc;
+                baselineTopologyRevision = item.TopologyRevision;
+                baselineSequence = item.Sequence;
+            }
+            long pageEndSequence = selected.Count > 0
+                ? selected[selected.Count - 1].Sequence
+                : baselineSequence;
+            List<EquipmentStateSequenceGap> pageGaps = knownSequenceGaps
+                .Where(gap => gap.LastMissingSequence > baselineSequence
+                    && gap.FirstMissingSequence <= pageEndSequence)
+                .Take(MaximumReportedSequenceGaps + 1)
+                .Select(CloneGap)
+                .ToList();
+            bool gapsTruncated = pageGaps.Count > MaximumReportedSequenceGaps;
+            if (gapsTruncated)
+            {
+                pageGaps.RemoveAt(pageGaps.Count - 1);
+            }
+            return new EquipmentStateHistoryWindow
+            {
+                EarliestAvailableSequence = events.Count > 0
+                    ? events.Peek().Sequence
+                    : retainedBaselineSequence,
+                LatestSequence = nextSequence,
+                Truncated = truncated,
+                BaselineComplete = !knownSequenceGaps.Any(gap =>
+                    gap.FirstMissingSequence <= baselineSequence),
+                SequenceGaps = pageGaps,
+                SequenceGapsTruncated = gapsTruncated,
+                Baseline = BuildSnapshotLocked(
+                    baselineSequence,
+                    baselineTime,
+                    baselineTopologyRevision,
+                    baseline),
+                Events = selected
+            };
+        }
+
+        private static EquipmentStateSequenceGap CloneGap(EquipmentStateSequenceGap source)
+        {
+            return new EquipmentStateSequenceGap
+            {
+                FirstMissingSequence = source.FirstMissingSequence,
+                LastMissingSequence = source.LastMissingSequence
+            };
         }
 
         private void PruneLocked(DateTime nowUtc)
@@ -307,7 +536,20 @@ namespace Automation
                 BindingId = source.BindingId,
                 RunId = source.RunId,
                 ProcessId = source.ProcessId,
+                ProcessName = source.ProcessName,
+                StepId = source.StepId,
+                StepIndex = source.StepIndex,
                 OperationId = source.OperationId,
+                OperationIndex = source.OperationIndex,
+                OperationType = source.OperationType,
+                OperationName = source.OperationName,
+                ProcessState = source.ProcessState,
+                Outcome = source.Outcome,
+                TerminationReason = source.TerminationReason,
+                PreviewId = source.PreviewId,
+                SkillId = source.SkillId,
+                ActionId = source.ActionId,
+                ExpectedOutcome = source.ExpectedOutcome,
                 CausedBySequence = source.CausedBySequence
             };
         }
@@ -329,7 +571,18 @@ namespace Automation
             item.BindingId = item.BindingId ?? string.Empty;
             item.RunId = item.RunId ?? string.Empty;
             item.ProcessId = item.ProcessId ?? string.Empty;
+            item.ProcessName = item.ProcessName ?? string.Empty;
+            item.StepId = item.StepId ?? string.Empty;
             item.OperationId = item.OperationId ?? string.Empty;
+            item.OperationType = item.OperationType ?? string.Empty;
+            item.OperationName = item.OperationName ?? string.Empty;
+            item.ProcessState = item.ProcessState ?? string.Empty;
+            item.Outcome = item.Outcome ?? string.Empty;
+            item.TerminationReason = item.TerminationReason ?? string.Empty;
+            item.PreviewId = item.PreviewId ?? string.Empty;
+            item.SkillId = item.SkillId ?? string.Empty;
+            item.ActionId = item.ActionId ?? string.Empty;
+            item.ExpectedOutcome = item.ExpectedOutcome ?? string.Empty;
             if (double.IsNaN(item.Confidence) || double.IsInfinity(item.Confidence))
             {
                 item.Confidence = 0;
@@ -363,12 +616,12 @@ namespace Automation
                 string line = JsonConvert.SerializeObject(item, PersistenceJsonSettings)
                     + Environment.NewLine;
                 File.AppendAllText(path, line, Utf8NoBom);
-                LastPersistenceError = null;
+                Volatile.Write(ref lastWriteError, null);
             }
             catch (Exception ex)
             {
                 // 历史持久化属于诊断旁路，失败不得改变设备控制状态。
-                LastPersistenceError = ex.Message;
+                Volatile.Write(ref lastWriteError, ex.Message);
             }
         }
 

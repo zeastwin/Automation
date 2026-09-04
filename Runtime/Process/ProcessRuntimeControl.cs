@@ -12,6 +12,8 @@ namespace Automation
         bool Pause(int procIndex);
         bool Resume(int procIndex);
         bool Stop(int procIndex);
+        bool Stop(int procIndex, Guid expectedRunId);
+        ProcessStopRequestResult Stop(int procIndex, Guid expectedRunId, Guid attemptId);
     }
 
     public sealed class ProcessRuntimeControl : IProcessRuntimeControl
@@ -59,6 +61,32 @@ namespace Automation
             }
             engine.Stop(procIndex);
             return true;
+        }
+
+        /// <summary>仅停止仍与预演冻结 runId 一致的流程实例。</summary>
+        public bool Stop(int procIndex, Guid expectedRunId)
+        {
+            if (!IsValidProcIndex(procIndex) || expectedRunId == Guid.Empty)
+            {
+                return false;
+            }
+            return engine.Stop(procIndex, expectedRunId);
+        }
+
+        /// <summary>
+        /// 仅停止冻结的同一运行实例，并把调用方生成的尝试标识带入引擎审计事件。
+        /// 已进入 Stopping 的同一实例仍可幂等重申停止。
+        /// </summary>
+        public ProcessStopRequestResult Stop(
+            int procIndex,
+            Guid expectedRunId,
+            Guid attemptId)
+        {
+            if (!IsValidProcIndex(procIndex) || expectedRunId == Guid.Empty)
+            {
+                return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+            }
+            return engine.Stop(procIndex, expectedRunId, attemptId);
         }
 
         private bool TryGetProc(int procIndex, out Proc proc)

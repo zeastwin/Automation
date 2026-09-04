@@ -11,6 +11,7 @@
 | `Process/` | `ProcessRuntimeControl`、Store facade | 向宿主和编辑器投影流程、变量运行能力 |
 | `Diagnostics/` | `RuntimeBlackBoxRecorder`、`ProcessPerformanceAnalyzer` | 断点、性能、审计、异常与黑匣子记录 |
 | `Ai/` | `AutomationMcpServerManager`、`GooseRuntimeProvisioner` | AI 会话、配置、ACP 事件、MCP 进程和运行环境 |
+| `MachineAgent/` | `MachineAgentPromptProvisioner`、`MachineAgentRuntimeService`、`MachineAgentConversationStorage` | Machine Agent 专属 Prompt、状态上下文、冻结预演、执行复核和独立历史 |
 | `Motion/` | `ManualMotionService` | 手动运动请求与安全门禁协作 |
 | `Infrastructure/` | `HighResolutionWaiter`、`ObjectGraphCloner` | 无业务归属的底层运行辅助能力 |
 

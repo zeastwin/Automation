@@ -74,6 +74,11 @@ namespace Automation
                 runtime.StatePerception?.Dispose();
                 runtime.StatePerception = null;
             });
+            RunStage(stages, "停止流程状态时间线", () =>
+            {
+                runtime.ProcessTimeline?.Dispose();
+                runtime.ProcessTimeline = null;
+            });
             RunStage(stages, "刷新设备状态历史", () =>
             {
                 runtime.StateHistory?.Dispose();

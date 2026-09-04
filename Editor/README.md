@@ -13,7 +13,8 @@
 | `Communication/` | `FrmCommunication`、`FrmPlc` | 串口、Socket 与 PLC 配置调试 | 配置由对应 Store 持有，运行连接由通讯和 PLC Runtime 持有 |
 | `Data/` | `FrmDataStruct`、`FrmAlarmConfig` | 数据结构与报警配置 | 正式配置由对应 Store 持有 |
 | `Diagnostics/` | `FrmInfo`、`FrmRuntimeDiagnostics` | 日志、状态、流程图、断点、性能和事故诊断 | 只投影运行事实，不改变流程状态 |
-| `Ai/` | `FrmAiAssistant`、`GooseAcpClient` | AI 对话、ACP、预演确认和渲染 | 会话由 `AiConversationCoordinator` 持有；写入走 ChangeSet V2 |
+| `Ai/` | `FrmAiAssistant`、`GooseAcpClient` | 原 AI 助手对话、ACP、流程预演确认和渲染 | 会话由 `AiConversationCoordinator` 持有；流程写入走 ChangeSet V2；Machine Agent 不修改此链路 |
+| `MachineAgent/` | `FrmMachineAgent` | Machine Agent 独立对话、运行总览、状态时间线和拓扑子模块装配 | 独立 System Prompt、会话、历史和 MCP Profile；模型只读事实并生成冻结预演，人工确认后由 `MachineAgentRuntimeService` 复核并调用现有 `ProcessEngine` |
 | `Common/` | `UiPalette`、通用弹窗与交互适配 | 编辑器共享视觉和 WinForms 基础设施 | 不持有业务配置 |
 
 ## 放置规则

@@ -369,6 +369,7 @@ namespace Automation
                 ["type"] = "bootstrap",
                 ["definition"] = ToToken(definition),
                 ["catalog"] = BuildResourceCatalog(),
+                ["operationCatalog"] = BuildOperationCatalog(),
                 ["canEdit"] = Workspace.Runtime.Accounts.CheckPermission(
                     PlatformPermissionCodes.PlatformEditorOpen, out _),
                 ["safetyNotice"] = "拓扑孪生用于理解、呈现和诊断，不替代 PLC、运动控制器或硬接线安全联锁。"
@@ -441,6 +442,37 @@ namespace Automation
             return resources;
         }
 
+        private JArray BuildOperationCatalog()
+        {
+            var result = new JArray();
+            for (int procIndex = 0; procIndex < Workspace.ProcessDefinitions.Count; procIndex++)
+            {
+                Proc process = Workspace.ProcessDefinitions[procIndex];
+                if (process?.head == null || process.head.Id == Guid.Empty) continue;
+                for (int stepIndex = 0; stepIndex < (process.steps?.Count ?? 0); stepIndex++)
+                {
+                    Step step = process.steps[stepIndex];
+                    for (int opIndex = 0; opIndex < (step?.Ops?.Count ?? 0); opIndex++)
+                    {
+                        OperationType operation = step.Ops[opIndex];
+                        if (operation == null || operation.Id == Guid.Empty) continue;
+                        result.Add(new JObject
+                        {
+                            ["processId"] = process.head.Id.ToString("D"),
+                            ["processName"] = process.head.Name ?? $"流程 {procIndex}",
+                            ["stepId"] = step.Id == Guid.Empty ? string.Empty : step.Id.ToString("D"),
+                            ["stepName"] = step.Name ?? $"步骤 {stepIndex}",
+                            ["operationId"] = operation.Id.ToString("D"),
+                            ["operationName"] = operation.Name ?? operation.OperaType ?? $"指令 {opIndex}",
+                            ["operationType"] = operation.OperaType ?? operation.GetType().Name,
+                            ["disabled"] = process.head.Disable || step.Disable || operation.Disable
+                        });
+                    }
+                }
+            }
+            return result;
+        }
+
         private void RuntimeRefreshTimer_Tick(object sender, EventArgs e)
         {
             PublishRuntimeState(false);
@@ -456,7 +488,16 @@ namespace Automation
             if (history != null)
             {
                 long revision = history.Revision;
-                string historySignature = "history:" + revision;
+                EquipmentPerceptionSnapshot perception = Workspace.Runtime.StatePerception?.GetCurrentSnapshot()
+                    ?? new EquipmentPerceptionSnapshot();
+                DateTime lastSuccessfulObservationAtUtc = LatestSuccessfulObservationAtUtc(perception);
+                string observationError = perception.LastObservationError
+                    ?? history.LastPersistenceError
+                    ?? string.Empty;
+                string historySignature = "history:" + revision
+                    + ":running:" + perception.IsRunning
+                    + ":observed:" + lastSuccessfulObservationAtUtc.Ticks
+                    + ":error:" + observationError;
                 if (!force && string.Equals(historySignature, lastRuntimeSignature, StringComparison.Ordinal))
                 {
                     return;
@@ -468,10 +509,12 @@ namespace Automation
                     ["type"] = "stateHistory",
                     ["window"] = ToToken(window),
                     ["currentSnapshot"] = ToToken(history.GetCurrentSnapshot()),
-                    ["perceptionRunning"] = Workspace.Runtime.StatePerception?.IsRunning == true,
-                    ["observationError"] = Workspace.Runtime.StatePerception?.LastObservationError
-                        ?? history.LastPersistenceError
-                        ?? string.Empty
+                    ["perceptionRunning"] = perception.IsRunning,
+                    ["perceptionCapturedAtUtc"] = perception.CapturedAtUtc.ToString("O"),
+                    ["lastSuccessfulObservationAtUtc"] = lastSuccessfulObservationAtUtc == default(DateTime)
+                        ? string.Empty
+                        : lastSuccessfulObservationAtUtc.ToString("O"),
+                    ["observationError"] = observationError
                 });
                 return;
             }
@@ -498,6 +541,16 @@ namespace Automation
                     ["value"] = item.Status
                 }))
             });
+        }
+
+        internal static DateTime LatestSuccessfulObservationAtUtc(EquipmentPerceptionSnapshot snapshot)
+        {
+            return (snapshot?.NodeStates ?? new List<EquipmentNodePerceptionState>())
+                .Where(item => item != null)
+                .Select(item => item.LastSuccessfulObservationAtUtc)
+                .Where(value => value != default(DateTime))
+                .DefaultIfEmpty(default(DateTime))
+                .Max();
         }
 
         private void PostSaveResult(

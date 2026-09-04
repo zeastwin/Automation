@@ -57,6 +57,10 @@ namespace Automation
             {
                 startupWarnings.Add(contextMessage);
             }
+            if (!MachineAgentPromptProvisioner.TryEnsure(out string machinePromptMessage))
+            {
+                startupWarnings.Add(machinePromptMessage);
+            }
             return true;
         }
     }

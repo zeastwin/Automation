@@ -1,5 +1,6 @@
 using Automation.MotionControl;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -72,6 +73,8 @@ namespace Automation.Core.Tests
                 {
                     perception.PollOnce();
                     Assert.AreEqual("释放", history.GetCurrentSnapshot().NodeStates.Single().StateName);
+                    Assert.IsFalse(perception.GetCurrentSnapshot().NodeStates.Any(item =>
+                        item.NodeId == "variable-only-node"));
 
                     fakeIo.Values["真空阀"] = true;
                     perception.PollOnce();
@@ -88,12 +91,307 @@ namespace Automation.Core.Tests
                         item.Sequence == semantic.CausedBySequence.Value
                         && item.EventType == EquipmentStateEventTypes.SignalChanged
                         && item.Aspect == EquipmentStateAspects.Commanded));
+                    DateTime lastSuccessfulObservationAtUtc = perception.GetCurrentSnapshot()
+                        .NodeStates.Single().LastSuccessfulObservationAtUtc;
 
                     fakeIo.FailReads = true;
                     perception.PollOnce();
                     EquipmentNodeStateProjection stale = history.GetCurrentSnapshot().NodeStates.Single();
                     Assert.AreEqual("吸取中", stale.StateName);
                     Assert.AreEqual(EquipmentStateQualities.Stale, stale.Quality);
+                    Assert.AreEqual(
+                        lastSuccessfulObservationAtUtc,
+                        perception.GetCurrentSnapshot().NodeStates.Single()
+                            .LastSuccessfulObservationAtUtc);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void 稳定状态持续成功观测时刷新新鲜度但不污染时间线()
+        {
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "automation-state-freshness-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var ioStore = new IoConfigurationStore();
+                Assert.IsTrue(ioStore.TryReplaceMap(new[]
+                {
+                    new List<IO>
+                    {
+                        new IO
+                        {
+                            Name = "真空阀",
+                            CardNum = 0,
+                            IOIndex = "1",
+                            IOType = "通用输出",
+                            UsedType = "通用",
+                            EffectLevel = "正常"
+                        }
+                    }
+                }, out string ioError), ioError);
+                var topologyStore = new EquipmentTopologyStore();
+                Assert.IsTrue(
+                    topologyStore.TryCommit(
+                        directory, BuildTopology(), out string topologyError),
+                    topologyError);
+                var fakeIo = new FakeIoRuntime();
+                fakeIo.Values["真空阀"] = true;
+                DateTime nowUtc = DateTime.UtcNow;
+
+                using (var history = new EquipmentStateHistoryService())
+                using (var perception = new EquipmentStatePerceptionService(
+                    topologyStore,
+                    ioStore,
+                    fakeIo,
+                    history,
+                    TimeSpan.FromMilliseconds(100),
+                    () => nowUtc))
+                {
+                    perception.PollOnce();
+                    EquipmentNodePerceptionState first = perception
+                        .GetCurrentSnapshot().NodeStates.Single();
+                    int eventCount = history.GetRecentWindow(100).Events.Count;
+
+                    nowUtc = nowUtc.AddSeconds(6);
+                    perception.PollOnce();
+                    EquipmentNodePerceptionState stable = perception
+                        .GetCurrentSnapshot().NodeStates.Single();
+
+                    Assert.AreEqual(first.StateChangedAtUtc, stable.StateChangedAtUtc);
+                    Assert.AreEqual(nowUtc, stable.LastSuccessfulObservationAtUtc);
+                    Assert.AreEqual(first.Sequence, stable.Sequence);
+                    Assert.AreEqual(eventCount, history.GetRecentWindow(100).Events.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void 启动恢复JSONL重建序列窗口和投影且损坏行只降级报告()
+        {
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "automation-state-recovery-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                DateTime nowUtc = DateTime.UtcNow;
+                EquipmentStateHistoryEvent latest;
+                using (var first = new EquipmentStateHistoryService(directory))
+                {
+                    first.Append(NodeState(
+                        nowUtc.AddHours(-25),
+                        "old-stable-node",
+                        "长期稳定节点",
+                        "就绪",
+                        "old-ready"));
+                    first.Append(NodeState(
+                        nowUtc.AddMinutes(-2),
+                        "nozzle-1",
+                        "吸嘴1",
+                        "释放",
+                        "vacuum-off"));
+                    latest = first.Append(NodeState(
+                        nowUtc.AddMinutes(-1),
+                        "nozzle-1",
+                        "吸嘴1",
+                        "吸取中",
+                        "vacuum-on"));
+                }
+
+                string recentPath = Path.Combine(
+                    directory,
+                    nowUtc.ToString("yyyy-MM-dd"),
+                    "equipment-state.jsonl");
+                File.AppendAllText(recentPath, "{这不是合法JSON}" + Environment.NewLine);
+
+                using (var recovered = new EquipmentStateHistoryService(directory))
+                {
+                    EquipmentStateSnapshot snapshot = recovered.GetCurrentSnapshot();
+                    EquipmentStateHistoryWindow window = recovered.GetRecentWindow(100);
+
+                    Assert.AreEqual(latest.Sequence, recovered.Revision);
+                    Assert.AreEqual("吸取中", snapshot.NodeStates.Single(
+                        item => item.NodeId == "nozzle-1").StateName);
+                    Assert.AreEqual("就绪", snapshot.NodeStates.Single(
+                        item => item.NodeId == "old-stable-node").StateName);
+                    Assert.AreEqual(2, window.Events.Count);
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(recovered.LastRecoveryError));
+                    Assert.IsTrue(recovered.LastPersistenceError.Contains("跳过 1 条"));
+
+                    EquipmentStateHistoryEvent appended = recovered.Append(NodeState(
+                        nowUtc,
+                        "nozzle-1",
+                        "吸嘴1",
+                        "释放",
+                        "vacuum-off"));
+                    Assert.AreEqual(latest.Sequence + 1, appended.Sequence);
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(recovered.LastPersistenceError));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void 启动恢复遵守事件上限并保留基线和最新投影()
+        {
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "automation-state-limit-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                DateTime nowUtc = DateTime.UtcNow.AddMinutes(-1);
+                using (var first = new EquipmentStateHistoryService(
+                    directory, maximumRetainedEvents: 100))
+                {
+                    for (int index = 0; index < 105; index++)
+                    {
+                        first.Append(NodeState(
+                            nowUtc.AddMilliseconds(index),
+                            "buffer-1",
+                            "缓存工位",
+                            "状态" + index,
+                            "binding-" + index));
+                    }
+                }
+
+                using (var recovered = new EquipmentStateHistoryService(
+                    directory, maximumRetainedEvents: 100))
+                {
+                    EquipmentStateHistoryWindow window = recovered.GetRecentWindow(500);
+                    EquipmentNodeStateProjection current = recovered.GetCurrentSnapshot()
+                        .NodeStates.Single(item => item.NodeId == "buffer-1");
+
+                    Assert.AreEqual(105, recovered.Revision);
+                    Assert.AreEqual(100, window.Events.Count);
+                    Assert.AreEqual(6, window.EarliestAvailableSequence);
+                    Assert.AreEqual(5, window.Baseline.Sequence);
+                    Assert.AreEqual("状态4", window.Baseline.NodeStates.Single().StateName);
+                    Assert.AreEqual("状态104", current.StateName);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void 序列游标可连续分页超过五百条事实且基线紧邻首条事件()
+        {
+            using (var history = new EquipmentStateHistoryService())
+            {
+                DateTime start = DateTime.UtcNow.AddMinutes(-1);
+                for (int index = 0; index < 650; index++)
+                {
+                    history.Append(NodeState(
+                        start.AddMilliseconds(index),
+                        "buffer-1",
+                        "缓存工位",
+                        "状态" + index,
+                        "binding-" + index));
+                }
+
+                EquipmentStateHistoryWindow first =
+                    history.GetWindowAfterSequence(0, 120);
+                EquipmentStateHistoryWindow second =
+                    history.GetWindowAfterSequence(first.Events.Last().Sequence, 120);
+                EquipmentStateHistoryWindow tail =
+                    history.GetWindowAfterSequence(600, 120);
+                EquipmentStateHistoryWindow recent =
+                    history.GetWindowAfterSequence(null, 3);
+
+                Assert.AreEqual(1, first.Events.First().Sequence);
+                Assert.AreEqual(120, first.Events.Last().Sequence);
+                Assert.AreEqual(0, first.Baseline.Sequence);
+                Assert.IsTrue(first.Truncated);
+                Assert.AreEqual(650, first.LatestSequence);
+
+                Assert.AreEqual(121, second.Events.First().Sequence);
+                Assert.AreEqual(240, second.Events.Last().Sequence);
+                Assert.AreEqual(120, second.Baseline.Sequence);
+                Assert.AreEqual("状态119", second.Baseline.NodeStates.Single().StateName);
+                Assert.IsTrue(second.Truncated);
+
+                Assert.AreEqual(50, tail.Events.Count);
+                Assert.AreEqual(601, tail.Events.First().Sequence);
+                Assert.AreEqual(650, tail.Events.Last().Sequence);
+                Assert.AreEqual(600, tail.Baseline.Sequence);
+                Assert.AreEqual("状态599", tail.Baseline.NodeStates.Single().StateName);
+                Assert.IsFalse(tail.Truncated);
+
+                CollectionAssert.AreEqual(
+                    new long[] { 648, 649, 650 },
+                    recent.Events.Select(item => item.Sequence).ToArray());
+                Assert.AreEqual(647, recent.Baseline.Sequence);
+                Assert.IsTrue(recent.Truncated);
+            }
+        }
+
+        [TestMethod]
+        public void 恢复存在序列缺口时基线使用实际事实并显式报告缺口()
+        {
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "automation-state-gap-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                DateTime observedAtUtc = DateTime.UtcNow.AddMinutes(-1);
+                string dayDirectory = Path.Combine(
+                    directory, observedAtUtc.ToString("yyyy-MM-dd"));
+                Directory.CreateDirectory(dayDirectory);
+                EquipmentStateHistoryEvent first = NodeState(
+                    observedAtUtc, "buffer-1", "缓存工位", "空", "empty");
+                first.Sequence = 1;
+                first.ReceivedAtUtc = observedAtUtc;
+                EquipmentStateHistoryEvent third = NodeState(
+                    observedAtUtc.AddSeconds(1), "buffer-1", "缓存工位", "有料", "occupied");
+                third.Sequence = 3;
+                third.ReceivedAtUtc = third.ObservedAtUtc;
+                File.WriteAllLines(
+                    Path.Combine(dayDirectory, "equipment-state.jsonl"),
+                    new[]
+                    {
+                        JsonConvert.SerializeObject(first),
+                        JsonConvert.SerializeObject(third)
+                    });
+
+                using (var history = new EquipmentStateHistoryService(directory))
+                {
+                    EquipmentStateHistoryWindow page =
+                        history.GetWindowAfterSequence(1, 10);
+
+                    Assert.AreEqual(1, page.Baseline.Sequence,
+                        "基线只能声明实际已应用到的最后一条事实。");
+                    Assert.IsTrue(page.BaselineComplete);
+                    Assert.AreEqual(3, page.Events.Single().Sequence);
+                    Assert.AreEqual(1, page.SequenceGaps.Count);
+                    Assert.AreEqual(2, page.SequenceGaps[0].FirstMissingSequence);
+                    Assert.AreEqual(2, page.SequenceGaps[0].LastMissingSequence);
+                    Assert.IsFalse(page.SequenceGapsTruncated);
+
+                    EquipmentStateHistoryWindow current =
+                        history.GetWindowAfterSequence(3, 10);
+                    Assert.AreEqual(3, current.Baseline.Sequence);
+                    Assert.IsFalse(current.BaselineComplete,
+                        "跨过已知缺口后的基线必须明确标记为不完整。");
+                    StringAssert.Contains(history.LastRecoveryError, "sequence 缺口");
+
                 }
             }
             finally
@@ -176,6 +474,30 @@ namespace Automation.Core.Tests
                 StateBindings = new List<EquipmentTopologyStateBinding>
                 {
                     Binding("candidate-binding", "候选状态", "true", 20, "candidate")
+                }
+            });
+            definition.Nodes.Add(new EquipmentTopologyNode
+            {
+                Id = "variable-only-node",
+                Label = "仅变量节点",
+                Kind = "sensor",
+                ReviewState = "confirmed",
+                Confidence = 1,
+                StateBindings = new List<EquipmentTopologyStateBinding>
+                {
+                    new EquipmentTopologyStateBinding
+                    {
+                        Id = "variable-binding",
+                        StateName = "变量确认",
+                        SourceKind = "variable",
+                        ResourceRef = "runtime-variable-1",
+                        Operator = "equals",
+                        ExpectedValue = "true",
+                        Meaning = "当前版本不采集变量状态。",
+                        Priority = 30,
+                        ReviewState = "confirmed",
+                        Confidence = 1
+                    }
                 }
             });
             return definition;

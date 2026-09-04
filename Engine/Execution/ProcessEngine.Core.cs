@@ -80,6 +80,7 @@ namespace Automation
         }
         internal event Action<OperationFailureEntry> OperationFailed;
         internal event Action<ProcessRunStartedSnapshot> ProcessStarted;
+        internal event Action<ProcessRunStopRequestedSnapshot> ProcessStopRequested;
         internal event Action<ProcessRunAuditSnapshot> ProcessCompleted;
         public int SnapshotThrottleMilliseconds
         {
@@ -780,13 +781,55 @@ namespace Automation
             {
                 if (handle != null)
                 {
+                    Guid operationId = Guid.Empty;
+                    if (handle.Proc?.steps != null
+                        && handle.stepNum >= 0
+                        && handle.stepNum < handle.Proc.steps.Count)
+                    {
+                        Step step = handle.Proc.steps[handle.stepNum];
+                        if (step?.Ops != null
+                            && handle.opsNum >= 0
+                            && handle.opsNum < step.Ops.Count)
+                        {
+                            operationId = step.Ops[handle.opsNum]?.Id ?? Guid.Empty;
+                        }
+                    }
                     ProcessStarted?.Invoke(new ProcessRunStartedSnapshot(
-                        handle.procNum, handle.procId, handle.RunId));
+                        handle.procNum,
+                        handle.procId,
+                        handle.RunId,
+                        handle.stepNum,
+                        handle.opsNum,
+                        operationId,
+                        handle.IsSingleOperation));
                 }
             }
             catch (Exception ex)
             {
                 Logger?.Log($"流程启动事件处理失败:{ex.Message}", LogLevel.Error);
+            }
+        }
+
+        internal void RaiseProcessStopRequested(
+            ProcHandle handle,
+            Guid attemptId,
+            bool isReassertion)
+        {
+            try
+            {
+                if (handle != null)
+                {
+                    ProcessStopRequested?.Invoke(new ProcessRunStopRequestedSnapshot(
+                        handle.procNum,
+                        handle.procId,
+                        handle.RunId,
+                        attemptId,
+                        isReassertion));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"流程停止接受事件处理失败:{ex.Message}", LogLevel.Error);
             }
         }
         public bool StartProcAuto(Proc proc, int index)
@@ -1267,73 +1310,76 @@ namespace Automation
             {
                 return;
             }
-            long[] coordinateKeys = evt.OwnedCoordinateSystems.Keys.ToArray();
-            foreach (long key in coordinateKeys)
+            lock (evt.MotionStopSync)
             {
-                ushort card = (ushort)(key >> 32);
-                ushort coordinateSystem = (ushort)key;
-                try
+                long[] coordinateKeys = evt.OwnedCoordinateSystems.Keys.ToArray();
+                foreach (long key in coordinateKeys)
                 {
-                    Context?.Motion?.StopCoordinatedLinear(card, coordinateSystem, 0);
-                }
-                catch (Exception ex)
-                {
-                    Logger?.Log($"停止协调直线运动失败:卡{card},坐标系{coordinateSystem} {ex.Message}", LogLevel.Error);
-                }
-            }
-            if (release && coordinateKeys.Length > 0)
-            {
-                lock (motionResourceLock)
-                {
-                    foreach (long key in coordinateKeys)
+                    ushort card = (ushort)(key >> 32);
+                    ushort coordinateSystem = (ushort)key;
+                    try
                     {
-                        if (coordinateResourceOwners.TryGetValue(key, out object owner)
-                            && ReferenceEquals(owner, evt))
-                        {
-                            coordinateResourceOwners.Remove(key);
-                        }
-                        evt.OwnedCoordinateSystems.TryRemove(key, out _);
+                        Context?.Motion?.StopCoordinatedLinear(card, coordinateSystem, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.Log($"停止协调直线运动失败:卡{card},坐标系{coordinateSystem} {ex.Message}", LogLevel.Error);
                     }
                 }
-            }
-            if (evt.OwnedAxes.IsEmpty)
-            {
-                return;
-            }
-            long[] keys = evt.OwnedAxes.Keys.ToArray();
-            string stopError = null;
-            foreach (long key in keys)
-            {
-                ushort card = (ushort)(key >> 32);
-                ushort axis = (ushort)key;
-                try
+                if (release && coordinateKeys.Length > 0)
                 {
-                    Context?.Motion?.StopOneAxis(card, axis, 0);
-                }
-                catch (Exception ex)
-                {
-                    stopError = $"停止轴失败:{card}-{axis} {ex.Message}";
-                    Logger?.Log(stopError, LogLevel.Error);
-                }
-            }
-            if (release)
-            {
-                lock (motionResourceLock)
-                {
-                    foreach (long key in keys)
+                    lock (motionResourceLock)
                     {
-                        if (motionResourceOwners.TryGetValue(key, out object owner)
-                            && ReferenceEquals(owner, evt))
+                        foreach (long key in coordinateKeys)
                         {
-                            motionResourceOwners.Remove(key);
+                            if (coordinateResourceOwners.TryGetValue(key, out object owner)
+                                && ReferenceEquals(owner, evt))
+                            {
+                                coordinateResourceOwners.Remove(key);
+                            }
+                            evt.OwnedCoordinateSystems.TryRemove(key, out _);
                         }
-                        evt.OwnedAxes.TryRemove(key, out _);
                     }
                 }
-            }
-            if (!string.IsNullOrEmpty(stopError) && !Context.Safety.IsLocked)
-            {
-                Context.Safety.Lock(stopError);
+                if (evt.OwnedAxes.IsEmpty)
+                {
+                    return;
+                }
+                long[] keys = evt.OwnedAxes.Keys.ToArray();
+                string stopError = null;
+                foreach (long key in keys)
+                {
+                    ushort card = (ushort)(key >> 32);
+                    ushort axis = (ushort)key;
+                    try
+                    {
+                        Context?.Motion?.StopOneAxis(card, axis, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        stopError = $"停止轴失败:{card}-{axis} {ex.Message}";
+                        Logger?.Log(stopError, LogLevel.Error);
+                    }
+                }
+                if (release)
+                {
+                    lock (motionResourceLock)
+                    {
+                        foreach (long key in keys)
+                        {
+                            if (motionResourceOwners.TryGetValue(key, out object owner)
+                                && ReferenceEquals(owner, evt))
+                            {
+                                motionResourceOwners.Remove(key);
+                            }
+                            evt.OwnedAxes.TryRemove(key, out _);
+                        }
+                    }
+                }
+                if (!string.IsNullOrEmpty(stopError) && !Context.Safety.IsLocked)
+                {
+                    Context.Safety.Lock(stopError);
+                }
             }
         }
 
@@ -1474,6 +1520,35 @@ namespace Automation
         {
             ProcAgent agent = GetOrCreateAgent(procIndex);
             agent?.RequestStop(reason);
+        }
+
+        /// <summary>仅在当前运行实例与冻结 runId 一致时请求停止。</summary>
+        public bool Stop(int procIndex, Guid expectedRunId)
+        {
+            if (expectedRunId == Guid.Empty)
+            {
+                return false;
+            }
+            ProcAgent agent = GetOrCreateAgent(procIndex);
+            return agent?.RequestStop(expectedRunId, Guid.Empty).Accepted == true;
+        }
+
+        /// <summary>
+        /// 按冻结 runId 原子请求停止，并把调用方尝试标识原样带入接受事件。
+        /// 同一 runId 已进入停止时仍执行幂等停止重申。
+        /// </summary>
+        public ProcessStopRequestResult Stop(
+            int procIndex,
+            Guid expectedRunId,
+            Guid attemptId)
+        {
+            if (expectedRunId == Guid.Empty)
+            {
+                return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+            }
+            ProcAgent agent = GetOrCreateAgent(procIndex);
+            return agent?.RequestStop(expectedRunId, attemptId)
+                ?? ProcessStopRequestResult.Reject(expectedRunId, attemptId);
         }
         private bool EnqueueCommand(int procIndex, EngineCommand command)
         {
@@ -1800,14 +1875,22 @@ namespace Automation
                         {
                             throw new InvalidOperationException($"当前单步指令运行计划编译失败:{bindError}");
                         }
-                        ExecuteOperation(evt, operation);
+                        bool operationSucceeded = ExecuteOperation(evt, operation);
                         if (evt.HasAlarm)
                         {
                             HandleAlarm(operation, evt);
                         }
                         if (evt.IsSingleOperation)
                         {
-                            control.RequestStop();
+                            // 外部停止与“目标指令正常完成后的自停”通过原子原因认领区分。
+                            // 只有工作线程先认领且指令确实成功时，完成审计才可宣称目标完成。
+                            evt.SingleOperationTargetCompleted = operationSucceeded
+                                && !evt.HasAlarm
+                                && control.TryRequestSingleOperationCompletionStop();
+                            if (!evt.SingleOperationTargetCompleted)
+                            {
+                                control.RequestStop();
+                            }
                             return false;
                         }
                         if (evt.CompletionRequested)
@@ -2294,40 +2377,136 @@ namespace Automation
             StopCurrent(true, reason);
         }
 
-        public ProcessPerformanceSnapshot GetCurrentPerformanceSnapshot()
+        /// <summary>
+        /// 在 ProcAgent 的运行实例锁内比较并停止，避免检查后旧实例结束、索引被新实例复用。
+        /// 取消先于外部驱动停止；驱动 I/O 在原子接受后异步执行，不占用流程实例锁或全局发布锁。
+        /// </summary>
+        public ProcessStopRequestResult RequestStop(
+            Guid expectedRunId,
+            Guid attemptId,
+            ProcTerminationReason reason = ProcTerminationReason.StopRequested)
         {
+            if (expectedRunId == Guid.Empty)
+            {
+                return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+            }
+
+            ProcHandle handle;
+            ProcessControl control;
+            ProcessStopRequestResult result;
             lock (sync)
             {
-                return current?.Handle?.Performance?.GetSnapshot();
+                handle = current?.Handle;
+                control = handle?.Control;
+                if (handle == null
+                    || control == null
+                    || handle.RunId != expectedRunId
+                    || handle.State.IsInactive()
+                    || current?.Thread?.IsAlive != true)
+                {
+                    return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+                }
+
+                bool isReassertion = handle.State == ProcRunState.Stopping
+                    || control.IsStopRequested;
+                try
+                {
+                    // 首先关闭工作线程和后台动作的继续执行资格，再触碰外部运动驱动。
+                    control.RequestStop();
+                }
+                catch (ObjectDisposedException)
+                {
+                    return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+                }
+                if (!control.IsStopRequested)
+                {
+                    return ProcessStopRequestResult.Reject(expectedRunId, attemptId);
+                }
+
+                Interlocked.Increment(ref generation);
+                lock (queueLock)
+                {
+                    ClearQueue();
+                }
+                if (handle.HasAlarm)
+                {
+                    handle.TerminationReason = ProcTerminationReason.Alarm;
+                }
+                else if (!isReassertion
+                    || handle.TerminationReason == ProcTerminationReason.None)
+                {
+                    handle.TerminationReason = reason;
+                }
+                handle.State = ProcRunState.Stopping;
+                handle.isBreakpoint = false;
+                // 接受事件先于 Stopping 快照，使时间线只把本次已接受 attempt
+                // 关联到随后发布的流程位置事实。
+                engine.RaiseProcessStopRequested(handle, attemptId, isReassertion);
+                engine.PublishHandleSnapshot(handle);
+                result = new ProcessStopRequestResult(
+                    isReassertion
+                        ? ProcessStopRequestStatus.Reasserted
+                        : ProcessStopRequestStatus.Accepted,
+                    expectedRunId,
+                    attemptId);
             }
+
+            // 驱动停止可能长时间阻塞。控制请求已经在实例锁内完成原子接受和取消，
+            // 这里异步触发硬件停止，避免冻结前台，也允许同一 runId 的后续停止重申
+            // 立即完成接受。StopOwnedMotion 自身按运行句柄串行驱动调用。
+            QueueOwnedMotionStop(handle);
+            return result;
+        }
+
+        private void QueueOwnedMotionStop(ProcHandle handle)
+        {
+            if (handle == null)
+            {
+                return;
+            }
+            try
+            {
+                Task.Run(() => engine.StopOwnedMotion(handle, false));
+            }
+            catch (Exception ex)
+            {
+                string message = $"流程{procIndex}异步停止运动调度失败:{ex.Message}";
+                engine.Logger?.Log(message, LogLevel.Error);
+                engine.Context?.Safety?.Lock(message);
+            }
+        }
+
+        public ProcessPerformanceSnapshot GetCurrentPerformanceSnapshot()
+        {
+            ExecutionContext observed = Volatile.Read(ref current);
+            return observed?.Handle?.Performance?.GetSnapshot();
         }
 
         public void PublishPositionSnapshotIfDirty()
         {
-            ProcHandle handle;
             lock (sync)
             {
-                handle = current?.Handle;
+                ProcHandle handle = current?.Handle;
                 if (handle == null || !handle.HasUnpublishedPosition)
                 {
                     return;
                 }
+                // 与最终快照/清空 current 共用实例锁，旧 run 的定时发布不能越过交接点。
+                engine.PublishHandleSnapshot(handle);
             }
-            engine.PublishHandleSnapshot(handle);
         }
 
         public void PublishPerformanceSnapshot()
         {
-            ProcHandle handle;
             lock (sync)
             {
-                handle = current?.Handle;
+                ProcHandle handle = current?.Handle;
                 if (handle == null || handle.State.IsInactive())
                 {
                     return;
                 }
+                engine.PublishHandleSnapshot(handle);
             }
-            engine.PublishHandleSnapshot(handle);
         }
 
         public void Dispose()
@@ -2583,9 +2762,10 @@ namespace Automation
                 };
             }
             engine.ActivateAgent(procIndex, this);
+            // 活动实例先可见；生命周期开始事实仍先于首个位置快照，便于审计绑定 runId。
+            engine.RaiseProcessStarted(handle);
             engine.PublishHandleSnapshot(handle);
             // 先发布 Running 再启动工作线程，避免极短流程先发布 Ready，随后又被启动线程回写为 Running。
-            engine.RaiseProcessStarted(handle);
             try
             {
                 execThread.Start();
@@ -2596,19 +2776,19 @@ namespace Automation
                 handle.alarmMsg = message;
                 handle.TerminationReason = ProcTerminationReason.Alarm;
                 handle.State = ProcRunState.Stopped;
-                lock (engine.procPublishLock)
-                {
-                    engine.PublishHandleSnapshot(handle);
-                }
-                engine.RaiseProcessCompleted(handle);
-                engine.DeactivateAgent(procIndex, this);
                 lock (sync)
                 {
+                    lock (engine.procPublishLock)
+                    {
+                        engine.PublishHandleSnapshot(handle);
+                    }
+                    engine.DeactivateAgent(procIndex, this);
                     if (current != null && ReferenceEquals(current.Thread, execThread))
                     {
                         current = null;
                     }
                 }
+                engine.RaiseProcessCompleted(handle);
                 waiter.Dispose();
                 control.Dispose();
                 engine.Logger?.Log(message, LogLevel.Error);
@@ -2730,31 +2910,30 @@ namespace Automation
 
         private void StopCurrent(bool raiseSnapshot, ProcTerminationReason reason = ProcTerminationReason.StopRequested)
         {
-            ProcHandle handle;
-            ProcessControl control;
             lock (sync)
             {
-                handle = current?.Handle;
-                control = handle?.Control;
-            }
-            if (handle == null || control == null)
-            {
-                return;
-            }
-            handle.TerminationReason = handle.HasAlarm ? ProcTerminationReason.Alarm : reason;
-            handle.State = ProcRunState.Stopping;
-            handle.isBreakpoint = false;
-            engine.StopOwnedMotion(handle, false);
-            try
-            {
-                control.RequestStop();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-            if (raiseSnapshot)
-            {
-                engine.PublishHandleSnapshot(handle);
+                ProcHandle handle = current?.Handle;
+                ProcessControl control = handle?.Control;
+                if (handle == null || control == null || handle.State.IsInactive())
+                {
+                    return;
+                }
+                handle.TerminationReason = handle.HasAlarm ? ProcTerminationReason.Alarm : reason;
+                handle.State = ProcRunState.Stopping;
+                handle.isBreakpoint = false;
+                try
+                {
+                    // 无条件安全停止同样先取消工作线程，再调用可能阻塞的外部驱动。
+                    control.RequestStop();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                if (raiseSnapshot)
+                {
+                    engine.PublishHandleSnapshot(handle);
+                }
+                engine.StopOwnedMotion(handle, false);
             }
         }
 
@@ -2810,26 +2989,39 @@ namespace Automation
                             ? ProcTerminationReason.StopRequested
                             : ProcTerminationReason.Completed);
                 }
-                lock (engine.procPublishLock)
-                {
-                    engine.ApplyPendingUpdateAfterStop(runHandle);
-                    runHandle.State = runHandle.TerminationReason == ProcTerminationReason.Completed
-                        ? ProcRunState.Ready
-                        : ProcRunState.Stopped;
-                    runHandle.isBreakpoint = false;
-                    engine.PublishHandleSnapshot(runHandle);
-                }
-                engine.RaiseProcessCompleted(runHandle);
-                // 先移出活动集合，再清空执行上下文；新一轮启动必须在 current 清空后才能进入，
-                // 避免旧运行实例的收尾把刚启动的新实例从活动集合误删。
-                engine.DeactivateAgent(procIndex, this);
+                bool ownedCurrent = false;
                 lock (sync)
                 {
                     if (current != null && ReferenceEquals(current.Thread, Thread.CurrentThread))
                     {
+                        lock (engine.procPublishLock)
+                        {
+                            engine.ApplyPendingUpdateAfterStop(runHandle);
+                            runHandle.State = runHandle.TerminationReason == ProcTerminationReason.Completed
+                                ? ProcRunState.Ready
+                                : ProcRunState.Stopped;
+                            runHandle.isBreakpoint = false;
+                            engine.PublishHandleSnapshot(runHandle);
+                        }
+                        // 最终快照、活动集合和 current 属于同一个实例交接事务；旧 finalizer
+                        // 完成前，新 run 无法进入并被旧快照或旧 Deactivate 覆盖。
+                        engine.DeactivateAgent(procIndex, this);
                         current = null;
+                        ownedCurrent = true;
                     }
                 }
+                if (!ownedCurrent)
+                {
+                    // 理论上不可达；保留本次运行自身的完成事实，但绝不覆盖索引上的新实例。
+                    runHandle.State = runHandle.TerminationReason == ProcTerminationReason.Completed
+                        ? ProcRunState.Ready
+                        : ProcRunState.Stopped;
+                    runHandle.isBreakpoint = false;
+                    engine.Logger?.Log(
+                        $"流程{procIndex}旧运行实例收尾时 current 已变化，已跳过最终快照发布。",
+                        LogLevel.Error);
+                }
+                engine.RaiseProcessCompleted(runHandle);
                 runHandle.Waiter?.Dispose();
                 runControl?.Dispose();
             }
@@ -2890,6 +3082,8 @@ namespace Automation
         private int targetStepIndex;
         private int targetOperationIndex;
         private int disposed;
+        // 0=未停止，1=外部/通用停止，2=单指令正常完成后由工作线程自停。
+        private int stopRequestOrigin;
 
         public bool IsStopRequested => stopCts.IsCancellationRequested;
         public CancellationToken CancellationToken => stopCts.Token;
@@ -3016,6 +3210,26 @@ namespace Automation
         }
 
         public void RequestStop()
+        {
+            Interlocked.CompareExchange(ref stopRequestOrigin, 1, 0);
+            RequestStopCore();
+        }
+
+        /// <summary>
+        /// 仅当没有更早的外部停止时认领单指令完成自停原因；返回真才可记录目标正常完成。
+        /// </summary>
+        public bool TryRequestSingleOperationCompletionStop()
+        {
+            if (Volatile.Read(ref disposed) == 1
+                || Interlocked.CompareExchange(ref stopRequestOrigin, 2, 0) != 0)
+            {
+                return false;
+            }
+            RequestStopCore();
+            return stopCts.IsCancellationRequested;
+        }
+
+        private void RequestStopCore()
         {
             if (Volatile.Read(ref disposed) == 1)
             {

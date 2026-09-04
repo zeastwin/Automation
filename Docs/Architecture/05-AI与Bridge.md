@@ -47,24 +47,52 @@ Goose 不直接连接 WinForms，也不直接访问 Named Pipe。它只看到 MC
 3. `session/prompt`
 4. 必要时 `session/cancel`
 
-每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程。
+原 AI 助手的每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程。Machine Agent 不走这条宿主 Prompt 拼接路径，只发送结构化当前请求与首次会话恢复所需的有限独立历史。
 
 ACP 流式过程仍可在当前前台显示并进入底层取证日志，正常完成持久化当前工作阶段的最终 assistant 答复。工具过程、推理片段、重复阶段总结和多阶段拼接文本不另行复制进业务历史；用户停止或后续异常时才用已完成阶段的有限输出形成部分结果。同一条用户请求的能力阶段复用一个 Goose 原生会话，能力切换时不重复注入完整目标或阶段摘要；请求到达完成、停止或失败终态后标记可信滚动，下一条用户请求建立新原生会话，只恢复有限最终消息、结构化交接和机械阶段事实。业务 `conversationId` 继续保持，当前用户语句只作为本轮 prompt 发送一次，从而保留对话连续性而不跨请求累积工具 Schema、推理草稿和大型结果。
 
 每条用户请求持有一个 Goose ACP `sessionId`，同一请求的所有能力阶段连续复用它。请求开始先把工具面切到只含 `request_capability` 的 `TaskCoordinator`；不需要平台工具或需要用户补充时直接正常回复，需要工作能力时才提交一个 `run_stage`。代码批准后在当前 `sessionId` 内切换到固定 Profile。协调器和工作阶段使用同一会话级输出配置，默认输出预算为 65536 tokens、temperature 为 0.25；旧平台默认 8192/16384/0.7/0.3 在加载时迁移，其他用户自定义值保持不变。所有工作 Profile 都保留同一个轻量控制工具，但它只负责换能力；当前能力足以完成或需要用户信息时直接输出。每轮第一条成功能力申请立即锁定并结束该模型轮；系统不提前生成完整阶段序列，也没有关键词路由或规划失败兜底。
 
-MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取消和阶段状态彼此独立。能力变化通过 Goose 1.46 的会话扩展接口 `_goose/unstable/session/extensions/add/remove/list` 原地重挂 Automation MCP；Automation TOM 只在工作 Profile 挂载，流程评审/创建/修改再挂载对应 Skills。Developer 扩展全量常驻所有能力面，工具面不做 `available_tools` 过滤；文件修改与 Shell 执行由前台权限闸门限制在 Editor 权限外壳 + SourceDevelopment 能力。`_goose/unstable/tools/list` 同时核对模型实际可见的完整 Automation 工具名集合和 `request_capability` 输入 Schema；所有 Profile 的控制 Schema 必须完全一致并通过指纹复核，缺字段、同名缓存漂移或必需工具缺失都立即停止当前任务。同一请求内切换成功必须保持原 `sessionId`；附件只发送一次并由该请求的原生会话保留。
+MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取消和阶段状态彼此独立。能力变化通过 Goose 1.46 的会话扩展接口 `_goose/unstable/session/extensions/add/remove/list` 原地重挂 Automation MCP；Automation TOM 只在原 AI 助手工作 Profile 挂载，流程评审/创建/修改再挂载对应 Skills。Developer 扩展在原 AI 助手能力面全量常驻，文件修改与 Shell 执行由前台权限闸门限制在 Editor 权限外壳 + SourceDevelopment 能力；固定 `MachineAgent` Profile 则机械移除 TOM、Skills 和 Developer，只保留其专属 Automation MCP 工具目录。`_goose/unstable/tools/list` 核对模型实际可见的完整 Automation 工具名集合；包含 `request_capability` 的原 AI 助手 Profile 还核对其输入 Schema 指纹。缺字段、同名缓存漂移、必需工具缺失或 Machine Agent 出现额外扩展都会立即停止当前任务。同一请求内切换成功必须保持原 `sessionId`；附件只发送一次并由该请求的原生会话保留。
 
-AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有会话、任务运行时、单轮执行、取消和历史收尾，`GooseAcpEventReader` 解析 ACP 工具结果，`AiPreviewConfirmationCoordinator` 归一化预演状态并去重，`AutomationBridgePreviewClient` 是前台确认/拒绝的最小 Named Pipe 客户端。`FrmAiAssistant` 只组合这些对象并负责输入、气泡和 Web 展示；模板、渲染和审核对话框分别位于对应 partial 文件。
+原 `FrmAiAssistant` 及其 `AiConversationCoordinator`、动态能力调度、ChangeSet V2 和业务历史保持原契约，本次 Machine Agent 建设不复用或改写这条会话链。原 AI 助手继续负责流程编程相关工作；`FrmMachineAgent` 使用独立 Goose 会话、独立 MCP 进程实例、专属 System Prompt 和 `MachineAgentConversationStorage`，只恢复自身有界的最终用户/助手消息，不能继承原 AI 助手的身份、上下文、能力阶段或写入授权。两者只复用无业务身份的 ACP 传输实现和 Provider/Model 配置；Machine Agent 与拓扑 AI 精修只读取平台启动阶段已建立的配置缓存并深拷贝，不能触发共享配置的默认生成、迁移或保存。
 
-设备拓扑页的“AI 精修”是独立的有界纯计算会话，不进入业务对话历史，也不申请流程、资源或运行能力。页面先用 `TopologyRuleInferenceService` 从指令真实类型、参数路径和确定性控制流产生带 `factId` 的规则事实，再把候选与事实交给同一模型配置；该会话的全部工具请求均拒绝。AI 只能返回节点、状态绑定和关系的白名单候选，每项必须引用本轮有效 `factId`，宿主重新解析、限制枚举与数量并执行 `EquipmentTopologyStore` 完整校验；结果仍停留在未保存的 `candidate/conflict`，需人工确认和显式保存，不能执行设备动作或替代安全联锁。
+Machine Agent 下的设备拓扑子模块所提供的“AI 精修”是独立的有界纯计算会话，不进入两类业务对话历史，也不申请流程、资源或运行能力。页面先用 `TopologyRuleInferenceService` 从指令真实类型、参数路径和确定性控制流产生带 `factId` 的规则事实，并按稳定流程/指令 ID 为 IO、回零和工站运动等确定性动作生成候选节点技能，再把候选与事实交给同一模型配置；推断不依赖流程名、指令名或显示标签。AI 只能返回节点、状态绑定、关系和 `single_operation` 节点技能的白名单候选，每项必须引用本轮有效 `factId`，宿主重新解析、限制枚举与数量并执行 `EquipmentTopologyStore` 完整校验；拒绝项保留具体原因。所有候选仍需人工确认和显式保存，不能执行设备动作或替代安全联锁。工程师也可在节点检查器中把节点技能直接绑定到既有流程指令。
+
+## Machine Agent 控制链
+
+```mermaid
+flowchart LR
+    User["工程师 / 操作员"] --> Agent["FrmMachineAgent\n独立 Goose 会话"]
+    Agent --> Read["读取设备上下文 / 状态时间线"]
+    Read --> Skill["选择 confirmed skillId\n读取真实参数与控制流"]
+    Skill --> Preview["preview_process_entry_execution\n冻结技能、稳定 ID 与当前修订"]
+    Read --> StopPreview["preview_process_stop\n冻结当前 procId + runId"]
+    Preview --> Card["WebView 预演卡片\n参数、目标、结果与约束"]
+    StopPreview --> Card
+    Card --> Confirm["Windows 原生二次确认"]
+    Confirm --> Recheck["MachineAgentRuntimeService\n执行前重新校验"]
+    Recheck --> Engine["ProcessEngine\nRunSingleOpOnce / StartProcAt"]
+    Recheck --> Stop["ProcessRuntimeControl\nStop(expectedRunId)"]
+```
+
+Machine Agent 固定使用专属最小 `MachineAgent` 工具面读取 `get_machine_context`、`get_equipment_state_history`，并创建 `preview_process_entry_execution` 或 `preview_process_stop`。`get_machine_context` 对节点和关系分别返回有界分页及 `hasMore`，技能使用明确的 `skillId/processId/operationId` camelCase 契约，不能静默截断大设备拓扑。该 Profile 与原 AI 助手、`RuntimeDiagnostic` 都不共享工具目录，且 MCP 不公开执行或能力切换工具；会话层直接卸载 TOM、Skills 和 Developer，而不是只依赖 Prompt 要求模型不调用。正式动作只能由预演卡片触发并经过 Windows 原生确认，Machine Agent 的两个 Bridge 执行路由均不公开。流程入口动作在原生确认后还要经过当前账户 `process.run` 权限；停止属于无条件安全动作，不被运行权限、拓扑感知或安全锁阻断，但仍只停止预演冻结且执行瞬间一致的 `runId`。平台原有本机停止命令保持独立的无条件安全入口，不借用 Machine Agent 预演作为授权。
+
+外部交互动作必须以唯一的已确认节点技能 `skillId` 为权威入口。运行时从技能解析稳定 `procId/opId`、批准的执行模式、动作目标、预期结果和前置条件，请求不能覆盖这些字段；无外部副作用的兼容诊断入口才允许直接使用稳定流程与指令 ID。预演冻结技能、流程仓库修订、引擎已发布/应用修订、拓扑修订和状态作用域，并设置有效期。`continue_flow` 从指定真实指令继续执行，因此任何状态时间线推进都会使旧预演失效；`single_operation` 只冻结匹配拓扑节点的状态指纹，避免无关工站事件使点动预演失效。
+
+技能 `Preconditions` 与已确认的 `requires`、`blocks`、`interlock` 关系由运行时严格求值；条件无法求值也是阻塞，不把说明文字当成已满足。外部交互还要求状态感知正在运行、相关节点反馈质量良好，并按 `LastSuccessfulObservationAtUtc` 判断现场读取是否新鲜；状态稳定多久不影响新鲜度，只有现场读取中断才会随时间失效。执行瞬间会重新读取这些事实，并重新检查技能、流程、拓扑、安全锁和副作用类别。未知副作用及 `CallCustomFunc` 直接拒绝，不用提示词猜测其内部行为。校验只依据指令实际类型、参数、控制流与拓扑证据，不把流程名、指令名或显示标签当作安全证明。
+
+执行模式只有两种：`single_operation` 复用现有 `ProcessEngine.RunSingleOpOnce`，适合经确认的单指令动作；`continue_flow` 复用 `ProcessEngine.StartProcAt`，由既有流程从指定指令继续承担后续防呆、等待和异常分支。模型不得按流程位置的显示名称机械选择入口，也不能把节点技能当成绕过手工流程的自由控制脚本。`EquipmentProcessTimelineService` 订阅现有 ProcessEngine 生命周期事件，把流程启动、位置、指令失败和结束，与 Machine Agent 动作开始、完成/失败及结束时节点观测写入同一条设备时间线。自然语言 `ExpectedOutcome` 不会被伪装成机械验证结果；没有结构化结果断言时明确记录为 `observed_unverified`。
+
+受控停止与后续从某条指令启动是两个独立动作、两个独立预演和两次前台确认。两类预演在确认入口都会原子认领，只能消费一次；后续校验失败也必须基于新现场重新预演。停止预演冻结稳定 `procId` 与当前 `runId`，执行时由 `ProcessRuntimeControl.Stop(procIndex, expectedRunId, attemptId)` 在流程实例边界再次比较：先取消该运行实例继续执行的资格，再串行停止其拥有的运动，外部驱动调用不占用全局流程发布锁；旧实例已结束或索引已进入新实例时拒绝停止，仍处于 `Stopping` 的同一实例则允许幂等重申。每次停止尝试用独立 `attemptId/actionId` 归因，不能认领同一 `runId` 上的其他动作。停止完成、失败及同一 `runId` 是否进入非活动状态也写入设备时间线，不能把“停止请求已接受”表述成“已经停止”。时间线是诊断旁路：其登记异常会明确降级审计，但不得阻断必要停止。单指令动作只有在引擎明确记录“目标指令正常完成后自停”时才算完成，外部取消返回不能从 `StopRequested` 反推为成功。
 
 ## 工具 Profile
 
 `Automation.Protocol/AutomationToolProfiles.cs` 保存档位名称和任务 Profile 的精确工具名集合，`McpServer/McpToolProfile.cs` 负责权限外壳、工具过滤和输入 Schema 收窄。档位分两层：
 
 - `Editor`、`Diagnostic`：用户选择的权限外壳，不直接作为常规任务的模型工具面。
-- `RuntimeDiagnostic`：独立诊断实例，只提供运行现场取证，不提供平台开发和配置写入。
+- `RuntimeDiagnostic`：原运行诊断中心的固定现场取证工具面，不提供 Machine Agent 预演、运行控制、平台开发和配置写入。
+- `MachineAgent`：Machine Agent 独占的固定最小工具面，只增加设备上下文、状态时间线、无副作用流程入口预演和无副作用停止预演，不提供正式执行、配置写入或能力切换。
 - `TaskCoordinator`：每次用户请求先切入此工具面，只开放无副作用的 `request_capability` Automation 工具，不加载 Skills 或 Automation TOM，不读取平台事实；无需平台工具时直接正常回复，需要工作能力时以第一条成功申请为准。Goose 原生 developer 扩展全量常驻所有能力面，协调阶段也可读取用户引用的外部文件。
 - `ProcessDesign`、`ProcessReview`、`ProcessCreate`、`ProcessEdit`、`ResourceEdit`、`RuntimeControl`、`SourceReview`、`SourceDevelopment`、`PlatformConfiguration`：工作阶段的最小业务工具加轻量 `request_capability` 控制面。独立变量、数据结构和报警维护归入 `ResourceEdit`，源码只读与写入分离；Automation TOM 在工作阶段启用，流程 Skill 只挂到评审/创建/修改能力。developer 扩展全量常驻且不做工具面过滤；write/edit/shell 调用由 Editor 权限外壳、SourceDevelopment 能力要求、Hmi 目录边界和前台确认闸门放行或拦截。
 
@@ -200,7 +228,8 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 
 - `Assets/Goose/system.md` 以 Goose 官方 `crates/goose/src/prompts/system.md` 为功能规则基底，只替换 EW-AI 品牌身份并追加真实性、工业安全等跨任务约束。修改前先对照官方当前模板；同步官方变化后重新应用自定义区块，并递增 `GooseRuntimeProvisioner.SystemPromptVersion`。
 - `Assets/Goose/automation.md` 只保存 Automation 跨任务路由、事实边界和稳定工具反馈方法：纯方案不进入写入工作流，现有流程评审与当前配置写入分别路由到独立 Skill；项目存在可用资源不自动扩大目标。流程写入按目标/失败出口、聚合解析、功能块预演、提交回读的短闭环推进；复杂流程允许安全骨架后逐块补齐。结构化错误按当前修复包整体处理，不构造删减版探针，也不规定固定修正次数；使用独立的 `IntegrationContextVersion` 和 `.automation-context-version`，修改时不联动 System Prompt 版本。
-- 两个托管 Markdown 同时作为 Manifest 资源和程序目录副本发布。运行时优先读 Manifest，失败后读目录副本；两者均失败只禁用 EW-AI 并报警，不阻断 HMI 或平台初始化。
+- `Assets/Goose/machine-agent-system.md` 是 Machine Agent 完整且独立的 System Prompt，使用 `MachineAgentPromptProvisioner.SystemPromptVersion` 和 `.machine-agent-system-prompt-version` 单独版本化。它只描述设备物理语义、状态历史、流程入口预演和控制证据边界，不含原 AI 助手身份、`automation.md` 路由、流程 Skills、ChangeSet 或能力切换规则。Machine Agent Goose 进程通过 `GOOSE_SYSTEM_PROMPT_FILE_PATH` 显式加载 `%AppData%\Automation\MachineAgent\Goose\prompts\system.md`，不读取全局 `%AppData%\Block\goose\config\prompts\system.md`。
+- 三个托管 Markdown 同时作为 Manifest 资源和程序目录副本发布。运行时优先读 Manifest，失败后读目录副本；同版本内容漂移会恢复内置内容。原 AI 助手 Prompt 或 Machine Agent Prompt 任一部署失败只禁用对应能力并报警，不阻断 HMI 或平台初始化，也不让一方回退加载另一方 Prompt。
 - 只读流程检查使用 `automation-process-review` Skill；创建、修改、重构和复制使用 `automation-process-authoring` Skill。新建与修改都使用 ChangeSet V2；`ProcessCreate` 首阶段创建新流程，提交后使用目标收窄的创建工作区凭据连续完善该流程；独立既有对象修改使用 `ProcessEdit`。
 - 受管 Prompt、上下文和 Skill 在版本相同时仍核对内置资源内容；同版本内容漂移会重新同步，避免不同机器以同一版本运行不同规则。高于内置版本的本机文件仍按既有策略保留并校验。
 - 具体参数、枚举、模式矩阵、数量边界、资源候选和指令技巧来自 Schema、行为 Catalog、资源工具和按需 Guide，不复制到常驻 Prompt。
