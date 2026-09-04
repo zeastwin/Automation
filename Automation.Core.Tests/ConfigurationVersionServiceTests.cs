@@ -275,6 +275,105 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        [DataRow("DataStation.json", "[{\"Name\":\"已修改工站\"}]")]
+        [DataRow("IOMap.json", "[[]]")]
+        public void Restore_WhenMotionRuntimeConfigurationChanged_RequiresRestart(
+            string fileName,
+            string modifiedJson)
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                string configurationPath = Path.Combine(directory.FullPath, fileName);
+                File.WriteAllText(configurationPath, "[]", new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot(
+                        "运动运行时原始版本",
+                        "测试",
+                        out string snapshotError),
+                    snapshotError);
+                string commitId = runtime.VersionService
+                    .GetHistory(out _, out _)
+                    .Single()
+                    .CommitId;
+
+                File.WriteAllText(configurationPath, modifiedJson, new UTF8Encoding(false));
+                bool applyInvoked = false;
+                bool restartMarked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    commitId,
+                    () => true,
+                    () =>
+                    {
+                        restartMarked = true;
+                        runtime.Readiness.VersionRestartRequired = true;
+                    },
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return true;
+                    });
+
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsFalse(
+                    applyInvoked,
+                    fileName + " 承载运动设备运行时配置，不得尝试免重启生效。");
+                Assert.IsTrue(result.RestartRequired);
+                Assert.IsTrue(restartMarked);
+                Assert.IsTrue(runtime.Readiness.VersionRestartRequired);
+            }
+        }
+
+        [TestMethod]
+        public void Restore_WhenOnlyIoDebugLayoutChanged_AppliesInPlaceWithoutRestart()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                CreateHmiSource(directory.FullPath, "public class TestHmi { }\r\n");
+                string ioDebugPath = Path.Combine(directory.FullPath, "IODebugMap.json");
+                File.WriteAllText(ioDebugPath, "{}", new UTF8Encoding(false));
+                var runtime = new PlatformRuntime(directory.FullPath);
+                Assert.IsTrue(
+                    runtime.VersionService.CreateManualSnapshot(
+                        "IO调试布局原始版本",
+                        "测试",
+                        out string snapshotError),
+                    snapshotError);
+                string commitId = runtime.VersionService
+                    .GetHistory(out _, out _)
+                    .Single()
+                    .CommitId;
+
+                File.WriteAllText(
+                    ioDebugPath,
+                    "{\"inputs\":[]}",
+                    new UTF8Encoding(false));
+                bool applyInvoked = false;
+                bool restartMarked = false;
+                ConfigurationRestoreResult result = runtime.VersionService.Restore(
+                    commitId,
+                    () => true,
+                    () =>
+                    {
+                        restartMarked = true;
+                        runtime.Readiness.VersionRestartRequired = true;
+                    },
+                    () =>
+                    {
+                        applyInvoked = true;
+                        return true;
+                    });
+
+                Assert.IsTrue(result.Success, result.Error);
+                Assert.IsTrue(applyInvoked, "IODebugMap.json 仅承载调试布局，应允许免重启生效。");
+                Assert.IsFalse(result.RestartRequired);
+                Assert.IsFalse(restartMarked);
+                Assert.IsFalse(runtime.Readiness.VersionRestartRequired);
+            }
+        }
+
+        [TestMethod]
         public void Restore_WhenApplyFails_FallsBackToRestartGate()
         {
             using (var directory = new TemporaryDirectory())

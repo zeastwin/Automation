@@ -151,12 +151,6 @@ namespace Automation.Bridge
                         return WrapResponse("station.list", ExecuteOnUiThread(() => HandleListStations(request)));
                     case "/bridge/station/get":
                         return WrapResponse("station.get", ExecuteOnUiThread(() => HandleGetStation(request)));
-                    case "/bridge/station/add":
-                        return WrapResponse("station.add", ExecuteOnUiThread(() => HandleAddStation(request)));
-                    case "/bridge/station/delete":
-                        return WrapResponse("station.delete", ExecuteOnUiThread(() => HandleDeleteStation(request)));
-                    case "/bridge/station/update":
-                        return WrapResponse("station.update", ExecuteOnUiThread(() => HandleUpdateStation(request)));
                     // ---------- point 拆分端点 ----------
                     case "/bridge/point/list":
                         return WrapResponse("point.list", ExecuteOnUiThread(() => HandleListPoints(request)));
@@ -164,10 +158,6 @@ namespace Automation.Bridge
                         return WrapResponse("point.get", ExecuteOnUiThread(() => HandleGetPoint(request)));
                     case "/bridge/point/plan":
                         return WrapResponse("point.plan", ExecuteOnUiThread(() => HandlePlanMotionPoints(request)));
-                    case "/bridge/point/set":
-                        return WrapResponse("point.set", ExecuteOnUiThread(() => HandleSetPoint(request)));
-                    case "/bridge/point/delete":
-                        return WrapResponse("point.delete", ExecuteOnUiThread(() => HandleDeletePoint(request)));
                     // ---------- data_struct 拆分端点 ----------
                     case "/bridge/data_struct/list":
                         return WrapResponse("data_struct.list", ExecuteOnUiThread(() => HandleListDataStructs(request)));
@@ -277,12 +267,7 @@ namespace Automation.Bridge
                 case "/bridge/variable/delete":
                     EnsureBridgePermission(PlatformPermissionCodes.VariableConfigure, "通过AI修改变量配置");
                     break;
-                case "/bridge/station/add":
-                case "/bridge/station/update":
-                case "/bridge/station/delete":
                 case "/bridge/point/plan":
-                case "/bridge/point/set":
-                case "/bridge/point/delete":
                     EnsureBridgePermission(PlatformPermissionCodes.MotionConfigure, "通过AI修改运动配置");
                     break;
                 case "/bridge/data_struct/set_field":

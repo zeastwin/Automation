@@ -572,8 +572,9 @@ namespace Automation
 
         /// <summary>
         /// 还原差异中允许免重启生效的分类。这些配置全部是编辑态/数据态 Store，
-        /// 可按启动序列在内存中重载；其余分类（控制卡、PLC、通讯、应用、AI、HMI）
-        /// 依赖设备运行时或启动期消费，必须完整重启。
+        /// 可按启动序列在内存中重载。DataStation.json 同时承载工站类型、轴绑定和
+        /// 机器人通讯定义，IOMap.json 同时承载急停与刹车定义，两者都必须完整重启；
+        /// 只有不参与设备运行时的 IODebugMap.json 仍属于免重启 IO 调试布局。
         /// </summary>
         private static readonly HashSet<string> InPlaceRestorableCategories =
             new HashSet<string>(new[]
@@ -582,8 +583,7 @@ namespace Automation
                 "变量",
                 "变量调试值",
                 "数据结构",
-                "工站点位",
-                "IO",
+                "IO调试",
                 "报警"
             }, StringComparer.Ordinal);
 
@@ -2573,8 +2573,8 @@ namespace Automation
             if (string.Equals(file, "DataStruct.json", StringComparison.OrdinalIgnoreCase)) return "数据结构";
             if (string.Equals(file, "DataStation.json", StringComparison.OrdinalIgnoreCase)) return "工站点位";
             if (string.Equals(file, "EquipmentTopology.json", StringComparison.OrdinalIgnoreCase)) return "设备拓扑孪生";
-            if (string.Equals(file, "IOMap.json", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(file, "IODebugMap.json", StringComparison.OrdinalIgnoreCase)) return "IO";
+            if (string.Equals(file, "IOMap.json", StringComparison.OrdinalIgnoreCase)) return "IO";
+            if (string.Equals(file, "IODebugMap.json", StringComparison.OrdinalIgnoreCase)) return "IO调试";
             if (string.Equals(file, "card.json", StringComparison.OrdinalIgnoreCase)) return "控制卡";
             if (string.Equals(file, "AlarmInfo.json", StringComparison.OrdinalIgnoreCase)) return "报警";
             if (file.IndexOf("Plc", StringComparison.OrdinalIgnoreCase) >= 0) return "PLC";

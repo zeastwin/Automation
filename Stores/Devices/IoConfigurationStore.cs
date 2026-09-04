@@ -3,6 +3,7 @@ using System;
 // 职责范围：管理控制卡、通讯、PLC、IO、工站和点位配置，不执行设备动作。
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -54,6 +55,101 @@ namespace Automation
             return CloneMap(map);
         }
 
+        /// <summary>
+        /// 生成指定控制卡调整点数后的 IO 候选快照，不修改正式内存或磁盘。
+        /// 重叠编号保留原配置；新增编号使用默认配置；缩减不得丢弃用户已配置的 IO。
+        /// </summary>
+        public bool TryCreateResizedCardMap(
+            int cardIndex,
+            int inputCount,
+            int outputCount,
+            out List<List<IO>> replacement,
+            out string error)
+        {
+            replacement = null;
+            error = null;
+            if (cardIndex < 0 || inputCount < 0 || outputCount < 0)
+            {
+                error = "控制卡索引和IO数量不能为负数。";
+                return false;
+            }
+
+            List<List<IO>> candidate = CloneMap(map);
+            if (!TryBuildIndex(
+                    candidate,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out error))
+            {
+                return false;
+            }
+            while (candidate.Count <= cardIndex)
+            {
+                candidate.Add(new List<IO>());
+            }
+
+            List<IO> current = candidate[cardIndex] ?? new List<IO>();
+            var inputs = new Dictionary<int, IO>();
+            var outputs = new Dictionary<int, IO>();
+            foreach (IO item in current)
+            {
+                bool isInput = string.Equals(item.IOType, "通用输入", StringComparison.Ordinal);
+                Dictionary<int, IO> byIndex = isInput ? inputs : outputs;
+                int ioIndex = int.Parse(item.IOIndex, CultureInfo.InvariantCulture);
+                if (byIndex.ContainsKey(ioIndex))
+                {
+                    error = $"{cardIndex}号卡{item.IOType}编号重复:{ioIndex}。";
+                    return false;
+                }
+                byIndex.Add(ioIndex, item);
+
+                int nextCount = isInput ? inputCount : outputCount;
+                if (ioIndex >= nextCount && IsConfiguredIo(item))
+                {
+                    string displayName = string.IsNullOrWhiteSpace(item.Name)
+                        ? $"{item.IOType}{ioIndex}"
+                        : item.Name;
+                    error = $"无法将{cardIndex}号卡{item.IOType}点数缩减到{nextCount}：将丢弃已配置IO[{displayName}](编号{ioIndex})。请先清除该IO配置。";
+                    return false;
+                }
+            }
+
+            var resized = new List<IO>(inputCount + outputCount);
+            for (int ioIndex = 0; ioIndex < inputCount; ioIndex++)
+            {
+                resized.Add(CreateResizedIo(
+                    inputs.TryGetValue(ioIndex, out IO existing) ? existing : null,
+                    cardIndex,
+                    ioIndex,
+                    ioIndex,
+                    "通用输入"));
+            }
+            for (int ioIndex = 0; ioIndex < outputCount; ioIndex++)
+            {
+                resized.Add(CreateResizedIo(
+                    outputs.TryGetValue(ioIndex, out IO existing) ? existing : null,
+                    cardIndex,
+                    inputCount + ioIndex,
+                    ioIndex,
+                    "通用输出"));
+            }
+            candidate[cardIndex] = resized;
+            if (!TryBuildIndex(
+                    candidate,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out error))
+            {
+                return false;
+            }
+            replacement = candidate;
+            return true;
+        }
+
         public bool TryCommit(string configPath, IEnumerable<List<IO>> source, out string error)
         {
             error = null;
@@ -102,6 +198,35 @@ namespace Automation
                     ? null
                     : cardItems.Select(ObjectGraphCloner.Clone).ToList())
                 .ToList();
+        }
+
+        private static IO CreateResizedIo(
+            IO source,
+            int cardIndex,
+            int flatIndex,
+            int ioIndex,
+            string ioType)
+        {
+            IO result = source ?? new IO
+            {
+                UsedType = "通用",
+                EffectLevel = "正常"
+            };
+            result.Index = flatIndex;
+            result.CardNum = cardIndex;
+            result.Module = 0;
+            result.IOIndex = ioIndex.ToString(CultureInfo.InvariantCulture);
+            result.IOType = ioType;
+            return result;
+        }
+
+        private static bool IsConfiguredIo(IO item)
+        {
+            return !string.IsNullOrWhiteSpace(item.Name)
+                || !string.IsNullOrWhiteSpace(item.Note)
+                || item.IsRemark
+                || !string.Equals(item.UsedType, "通用", StringComparison.Ordinal)
+                || !string.Equals(item.EffectLevel, "正常", StringComparison.Ordinal);
         }
 
         private void ReplaceMap(List<List<IO>> replacement,
@@ -181,6 +306,7 @@ namespace Automation
                 error = "IO配置为空。";
                 return false;
             }
+            int cardIndex = 0;
             foreach (List<IO> cardItems in source)
             {
                 if (cardItems == null)
@@ -188,9 +314,82 @@ namespace Automation
                     error = "IO配置包含空卡列表。";
                     return false;
                 }
+                var inputIndexes = new HashSet<ushort>();
+                var outputIndexes = new HashSet<ushort>();
                 foreach (IO item in cardItems)
                 {
-                    if (item == null || string.IsNullOrWhiteSpace(item.Name))
+                    if (item == null)
+                    {
+                        error = $"{cardIndex}号卡IO配置包含空项。";
+                        return false;
+                    }
+                    if (item.CardNum != cardIndex)
+                    {
+                        error = $"{cardIndex}号卡IO包含错误卡号：{item.CardNum}。";
+                        return false;
+                    }
+                    if (item.Module != 0)
+                    {
+                        error = $"IO[{item.Name}]模块号必须为0；当前雷赛总线卡使用扁平IO编号。";
+                        return false;
+                    }
+                    bool isInput = string.Equals(item.IOType, "通用输入", StringComparison.Ordinal);
+                    bool isOutput = string.Equals(item.IOType, "通用输出", StringComparison.Ordinal);
+                    if (!isInput && !isOutput)
+                    {
+                        error = $"IO[{item.Name}]类型无效：{item.IOType}";
+                        return false;
+                    }
+                    if (!ushort.TryParse(
+                            item.IOIndex,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out ushort ioIndex))
+                    {
+                        error = $"IO[{item.Name}]编号无效：{item.IOIndex}";
+                        return false;
+                    }
+                    HashSet<ushort> directionIndexes = isInput ? inputIndexes : outputIndexes;
+                    if (!directionIndexes.Add(ioIndex))
+                    {
+                        error = $"{cardIndex}号卡{item.IOType}编号重复:{ioIndex}。";
+                        return false;
+                    }
+                    if (!string.Equals(item.EffectLevel, "正常", StringComparison.Ordinal)
+                        && !string.Equals(item.EffectLevel, "取反", StringComparison.Ordinal))
+                    {
+                        error = $"IO[{item.Name}]电平类型无效：{item.EffectLevel}";
+                        return false;
+                    }
+                    bool isGeneral = string.Equals(item.UsedType, "通用", StringComparison.Ordinal);
+                    bool isEmergency = string.Equals(item.UsedType, "急停", StringComparison.Ordinal);
+                    bool isReset = string.Equals(item.UsedType, "复位", StringComparison.Ordinal);
+                    bool isStart = string.Equals(item.UsedType, "启动", StringComparison.Ordinal);
+                    bool isPause = string.Equals(item.UsedType, "暂停", StringComparison.Ordinal);
+                    bool isStop = string.Equals(item.UsedType, "停止", StringComparison.Ordinal);
+                    bool isBrake = string.Equals(item.UsedType, "刹车", StringComparison.Ordinal);
+                    bool isSystemInput = isEmergency || isReset || isStart || isPause || isStop;
+                    if (!isGeneral && !isSystemInput && !isBrake)
+                    {
+                        error = $"IO[{item.Name}]使用类型无效：{item.UsedType}";
+                        return false;
+                    }
+                    if (isSystemInput && !isInput)
+                    {
+                        error = $"{item.UsedType}IO必须配置为通用输入：{item.Name}";
+                        return false;
+                    }
+                    if (isBrake && !isOutput)
+                    {
+                        error = $"刹车IO必须配置为通用输出：{item.Name}";
+                        return false;
+                    }
+                    if ((isSystemInput || isBrake) && string.IsNullOrWhiteSpace(item.Name))
+                    {
+                        error = "系统IO必须配置名称。";
+                        return false;
+                    }
+                    if (string.IsNullOrWhiteSpace(item.Name))
                     {
                         continue;
                     }
@@ -210,6 +409,7 @@ namespace Automation
                     }
                     nextAll.Add(item.Name);
                 }
+                cardIndex++;
             }
             return true;
         }

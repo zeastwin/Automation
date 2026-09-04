@@ -83,7 +83,10 @@ namespace Automation.Bridge
                         {
                             Name = axis?.AxisName ?? string.Empty,
                             PulseToMm = axis?.PulseToMM ?? 0,
-                            HomeDirection = axis?.HomeDirection ?? string.Empty,
+                            HomeMethod = axis?.HomeMethod ?? -1,
+                            EncoderType = (axis?.EncoderType ?? AxisEncoderType.Incremental).ToString(),
+                            NegativeSoftLimit = axis?.NegativeSoftLimit ?? 0,
+                            PositiveSoftLimit = axis?.PositiveSoftLimit ?? 0,
                             HomeSpeed = axis?.HomeSpeed ?? string.Empty,
                             SpeedInfo = axis?.SpeedInfo ?? 0,
                             MaxSpeed = axis?.SpeedMax ?? 0,
@@ -377,61 +380,118 @@ namespace Automation.Bridge
                 draft = record.MigrationConfigurationPreview;
             }
             EnsureMigrationAccountPermission(draft.Kind);
-            EnsureAllProcsInactiveForAiStructureCommit("提交迁移平台配置");
-            // 与 ChangeSet 提交闸门一致：维护模式、安全锁定和编辑会话期间禁止写配置文件。
-            if (runtime.Maintenance.Active)
+            bool isMotionIo = string.Equals(
+                draft.Kind, "motion_io", StringComparison.Ordinal);
+            IDisposable motionConfigurationLease = null;
+            if (isMotionIo)
             {
-                throw new BridgeRequestException(423, "CONFIG_MAINTENANCE_ACTIVE",
-                    string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)
-                        ? "系统正在执行配置维护。"
-                        : $"系统正在执行配置维护：{runtime.Maintenance.Reason}");
-            }
-            if (runtime.Safety.IsLocked)
-            {
-                throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
-            }
-            if (runtime.Editor.ActiveSession != null)
-            {
-                throw new BridgeRequestException(409, "EDITOR_SESSION_ACTIVE",
-                    $"当前存在未完成的编辑会话：{runtime.Editor.ActiveSession.Name}。请先保存或取消，再提交迁移配置。",
-                    new JObject
+                if (!runtime.Maintenance.TryBegin(
+                        "提交运动与IO迁移配置",
+                        out motionConfigurationLease,
+                        out string maintenanceError))
+                {
+                    throw new BridgeRequestException(
+                        423,
+                        "CONFIG_MAINTENANCE_ACTIVE",
+                        maintenanceError);
+                }
+                try
+                {
+                    if (runtime.ProcessEngine == null)
                     {
-                        ["reason"] = "editor_session_active",
-                        ["retryableWhen"] = "editor_session_saved_or_canceled",
-                        ["sideEffects"] = "none"
-                    }.ToString(Formatting.None));
-            }
-            if (!string.Equals(draft.BaseStateHash, ComputeMigrationStateHash(draft.Kind), StringComparison.Ordinal))
-            {
-                throw new BridgeRequestException(409, "PREVIEW_BASE_CHANGED",
-                    "预演后的基础配置已经变化，本次提交未执行。",
-                    new JObject
+                        throw new BridgeRequestException(
+                            503,
+                            "PROCESS_ENGINE_NOT_READY",
+                            "流程引擎尚未初始化，运动与IO迁移配置未提交。");
+                    }
+                    if (!runtime.ProcessEngine.TryValidateMotionConfigurationIdle(
+                            out string idleError))
                     {
-                        ["reason"] = "configuration_changed_after_preview",
-                        ["retryableWhen"] = "configuration_previewed_again",
-                        ["sideEffects"] = "none"
-                    }.ToString(Formatting.None));
+                        throw new BridgeRequestException(
+                            409,
+                            "MOTION_CONFIGURATION_NOT_IDLE",
+                            idleError,
+                            new JObject
+                            {
+                                ["reason"] = "process_or_manual_motion_active",
+                                ["sideEffects"] = "none"
+                            }.ToString(Formatting.None));
+                    }
+                }
+                catch
+                {
+                    motionConfigurationLease.Dispose();
+                    motionConfigurationLease = null;
+                    throw;
+                }
             }
-
+            else
+            {
+                EnsureAllProcsInactiveForAiStructureCommit("提交迁移平台配置");
+                // 非运动迁移沿用原有提交互斥；motion_io 已持有自己的维护租约。
+                if (runtime.Maintenance.Active)
+                {
+                    throw new BridgeRequestException(423, "CONFIG_MAINTENANCE_ACTIVE",
+                        string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)
+                            ? "系统正在执行配置维护。"
+                            : $"系统正在执行配置维护：{runtime.Maintenance.Reason}");
+                }
+            }
             try
             {
-                ApplyMigrationConfiguration(draft);
-            }
-            catch
-            {
-                // 提交失败时同样移除预演记录：失败后基础配置可能已部分写盘，
-                // 保留记录只会让后续重新预演被 PREVIEW_IN_FLIGHT 阻塞。
+                if (runtime.Safety.IsLocked)
+                {
+                    throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
+                }
+                if (runtime.Editor.ActiveSession != null)
+                {
+                    throw new BridgeRequestException(409, "EDITOR_SESSION_ACTIVE",
+                        $"当前存在未完成的编辑会话：{runtime.Editor.ActiveSession.Name}。请先保存或取消，再提交迁移配置。",
+                        new JObject
+                        {
+                            ["reason"] = "editor_session_active",
+                            ["retryableWhen"] = "editor_session_saved_or_canceled",
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
+                }
+                if (!string.Equals(draft.BaseStateHash, ComputeMigrationStateHash(draft.Kind), StringComparison.Ordinal))
+                {
+                    throw new BridgeRequestException(409, "PREVIEW_BASE_CHANGED",
+                        "预演后的基础配置已经变化，本次提交未执行。",
+                        new JObject
+                        {
+                            ["reason"] = "configuration_changed_after_preview",
+                            ["retryableWhen"] = "configuration_previewed_again",
+                            ["sideEffects"] = "none"
+                        }.ToString(Formatting.None));
+                }
+
+                bool restartRequired;
+                try
+                {
+                    restartRequired = ApplyMigrationConfiguration(draft);
+                }
+                catch
+                {
+                    // 提交失败时同样移除预演记录：失败后基础配置可能已部分写盘，
+                    // 保留记录只会让后续重新预演被 PREVIEW_IN_FLIGHT 阻塞。
+                    RemovePreview(previewId);
+                    throw;
+                }
                 RemovePreview(previewId);
-                throw;
+                return new JObject
+                {
+                    ["previewId"] = previewId,
+                    ["domain"] = draft.Kind,
+                    ["committed"] = true,
+                    ["configurationSaved"] = true,
+                    ["restartRequired"] = restartRequired
+                };
             }
-            RemovePreview(previewId);
-            return new JObject
+            finally
             {
-                ["previewId"] = previewId,
-                ["domain"] = draft.Kind,
-                ["committed"] = true,
-                ["configurationSaved"] = true
-            };
+                motionConfigurationLease?.Dispose();
+            }
         }
 
         private void EnsureMigrationAccountPermission(string kind)
@@ -456,33 +516,29 @@ namespace Automation.Bridge
             }
         }
 
-        private void ApplyMigrationConfiguration(MigrationConfigurationPreview draft)
+        private bool ApplyMigrationConfiguration(MigrationConfigurationPreview draft)
         {
+            bool restartRequired = false;
             switch (draft.Kind)
             {
                 case "motion_io":
-                    using (var batch = new ConfigurationBatchWriter(runtime.Paths.ConfigPath))
-                    {
-                        batch.AddJson("card.json", draft.Cards);
-                        batch.AddJson("IOMap.json", draft.IoMap);
-                        batch.Commit();
-                    }
-                    if (!runtime.Stores.Cards.Load(runtime.Paths.ConfigPath, out string cardLoadError))
-                    {
-                        runtime.Safety.Lock("迁移后的控制卡配置加载失败：" + cardLoadError);
-                        // 写盘成功但内存未生效：必须以失败响应暴露，不能返回 configurationSaved=true
-                        // 掩盖“磁盘与运行时分叉”的事实。
-                        throw new BridgeRequestException(500, "MIGRATION_CONFIG_LOAD_FAILED",
-                            "迁移后的控制卡配置已写入磁盘但加载失败，平台已安全锁定，本次提交未生效：" + cardLoadError,
-                            new JObject
-                            {
-                                ["reason"] = "config_written_but_load_failed",
-                                ["sideEffects"] = "config_file_written_platform_locked",
-                                ["nextAction"] = "修复配置后重新预演提交；平台锁定需人工解锁。"
-                            }.ToString(Formatting.None));
-                    }
-                    runtime.EditorUi?.RefreshMotionIo();
+                    restartRequired = CommitAndReloadMotionIoConfiguration(
+                        runtime,
+                        draft.Cards,
+                        draft.IoMap);
                     if (runtime.ProcessEngine?.Context != null) runtime.ProcessEngine.Context.IoMap = runtime.Stores.IoConfiguration.ByName;
+                    try
+                    {
+                        runtime.EditorUi?.RefreshMotionIo();
+                    }
+                    catch (Exception ex)
+                    {
+                        // 配置事务和正式 Store 已成功提交，页面刷新只是视图层降级，不能把
+                        // 已提交结果误报成普通失败；重启闸门仍确保新配置不会热驱动设备。
+                        runtime.ProcessEngine?.Logger?.Log(
+                            "运动与IO迁移已提交，但配置页面刷新失败：" + ex.Message,
+                            LogLevel.Error);
+                    }
                     break;
                 case "io_debug":
                     using (var batch = new ConfigurationBatchWriter(runtime.Paths.ConfigPath))
@@ -545,6 +601,76 @@ namespace Automation.Bridge
                 default:
                     throw new BridgeRequestException(400, "MIGRATION_DOMAIN_INVALID", $"不支持的迁移领域：{draft.Kind}");
             }
+            return restartRequired;
+        }
+
+        internal static bool CommitAndReloadMotionIoConfiguration(
+            PlatformRuntime targetRuntime,
+            Card cards,
+            List<List<IO>> ioMap)
+        {
+            if (targetRuntime == null) throw new ArgumentNullException(nameof(targetRuntime));
+            Card previousCards = ObjectGraphCloner.Clone(targetRuntime.Stores.Cards.CardData);
+            List<List<IO>> previousIoMap = targetRuntime.Stores.IoConfiguration.CreateSnapshot();
+            using (var batch = new ConfigurationBatchWriter(targetRuntime.Paths.ConfigPath))
+            {
+                batch.AddJson("card.json", cards);
+                batch.AddJson("IOMap.json", ioMap);
+                batch.Commit();
+            }
+
+            // 两份文件已经作为同一事务落盘。先关闭所有后续运动入口，再显式重载
+            // 两个正式 Store；UI 窗口是否已经创建不能决定配置是否进入内存。
+            targetRuntime.Readiness.MotionConfigRestartRequired = true;
+            try
+            {
+                bool cardsLoaded = targetRuntime.Stores.Cards.Load(
+                    targetRuntime.Paths.ConfigPath,
+                    out string cardLoadError);
+                bool ioLoaded = targetRuntime.Stores.IoConfiguration.Load(
+                    targetRuntime.Paths.ConfigPath,
+                    out string ioLoadError);
+                if (!cardsLoaded || !ioLoaded)
+                {
+                    string loadError = !cardsLoaded
+                        ? "控制卡配置加载失败：" + cardLoadError
+                        : "IO配置加载失败：" + ioLoadError;
+                    throw new InvalidDataException(loadError);
+                }
+                if (!targetRuntime.Stores.Cards.TryValidateIoMap(
+                        targetRuntime.Stores.IoConfiguration.Map,
+                        out string cardIoError))
+                {
+                    throw new InvalidDataException(cardIoError);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 磁盘事务已经完成，失败响应不能把正式内存留在只更新一半的状态。
+                // 恢复提交前快照，同时保持重启闸门和安全锁；下次启动仍以磁盘配置为准。
+                targetRuntime.Stores.Cards.SetCard(previousCards);
+                bool ioRestored = targetRuntime.Stores.IoConfiguration.TryReplaceMap(
+                    previousIoMap,
+                    out string ioRestoreError);
+                string restoreDetail = ioRestored
+                    ? "正式内存已恢复为提交前快照。"
+                    : "正式内存IO快照恢复失败：" + ioRestoreError;
+                string message = "迁移后的运动与IO配置已写入磁盘但重载失败，平台已安全锁定且必须重启："
+                    + ex.Message + "；" + restoreDetail;
+                targetRuntime.Safety.Lock(message);
+                throw new BridgeRequestException(500, "MIGRATION_CONFIG_LOAD_FAILED",
+                    message,
+                    new JObject
+                    {
+                        ["reason"] = "config_written_but_load_failed",
+                        ["sideEffects"] = ioRestored
+                            ? "config_files_written_memory_restored_platform_locked_restart_required"
+                            : "config_files_written_memory_restore_failed_platform_locked_restart_required",
+                        ["restartRequired"] = true,
+                        ["nextAction"] = "检查磁盘中的控制卡与IO配置，重启平台后重新验证；平台锁定需人工处理。"
+                    }.ToString(Formatting.None));
+            }
         }
 
         private JObject HandleValidatePlatformConfiguration()
@@ -557,7 +683,12 @@ namespace Automation.Bridge
                 {
                     throw new InvalidOperationException(string.Join("；", errors));
                 }
-                ValidateIoMapAgainstCards(runtime.Stores.Cards.CardData, runtime.Stores.IoConfiguration.Map);
+                if (!runtime.Stores.Cards.TryValidateIoMap(
+                        runtime.Stores.IoConfiguration.Map,
+                        out string cardIoError))
+                {
+                    throw new InvalidOperationException(cardIoError);
+                }
             });
             AddMigrationValidation(domains, "io_debug", () =>
                 ValidateIoDebugMap(runtime.EditorUi?.IoDebugMap ?? new IODebugMap(),
@@ -632,7 +763,10 @@ namespace Automation.Bridge
                         AxisNum = axisIndex++,
                         AxisName = axis?.Name ?? string.Empty,
                         PulseToMM = axis?.PulseToMm ?? 0,
-                        HomeDirection = axis?.HomeDirection ?? string.Empty,
+                        HomeMethod = axis?.HomeMethod ?? -1,
+                        EncoderType = ParseAxisEncoderType(axis?.EncoderType),
+                        NegativeSoftLimit = axis?.NegativeSoftLimit ?? 0,
+                        PositiveSoftLimit = axis?.PositiveSoftLimit ?? 0,
                         HomeSpeed = axis?.HomeSpeed ?? string.Empty,
                         SpeedInfo = axis?.SpeedInfo ?? 0,
                         SpeedMax = axis?.MaxSpeed ?? 0,
@@ -682,42 +816,9 @@ namespace Automation.Bridge
                     : string.Equals(left.IOType, "通用输入", StringComparison.Ordinal) ? -1 : 1);
                 for (int i = 0; i < cardIo.Count; i++) cardIo[i].Index = i;
             }
-            ValidateIoMapAgainstCards(cards, ioMap);
-        }
-
-        private static void ValidateIoMapAgainstCards(Card cards, List<List<IO>> ioMap)
-        {
-            if (cards?.controlCards == null || ioMap == null || cards.controlCards.Count != ioMap.Count)
+            if (!validator.TryValidateIoMap(ioMap, out string cardIoError))
             {
-                throw new InvalidOperationException("控制卡数量与IO卡分组数量不一致。");
-            }
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            for (int cardIndex = 0; cardIndex < cards.controlCards.Count; cardIndex++)
-            {
-                CardHead head = cards.controlCards[cardIndex]?.cardHead
-                    ?? throw new InvalidOperationException($"{cardIndex}号控制卡配置为空。");
-                List<IO> items = ioMap[cardIndex] ?? new List<IO>();
-                int inputs = items.Count(item => item != null && item.IOType == "通用输入");
-                int outputs = items.Count(item => item != null && item.IOType == "通用输出");
-                if (inputs != head.InputCount || outputs != head.OutputCount)
-                {
-                    throw new InvalidOperationException($"{cardIndex}号卡IO数量不一致：输入{inputs}/{head.InputCount}，输出{outputs}/{head.OutputCount}。");
-                }
-                foreach (IO item in items)
-                {
-                    if (item == null || item.CardNum != cardIndex)
-                    {
-                        throw new InvalidOperationException($"{cardIndex}号卡包含空IO或错误卡号。");
-                    }
-                    if (!string.IsNullOrWhiteSpace(item.Name) && !names.Add(item.Name))
-                    {
-                        throw new InvalidOperationException($"IO名称重复：{item.Name}");
-                    }
-                    if (item.IOType != "通用输入" && item.IOType != "通用输出")
-                    {
-                        throw new InvalidOperationException($"IO[{item.Name}]类型无效：{item.IOType}");
-                    }
-                }
+                throw new InvalidOperationException(cardIoError);
             }
         }
 
@@ -902,6 +1003,22 @@ namespace Automation.Bridge
                 StopBit = item.StopBit ?? string.Empty,
                 EncodingName = item.EncodingName ?? string.Empty
             }).ToList();
+        }
+
+        private static AxisEncoderType ParseAxisEncoderType(string value)
+        {
+            if (string.Equals(value, nameof(AxisEncoderType.Incremental), StringComparison.OrdinalIgnoreCase))
+            {
+                return AxisEncoderType.Incremental;
+            }
+            if (string.Equals(value, nameof(AxisEncoderType.Absolute), StringComparison.OrdinalIgnoreCase))
+            {
+                return AxisEncoderType.Absolute;
+            }
+            throw new BridgeRequestException(
+                400,
+                "MOTION_CONFIG_INVALID",
+                $"编码器类型无效:{value ?? "<空>"}，只允许Incremental或Absolute。");
         }
 
         private string ComputeMigrationStateHash(string kind)

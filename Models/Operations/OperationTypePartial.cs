@@ -173,7 +173,11 @@ namespace Automation
 
             public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
             {
-                return new StandardValuesCollection(new List<string>() { "通用" });
+                // 原样沿用 3.0 的系统 IO 用途顺序，避免成熟项目配置在 4.0 中丢失语义。
+                return new StandardValuesCollection(new List<string>()
+                {
+                    "通用", "急停", "复位", "启动", "暂停", "停止", "刹车"
+                });
             }
             public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
             {
@@ -1232,7 +1236,10 @@ namespace Automation
                         if (posList != null)
                         {
                             posItems = posList
-                                .Where(info => !string.IsNullOrEmpty(info.Name))
+                                .Where(info => info != null
+                                    && !string.IsNullOrEmpty(info.Name)
+                                    && (station.Type == StationType.Axis
+                                        || info.Index >= 0 && info.Index < 200))
                                 .Select(info => info.Name)
                                 .ToList();
                         }
@@ -1324,6 +1331,11 @@ namespace Automation
                                 {
                                     continue;
                                 }
+                                if (station.Type != StationType.Axis
+                                    && (info.Index < 0 || info.Index >= 200))
+                                {
+                                    continue;
+                                }
                                 if (!posItems.Contains(info.Name))
                                 {
                                     posItems.Add(info.Name);
@@ -1371,6 +1383,11 @@ namespace Automation
                     if (stationIndex != -1)
                     {
                         AxisItems.Add("工站");
+                        if (station.Type != StationType.Axis)
+                        {
+                            AxisItems.AddRange(new[] { "X", "Y", "Z", "U", "V", "W" });
+                            return AxisItems;
+                        }
                         var axisConfigs = GetRuntime(context)?.Stores.Stations.Items[stationIndex].dataAxis?.axisConfigs;
                         if (axisConfigs == null)
                         {

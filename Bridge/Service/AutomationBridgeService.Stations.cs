@@ -49,9 +49,10 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站点位列表未初始化。");
             }
-            if (index < 0 || index >= DataStation.PointCapacity)
+            int pointCapacity = DataStation.GetPointCapacity(station.Type);
+            if (index < 0 || index >= pointCapacity)
             {
-                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出范围 [0, {DataStation.PointCapacity})。");
+                throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"点位 index 超出范围 [0, {pointCapacity})。");
             }
             // 旧数据可能未填满 400 个槽位，按实际容量防御
             if (index >= station.ListDataPos.Count)
@@ -110,30 +111,6 @@ namespace Automation.Bridge
                 .OrderBy(point => point.Index);
         }
 
-        private static void RebuildStationPointDictionary(DataStation station)
-        {
-            if (station == null) return;
-            station.dicDataPos = EnumerateNamedPoints(station)
-                .GroupBy(point => point.Name, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        }
-
-        private void SaveStationAndRefresh()
-        {
-            StationDefinitionStore store = runtime.Stores.Stations;
-            List<DataStation> candidate = store.Items.Select(ObjectGraphCloner.Clone).ToList();
-            foreach (DataStation station in candidate) RebuildStationPointDictionary(station);
-            if (!store.TryCommit(runtime.Paths.ConfigPath, candidate, out string error))
-            {
-                if (!store.Load(runtime.Paths.ConfigPath, out string restoreError))
-                {
-                    runtime.Safety.Lock($"{error}；正式内存恢复失败：{restoreError}");
-                }
-                throw new BridgeRequestException(500, "STATION_COMMIT_FAILED", error);
-            }
-            runtime.EditorUi?.RefreshStations();
-        }
-
         [System.Diagnostics.DebuggerNonUserCode]
         private JObject HandleListStations(JObject request)
         {
@@ -162,10 +139,16 @@ namespace Automation.Bridge
                 {
                     ["stationIndex"] = i,
                     ["name"] = station.Name ?? string.Empty,
+                    ["type"] = station.Type.ToString(),
+                    ["communicationName"] = station.CommunicationName ?? string.Empty,
+                    ["pointFromRobot"] = station.PointFromRobot,
+                    ["remoteMode"] = station.RemoteMode,
+                    ["remoteCommunicationName"] = station.RemoteCommunicationName ?? string.Empty,
                     ["coordinateSystem"] = station.CoordinateSystem,
                     ["manualSpeedPercent"] = station.ManualSpeedPercent,
                     ["axisCount"] = axes.Count,
                     ["axes"] = axes,
+                    ["pointCapacity"] = DataStation.GetPointCapacity(station.Type),
                     ["pointCount"] = namedCount,
                     ["taughtPointCount"] = taughtCount,
                     ["plannedPointCount"] = plannedCount
@@ -194,10 +177,16 @@ namespace Automation.Bridge
             {
                 ["stationIndex"] = stationIndex,
                 ["name"] = station.Name ?? string.Empty,
+                ["type"] = station.Type.ToString(),
+                ["communicationName"] = station.CommunicationName ?? string.Empty,
+                ["pointFromRobot"] = station.PointFromRobot,
+                ["remoteMode"] = station.RemoteMode,
+                ["remoteCommunicationName"] = station.RemoteCommunicationName ?? string.Empty,
                 ["coordinateSystem"] = station.CoordinateSystem,
                 ["manualSpeedPercent"] = station.ManualSpeedPercent,
                 ["axisCount"] = axes.Count,
                 ["axes"] = axes,
+                ["pointCapacity"] = DataStation.GetPointCapacity(station.Type),
                 ["points"] = points
             };
         }
@@ -224,128 +213,6 @@ namespace Automation.Bridge
                 });
             }
             return axes;
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleAddStation(JObject request)
-        {
-            EnsureRuntimeReady();
-            if (runtime.Stores.Stations?.Items == null)
-            {
-                return BridgeError(500, "STORE_UNAVAILABLE", "工站存储未初始化。");
-            }
-            string name = request["name"]?.Value<string>();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", "缺少 name 字段或 name 为空。");
-            }
-            double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
-            int coordinateSystem = request["coordinateSystem"]?.Value<int>() ?? 0;
-            if (coordinateSystem < 0 || coordinateSystem > 1)
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", $"坐标系无效:{coordinateSystem}。");
-            }
-            List<DataStation> list = runtime.Stores.Stations.Items;
-            foreach (DataStation s in list)
-            {
-                if (s != null && string.Equals(s.Name, name, StringComparison.Ordinal))
-                {
-                    return BridgeError(400, "DUPLICATE_NAME", $"工站名 [{name}] 已存在。");
-                }
-            }
-            DataStation station = new DataStation(false)
-            {
-                Name = name,
-                CoordinateSystem = (ushort)coordinateSystem
-            };
-            if (manualSpeedPercent.HasValue) station.ManualSpeedPercent = manualSpeedPercent.Value;
-            list.Add(station);
-            SaveStationAndRefresh();
-            int newIndex = list.Count - 1;
-            return new JObject
-            {
-                ["ok"] = true,
-                ["stationIndex"] = newIndex,
-                ["name"] = station.Name,
-                ["message"] = $"工站 [{name}] 已创建于 stationIndex={newIndex}。"
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleDeleteStation(JObject request)
-        {
-            EnsureRuntimeReady();
-            int stationIndex = ReadRequiredInt(request, "stationIndex");
-            // 先校验范围与存在性
-            ResolveStation(stationIndex);
-            List<DataStation> list = runtime.Stores.Stations.Items;
-            string name = list[stationIndex]?.Name ?? string.Empty;
-            list.RemoveAt(stationIndex);
-            SaveStationAndRefresh();
-            return new JObject
-            {
-                ["ok"] = true,
-                ["stationIndex"] = stationIndex,
-                ["name"] = name,
-                ["message"] = $"工站 [{name}] (stationIndex={stationIndex}) 已删除，后续工站索引前移。"
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleUpdateStation(JObject request)
-        {
-            EnsureRuntimeReady();
-            int stationIndex = ReadRequiredInt(request, "stationIndex");
-            DataStation station = ResolveStation(stationIndex);
-            string name = request["name"]?.Value<string>();
-            double? manualSpeedPercent = request["manualSpeedPercent"]?.Value<double>();
-            int? coordinateSystem = request["coordinateSystem"]?.Value<int>();
-            if (coordinateSystem.HasValue && (coordinateSystem.Value < 0 || coordinateSystem.Value > 1))
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", $"坐标系无效:{coordinateSystem.Value}。");
-            }
-            bool changed = false;
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                List<DataStation> list = runtime.Stores.Stations.Items;
-                for (int i = 0; i < list.Count; i++)
-                {
-                    if (i == stationIndex) continue;
-                    DataStation s = list[i];
-                    if (s != null && string.Equals(s.Name, name, StringComparison.Ordinal))
-                    {
-                        return BridgeError(400, "DUPLICATE_NAME", $"工站名 [{name}] 已存在。");
-                    }
-                }
-                station.Name = name;
-                changed = true;
-            }
-            if (manualSpeedPercent.HasValue)
-            {
-                station.ManualSpeedPercent = manualSpeedPercent.Value;
-                changed = true;
-            }
-            if (coordinateSystem.HasValue)
-            {
-                station.CoordinateSystem = (ushort)coordinateSystem.Value;
-                changed = true;
-            }
-            if (!changed)
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", "至少提供 name、manualSpeedPercent 或 coordinateSystem 之一。");
-            }
-            SaveStationAndRefresh();
-            return new JObject
-            {
-                ["ok"] = true,
-                ["station"] = new JObject
-                {
-                    ["stationIndex"] = stationIndex,
-                    ["name"] = station.Name ?? string.Empty,
-                    ["manualSpeedPercent"] = station.ManualSpeedPercent
-                },
-                ["message"] = $"工站 stationIndex={stationIndex} 已更新。"
-            };
         }
 
         [System.Diagnostics.DebuggerNonUserCode]
@@ -417,195 +284,246 @@ namespace Automation.Bridge
             {
                 throw new BridgeRequestException(400, "INVALID_ARGUMENT", $"stationIndex 超出范围 [0, {store.Items.Count})。");
             }
-            List<DataStation> candidate = store.Items.Select(ObjectGraphCloner.Clone).ToList();
-            DataStation station = candidate[stationIndex];
+            DataStation station = store.Items[stationIndex];
             if (station?.ListDataPos == null)
             {
                 throw new BridgeRequestException(500, "STORE_UNAVAILABLE", "工站点位列表未初始化。");
             }
-            RebuildStationPointDictionary(station);
 
-            var existingByName = station.ListDataPos
+            // 先在工站配置锁内确认是否真的需要写入，保持纯幂等查询不受流程运行闸门影响。
+            lock (station)
+            {
+                AnalyzeMotionPointPlan(
+                    station,
+                    pointNames,
+                    out int currentCapacity,
+                    out Dictionary<string, DataPos> currentPoints,
+                    out _);
+                if (pointNames.All(currentPoints.ContainsKey))
+                {
+                    return BuildMotionPointPlanResult(
+                        stationIndex,
+                        station.Name,
+                        currentCapacity,
+                        pointNames.Count,
+                        0,
+                        BuildMotionPointPlanProjection(stationIndex, pointNames, currentPoints, null));
+                }
+            }
+
+            EnsureAllProcsInactiveForAiStructureCommit("规划运动点位");
+
+            JObject result;
+            int createdCount = 0;
+            lock (station)
+            {
+                if (stationIndex >= store.Items.Count
+                    || !ReferenceEquals(store.Items[stationIndex], station))
+                {
+                    throw new BridgeRequestException(
+                        409,
+                        "STATION_CONFIGURATION_CHANGED",
+                        "规划运动点位期间工站配置已被替换，请刷新资源后重试。");
+                }
+
+                AnalyzeMotionPointPlan(
+                    station,
+                    pointNames,
+                    out int pointCapacity,
+                    out Dictionary<string, DataPos> existingByName,
+                    out List<DataPos> emptySlots);
+
+                if (pointNames.All(existingByName.ContainsKey))
+                {
+                    return BuildMotionPointPlanResult(
+                        stationIndex,
+                        station.Name,
+                        pointCapacity,
+                        pointNames.Count,
+                        0,
+                        BuildMotionPointPlanProjection(
+                            stationIndex,
+                            pointNames,
+                            existingByName,
+                            null));
+                }
+
+                bool dictionaryWasNull = station.dicDataPos == null;
+                Dictionary<string, DataPos> pointDictionary = station.dicDataPos
+                    ?? new Dictionary<string, DataPos>(StringComparer.Ordinal);
+                KeyValuePair<string, DataPos>[] dictionarySnapshot = pointDictionary.ToArray();
+                var changedPoints = new List<DataPos>();
+                var previousNames = new List<string>();
+                var previousTeachingStates = new List<bool?>();
+                var createdNames = new HashSet<string>(StringComparer.Ordinal);
+                station.dicDataPos = pointDictionary;
+                pointDictionary.Clear();
+                foreach (DataPos namedPoint in EnumerateNamedPoints(station))
+                {
+                    if (!pointDictionary.ContainsKey(namedPoint.Name))
+                    {
+                        pointDictionary[namedPoint.Name] = namedPoint;
+                    }
+                }
+
+                foreach (string name in pointNames)
+                {
+                    if (existingByName.ContainsKey(name))
+                    {
+                        continue;
+                    }
+                    DataPos point = emptySlots[createdCount];
+                    changedPoints.Add(point);
+                    previousNames.Add(point.Name);
+                    previousTeachingStates.Add(point.IsTaught);
+                    point.Name = name;
+                    point.IsTaught = false;
+                    pointDictionary[name] = point;
+                    existingByName[name] = point;
+                    createdNames.Add(name);
+                    createdCount++;
+                }
+
+                if (createdCount > 0)
+                {
+                    bool persisted = false;
+                    try
+                    {
+                        if (!store.TryPersistCurrent(runtime.Paths.ConfigPath, out string error))
+                        {
+                            throw new BridgeRequestException(500, "STATION_COMMIT_FAILED", error);
+                        }
+                        persisted = true;
+                    }
+                    finally
+                    {
+                        if (!persisted)
+                        {
+                            for (int i = 0; i < changedPoints.Count; i++)
+                            {
+                                changedPoints[i].Name = previousNames[i];
+                                changedPoints[i].IsTaught = previousTeachingStates[i];
+                            }
+                            pointDictionary.Clear();
+                            foreach (KeyValuePair<string, DataPos> pair in dictionarySnapshot)
+                            {
+                                pointDictionary[pair.Key] = pair.Value;
+                            }
+                            if (dictionaryWasNull)
+                            {
+                                station.dicDataPos = null;
+                            }
+                        }
+                    }
+                }
+
+                result = BuildMotionPointPlanResult(
+                    stationIndex,
+                    station.Name,
+                    pointCapacity,
+                    pointNames.Count,
+                    createdCount,
+                    BuildMotionPointPlanProjection(
+                        stationIndex,
+                        pointNames,
+                        existingByName,
+                        createdNames));
+            }
+
+            return result;
+        }
+
+        private static void AnalyzeMotionPointPlan(
+            DataStation station,
+            IReadOnlyCollection<string> pointNames,
+            out int pointCapacity,
+            out Dictionary<string, DataPos> existingByName,
+            out List<DataPos> emptySlots)
+        {
+            if (station?.ListDataPos == null)
+            {
+                throw new BridgeRequestException(
+                    500,
+                    "STORE_UNAVAILABLE",
+                    "工站点位列表未初始化。");
+            }
+            int capacity = DataStation.GetPointCapacity(station.Type);
+            DataPos invalidPoint = EnumerateNamedPoints(station).FirstOrDefault(point =>
+                point.Index < 0 || point.Index >= capacity);
+            if (invalidPoint != null)
+            {
+                throw new BridgeRequestException(
+                    409,
+                    "POINT_INDEX_OUT_OF_RANGE",
+                    $"{station.Type} 工站点位“{invalidPoint.Name}”索引为 {invalidPoint.Index}，允许范围为 [0, {capacity})。");
+            }
+
+            Dictionary<string, DataPos> existing = station.ListDataPos
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
                 .GroupBy(item => item.Name, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            int requiredSlots = pointNames.Count(name => !existingByName.ContainsKey(name));
-            List<DataPos> emptySlots = station.ListDataPos
-                .Where(item => item != null && string.IsNullOrWhiteSpace(item.Name))
+            int requiredSlots = pointNames.Count(name => !existing.ContainsKey(name));
+            List<DataPos> availableSlots = station.ListDataPos
+                .Where(item => item != null
+                    && item.Index >= 0
+                    && item.Index < capacity
+                    && string.IsNullOrWhiteSpace(item.Name))
                 .OrderBy(item => item.Index)
                 .ToList();
-            if (emptySlots.Count < requiredSlots)
+            if (availableSlots.Count < requiredSlots)
             {
-                throw new BridgeRequestException(409, "POINT_CAPACITY_EXCEEDED",
-                    $"工站仅剩 {emptySlots.Count} 个空点位槽，无法新增 {requiredSlots} 个规划点位。");
+                throw new BridgeRequestException(
+                    409,
+                    "POINT_CAPACITY_EXCEEDED",
+                    $"{station.Type} 工站容量为 {capacity}，仅剩 {availableSlots.Count} 个空点位槽，无法新增 {requiredSlots} 个规划点位。");
             }
+            pointCapacity = capacity;
+            existingByName = existing;
+            emptySlots = availableSlots;
+        }
 
+        private static JArray BuildMotionPointPlanProjection(
+            int stationIndex,
+            IEnumerable<string> pointNames,
+            IReadOnlyDictionary<string, DataPos> existingByName,
+            ISet<string> createdNames)
+        {
             var planned = new JArray();
-            int createdCount = 0;
             foreach (string name in pointNames)
             {
-                bool created = !existingByName.TryGetValue(name, out DataPos point);
-                if (created)
-                {
-                    point = emptySlots[createdCount];
-                    point.Name = name;
-                    point.IsTaught = false;
-                    station.dicDataPos[name] = point;
-                    existingByName[name] = point;
-                    createdCount++;
-                }
+                DataPos point = existingByName[name];
                 planned.Add(new JObject
                 {
                     ["index"] = point.Index,
                     ["name"] = point.Name,
                     ["teachingState"] = point.TeachingState,
                     ["taught"] = point.IsMotionReady,
-                    ["created"] = created,
+                    ["created"] = createdNames?.Contains(name) == true,
                     ["resourceRef"] = $"motion_point:{stationIndex}:{point.Index}"
                 });
             }
-            RebuildStationPointDictionary(station);
+            return planned;
+        }
 
-            if (createdCount > 0)
-            {
-                EnsureAllProcsInactiveForAiStructureCommit("规划运动点位");
-                if (!store.TryCommit(runtime.Paths.ConfigPath, candidate, out string error))
-                {
-                    throw new BridgeRequestException(500, "STATION_COMMIT_FAILED", error);
-                }
-            }
-            if (createdCount > 0) runtime.EditorUi?.RefreshStations();
+        private static JObject BuildMotionPointPlanResult(
+            int stationIndex,
+            string stationName,
+            int pointCapacity,
+            int requestedCount,
+            int createdCount,
+            JArray planned)
+        {
             return new JObject
             {
                 ["ok"] = true,
                 ["configurationSaved"] = true,
                 ["stationIndex"] = stationIndex,
-                ["stationName"] = station.Name ?? string.Empty,
+                ["stationName"] = stationName ?? string.Empty,
+                ["pointCapacity"] = pointCapacity,
                 ["createdCount"] = createdCount,
-                ["existingCount"] = pointNames.Count - createdCount,
+                ["existingCount"] = requestedCount - createdCount,
                 ["points"] = planned,
                 ["nextStep"] = "这些点位名称现在可被流程引用；新建点位仍需人工编辑坐标或在工站界面取点，未示教前启动校验会阻止相关运动。"
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleSetPoint(JObject request)
-        {
-            EnsureRuntimeReady();
-            int stationIndex = ReadRequiredInt(request, "stationIndex");
-            int index = ReadRequiredInt(request, "index");
-            DataStation station = ResolveStation(stationIndex);
-            DataPos pos = ResolvePoint(station, index);
-
-            string name = request["name"]?.Value<string>();
-            double? x = request["x"]?.Value<double>();
-            double? y = request["y"]?.Value<double>();
-            double? z = request["z"]?.Value<double>();
-            double? u = request["u"]?.Value<double>();
-            double? v = request["v"]?.Value<double>();
-            double? w = request["w"]?.Value<double>();
-            bool wasUnnamed = string.IsNullOrWhiteSpace(pos.Name);
-
-            bool changed = false;
-            if (!string.IsNullOrWhiteSpace(name)
-                && !string.Equals(name, pos.Name ?? string.Empty, StringComparison.Ordinal))
-            {
-                // 工站内点位名唯一校验（排除自身）
-                if (station.dicDataPos != null)
-                {
-                    foreach (KeyValuePair<string, DataPos> kv in station.dicDataPos)
-                    {
-                        if (kv.Value != null && kv.Value != pos
-                            && string.Equals(kv.Value.Name, name, StringComparison.Ordinal))
-                        {
-                            return BridgeError(400, "DUPLICATE_NAME", $"点位名 [{name}] 在工站内已存在。");
-                        }
-                    }
-                }
-                // 同步字典：删除旧 key（若旧名非空），再添加新 key
-                string oldName = pos.Name ?? string.Empty;
-                if (station.dicDataPos != null && !string.IsNullOrEmpty(oldName))
-                {
-                    station.dicDataPos.Remove(oldName);
-                }
-                pos.Name = name;
-                if (station.dicDataPos != null)
-                {
-                    station.dicDataPos[name] = pos;
-                }
-                changed = true;
-            }
-            if (x.HasValue) { pos.X = x.Value; changed = true; }
-            if (y.HasValue) { pos.Y = y.Value; changed = true; }
-            if (z.HasValue) { pos.Z = z.Value; changed = true; }
-            if (u.HasValue) { pos.U = u.Value; changed = true; }
-            if (v.HasValue) { pos.V = v.Value; changed = true; }
-            if (w.HasValue) { pos.W = w.Value; changed = true; }
-            bool coordinatesChanged = x.HasValue || y.HasValue || z.HasValue
-                || u.HasValue || v.HasValue || w.HasValue;
-            if (coordinatesChanged)
-            {
-                pos.IsTaught = true;
-            }
-            else if (changed && wasUnnamed && !string.IsNullOrWhiteSpace(pos.Name))
-            {
-                // 原空槽位只有名称时属于规划状态；既有点位改名不降低旧数据的兼容状态。
-                pos.IsTaught = false;
-            }
-            if (!changed)
-            {
-                return BridgeError(400, "INVALID_ARGUMENT", "至少提供一个可修改字段（name/x/y/z/u/v/w）。");
-            }
-            SaveStationAndRefresh();
-            return new JObject
-            {
-                ["ok"] = true,
-                ["point"] = BuildPointJObject(pos),
-                ["message"] = $"工站 stationIndex={stationIndex} 的点位 index={index} 已更新。"
-            };
-        }
-
-        [System.Diagnostics.DebuggerNonUserCode]
-        private JObject HandleDeletePoint(JObject request)
-        {
-            EnsureRuntimeReady();
-            int stationIndex = ReadRequiredInt(request, "stationIndex");
-            int index = ReadRequiredInt(request, "index");
-            DataStation station = ResolveStation(stationIndex);
-            DataPos pos = ResolvePoint(station, index);
-
-            // 判断点位是否已经为空（名称为空且坐标全零）
-            bool alreadyEmpty = string.IsNullOrEmpty(pos.Name)
-                && pos.X == 0 && pos.Y == 0 && pos.Z == 0
-                && pos.U == 0 && pos.V == 0 && pos.W == 0;
-            if (alreadyEmpty)
-            {
-                return BridgeError(404, "POINT_NOT_FOUND", $"工站 stationIndex={stationIndex} 的点位 index={index} 本身为空，无需删除。");
-            }
-
-            string oldName = pos.Name ?? string.Empty;
-            // 同步字典：移除旧名称
-            if (station.dicDataPos != null && !string.IsNullOrEmpty(oldName))
-            {
-                station.dicDataPos.Remove(oldName);
-            }
-            // 清空点位数据（Index 保持不变，固定槽位）
-            pos.Name = null;
-            pos.IsTaught = null;
-            pos.X = 0;
-            pos.Y = 0;
-            pos.Z = 0;
-            pos.U = 0;
-            pos.V = 0;
-            pos.W = 0;
-
-            SaveStationAndRefresh();
-            return new JObject
-            {
-                ["ok"] = true,
-                ["stationIndex"] = stationIndex,
-                ["index"] = index,
-                ["message"] = $"工站 stationIndex={stationIndex} 的点位 index={index}「{oldName}」已清空。"
             };
         }
 

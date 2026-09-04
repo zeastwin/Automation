@@ -272,6 +272,12 @@ namespace Automation
             Invalidate();
         }
 
+        protected override void OnLabelWidthChanged()
+        {
+            LayoutControls();
+            base.OnLabelWidthChanged();
+        }
+
         private void Kind_SelectionChangeCommitted(object sender, EventArgs e)
         {
             if (refreshing || !(kind.SelectedItem is InspectorReferenceKindItem selected)

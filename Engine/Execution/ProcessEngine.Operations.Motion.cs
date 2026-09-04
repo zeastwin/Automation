@@ -23,6 +23,111 @@ namespace Automation
 {
     public partial class ProcessEngine
     {
+        private short GetStationRuntimeIndex(DataStation station, ProcHandle evt)
+        {
+            int index = Context?.Stations?.IndexOf(station) ?? -1;
+            if (index < 0 || index > short.MaxValue)
+            {
+                throw CreateAlarmException(evt, $"工站运行索引无效:{station?.Name}");
+            }
+            return (short)index;
+        }
+
+        private void EnsureStationCommandSucceeded(
+            ProcHandle evt,
+            DataStation station,
+            string operation,
+            MotionStationResult result)
+        {
+            if (result == MotionStationResult.Success)
+            {
+                return;
+            }
+            string message = $"工站{station?.Name}{operation}失败:{result}";
+            MarkAlarm(evt, message);
+            throw CreateAlarmException(evt, message);
+        }
+
+        private double ResolveStationTimeout(
+            ProcHandle evt,
+            int configuredMilliseconds,
+            string variableName,
+            string operationName)
+        {
+            double timeout = configuredMilliseconds > 0
+                ? configuredMilliseconds
+                : Context.ValueStore.GetValueByNameForProcess(variableName, evt.procId).GetDValue();
+            if (timeout <= 0 || double.IsNaN(timeout) || double.IsInfinity(timeout)
+                || timeout > int.MaxValue)
+            {
+                throw CreateAlarmException(evt, $"{operationName}超时配置无效");
+            }
+            return timeout;
+        }
+
+        private void WaitRobotStation(
+            ProcHandle evt,
+            DataStation station,
+            short stationIndex,
+            bool waitForHome,
+            int timeoutMilliseconds,
+            string operation)
+        {
+            using (evt.CancellationToken.Register(() =>
+            {
+                try
+                {
+                    Context.Motion.StopStation(stationIndex, false);
+                }
+                catch (Exception ex)
+                {
+                    Logger?.Log($"取消{operation}时停止工站失败:{station.Name} {ex.Message}", LogLevel.Error);
+                }
+            }))
+            {
+                MotionStationResult result = Context.Motion.WaitStationMotion(
+                    stationIndex, waitForHome, -1, timeoutMilliseconds);
+                if (!evt.CancellationToken.IsCancellationRequested)
+                {
+                    EnsureStationCommandSucceeded(evt, station, operation, result);
+                }
+            }
+        }
+
+        private void CheckRobotStationInPoint(
+            ProcHandle evt,
+            DataStation station,
+            short stationIndex,
+            DataPos target,
+            IReadOnlyList<bool> disabledAxes)
+        {
+            MotionStationResult result = Context.Motion.GetStationPosition(
+                stationIndex, 0, out DataPos current);
+            EnsureStationCommandSucceeded(evt, station, "读取当前位置", result);
+            if (current == null)
+            {
+                throw CreateAlarmException(evt, $"工站{station.Name}未返回当前位置");
+            }
+            IReadOnlyList<double> currentValues = current.GetAllValues();
+            IReadOnlyList<double> targetValues = target.GetAllValues();
+            for (int axis = 0; axis < 6; axis++)
+            {
+                if (disabledAxes != null && disabledAxes.Count > axis && disabledAxes[axis])
+                {
+                    continue;
+                }
+                double tolerance = station.PositionTolerances != null
+                    && station.PositionTolerances.Length > axis
+                    ? station.PositionTolerances[axis]
+                    : 0.01;
+                if (Math.Abs(currentValues[axis] - targetValues[axis]) > tolerance)
+                {
+                    throw CreateAlarmException(evt,
+                        $"工站{station.Name}的{axis + 1}通道未到位，当前:{currentValues[axis]}，目标:{targetValues[axis]}，精度:{tolerance}");
+                }
+            }
+        }
+
         public bool RunHomeRun(ProcHandle evt, HomeRun homeRun)
         {
             DataStation station;
@@ -48,6 +153,29 @@ namespace Automation
             {
                 MarkAlarm(evt, $"找不到工站:{homeRun.StationName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (station.Type != StationType.Axis)
+            {
+                if (Context.Motion == null)
+                {
+                    throw CreateAlarmException(evt, "机器人工站运行时未初始化");
+                }
+                short runtimeStationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, runtimeStationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                MotionStationResult result = Context.Motion.HomeStation(
+                    runtimeStationIndex,
+                    -1,
+                    false,
+                    string.Equals(homeRun.StationHomeType, "轴按优先顺序回", StringComparison.Ordinal));
+                EnsureStationCommandSucceeded(evt, station, "回原", result);
+                if (!homeRun.ContinueWithoutWaiting)
+                {
+                    WaitRobotStation(evt, station, runtimeStationIndex, true, 120000, "回原");
+                }
+                return true;
             }
             if (Context.Motion == null || Context.CardStore == null
                 || station.dataAxis?.axisConfigs == null || station.dataAxis.axisConfigs.Count == 0)
@@ -146,122 +274,195 @@ namespace Automation
             return true;
         }
 
-        private CoordinatedLinearMoveRequest BuildCoordinatedLinearMove(
-            string operationName,
-            DataStation station,
-            IReadOnlyList<ushort> cards,
-            IReadOnlyList<ushort> axes,
-            IReadOnlyList<double> positions,
-            IReadOnlyList<double> axisVelocities,
-            IReadOnlyList<double> accelerationTimes,
-            IReadOnlyList<double> decelerationTimes,
-            IReadOnlyList<int> equivalents,
-            ushort positionMode)
+        private sealed class AxisStationMoveBinding
         {
-            int count = axes?.Count ?? 0;
-            if (station == null || cards == null || positions == null
-                || axisVelocities == null || accelerationTimes == null || decelerationTimes == null
-                || equivalents == null || cards.Count != count || positions.Count != count
-                || axisVelocities.Count != count || accelerationTimes.Count != count
-                || decelerationTimes.Count != count || equivalents.Count != count)
+            public int Channel { get; set; }
+
+            public ushort Card { get; set; }
+
+            public ushort Axis { get; set; }
+        }
+
+        private sealed class AxisStationMovePlan
+        {
+            public short StationIndex { get; set; }
+
+            public List<AxisStationMoveBinding> Bindings { get; set; }
+
+            public bool[] InactiveChannels { get; set; }
+        }
+
+        private AxisStationMovePlan ReserveAxisStationMove(
+            ProcHandle evt,
+            DataStation station,
+            IReadOnlyList<bool> disabledChannels,
+            string operationName)
+        {
+            if (Context.Motion == null || Context.CardStore == null)
             {
-                throw new InvalidOperationException($"{operationName}协调直线运动参数不完整");
+                throw CreateAlarmException(evt, "运动控制或控制卡配置未初始化");
             }
-            if (count == 0)
+            if (station?.dataAxis?.axisConfigs == null
+                || station.dataAxis.axisConfigs.Count < 6
+                || (disabledChannels != null && disabledChannels.Count < 6))
             {
-                return null;
+                throw CreateAlarmException(evt, $"{operationName}工站轴配置不完整");
             }
-            ushort card = cards[0];
-            if (cards.Any(item => item != card))
+            if (station.CoordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
             {
-                throw new InvalidOperationException($"{operationName}的参与轴必须位于同一张控制卡");
-            }
-            if (axes.Distinct().Count() != count)
-            {
-                throw new InvalidOperationException($"{operationName}的参与轴配置重复");
-            }
-            if (station.CoordinateSystem > 1)
-            {
-                throw new InvalidOperationException($"{operationName}坐标系无效:{station.CoordinateSystem}");
+                throw CreateAlarmException(evt,
+                    $"{operationName}坐标系无效:{station.CoordinateSystem}");
             }
 
-            double pathLengthSquared = 0;
-            var displacements = new double[count];
-            for (int i = 0; i < count; i++)
+            var bindings = new List<AxisStationMoveBinding>();
+            var inactiveChannels = Enumerable.Repeat(true, 6).ToArray();
+            for (int channel = 0; channel < 6; channel++)
             {
-                if (equivalents[i] <= 0)
-                {
-                    throw new InvalidOperationException($"{operationName}轴{axes[i]}脉冲当量无效");
-                }
-                double displacement = positionMode == 0
-                    ? positions[i]
-                    : positions[i] - Context.Motion.GetAxisPos(card, axes[i]) / equivalents[i];
-                if (double.IsNaN(displacement) || double.IsInfinity(displacement))
-                {
-                    throw new InvalidOperationException($"{operationName}轴{axes[i]}位移无效");
-                }
-                displacements[i] = displacement;
-                pathLengthSquared += displacement * displacement;
-            }
-            double pathLength = Math.Sqrt(pathLengthSquared);
-            if (pathLength <= 1e-12)
-            {
-                return null;
-            }
-
-            double vectorVelocity = double.MaxValue;
-            for (int i = 0; i < count; i++)
-            {
-                double component = Math.Abs(displacements[i]);
-                if (component <= 1e-12)
+                if (disabledChannels != null && disabledChannels[channel])
                 {
                     continue;
                 }
-                double candidate = axisVelocities[i] * pathLength / component;
-                vectorVelocity = Math.Min(vectorVelocity, candidate);
+                AxisConfig axisConfig = station.dataAxis.axisConfigs[channel];
+                if (axisConfig?.AxisName == "-1")
+                {
+                    continue;
+                }
+                if (axisConfig?.axis == null
+                    || !ushort.TryParse(axisConfig.CardNum, out ushort card)
+                    || axisConfig.axis.AxisNum < 0
+                    || axisConfig.axis.AxisNum > ushort.MaxValue)
+                {
+                    throw CreateAlarmException(evt,
+                        $"{operationName}工站通道{channel + 1}卡号或轴配置无效");
+                }
+                ushort axis = (ushort)axisConfig.axis.AxisNum;
+                if (!Context.CardStore.TryGetAxis(card, axis, out Axis configuredAxis)
+                    || configuredAxis.PulseToMM <= 0
+                    || configuredAxis.SpeedMax <= 0
+                    || configuredAxis.AccMax <= 0
+                    || configuredAxis.DecMax <= 0)
+                {
+                    throw CreateAlarmException(evt,
+                        $"{operationName}工站通道{channel + 1}物理轴配置无效:{card}-{axis}");
+                }
+                bindings.Add(new AxisStationMoveBinding
+                {
+                    Channel = channel,
+                    Card = card,
+                    Axis = axis
+                });
+                inactiveChannels[channel] = false;
             }
-            double accelerationTime = accelerationTimes.Max();
-            double decelerationTime = decelerationTimes.Max();
-            if (vectorVelocity <= 0 || vectorVelocity == double.MaxValue
-                || double.IsNaN(vectorVelocity) || double.IsInfinity(vectorVelocity)
-                || accelerationTime <= 0 || decelerationTime <= 0)
+            if (bindings.GroupBy(item => BuildMotionResourceKey(item.Card, item.Axis))
+                .Any(group => group.Count() > 1))
             {
-                throw new InvalidOperationException($"{operationName}协调直线速度参数无效");
+                throw CreateAlarmException(evt, $"{operationName}的参与轴配置重复");
             }
-            return new CoordinatedLinearMoveRequest
+            if (bindings.Select(item => item.Card).Distinct().Count() > 1)
             {
-                Card = card,
-                CoordinateSystem = station.CoordinateSystem,
-                Axes = axes.ToArray(),
-                Positions = positions.ToArray(),
-                PositionMode = positionMode,
-                MaxVelocity = vectorVelocity,
-                AccelerationTime = accelerationTime,
-                DecelerationTime = decelerationTime
+                throw CreateAlarmException(evt, $"{operationName}的参与轴必须位于同一张控制卡");
+            }
+
+            short stationIndex = GetStationRuntimeIndex(station, evt);
+            if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationError))
+            {
+                throw CreateAlarmException(evt, stationError);
+            }
+            if (!TryAcquireMotionResources(
+                    evt,
+                    bindings.Select(item => BuildMotionResourceKey(item.Card, item.Axis)),
+                    out string axisError))
+            {
+                throw CreateAlarmException(evt, axisError);
+            }
+            if (bindings.Count > 0
+                && !TryAcquireCoordinateSystem(
+                    evt,
+                    bindings[0].Card,
+                    station.CoordinateSystem,
+                    out string coordinateError))
+            {
+                throw CreateAlarmException(evt, coordinateError);
+            }
+            return new AxisStationMovePlan
+            {
+                StationIndex = stationIndex,
+                Bindings = bindings,
+                InactiveChannels = inactiveChannels
             };
         }
 
-        private void WaitForCoordinatedLinear(ProcHandle evt, CoordinatedLinearMoveRequest request,
-            double timeoutMilliseconds, string operationName)
+        private void ApplyAxisStationMoveSpeed(
+            ProcHandle evt,
+            DataStation station,
+            AxisStationMovePlan plan,
+            string operationName,
+            bool useOperationSpeed,
+            double configuredVelocity,
+            string velocityVariable,
+            double configuredAcceleration,
+            string accelerationVariable,
+            double configuredDeceleration,
+            string decelerationVariable)
         {
-            if (request == null)
+            if (plan.Bindings.Count == 0)
             {
                 return;
             }
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            while (!evt.CancellationToken.IsCancellationRequested)
+
+            double velocity;
+            double acceleration;
+            double deceleration;
+            if (useOperationSpeed)
             {
-                if (Context.Motion.IsCoordinatedLinearDone(request.Card, request.CoordinateSystem))
+                if (Context.ValueStore == null
+                    && (configuredVelocity == 0
+                        || configuredAcceleration == 0
+                        || configuredDeceleration == 0))
                 {
-                    return;
+                    throw CreateAlarmException(evt, $"{operationName}速度变量库未初始化");
                 }
-                if (stopwatch.ElapsedMilliseconds > timeoutMilliseconds)
-                {
-                    Context.Motion.StopCoordinatedLinear(request.Card, request.CoordinateSystem, 0);
-                    throw new TimeoutException($"{operationName}运动超时");
-                }
-                Delay(1, evt);
+                velocity = configuredVelocity == 0
+                    ? Context.ValueStore.GetValueByNameForProcess(velocityVariable, evt.procId).GetDValue()
+                    : configuredVelocity;
+                acceleration = configuredAcceleration == 0
+                    ? Context.ValueStore.GetValueByNameForProcess(accelerationVariable, evt.procId).GetDValue()
+                    : configuredAcceleration;
+                deceleration = configuredDeceleration == 0
+                    ? Context.ValueStore.GetValueByNameForProcess(decelerationVariable, evt.procId).GetDValue()
+                    : configuredDeceleration;
             }
+            else
+            {
+                AxisMotionParameters[] parameters = plan.Bindings
+                    .Select(item => Context.AxisMotionParameters.Get(item.Card, item.Axis))
+                    .ToArray();
+                // 3.0 的协调 Move 只有一档速度；多轴百分比按最小值合并，确保不突破任一轴上限。
+                velocity = parameters.Min(item => item.SpeedPercent);
+                acceleration = parameters.Min(item => item.AccelerationPercent);
+                deceleration = parameters.Min(item => item.DecelerationPercent);
+            }
+            if (velocity <= 0 || velocity > 100
+                || acceleration <= 0 || acceleration > 100
+                || deceleration <= 0 || deceleration > 100
+                || double.IsNaN(velocity) || double.IsInfinity(velocity)
+                || double.IsNaN(acceleration) || double.IsInfinity(acceleration)
+                || double.IsNaN(deceleration) || double.IsInfinity(deceleration))
+            {
+                throw CreateAlarmException(evt,
+                    $"{operationName}速度、加速能力和减速能力必须在1%到100%之间");
+            }
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "设置协调运动速度",
+                Context.Motion.SetStationSpeed(
+                    plan.StationIndex,
+                    velocity,
+                    acceleration,
+                    deceleration,
+                    -1,
+                    StationSpeedType.Move));
         }
 
         public bool RunStationRunPos(ProcHandle evt, StationRunPos stationRunPos)
@@ -306,212 +507,106 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-                    if (Context.Motion == null || Context.CardStore == null)
+            if (station.Type != StationType.Axis)
+            {
+                if (Context.Motion == null || Context.ValueStore == null)
+                {
+                    throw CreateAlarmException(evt, "机器人工站运行时或变量库未初始化");
+                }
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                if (stationRunPos.ChangeVel == "改变速度")
+                {
+                    double velocity = stationRunPos.Vel == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.VelV, evt.procId).GetDValue()
+                        : stationRunPos.Vel;
+                    double acceleration = stationRunPos.Acc == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.AccV, evt.procId).GetDValue()
+                        : stationRunPos.Acc;
+                    double deceleration = stationRunPos.Dec == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.DecV, evt.procId).GetDValue()
+                        : stationRunPos.Dec;
+                    EnsureStationCommandSucceeded(evt, station, "设置速度",
+                        Context.Motion.SetStationSpeed(stationIndex, velocity, acceleration,
+                            deceleration, -1, StationSpeedType.Joint));
+                }
+                bool[] disabledAxes = stationRunPos.IsDisableAxis == "有禁用"
+                    ? stationRunPos.GetAllValues().ToArray()
+                    : null;
+                EnsureStationCommandSucceeded(evt, station, "走点",
+                    Context.Motion.MoveStationToPoint(
+                        stationIndex, posItems, StationMoveMode.Go, disabledAxes, 0));
+                if (!stationRunPos.ContinueWithoutWaiting)
+                {
+                    int timeout = checked((int)ResolveStationTimeout(
+                        evt, stationRunPos.TimeoutMs, stationRunPos.TimeoutVariableName, stationRunPos.Name));
+                    WaitRobotStation(evt, station, stationIndex, false, timeout, "走点");
+                    if (stationRunPos.CheckInPosition && !evt.CancellationToken.IsCancellationRequested)
                     {
-                        MarkAlarm(evt, "运动控制未初始化");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
+                        CheckRobotStationInPoint(evt, station, stationIndex, posItems, disabledAxes);
                     }
-                    List<double> Poses = posItems.GetAllValues();
-                    List<bool> AxisDisableInfos = stationRunPos.GetAllValues();
-                    if (Poses == null || Poses.Count < 6 || AxisDisableInfos == null || AxisDisableInfos.Count < 6
-                        || station.dataAxis?.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
-                    {
-                        MarkAlarm(evt, "工站轴或点位配置不完整");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    List<double> TargetPos = new List<double>();
-                    ushort[] commandCards = new ushort[6];
-                    ushort[] commandAxes = new ushort[6];
-                    double[] commandVel = new double[6];
-                    double[] commandAcc = new double[6];
-                    double[] commandDec = new double[6];
-                    int[] commandEquiv = new int[6];
-                    bool[] commandEnabled = new bool[6];
-                    List<long> resources = new List<long>();
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (stationRunPos.IsDisableAxis == "有禁用" && AxisDisableInfos[i])
-                        {
-                            continue;
-                        }
-                        AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
-                        if (axisConfig?.AxisName == "-1")
-                        {
-                            continue;
-                        }
-                        if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
-                        {
-                            MarkAlarm(evt, $"卡号或轴配置无效:{axisConfig?.CardNum}");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        ushort axisNum = (ushort)axisConfig.axis.AxisNum;
-                        if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo) || axisInfo.PulseToMM <= 0)
-                        {
-                            MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴配置无效");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
-                        double velPercent = stationRunPos.ChangeVel == "改变速度"
-                            ? (stationRunPos.Vel == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.VelV, evt.procId).GetDValue() : stationRunPos.Vel)
-                            : runtimeParameters.SpeedPercent;
-                        double accPercent = stationRunPos.ChangeVel == "改变速度"
-                            ? (stationRunPos.Acc == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.AccV, evt.procId).GetDValue() : stationRunPos.Acc)
-                            : runtimeParameters.AccelerationPercent;
-                        double decPercent = stationRunPos.ChangeVel == "改变速度"
-                            ? (stationRunPos.Dec == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunPos.DecV, evt.procId).GetDValue() : stationRunPos.Dec)
-                            : runtimeParameters.DecelerationPercent;
-                        if (velPercent <= 0 || velPercent > 100
-                            || accPercent <= 0 || accPercent > 100
-                            || decPercent <= 0 || decPercent > 100
-                            || double.IsNaN(velPercent) || double.IsInfinity(velPercent)
-                            || double.IsNaN(accPercent) || double.IsInfinity(accPercent)
-                            || double.IsNaN(decPercent) || double.IsInfinity(decPercent)
-                            || double.IsNaN(Poses[i]) || double.IsInfinity(Poses[i]))
-                        {
-                            MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴运动参数无效");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        commandCards[i] = cardNum;
-                        commandAxes[i] = axisNum;
-                        commandVel[i] = axisInfo.SpeedMax * (velPercent / 100);
-                        commandAcc[i] = axisInfo.AccMax / (accPercent / 100);
-                        commandDec[i] = axisInfo.DecMax / (decPercent / 100);
-                        if (commandVel[i] <= 0 || commandAcc[i] <= 0 || commandDec[i] <= 0
-                            || double.IsNaN(commandVel[i]) || double.IsInfinity(commandVel[i])
-                            || double.IsNaN(commandAcc[i]) || double.IsInfinity(commandAcc[i])
-                            || double.IsNaN(commandDec[i]) || double.IsInfinity(commandDec[i]))
-                        {
-                            MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNum}号卡{axisNum}号轴速度配置无效");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        commandEquiv[i] = axisInfo.PulseToMM;
-                        commandEnabled[i] = true;
-                        resources.Add(BuildMotionResourceKey(cardNum, axisNum));
-                    }
-                    if (!TryAcquireMotionResources(evt, resources, out string resourceError))
-                    {
-                        MarkAlarm(evt, resourceError);
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    List<AxisCommandRequest> motionRequests = new List<AxisCommandRequest>();
-                    var activeCards = new List<ushort>();
-                    var activeAxes = new List<ushort>();
-                    var activeTargets = new List<double>();
-                    var activeVelocities = new List<double>();
-                    var activeAccelerationTimes = new List<double>();
-                    var activeDecelerationTimes = new List<double>();
-                    var activeEquivalents = new List<int>();
-                    for (int i = 0; i < 6; i++)
-                    {
-                        if (commandEnabled[i])
-                        {
-                            motionRequests.Add(new AxisCommandRequest(commandCards[i], commandAxes[i], AxisCommandKind.Motion));
-                            activeCards.Add(commandCards[i]);
-                            activeAxes.Add(commandAxes[i]);
-                            activeTargets.Add(Poses[i]);
-                            activeVelocities.Add(commandVel[i]);
-                            activeAccelerationTimes.Add(commandAcc[i]);
-                            activeDecelerationTimes.Add(commandDec[i]);
-                            activeEquivalents.Add(commandEquiv[i]);
-                        }
-                    }
-                    CoordinatedLinearMoveRequest coordinatedRequest = BuildCoordinatedLinearMove(
-                        stationRunPos.Name, station, activeCards, activeAxes, activeTargets,
-                        activeVelocities, activeAccelerationTimes, activeDecelerationTimes,
-                        activeEquivalents, 1);
-                    try
-                    {
-                        if (coordinatedRequest != null)
-                        {
-                            if (!TryAcquireCoordinateSystem(evt, coordinatedRequest.Card,
-                                coordinatedRequest.CoordinateSystem, out string coordinateError))
-                            {
-                                throw new InvalidOperationException(coordinateError);
-                            }
-                            using (Context.Motion.ValidateAxesForCommand(motionRequests))
-                            {
-                                Context.Motion.MoveCoordinatedLinear(coordinatedRequest);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (coordinatedRequest != null)
-                        {
-                            try
-                            {
-                                Context.Motion.StopCoordinatedLinear(coordinatedRequest.Card,
-                                    coordinatedRequest.CoordinateSystem, 0);
-                            }
-                            catch (Exception stopException)
-                            {
-                                throw new InvalidOperationException(
-                                    $"协调直线运动启动失败且停止失败:{ex.Message}; {stopException.Message}", stopException);
-                            }
-                        }
-                        throw;
-                    }
-                    if (!stationRunPos.ContinueWithoutWaiting)
-                    {
-                        List<ushort> cardNums = new List<ushort>();
-                        List<ushort> axisNums = new List<ushort>();
-                        for (int i = 0; i < 6; i++)
-                        {
-                            if (stationRunPos.IsDisableAxis == "有禁用")
-                            {
-                                if (AxisDisableInfos[i] == true)
-                                    continue;
-                            }
-                            if (station.dataAxis.axisConfigs[i].AxisName != "-1")
-                            {
-                                if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
-                                {
-                                    MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
-                                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                                }
-                                ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                                cardNums.Add(cardNum);
-                                axisNums.Add(axisNum);
-                                TargetPos.Add(Poses[i]);
-                            }
-                        }
-                        double time;
-                        if (stationRunPos.TimeoutMs > 0)
-                            time = stationRunPos.TimeoutMs;
-                        else
-                        {
+                }
+                return true;
+            }
 
-                            time = Context.ValueStore.GetValueByNameForProcess(stationRunPos.TimeoutVariableName, evt.procId).GetDValue();
-                        }
-                        if (time <= 0)
-                        {
-                            MarkAlarm(evt, $"{stationRunPos.Name}超时配置无效");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-
-                        WaitForCoordinatedLinear(evt, coordinatedRequest, time, stationRunPos.Name);
-                        if (evt.CancellationToken.IsCancellationRequested)
-                        {
-                            return true;
-                        }
-                        if (stationRunPos.CheckInPosition)
-                        {
-                            for (int i = 0; i < cardNums.Count; i++)
-                            {
-                                if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
-                                {
-                                    MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
-                                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                                }
-                                if (Math.Abs(Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - TargetPos[i]) > 0.01)
-                                {
-                                    MarkAlarm(evt, $"工站：{stationRunPos.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位");
-                                    throw CreateAlarmException(evt, evt?.alarmMsg);
-                                }
-                            }
-                        }
-                    }
-
+            bool[] axisDisabled = stationRunPos.IsDisableAxis == "有禁用"
+                ? stationRunPos.GetAllValues().ToArray()
+                : null;
+            AxisStationMovePlan plan = ReserveAxisStationMove(
+                evt,
+                station,
+                axisDisabled,
+                stationRunPos.Name);
+            ApplyAxisStationMoveSpeed(
+                evt,
+                station,
+                plan,
+                stationRunPos.Name,
+                stationRunPos.ChangeVel == "改变速度",
+                stationRunPos.Vel,
+                stationRunPos.VelV,
+                stationRunPos.Acc,
+                stationRunPos.AccV,
+                stationRunPos.Dec,
+                stationRunPos.DecV);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "协调走点",
+                Context.Motion.MoveStationToPoint(
+                    plan.StationIndex,
+                    posItems,
+                    StationMoveMode.Move,
+                    plan.InactiveChannels,
+                    0));
+            if (!stationRunPos.ContinueWithoutWaiting)
+            {
+                int timeout = checked((int)ResolveStationTimeout(
+                    evt,
+                    stationRunPos.TimeoutMs,
+                    stationRunPos.TimeoutVariableName,
+                    stationRunPos.Name));
+                WaitRobotStation(
+                    evt,
+                    station,
+                    plan.StationIndex,
+                    false,
+                    timeout,
+                    "协调走点");
+                if (stationRunPos.CheckInPosition
+                    && !evt.CancellationToken.IsCancellationRequested)
+                {
+                    CheckRobotStationInPoint(
+                        evt,
+                        station,
+                        plan.StationIndex,
+                        posItems,
+                        plan.InactiveChannels);
+                }
+            }
             return true;
         }
 
@@ -674,6 +769,25 @@ namespace Automation
             }
 
             TrayPointGrid grid = new TrayPointGrid(createTray.StationName, createTray.TrayId, createTray.RowCount, createTray.ColCount, points);
+            if (station.Type != StationType.Axis)
+            {
+                if (Context.Motion == null)
+                {
+                    throw CreateAlarmException(evt, "机器人工站运行时未初始化");
+                }
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                EnsureStationCommandSucceeded(evt, station, "创建料盘",
+                    Context.Motion.CreateStationTray(
+                        stationIndex,
+                        createTray.TrayId,
+                        createTray.RowCount,
+                        createTray.ColCount,
+                        new[] { px1, px2, py1, py2 }));
+            }
             if (!Context.TrayPointStore.TrySave(grid, out string cacheError))
             {
                 MarkAlarm(evt, $"料盘缓存失败:{cacheError}");
@@ -810,127 +924,77 @@ namespace Automation
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
 
-            if (Context.Motion == null || Context.CardStore == null)
+            var calculatedPoint = new DataPos(-1)
             {
-                MarkAlarm(evt, "运动控制未初始化");
-                throw CreateAlarmException(evt, evt?.alarmMsg);
+                Name = "料盘点",
+                X = target.X,
+                Y = target.Y,
+                Z = target.Z,
+                U = target.U,
+                V = target.V,
+                W = target.W,
+                IsTaught = true
+            };
+
+            if (station.Type != StationType.Axis)
+            {
+                if (Context.Motion == null)
+                {
+                    throw CreateAlarmException(evt, "机器人工站运行时未初始化");
+                }
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                EnsureStationCommandSucceeded(evt, station, "料盘点运动",
+                    Context.Motion.MoveStationTrayPoint(
+                        stationIndex,
+                        trayId,
+                        trayPos - 1,
+                        calculatedPoint));
+                if (!trayRunPos.ContinueWithoutWaiting)
+                {
+                    WaitRobotStation(evt, station, stationIndex, false, 120000, "料盘点运动");
+                }
+                return true;
             }
 
-            List<double> targetPos = new List<double> { target.X, target.Y, target.Z, target.U, target.V, target.W };
-            List<ushort> cardNums = new List<ushort>();
-            List<ushort> axisNums = new List<ushort>();
-            List<Axis> axes = new List<Axis>();
-            List<int> stationAxisIndexes = new List<int>();
-            List<double> velocities = new List<double>();
-            List<double> accelerations = new List<double>();
-            List<double> decelerations = new List<double>();
-            List<long> resources = new List<long>();
-            if (station.dataAxis?.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
-            {
-                throw CreateAlarmException(evt, "工站轴配置不完整");
-            }
-            for (int i = 0; i < 6; i++)
-            {
-                if (station.dataAxis.axisConfigs[i].AxisName != "-1")
-                {
-                    if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
-                    {
-                        MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                    if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo)
-                        || axisInfo.PulseToMM <= 0
-                        || double.IsNaN(targetPos[i]) || double.IsInfinity(targetPos[i]))
-                    {
-                        MarkAlarm(evt, $"工站：{trayRunPos.Name} {cardNum}号卡{axisNum}号轴配置无效");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    cardNums.Add(cardNum);
-                    axisNums.Add(axisNum);
-                    axes.Add(axisInfo);
-                    stationAxisIndexes.Add(i);
-                    AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
-                    double velocity = axisInfo.SpeedMax * (runtimeParameters.SpeedPercent / 100);
-                    double acceleration = axisInfo.AccMax / (runtimeParameters.AccelerationPercent / 100);
-                    double deceleration = axisInfo.DecMax / (runtimeParameters.DecelerationPercent / 100);
-                    if (velocity <= 0 || acceleration <= 0 || deceleration <= 0
-                        || double.IsNaN(velocity) || double.IsInfinity(velocity)
-                        || double.IsNaN(acceleration) || double.IsInfinity(acceleration)
-                        || double.IsNaN(deceleration) || double.IsInfinity(deceleration))
-                    {
-                        throw CreateAlarmException(evt,
-                            $"工站：{trayRunPos.Name} {cardNum}号卡{axisNum}号轴速度配置无效");
-                    }
-                    velocities.Add(velocity);
-                    accelerations.Add(acceleration);
-                    decelerations.Add(deceleration);
-                    resources.Add(BuildMotionResourceKey(cardNum, axisNum));
-                }
-            }
-            if (!TryAcquireMotionResources(evt, resources, out string trayResourceError))
-            {
-                throw CreateAlarmException(evt, trayResourceError);
-            }
-            List<AxisCommandRequest> trayRequests = cardNums
-                .Select((card, index) => new AxisCommandRequest(card, axisNums[index], AxisCommandKind.Motion))
-                .ToList();
-            var startedTrayAxes = new List<AxisCommandRequest>();
-            try
-            {
-                using (Context.Motion.ValidateAxesForCommand(trayRequests))
-                {
-                    for (int i = 0; i < cardNums.Count; i++)
-                    {
-                        Axis axisInfo = axes[i];
-                        Context.Motion.SetMovParam(cardNums[i], axisNums[i], 0, velocities[i], accelerations[i], decelerations[i],
-                            0, 0, axisInfo.PulseToMM);
-                    }
-                    for (int i = 0; i < cardNums.Count; i++)
-                    {
-                        int stationAxisIndex = stationAxisIndexes[i];
-                        Context.Motion.Mov(cardNums[i], axisNums[i], targetPos[stationAxisIndex], 1, false);
-                        startedTrayAxes.Add(new AxisCommandRequest(cardNums[i], axisNums[i], AxisCommandKind.Motion));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw HandlePartialAxisStartFailure(startedTrayAxes, evt, ex);
-            }
-
+            AxisStationMovePlan plan = ReserveAxisStationMove(
+                evt,
+                station,
+                null,
+                trayRunPos.Name);
+            ApplyAxisStationMoveSpeed(
+                evt,
+                station,
+                plan,
+                trayRunPos.Name,
+                false,
+                0,
+                null,
+                0,
+                null,
+                0,
+                null);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "协调料盘点运动",
+                Context.Motion.MoveStationTrayPoint(
+                    plan.StationIndex,
+                    trayId,
+                    trayPos - 1,
+                    calculatedPoint));
             if (!trayRunPos.ContinueWithoutWaiting)
             {
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                const int timeout = 120000;
-                bool isInPos = false;
-                while (!evt.CancellationToken.IsCancellationRequested
-                    && cardNums.Count != 0
-                    )
-                {
-                    if (stopwatch.ElapsedMilliseconds > timeout)
-                    {
-                        MarkAlarm(evt, trayRunPos.Name + "运动超时");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    for (int i = 0; i < cardNums.Count; i++)
-                    {
-                        if (Context.Motion.GetInPos(cardNums[i], axisNums[i]))
-                        {
-                            isInPos = true;
-                        }
-                        else
-                        {
-                            isInPos = false;
-                            break;
-                        }
-                    }
-                    if (isInPos)
-                    {
-                        break;
-                    }
-                    Delay(1, evt);
-                }
+                WaitRobotStation(
+                    evt,
+                    station,
+                    plan.StationIndex,
+                    false,
+                    120000,
+                    "协调料盘点运动");
             }
 
             return true;
@@ -1001,10 +1065,36 @@ namespace Automation
             }
             else if (modifyStationPos.RefPosName == "当前位置")
             {
-                if (Context.Motion == null || Context.CardStore == null)
+                if (Context.Motion == null)
                 {
                     throw CreateAlarmException(evt, "运动控制未初始化");
                 }
+                if (station.Type != StationType.Axis)
+                {
+                    short stationIndex = GetStationRuntimeIndex(station, evt);
+                    if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                    {
+                        throw CreateAlarmException(evt, stationResourceError);
+                    }
+                    EnsureStationCommandSucceeded(evt, station, "读取当前位置",
+                        Context.Motion.GetStationPosition(stationIndex, 0, out DataPos current));
+                    if (current == null || current.GetAllValues().Count < 6)
+                    {
+                        throw CreateAlarmException(evt, $"工站{station.Name}未返回完整当前位置");
+                    }
+                    IReadOnlyList<double> currentValues = current.GetAllValues();
+                    for (int i = 0; i < 6; i++)
+                    {
+                        refValues[i] = currentValues[i];
+                        refAvailable[i] = true;
+                    }
+                }
+                else
+                {
+                    if (Context.CardStore == null)
+                    {
+                        throw CreateAlarmException(evt, "运动控制卡配置未初始化");
+                    }
                 if (station.dataAxis == null || station.dataAxis.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
                 {
                     throw CreateAlarmException(evt, $"工站轴配置无效:{modifyStationPos.StationName}");
@@ -1050,6 +1140,7 @@ namespace Automation
                     }
                     refValues[i] = axisPos;
                     refAvailable[i] = true;
+                }
                 }
             }
             else
@@ -1110,18 +1201,25 @@ namespace Automation
                 throw CreateAlarmException(evt, $"修改方式无效:{modifyStationPos.ModifyType}");
             }
 
-            targetPos.X = targetValues[0];
-            targetPos.Y = targetValues[1];
-            targetPos.Z = targetValues[2];
-            targetPos.U = targetValues[3];
-            targetPos.V = targetValues[4];
-            targetPos.W = targetValues[5];
-            targetPos.IsTaught = true;
-
-            if (station.dicDataPos != null && !string.IsNullOrWhiteSpace(targetPos.Name))
+            if (Context.Motion == null)
             {
-                station.dicDataPos[targetPos.Name] = targetPos;
+                throw CreateAlarmException(evt, "运动控制未初始化");
             }
+            DataPos updatedPoint = (DataPos)targetPos.Clone();
+            updatedPoint.X = targetValues[0];
+            updatedPoint.Y = targetValues[1];
+            updatedPoint.Z = targetValues[2];
+            updatedPoint.U = targetValues[3];
+            updatedPoint.V = targetValues[4];
+            updatedPoint.W = targetValues[5];
+            updatedPoint.IsTaught = true;
+            short targetStationIndex = GetStationRuntimeIndex(station, evt);
+            if (!TryAcquireStationMotionResource(evt, targetStationIndex, out string targetResourceError))
+            {
+                throw CreateAlarmException(evt, targetResourceError);
+            }
+            EnsureStationCommandSucceeded(evt, station, "保存点位",
+                Context.Motion.SaveStationPoint(targetStationIndex, updatedPoint));
 
             return true;
         }
@@ -1157,12 +1255,39 @@ namespace Automation
 
             double[] values = new double[6];
             bool[] available = new bool[6];
+            DataPos sourcePoint = null;
             if (getStationPos.SourceType == "当前位置")
             {
-                if (Context.Motion == null || Context.CardStore == null)
+                if (Context.Motion == null)
                 {
                     throw CreateAlarmException(evt, "运动控制未初始化");
                 }
+                if (station.Type != StationType.Axis)
+                {
+                    short stationIndex = GetStationRuntimeIndex(station, evt);
+                    if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                    {
+                        throw CreateAlarmException(evt, stationResourceError);
+                    }
+                    EnsureStationCommandSucceeded(evt, station, "读取当前位置",
+                        Context.Motion.GetStationPosition(stationIndex, 0, out sourcePoint));
+                    if (sourcePoint == null || sourcePoint.GetAllValues().Count < 6)
+                    {
+                        throw CreateAlarmException(evt, $"工站{station.Name}未返回完整当前位置");
+                    }
+                    IReadOnlyList<double> currentValues = sourcePoint.GetAllValues();
+                    for (int i = 0; i < 6; i++)
+                    {
+                        values[i] = currentValues[i];
+                        available[i] = true;
+                    }
+                }
+                else
+                {
+                    if (Context.CardStore == null)
+                    {
+                        throw CreateAlarmException(evt, "运动控制卡配置未初始化");
+                    }
                 if (station.dataAxis == null || station.dataAxis.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
                 {
                     throw CreateAlarmException(evt, $"工站轴配置无效:{getStationPos.StationName}");
@@ -1208,6 +1333,7 @@ namespace Automation
                     values[i] = axisPos;
                     available[i] = true;
                 }
+                }
             }
             else if (getStationPos.SourceType == "指定点位")
             {
@@ -1238,6 +1364,7 @@ namespace Automation
                     values[i] = sourceValues[i];
                     available[i] = true;
                 }
+                sourcePoint = sourcePos;
             }
             else
             {
@@ -1259,33 +1386,29 @@ namespace Automation
                 {
                     throw CreateAlarmException(evt, $"保存点位不存在:{getStationPos.TargetPosName}");
                 }
-                if (getStationPos.SourceType == "当前位置")
+                if (Context.Motion == null)
                 {
-                    if (available[0]) targetPos.X = values[0];
-                    if (available[1]) targetPos.Y = values[1];
-                    if (available[2]) targetPos.Z = values[2];
-                    if (available[3]) targetPos.U = values[3];
-                    if (available[4]) targetPos.V = values[4];
-                    if (available[5]) targetPos.W = values[5];
+                    throw CreateAlarmException(evt, "运动控制未初始化");
                 }
-                else
+                DataPos updatedPoint = (DataPos)targetPos.Clone();
+                if (available[0]) updatedPoint.X = values[0];
+                if (available[1]) updatedPoint.Y = values[1];
+                if (available[2]) updatedPoint.Z = values[2];
+                if (available[3]) updatedPoint.U = values[3];
+                if (available[4]) updatedPoint.V = values[4];
+                if (available[5]) updatedPoint.W = values[5];
+                if (sourcePoint?.Pose != null)
                 {
-                    targetPos.X = values[0];
-                    targetPos.Y = values[1];
-                    targetPos.Z = values[2];
-                    targetPos.U = values[3];
-                    targetPos.V = values[4];
-                    targetPos.W = values[5];
+                    updatedPoint.Pose = (short[])sourcePoint.Pose.Clone();
                 }
-                targetPos.IsTaught = true;
-                if (targetPos.Index >= 0 && targetPos.Index < station.ListDataPos.Count)
+                updatedPoint.IsTaught = true;
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
                 {
-                    station.ListDataPos[targetPos.Index] = targetPos;
+                    throw CreateAlarmException(evt, stationResourceError);
                 }
-                if (station.dicDataPos != null && !string.IsNullOrWhiteSpace(targetPos.Name))
-                {
-                    station.dicDataPos[targetPos.Name] = targetPos;
-                }
+                EnsureStationCommandSucceeded(evt, station, "保存点位",
+                    Context.Motion.SaveStationPoint(stationIndex, updatedPoint));
                 return true;
             }
 
@@ -1359,166 +1482,181 @@ namespace Automation
                 MarkAlarm(evt, $"找不到工站:{stationRunRel.StationName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
-                if (Context.Motion == null || Context.CardStore == null || Context.ValueStore == null)
+            if (station.Type != StationType.Axis)
+            {
+                if (Context.Motion == null || Context.ValueStore == null)
                 {
-                    throw CreateAlarmException(evt, "运动控制或变量库未初始化");
+                    throw CreateAlarmException(evt, "机器人工站运行时或变量库未初始化");
                 }
-                List<double> TargetPos = stationRunRel.GetAllValues();
-                List<string> TargetPosV = stationRunRel.GetAllValuesV();
-                List<ushort> cardNums = new List<ushort>();
-                List<ushort> axisNums = new List<ushort>();
-                List<Axis> axes = new List<Axis>();
-                List<double> distances = new List<double>();
-                List<double> expectedTargets = new List<double>();
-                List<double> velocities = new List<double>();
-                List<double> accelerations = new List<double>();
-                List<double> decelerations = new List<double>();
-                List<long> resources = new List<long>();
-                if (TargetPos == null || TargetPos.Count < 6 || TargetPosV == null || TargetPosV.Count < 6
-                    || station.dataAxis?.axisConfigs == null || station.dataAxis.axisConfigs.Count < 6)
+                List<double> configuredOffsets = stationRunRel.GetAllValues();
+                List<string> offsetVariables = stationRunRel.GetAllValuesV();
+                if (configuredOffsets == null || configuredOffsets.Count < 6
+                    || offsetVariables == null || offsetVariables.Count < 6)
                 {
-                    throw CreateAlarmException(evt, "工站相对运动配置不完整");
+                    throw CreateAlarmException(evt, "机器人工站偏移参数不完整");
                 }
-                for (int i = 0; i < 6; i++)
+                var offsets = new double[6];
+                for (int axis = 0; axis < offsets.Length; axis++)
                 {
-                    if (station.dataAxis.axisConfigs[i].AxisName != "-1")
+                    offsets[axis] = configuredOffsets[axis] == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(offsetVariables[axis], evt.procId).GetDValue()
+                        : configuredOffsets[axis];
+                    if (double.IsNaN(offsets[axis]) || double.IsInfinity(offsets[axis]))
                     {
-                        if (!ushort.TryParse(station.dataAxis.axisConfigs[i].CardNum, out ushort cardNum))
-                        {
-                            MarkAlarm(evt, $"卡号无效:{station.dataAxis.axisConfigs[i].CardNum}");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        ushort axisNum = (ushort)station.dataAxis.axisConfigs[i].axis.AxisNum;
-                        if (!Context.CardStore.TryGetAxis(cardNum, axisNum, out Axis axisInfo) || axisInfo.PulseToMM <= 0)
-                        {
-                            MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴配置不存在");
-                            throw CreateAlarmException(evt, evt?.alarmMsg);
-                        }
-                        AxisMotionParameters runtimeParameters = Context.AxisMotionParameters.Get(cardNum, axisNum);
-                        double velPercent = stationRunRel.ChangeVel == "改变速度"
-                            ? (stationRunRel.Vel == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.VelV, evt.procId).GetDValue() : stationRunRel.Vel)
-                            : runtimeParameters.SpeedPercent;
-                        double accPercent = stationRunRel.ChangeVel == "改变速度"
-                            ? (stationRunRel.Acc == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.AccV, evt.procId).GetDValue() : stationRunRel.Acc)
-                            : runtimeParameters.AccelerationPercent;
-                        double decPercent = stationRunRel.ChangeVel == "改变速度"
-                            ? (stationRunRel.Dec == 0 ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.DecV, evt.procId).GetDValue() : stationRunRel.Dec)
-                            : runtimeParameters.DecelerationPercent;
-                        double distance = TargetPos[i] == 0
-                            ? Context.ValueStore.GetValueByNameForProcess(TargetPosV[i], evt.procId).GetDValue()
-                            : TargetPos[i];
-                        if (velPercent <= 0 || velPercent > 100
-                            || accPercent <= 0 || accPercent > 100
-                            || decPercent <= 0 || decPercent > 100
-                            || double.IsNaN(velPercent) || double.IsInfinity(velPercent)
-                            || double.IsNaN(accPercent) || double.IsInfinity(accPercent)
-                            || double.IsNaN(decPercent) || double.IsInfinity(decPercent)
-                            || double.IsNaN(distance) || double.IsInfinity(distance))
-                        {
-                            throw CreateAlarmException(evt, $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴运动参数无效");
-                        }
-                        cardNums.Add(cardNum);
-                        axisNums.Add(axisNum);
-                        axes.Add(axisInfo);
-                        distances.Add(distance);
-                        expectedTargets.Add(Context.Motion.GetAxisPos(cardNum, axisNum) / axisInfo.PulseToMM + distance);
-                        velocities.Add(axisInfo.SpeedMax * (velPercent / 100));
-                        accelerations.Add(axisInfo.AccMax / (accPercent / 100));
-                        decelerations.Add(axisInfo.DecMax / (decPercent / 100));
-                        if (velocities[velocities.Count - 1] <= 0 || accelerations[accelerations.Count - 1] <= 0
-                            || decelerations[decelerations.Count - 1] <= 0
-                            || double.IsNaN(velocities[velocities.Count - 1]) || double.IsInfinity(velocities[velocities.Count - 1])
-                            || double.IsNaN(accelerations[accelerations.Count - 1]) || double.IsInfinity(accelerations[accelerations.Count - 1])
-                            || double.IsNaN(decelerations[decelerations.Count - 1]) || double.IsInfinity(decelerations[decelerations.Count - 1]))
-                        {
-                            throw CreateAlarmException(evt,
-                                $"工站：{stationRunRel.Name} {cardNum}号卡{axisNum}号轴速度配置无效");
-                        }
-                        resources.Add(BuildMotionResourceKey(cardNum, axisNum));
+                        throw CreateAlarmException(evt, $"机器人工站{axis + 1}通道偏移无效");
                     }
                 }
-                if (!TryAcquireMotionResources(evt, resources, out string relativeResourceError))
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
                 {
-                    throw CreateAlarmException(evt, relativeResourceError);
+                    throw CreateAlarmException(evt, stationResourceError);
                 }
-                List<AxisCommandRequest> relativeRequests = cardNums
-                    .Select((card, index) => new AxisCommandRequest(card, axisNums[index], AxisCommandKind.Motion))
-                    .ToList();
-                CoordinatedLinearMoveRequest coordinatedRequest = BuildCoordinatedLinearMove(
-                    stationRunRel.Name, station, cardNums, axisNums, distances, velocities,
-                    accelerations, decelerations, axes.Select(item => item.PulseToMM).ToList(), 0);
-                try
+                if (stationRunRel.ChangeVel == "改变速度")
                 {
-                    if (coordinatedRequest != null)
+                    double velocity = stationRunRel.Vel == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.VelV, evt.procId).GetDValue()
+                        : stationRunRel.Vel;
+                    double acceleration = stationRunRel.Acc == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.AccV, evt.procId).GetDValue()
+                        : stationRunRel.Acc;
+                    double deceleration = stationRunRel.Dec == 0
+                        ? Context.ValueStore.GetValueByNameForProcess(stationRunRel.DecV, evt.procId).GetDValue()
+                        : stationRunRel.Dec;
+                    EnsureStationCommandSucceeded(evt, station, "设置速度",
+                        Context.Motion.SetStationSpeed(stationIndex, velocity, acceleration,
+                            deceleration, -1, StationSpeedType.Joint));
+                }
+                DataPos expected = null;
+                if (stationRunRel.CheckInPosition)
+                {
+                    EnsureStationCommandSucceeded(evt, station, "读取偏移前位置",
+                        Context.Motion.GetStationPosition(stationIndex, 0, out expected));
+                    if (expected == null)
                     {
-                        if (!TryAcquireCoordinateSystem(evt, coordinatedRequest.Card,
-                            coordinatedRequest.CoordinateSystem, out string coordinateError))
-                        {
-                            throw new InvalidOperationException(coordinateError);
-                        }
-                        using (Context.Motion.ValidateAxesForCommand(relativeRequests))
-                        {
-                            Context.Motion.MoveCoordinatedLinear(coordinatedRequest);
-                        }
+                        throw CreateAlarmException(evt, $"工站{station.Name}未返回偏移前位置");
                     }
+                    expected = (DataPos)expected.Clone();
+                    expected.X += offsets[0];
+                    expected.Y += offsets[1];
+                    expected.Z += offsets[2];
+                    expected.U += offsets[3];
+                    expected.V += offsets[4];
+                    expected.W += offsets[5];
                 }
-                catch (Exception ex)
-                {
-                    if (coordinatedRequest != null)
-                    {
-                        try
-                        {
-                            Context.Motion.StopCoordinatedLinear(coordinatedRequest.Card,
-                                coordinatedRequest.CoordinateSystem, 0);
-                        }
-                        catch (Exception stopException)
-                        {
-                            throw new InvalidOperationException(
-                                $"协调直线运动启动失败且停止失败:{ex.Message}; {stopException.Message}", stopException);
-                        }
-                    }
-                    throw;
-                }
+                EnsureStationCommandSucceeded(evt, station, "偏移运动",
+                    Context.Motion.MoveStationOffset(stationIndex, -1, offsets, StationMoveMode.Go));
                 if (!stationRunRel.ContinueWithoutWaiting)
                 {
-
-                    double time;
-                    if (stationRunRel.TimeoutMs > 0)
-                        time = stationRunRel.TimeoutMs;
-                    else
+                    int timeout = checked((int)ResolveStationTimeout(
+                        evt, stationRunRel.TimeoutMs, stationRunRel.TimeoutVariableName, stationRunRel.Name));
+                    WaitRobotStation(evt, station, stationIndex, false, timeout, "偏移运动");
+                    if (expected != null && !evt.CancellationToken.IsCancellationRequested)
                     {
-
-                        time = Context.ValueStore.GetValueByNameForProcess(stationRunRel.TimeoutVariableName, evt.procId).GetDValue();
+                        CheckRobotStationInPoint(evt, station, stationIndex, expected, null);
                     }
-                    if (time <= 0)
-                    {
-                        MarkAlarm(evt, $"{stationRunRel.Name}超时配置无效");
-                        throw CreateAlarmException(evt, evt?.alarmMsg);
-                    }
-                    WaitForCoordinatedLinear(evt, coordinatedRequest, time, stationRunRel.Name);
-                    if (evt.CancellationToken.IsCancellationRequested)
-                    {
-                        return true;
-                    }
-                    if (stationRunRel.CheckInPosition)
-                    {
-                        for (int i = 0; i < cardNums.Count; i++)
-                        {
-                            if (!Context.CardStore.TryGetAxis(cardNums[i], axisNums[i], out Axis axisInfo))
-                            {
-                                MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴配置不存在");
-                                throw CreateAlarmException(evt, evt?.alarmMsg);
-                            }
-                            if (Math.Abs(Context.Motion.GetAxisPos(cardNums[i], axisNums[i]) / axisInfo.PulseToMM - expectedTargets[i]) > 0.01)
-                            {
-                                MarkAlarm(evt, $"工站：{stationRunRel.Name} {cardNums[i]}号卡{axisNums[i]}号轴运动未到位");
-                                throw CreateAlarmException(evt, evt?.alarmMsg);
-                            }
-                        }
-                    }
-
                 }
+                return true;
+            }
+            List<double> axisConfiguredOffsets = stationRunRel.GetAllValues();
+            List<string> axisOffsetVariables = stationRunRel.GetAllValuesV();
+            if (axisConfiguredOffsets == null || axisConfiguredOffsets.Count < 6
+                || axisOffsetVariables == null || axisOffsetVariables.Count < 6)
+            {
+                throw CreateAlarmException(evt, "工站相对运动配置不完整");
+            }
+            if (Context.ValueStore == null && axisConfiguredOffsets.Any(value => value == 0))
+            {
+                throw CreateAlarmException(evt, "工站相对运动变量库未初始化");
+            }
+            var axisOffsets = new double[6];
+            for (int channel = 0; channel < axisOffsets.Length; channel++)
+            {
+                axisOffsets[channel] = axisConfiguredOffsets[channel] == 0
+                    ? Context.ValueStore.GetValueByNameForProcess(
+                        axisOffsetVariables[channel], evt.procId).GetDValue()
+                    : axisConfiguredOffsets[channel];
+                if (double.IsNaN(axisOffsets[channel]) || double.IsInfinity(axisOffsets[channel]))
+                {
+                    throw CreateAlarmException(evt,
+                        $"工站{station.Name}通道{channel + 1}偏移无效");
+                }
+            }
 
+            AxisStationMovePlan plan = ReserveAxisStationMove(
+                evt,
+                station,
+                null,
+                stationRunRel.Name);
+            ApplyAxisStationMoveSpeed(
+                evt,
+                station,
+                plan,
+                stationRunRel.Name,
+                stationRunRel.ChangeVel == "改变速度",
+                stationRunRel.Vel,
+                stationRunRel.VelV,
+                stationRunRel.Acc,
+                stationRunRel.AccV,
+                stationRunRel.Dec,
+                stationRunRel.DecV);
+            DataPos expectedAxisPosition = null;
+            if (stationRunRel.CheckInPosition)
+            {
+                EnsureStationCommandSucceeded(
+                    evt,
+                    station,
+                    "读取偏移前位置",
+                    Context.Motion.GetStationPosition(
+                        plan.StationIndex,
+                        0,
+                        out expectedAxisPosition));
+                if (expectedAxisPosition == null)
+                {
+                    throw CreateAlarmException(evt,
+                        $"工站{station.Name}未返回偏移前位置");
+                }
+                expectedAxisPosition = (DataPos)expectedAxisPosition.Clone();
+                expectedAxisPosition.X += axisOffsets[0];
+                expectedAxisPosition.Y += axisOffsets[1];
+                expectedAxisPosition.Z += axisOffsets[2];
+                expectedAxisPosition.U += axisOffsets[3];
+                expectedAxisPosition.V += axisOffsets[4];
+                expectedAxisPosition.W += axisOffsets[5];
+            }
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "协调偏移运动",
+                Context.Motion.MoveStationOffset(
+                    plan.StationIndex,
+                    -1,
+                    axisOffsets,
+                    StationMoveMode.Move));
+            if (!stationRunRel.ContinueWithoutWaiting)
+            {
+                int timeout = checked((int)ResolveStationTimeout(
+                    evt,
+                    stationRunRel.TimeoutMs,
+                    stationRunRel.TimeoutVariableName,
+                    stationRunRel.Name));
+                WaitRobotStation(
+                    evt,
+                    station,
+                    plan.StationIndex,
+                    false,
+                    timeout,
+                    "协调偏移运动");
+                if (expectedAxisPosition != null
+                    && !evt.CancellationToken.IsCancellationRequested)
+                {
+                    CheckRobotStationInPoint(
+                        evt,
+                        station,
+                        plan.StationIndex,
+                        expectedAxisPosition,
+                        plan.InactiveChannels);
+                }
+            }
             return true;
         }
         public bool RunSetStationVel(ProcHandle evt, SetStationVel setStationVel)
@@ -1558,6 +1696,32 @@ namespace Automation
                     || double.IsNaN(Dec) || double.IsInfinity(Dec))
                 {
                     throw CreateAlarmException(evt, "自动生产速度、加速能力和减速能力必须在1%到100%之间。");
+                }
+
+                if (station.Type != StationType.Axis)
+                {
+                    short stationIndex = GetStationRuntimeIndex(station, evt);
+                    if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                    {
+                        throw CreateAlarmException(evt, stationResourceError);
+                    }
+                    short channel = -1;
+                    if (!string.Equals(setStationVel.SetAxisObj, "工站", StringComparison.Ordinal))
+                    {
+                        string[] channelNames = { "X", "Y", "Z", "U", "V", "W" };
+                        int channelIndex = Array.FindIndex(channelNames,
+                            name => string.Equals(name, setStationVel.SetAxisObj, StringComparison.OrdinalIgnoreCase));
+                        if (channelIndex < 0)
+                        {
+                            throw CreateAlarmException(evt,
+                                $"机器人工站速度设置对象无效:{setStationVel.SetAxisObj}");
+                        }
+                        channel = (short)channelIndex;
+                    }
+                    EnsureStationCommandSucceeded(evt, station, "设置速度",
+                        Context.Motion.SetStationSpeed(stationIndex, Vel, Acc, Dec,
+                            channel, StationSpeedType.Joint));
+                    return true;
                 }
 
                 if (setStationVel.SetAxisObj == "工站")
@@ -1614,6 +1778,18 @@ namespace Automation
                 MarkAlarm(evt, $"找不到工站:{stationStop.StationName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
             }
+            if (station.Type != StationType.Axis)
+            {
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                // 机器人六个通道属于同一个控制器动作，任一“单轴停止”都必须按整站停止处理。
+                EnsureStationCommandSucceeded(evt, station, "停止",
+                    Context.Motion.StopStation(stationIndex, false));
+                return true;
+            }
             if (stationStop.StopEntireStation)
             {
                 StopStation(station, evt);
@@ -1665,6 +1841,27 @@ namespace Automation
             {
                 MarkAlarm(evt, $"找不到工站:{waitStationStop.StationName}");
                 throw CreateAlarmException(evt, evt?.alarmMsg);
+            }
+            if (station.Type != StationType.Axis)
+            {
+                short stationIndex = GetStationRuntimeIndex(station, evt);
+                if (!TryAcquireStationMotionResource(evt, stationIndex, out string stationResourceError))
+                {
+                    throw CreateAlarmException(evt, stationResourceError);
+                }
+                int timeout = checked((int)ResolveStationTimeout(
+                    evt,
+                    waitStationStop.TimeoutMs,
+                    waitStationStop.TimeoutVariableName,
+                    waitStationStop.Name));
+                WaitRobotStation(
+                    evt,
+                    station,
+                    stationIndex,
+                    waitStationStop.WaitForHomeCompleted,
+                    timeout,
+                    "等待运动");
+                return true;
             }
             List<ushort> cardNums = new List<ushort>();
             List<ushort> axisNums = new List<ushort>();
@@ -1995,12 +2192,7 @@ namespace Automation
                 return false;
             }
 
-            ushort dir = 0;
             int sfc = 10;
-            if (axisInfo.HomeDirection == "正向")
-            {
-                dir = 1;
-            }
             Stopwatch homeStopwatch = Stopwatch.StartNew();
             using (evt.CancellationToken.Register(() =>
             {
@@ -2032,7 +2224,12 @@ namespace Automation
                             {
                                 Context.Motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax,
                                     axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                                Context.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                                Context.Motion.SettHomeParam(
+                                    cardNum,
+                                    axis,
+                                    0,
+                                    1,
+                                    axisInfo.HomeMethod > 0 ? (ushort)axisInfo.HomeMethod : (ushort)0);
                                 Context.Motion.StartHome(cardNum, axis);
                             }
                             if (!WaitDelay(20, evt.CancellationToken))

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Machine Agent</title>
+<title>设备智能体</title>
 <style>
   :root {
     color-scheme: light;
@@ -65,16 +65,7 @@
 
   .agent-shell { height: 100%; max-width: 1480px; margin: 0 auto; }
   .chat-panel { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; overflow: hidden; }
-  .agent-head { min-height: 56px; }
-  .agent-title { display: flex; align-items: center; gap: 10px; }
-  .agent-title strong { font-size: 16px; }
-  .agent-pulse {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--brand);
-    box-shadow: 0 0 0 5px var(--selection);
-  }
+  .agent-head { min-height: 56px; justify-content: flex-end; }
   .agent-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
   .agent-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
   .agent-state.running { color: var(--brand); }
@@ -281,7 +272,6 @@
       <div class="agent-shell">
         <section class="panel chat-panel">
           <div class="panel-head agent-head">
-            <div class="agent-title"><i class="agent-pulse"></i><strong>Machine Agent</strong></div>
             <div id="agentState" class="agent-state"><i></i><span>等待指令</span></div>
           </div>
           <div id="messages" class="messages">

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Globalization;
+using Automation.MotionControl;
 
 namespace Automation
 {
@@ -37,10 +38,15 @@ namespace Automation
                     throw new InvalidDataException("控制卡主配置及备份均无法读取。");
                 }
                 cardData = Normalize(temp);
+                bool normalizedLegacyCardType = NormalizeBlankCardTypes(cardData);
                 if (!TryValidateAllAxes(out List<string> errors))
                 {
-                    error = "轴配置校验失败：" + string.Join("；", errors);
+                    error = "控制卡配置校验失败：" + string.Join("；", errors);
                     return false;
+                }
+                if (normalizedLegacyCardType)
+                {
+                    return Save(configPath, true, out error);
                 }
                 return true;
             }
@@ -62,7 +68,7 @@ namespace Automation
             cardData = Normalize(cardData);
             if (validate && !TryValidateAllAxes(out List<string> errors))
             {
-                error = "轴配置校验失败：" + string.Join("；", errors);
+                error = "控制卡配置校验失败：" + string.Join("；", errors);
                 return false;
             }
             if (AtomicJsonFileStore.Save(configPath, "card", cardData))
@@ -81,6 +87,10 @@ namespace Automation
                 errors.Add("控制卡列表为空。");
                 return false;
             }
+            if (cardData.controlCards.Count > 1)
+            {
+                errors.Add("当前平台只允许配置一张雷赛总线卡。");
+            }
             for (int cardIndex = 0; cardIndex < cardData.controlCards.Count; cardIndex++)
             {
                 ControlCard controlCard = cardData.controlCards[cardIndex];
@@ -88,6 +98,13 @@ namespace Automation
                 {
                     errors.Add($"{cardIndex}号卡配置为空。");
                     continue;
+                }
+                if (!string.Equals(
+                    controlCard.cardHead.CardType,
+                    CardHead.LeiSaiBusCardType,
+                    StringComparison.Ordinal))
+                {
+                    errors.Add($"{cardIndex}号卡类型必须为{CardHead.LeiSaiBusCardType}，当前值:{controlCard.cardHead.CardType ?? "<空>"}");
                 }
                 if (controlCard.cardHead.AxisCount != controlCard.axis.Count)
                 {
@@ -109,6 +126,63 @@ namespace Automation
                 }
             }
             return errors.Count == 0;
+        }
+
+        /// <summary>
+        /// 校验控制卡头声明的 IO 点数与 IOMap 卡分组是否完全一致。
+        /// 同时复用 IoConfigurationStore 的单点字段和名称唯一性契约。
+        /// </summary>
+        public bool TryValidateIoMap(IEnumerable<List<IO>> ioMap, out string error)
+        {
+            error = null;
+            if (cardData?.controlCards == null || ioMap == null)
+            {
+                error = "控制卡或IO配置为空。";
+                return false;
+            }
+            List<List<IO>> groups = ioMap.ToList();
+            if (cardData.controlCards.Count != groups.Count)
+            {
+                error = $"控制卡数量与IO卡分组数量不一致：控制卡{cardData.controlCards.Count}张，IO分组{groups.Count}组。";
+                return false;
+            }
+            var ioValidator = new IoConfigurationStore();
+            if (!ioValidator.TryReplaceMap(groups, out error))
+            {
+                return false;
+            }
+            for (int cardIndex = 0; cardIndex < cardData.controlCards.Count; cardIndex++)
+            {
+                CardHead head = cardData.controlCards[cardIndex]?.cardHead;
+                if (head == null)
+                {
+                    error = $"{cardIndex}号控制卡配置为空。";
+                    return false;
+                }
+                List<IO> items = groups[cardIndex];
+                int inputs = items.Count(item => string.Equals(
+                    item.IOType, "通用输入", StringComparison.Ordinal));
+                int outputs = items.Count(item => string.Equals(
+                    item.IOType, "通用输出", StringComparison.Ordinal));
+                if (inputs != head.InputCount || outputs != head.OutputCount)
+                {
+                    error = $"{cardIndex}号卡IO数量不一致：输入{inputs}/{head.InputCount}，输出{outputs}/{head.OutputCount}。";
+                    return false;
+                }
+                foreach (IO item in items)
+                {
+                    int ioIndex = int.Parse(item.IOIndex, CultureInfo.InvariantCulture);
+                    bool isInput = string.Equals(
+                        item.IOType, "通用输入", StringComparison.Ordinal);
+                    int declaredCount = isInput ? head.InputCount : head.OutputCount;
+                    if (ioIndex >= declaredCount)
+                    {
+                        error = $"{cardIndex}号卡{item.IOType}编号{ioIndex}超出声明范围0到{declaredCount - 1}。";
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         public bool TryValidateAxis(int cardIndex, int axisIndex, Axis axis, out string error)
@@ -140,9 +214,28 @@ namespace Automation
                 error = prefix + "回原速度无效。";
                 return false;
             }
-            if (axis.HomeDirection != "正向" && axis.HomeDirection != "负向")
+            if (axis.HomeMethod < -1 || axis.HomeMethod > ushort.MaxValue)
             {
-                error = $"{prefix}回原搜索方向无效:{axis.HomeDirection}";
+                error = $"{prefix}总线回原方法必须为-1、0或1到{ushort.MaxValue}。";
+                return false;
+            }
+            if (!Enum.IsDefined(typeof(AxisEncoderType), axis.EncoderType))
+            {
+                error = $"{prefix}编码器类型无效:{axis.EncoderType}";
+                return false;
+            }
+            if (double.IsNaN(axis.NegativeSoftLimit) || double.IsInfinity(axis.NegativeSoftLimit)
+                || double.IsNaN(axis.PositiveSoftLimit) || double.IsInfinity(axis.PositiveSoftLimit))
+            {
+                error = prefix + "软限位必须是有效数值。";
+                return false;
+            }
+            bool usesIniSoftLimit = axis.NegativeSoftLimit == 0 && axis.PositiveSoftLimit == 0;
+            if (!usesIniSoftLimit
+                && (axis.NegativeSoftLimit == 0 || axis.PositiveSoftLimit == 0
+                    || axis.NegativeSoftLimit >= axis.PositiveSoftLimit))
+            {
+                error = prefix + "负软限位和正软限位必须同时配置，且负软限位必须小于正软限位；同时为0时沿用card_0.ini。";
                 return false;
             }
             return true;
@@ -169,6 +262,35 @@ namespace Automation
                 if (!stationNames.Add(station.Name))
                 {
                     errors.Add($"工站名称重复:{station.Name}");
+                }
+                if (!Enum.IsDefined(typeof(StationType), station.Type))
+                {
+                    errors.Add($"工站{station.Name}类型无效:{station.Type}");
+                    continue;
+                }
+                if (station.PositionTolerances == null || station.PositionTolerances.Length != 6
+                    || station.PositionTolerances.Any(value => value <= 0
+                        || double.IsNaN(value) || double.IsInfinity(value)))
+                {
+                    errors.Add($"工站{station.Name}的XYZUVW到位精度必须是6个大于0的有效数值。");
+                }
+                if (station.Type != StationType.Axis)
+                {
+                    if (string.IsNullOrWhiteSpace(station.CommunicationName))
+                    {
+                        errors.Add($"机器人工站{station.Name}未配置通讯对象。");
+                    }
+                    if (station.RemoteMode && string.IsNullOrWhiteSpace(station.RemoteCommunicationName))
+                    {
+                        errors.Add($"远程模式机器人工站{station.Name}未配置独立远程通讯对象。");
+                    }
+                    // 3.0 的机器人本身就是六轴工站，不要求伪造控制卡或物理轴绑定。
+                    continue;
+                }
+                if (station.CoordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
+                {
+                    errors.Add(
+                        $"工站{station.Name}的坐标系必须在0到{CoordinatedLinearMoveRequest.MaximumCoordinateSystem}之间，当前值:{station.CoordinateSystem}");
                 }
                 if (station.dataAxis == null || station.homeSeq == null)
                 {
@@ -266,11 +388,24 @@ namespace Automation
             }
             if (controlCard == null)
             {
-                return -1;
+                throw new ArgumentNullException(nameof(controlCard));
+            }
+            if (cardData.controlCards.Count != 0)
+            {
+                throw new InvalidOperationException("当前平台只允许配置一张雷赛总线卡。");
             }
             if (controlCard.cardHead == null)
             {
                 controlCard.cardHead = new CardHead();
+            }
+            if (!string.Equals(
+                controlCard.cardHead.CardType,
+                CardHead.LeiSaiBusCardType,
+                StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"控制卡类型必须为{CardHead.LeiSaiBusCardType}。",
+                    nameof(controlCard));
             }
             if (controlCard.axis == null)
             {
@@ -426,6 +561,22 @@ namespace Automation
                 }
             }
             return result;
+        }
+
+        private static bool NormalizeBlankCardTypes(Card card)
+        {
+            bool changed = false;
+            foreach (ControlCard controlCard in card?.controlCards ?? Enumerable.Empty<ControlCard>())
+            {
+                if (controlCard?.cardHead == null
+                    || !string.IsNullOrWhiteSpace(controlCard.cardHead.CardType))
+                {
+                    continue;
+                }
+                controlCard.cardHead.CardType = CardHead.LeiSaiBusCardType;
+                changed = true;
+            }
+            return changed;
         }
     }
 }

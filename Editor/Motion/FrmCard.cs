@@ -1,6 +1,7 @@
 // 模块：编辑器 / 运动。
 // 职责范围：控制卡、工站和手动运动的配置与交互。
 
+using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -16,9 +17,6 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
-using Newtonsoft.Json.Linq;
-using Newtonsoft.Json;
-
 namespace Automation
 {
     public enum EditKind
@@ -83,6 +81,368 @@ namespace Automation
             return ObjectGraphCloner.Clone(source);
         }
 
+        /// <summary>
+        /// 运动配置写盘后的统一收口：第一时间关闭运动门，正式内存替换失败仍向上抛出；
+        /// 提示或界面刷新失败只记录降级，不能把已经提交的配置伪装成提交失败。
+        /// </summary>
+        internal static void CompleteCommittedMotionConfiguration(
+            PlatformReadinessState readiness,
+            Action applyCommittedState,
+            Action<string> logError,
+            params Action[] bestEffortActions)
+        {
+            if (readiness == null)
+            {
+                throw new ArgumentNullException(nameof(readiness));
+            }
+            readiness.MotionConfigRestartRequired = true;
+            applyCommittedState?.Invoke();
+            foreach (Action action in bestEffortActions ?? Array.Empty<Action>())
+            {
+                if (action == null)
+                {
+                    continue;
+                }
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        logError?.Invoke(
+                            $"运动配置已经提交，但提交后界面刷新或提示失败:{ex.Message}");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        private IDisposable BeginMotionConfigurationCommit(string reason)
+        {
+            PlatformRuntime runtime = Workspace.Runtime
+                ?? throw new InvalidOperationException("平台运行时尚未初始化。");
+            if (!runtime.Maintenance.TryBegin(reason, out IDisposable lease, out string beginError))
+            {
+                throw new InvalidOperationException(beginError);
+            }
+            try
+            {
+                if (runtime.ProcessEngine == null)
+                {
+                    throw new InvalidOperationException("流程引擎尚未初始化，不能提交运动配置。");
+                }
+                if (!runtime.ProcessEngine.TryValidateMotionConfigurationIdle(out string idleError))
+                {
+                    throw new InvalidOperationException(idleError);
+                }
+                return lease;
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        private string ValidateNewCard(CardHead draft)
+        {
+            return TryBuildNewCardCandidates(
+                draft,
+                out _,
+                out _,
+                out string error)
+                ? null
+                : error;
+        }
+
+        private string ValidateCardHeadEdit(int cardIndex, CardHead draft)
+        {
+            if (draft == null)
+            {
+                return "控制卡参数为空。";
+            }
+            if (draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0)
+            {
+                return "控制卡轴数和IO数量不能为负数。";
+            }
+            return TryBuildCardHeadEditCandidates(
+                cardIndex,
+                draft,
+                out _,
+                out _,
+                out string error)
+                ? null
+                : error;
+        }
+
+        private string ValidateAxisEdit(int cardIndex, int axisIndex, Axis draft)
+        {
+            return TryBuildAxisEditCandidate(
+                cardIndex,
+                axisIndex,
+                draft,
+                out _,
+                out string error)
+                ? null
+                : error;
+        }
+
+        private bool TryBuildAxisEditCandidate(
+            int cardIndex,
+            int axisIndex,
+            Axis draft,
+            out Card candidateCard,
+            out string error)
+        {
+            candidateCard = null;
+            error = null;
+            Card currentCard = Workspace.Runtime.Stores.Cards.CardData;
+            if (draft == null
+                || currentCard?.controlCards == null
+                || cardIndex < 0
+                || cardIndex >= currentCard.controlCards.Count
+                || currentCard.controlCards[cardIndex]?.axis == null
+                || axisIndex < 0
+                || axisIndex >= currentCard.controlCards[cardIndex].axis.Count)
+            {
+                error = $"控制卡或轴索引无效:{cardIndex}-{axisIndex}";
+                return false;
+            }
+
+            candidateCard = CloneForEdit(currentCard);
+            candidateCard.controlCards[cardIndex].axis[axisIndex] = CloneForEdit(draft);
+            var candidateStore = new CardConfigStore();
+            candidateStore.SetCard(candidateCard);
+            if (!candidateStore.TryValidateAllAxes(out List<string> cardErrors))
+            {
+                error = "控制卡配置校验失败：" + string.Join("；", cardErrors);
+                return false;
+            }
+            List<DataStation> candidateStations = CloneForEdit(
+                dataStation ?? new List<DataStation>());
+            if (!candidateStore.TryValidateStations(candidateStations, out List<string> stationErrors))
+            {
+                error = "修改轴会破坏现有工站配置：" + string.Join("；", stationErrors);
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryBuildCardHeadEditCandidates(
+            int cardIndex,
+            CardHead draft,
+            out Card candidateCard,
+            out List<List<IO>> candidateIoMap,
+            out string error)
+        {
+            candidateCard = null;
+            candidateIoMap = null;
+            error = null;
+            if (draft == null || controlCardTemp == null)
+            {
+                error = "控制卡编辑草稿为空。";
+                return false;
+            }
+            Card currentCard = Workspace.Runtime.Stores.Cards.CardData;
+            if (currentCard?.controlCards == null
+                || cardIndex < 0
+                || cardIndex >= currentCard.controlCards.Count)
+            {
+                error = $"控制卡索引无效:{cardIndex}";
+                return false;
+            }
+
+            ControlCard candidateControlCard = CloneForEdit(controlCardTemp);
+            candidateControlCard.cardHead = CloneForEdit(draft);
+            candidateControlCard.axis = candidateControlCard.axis ?? new List<Axis>();
+            while (candidateControlCard.axis.Count > draft.AxisCount)
+            {
+                candidateControlCard.axis.RemoveAt(candidateControlCard.axis.Count - 1);
+            }
+            while (candidateControlCard.axis.Count < draft.AxisCount)
+            {
+                int axisIndex = candidateControlCard.axis.Count;
+                candidateControlCard.axis.Add(new Axis
+                {
+                    AxisName = $"Axis{axisIndex}",
+                    AxisNum = axisIndex
+                });
+            }
+
+            candidateCard = CloneForEdit(currentCard);
+            candidateCard.controlCards[cardIndex] = candidateControlCard;
+            var candidateStore = new CardConfigStore();
+            candidateStore.SetCard(candidateCard);
+            if (!candidateStore.TryValidateAllAxes(out List<string> cardErrors))
+            {
+                error = "控制卡配置校验失败：" + string.Join("；", cardErrors);
+                return false;
+            }
+
+            List<DataStation> candidateStations = CloneForEdit(
+                dataStation ?? new List<DataStation>());
+            if (!candidateStore.TryValidateStations(candidateStations, out List<string> stationErrors))
+            {
+                error = "修改轴数量会破坏现有工站配置：" + string.Join("；", stationErrors);
+                return false;
+            }
+            if (!Workspace.Runtime.Stores.IoConfiguration.TryCreateResizedCardMap(
+                    cardIndex,
+                    draft.InputCount,
+                    draft.OutputCount,
+                    out candidateIoMap,
+                    out error))
+            {
+                return false;
+            }
+            if (!candidateStore.TryValidateIoMap(candidateIoMap, out string cardIoError))
+            {
+                error = cardIoError;
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryBuildNewCardCandidates(
+            CardHead draft,
+            out Card candidateCard,
+            out List<List<IO>> candidateIoMap,
+            out string error)
+        {
+            candidateCard = null;
+            candidateIoMap = null;
+            error = null;
+            if (draft == null || controlCardTemp == null)
+            {
+                error = "控制卡编辑草稿为空。";
+                return false;
+            }
+            if (draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0)
+            {
+                error = "控制卡轴数和IO数量不能为负数。";
+                return false;
+            }
+
+            Card currentCard = Workspace.Runtime.Stores.Cards.CardData;
+            if (currentCard?.controlCards == null)
+            {
+                error = "控制卡配置为空。";
+                return false;
+            }
+            if (currentCard.controlCards.Count != 0)
+            {
+                error = "当前平台只允许配置一张雷赛总线卡。";
+                return false;
+            }
+
+            ControlCard candidateControlCard = CloneForEdit(controlCardTemp);
+            candidateControlCard.cardHead = CloneForEdit(draft);
+            candidateControlCard.axis = new List<Axis>();
+            for (int axisIndex = 0; axisIndex < draft.AxisCount; axisIndex++)
+            {
+                candidateControlCard.axis.Add(new Axis
+                {
+                    AxisName = $"Axis{axisIndex}",
+                    AxisNum = axisIndex
+                });
+            }
+            candidateCard = CloneForEdit(currentCard);
+            candidateCard.controlCards.Add(candidateControlCard);
+
+            var candidateStore = new CardConfigStore();
+            candidateStore.SetCard(candidateCard);
+            if (!candidateStore.TryValidateAllAxes(out List<string> cardErrors))
+            {
+                error = "控制卡配置校验失败：" + string.Join("；", cardErrors);
+                return false;
+            }
+            List<DataStation> candidateStations = CloneForEdit(
+                dataStation ?? new List<DataStation>());
+            if (!candidateStore.TryValidateStations(candidateStations, out List<string> stationErrors))
+            {
+                error = "新增控制卡与现有工站配置冲突：" + string.Join("；", stationErrors);
+                return false;
+            }
+            if (!Workspace.Runtime.Stores.IoConfiguration.TryCreateResizedCardMap(
+                    0,
+                    draft.InputCount,
+                    draft.OutputCount,
+                    out candidateIoMap,
+                    out error))
+            {
+                return false;
+            }
+            if (!candidateStore.TryValidateIoMap(candidateIoMap, out string cardIoError))
+            {
+                error = cardIoError;
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryBuildRemovedCardCandidates(
+            int cardIndex,
+            out Card candidateCard,
+            out List<List<IO>> candidateIoMap,
+            out string error)
+        {
+            candidateCard = null;
+            candidateIoMap = null;
+            error = null;
+            Card currentCard = Workspace.Runtime.Stores.Cards.CardData;
+            if (currentCard?.controlCards == null
+                || cardIndex < 0
+                || cardIndex >= currentCard.controlCards.Count)
+            {
+                error = $"控制卡索引无效:{cardIndex}";
+                return false;
+            }
+
+            candidateCard = CloneForEdit(currentCard);
+            candidateCard.controlCards.RemoveAt(cardIndex);
+            candidateIoMap = Workspace.Runtime.Stores.IoConfiguration.CreateSnapshot();
+            if (cardIndex >= candidateIoMap.Count)
+            {
+                error = $"{cardIndex}号控制卡缺少对应IO分组。";
+                return false;
+            }
+            candidateIoMap.RemoveAt(cardIndex);
+            for (int nextCardIndex = 0; nextCardIndex < candidateIoMap.Count; nextCardIndex++)
+            {
+                List<IO> items = candidateIoMap[nextCardIndex] ?? new List<IO>();
+                for (int flatIndex = 0; flatIndex < items.Count; flatIndex++)
+                {
+                    items[flatIndex].CardNum = nextCardIndex;
+                    items[flatIndex].Index = flatIndex;
+                }
+            }
+
+            var candidateStore = new CardConfigStore();
+            candidateStore.SetCard(candidateCard);
+            if (!candidateStore.TryValidateAllAxes(out List<string> cardErrors))
+            {
+                error = "控制卡配置校验失败：" + string.Join("；", cardErrors);
+                return false;
+            }
+            List<DataStation> candidateStations = CloneForEdit(
+                dataStation ?? new List<DataStation>());
+            if (!candidateStore.TryValidateStations(candidateStations, out List<string> stationErrors))
+            {
+                error = "删除控制卡会破坏现有工站配置：" + string.Join("；", stationErrors);
+                return false;
+            }
+            if (!candidateStore.TryValidateIoMap(candidateIoMap, out string cardIoError))
+            {
+                error = cardIoError;
+                return false;
+            }
+            return true;
+        }
+
         private void ApplyCardStyle()
         {
             BackColor = UiPalette.SurfaceStrong;
@@ -106,7 +466,8 @@ namespace Automation
 
         private void contextMenuStrip1_Opening(object sender, CancelEventArgs e)
         {
-            AddCard.Enabled = editKey.Kind == EditKind.CardRoot;
+            AddCard.Enabled = editKey.Kind == EditKind.CardRoot
+                && Workspace.Runtime.Stores.Cards.GetControlCardCount() == 0;
             Modify.Enabled = editKey.Kind == EditKind.Card || editKey.Kind == EditKind.Axis;
             Remove.Enabled = editKey.Kind == EditKind.Card;
         }
@@ -235,69 +596,71 @@ namespace Automation
             //新建控制卡
             if (IsCardRootSelected)
             {
+                if (Workspace.Runtime.Stores.Cards.GetControlCardCount() != 0)
+                {
+                    MessageBox.Show("当前平台只允许配置一张雷赛总线卡。", "控制卡配置",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
                 controlCardTemp = new ControlCard();
                 treeView1.Enabled = false;
                 treeView2.Enabled = false;
                 Workspace.Runtime.Editor.Begin(new EditSession<CardHead>("新增控制卡", controlCardTemp.cardHead,
-                    draft => draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0
-                        ? "控制卡轴数和IO数量不能为负数。" : null,
+                    ValidateNewCard,
                     draft =>
                     {
-                        for (int i = 0; i < draft.AxisCount; i++)
+                        using (BeginMotionConfigurationCommit("新增控制卡配置"))
                         {
-                            controlCardTemp.axis.Add(new Axis { AxisName = $"Axis{i}", AxisNum = i });
-                        }
-                        int newCardIndex = Workspace.Runtime.Stores.Cards.AddControlCard(controlCardTemp);
-                        var ioItems = new List<IO>();
-                        for (int i = 0; i < draft.InputCount; i++)
-                        {
-                            ioItems.Add(new IO
+                            if (!TryBuildNewCardCandidates(
+                                    draft,
+                                    out Card candidateCard,
+                                    out List<List<IO>> candidateIoMap,
+                                    out string candidateError))
                             {
-                                Index = i,
-                                CardNum = newCardIndex,
-                                Module = 0,
-                                IOIndex = i.ToString(),
-                                IOType = "通用输入",
-                                UsedType = "通用",
-                                EffectLevel = "正常"
-                            });
-                        }
-                        for (int i = 0; i < draft.OutputCount; i++)
-                        {
-                            ioItems.Add(new IO
+                                throw new InvalidOperationException(candidateError);
+                            }
+                            var settings = new JsonSerializerSettings
                             {
-                                Index = draft.InputCount + i,
-                                CardNum = newCardIndex,
-                                Module = 0,
-                                IOIndex = i.ToString(),
-                                IOType = "通用输出",
-                                UsedType = "通用",
-                                EffectLevel = "正常"
-                            });
-                        }
-                        Workspace.IO.IOMap.Add(ioItems);
-                        try
-                        {
-                            var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+                                TypeNameHandling = TypeNameHandling.All
+                            };
                             using (var batch = new ConfigurationBatchWriter(Workspace.Runtime.Paths.ConfigPath))
                             {
-                                batch.AddJson("card.json", Workspace.Runtime.Stores.Cards.CardData, settings);
-                                batch.AddJson("IOMap.json", Workspace.IO.IOMap, settings);
+                                batch.AddJson("card.json", candidateCard, settings);
+                                batch.AddJson("IOMap.json", candidateIoMap, settings);
                                 batch.Commit();
                             }
+
+                            CompleteCommittedMotionConfiguration(
+                                Workspace.Runtime.Readiness,
+                                () =>
+                                {
+                                    Workspace.Runtime.Stores.Cards.SetCard(candidateCard);
+                                    if (!Workspace.Runtime.Stores.IoConfiguration.TryReplaceMap(
+                                            candidateIoMap,
+                                            out string ioReplaceError))
+                                    {
+                                        Workspace.Runtime.Safety.Lock(
+                                            $"控制卡与IO配置已提交，但IO正式内存替换失败:{ioReplaceError}");
+                                        throw new InvalidOperationException(ioReplaceError);
+                                    }
+                                    if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                            dataStation ?? new List<DataStation>(),
+                                            out List<string> reboundStationErrors))
+                                    {
+                                        string rebindError = string.Join("；", reboundStationErrors);
+                                        Workspace.Runtime.Safety.Lock(
+                                            $"控制卡配置已提交，但工站轴引用重绑定失败:{rebindError}");
+                                        throw new InvalidOperationException(rebindError);
+                                    }
+                                },
+                                message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                                    message, LogLevel.Error),
+                                () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                                FinishDraftEdit,
+                                RefreshCardTree,
+                                Workspace.IO.RefreshIODgv,
+                                Workspace.Main.ResetAxisRuntimeState);
                         }
-                        catch
-                        {
-                            Workspace.Runtime.Stores.Cards.RemoveControlCardAt(newCardIndex);
-                            Workspace.IO.IOMap.RemoveAt(newCardIndex);
-                            Workspace.Runtime.Safety.Lock("控制卡与IO配置事务提交失败，禁止继续运行，需检查配置文件。");
-                            throw;
-                        }
-                        FinishDraftEdit();
-                        RefreshCardTree();
-                        Workspace.IO.RefreshIODgv();
-                        Workspace.Main.ResetAxisRuntimeState();
-                        Workspace.Main.RequireRestartAfterMotionConfigurationChange();
                     }, FinishDraftEdit));
             }
         }
@@ -389,21 +752,52 @@ namespace Automation
                 treeView1.Enabled = false;
                 treeView2.Enabled = false;
                 Workspace.Runtime.Editor.Begin(new EditSession<Axis>("修改轴", axisTemp,
-                    draft => Workspace.Runtime.Stores.Cards.TryValidateAxis(cardIndex, axisIndex, draft, out string error) ? null : error,
+                    draft => ValidateAxisEdit(cardIndex, axisIndex, draft),
                     draft =>
                     {
-                        Workspace.Runtime.Stores.Cards.ReplaceAxis(cardIndex, axisIndex, draft);
-                        if (!Workspace.Runtime.Stores.Cards.Save(
-                                Workspace.Runtime.Paths.ConfigPath, false, out string saveError))
+                        using (BeginMotionConfigurationCommit("修改轴配置"))
                         {
-                            Workspace.Runtime.Stores.Cards.ReplaceAxis(cardIndex, axisIndex, sourceAxis);
-                            throw new InvalidOperationException(saveError);
+                            if (!TryBuildAxisEditCandidate(
+                                    cardIndex,
+                                    axisIndex,
+                                    draft,
+                                    out Card candidateCard,
+                                    out string candidateError))
+                            {
+                                throw new InvalidOperationException(candidateError);
+                            }
+                            var candidateStore = new CardConfigStore();
+                            candidateStore.SetCard(candidateCard);
+                            if (!candidateStore.Save(
+                                    Workspace.Runtime.Paths.ConfigPath,
+                                    true,
+                                    out string saveError))
+                            {
+                                throw new InvalidOperationException(saveError);
+                            }
+                            // 编辑阶段只保存配置，不调用实体运动卡；参数在下次启动时统一加载并生效。
+                            CompleteCommittedMotionConfiguration(
+                                Workspace.Runtime.Readiness,
+                                () =>
+                                {
+                                    Workspace.Runtime.Stores.Cards.SetCard(candidateCard);
+                                    if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                            dataStation ?? new List<DataStation>(),
+                                            out List<string> reboundStationErrors))
+                                    {
+                                        string rebindError = string.Join("；", reboundStationErrors);
+                                        Workspace.Runtime.Safety.Lock(
+                                            $"轴配置已提交，但工站轴引用重绑定失败:{rebindError}");
+                                        throw new InvalidOperationException(rebindError);
+                                    }
+                                },
+                                message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                                    message, LogLevel.Error),
+                                () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                                FinishDraftEdit,
+                                RefreshCardTree,
+                                Workspace.Main.ResetAxisRuntimeState);
                         }
-                        // 编辑阶段只保存配置，不调用实体运动卡；参数在下次启动时统一加载并生效。
-                        Workspace.Main.RequireRestartAfterMotionConfigurationChange();
-                        FinishDraftEdit();
-                        RefreshCardTree();
-                        Workspace.Main.ResetAxisRuntimeState();
                     }, FinishDraftEdit));
             }
             else if (TryGetSelectedCardIndex(out cardIndex)
@@ -413,56 +807,67 @@ namespace Automation
                 treeView1.Enabled = false;
                 treeView2.Enabled = false;
                 Workspace.Runtime.Editor.Begin(new EditSession<CardHead>("修改控制卡", controlCardTemp.cardHead,
-                    draft => draft.AxisCount < 0 || draft.InputCount < 0 || draft.OutputCount < 0
-                        ? "控制卡轴数和IO数量不能为负数。" : null,
+                    draft => ValidateCardHeadEdit(cardIndex, draft),
                     draft =>
                     {
-                        while (controlCardTemp.axis.Count > draft.AxisCount)
+                        using (BeginMotionConfigurationCommit("修改控制卡配置"))
                         {
-                            controlCardTemp.axis.RemoveAt(controlCardTemp.axis.Count - 1);
+                            if (!TryBuildCardHeadEditCandidates(
+                                    cardIndex,
+                                    draft,
+                                    out Card candidateCard,
+                                    out List<List<IO>> candidateIoMap,
+                                    out string candidateError))
+                            {
+                                throw new InvalidOperationException(candidateError);
+                            }
+                            var settings = new JsonSerializerSettings
+                            {
+                                TypeNameHandling = TypeNameHandling.All
+                            };
+                            using (var batch = new ConfigurationBatchWriter(
+                                Workspace.Runtime.Paths.ConfigPath))
+                            {
+                                batch.AddJson("card.json", candidateCard, settings);
+                                batch.AddJson("IOMap.json", candidateIoMap, settings);
+                                batch.Commit();
+                            }
+
+                            CompleteCommittedMotionConfiguration(
+                                Workspace.Runtime.Readiness,
+                                () =>
+                                {
+                                    // 双文件事务成功后再替换正式内存，避免卡点数与 IOMap 暂时失配。
+                                    Workspace.Runtime.Stores.Cards.SetCard(candidateCard);
+                                    if (!Workspace.Runtime.Stores.IoConfiguration.TryReplaceMap(
+                                            candidateIoMap,
+                                            out string ioReplaceError))
+                                    {
+                                        Workspace.Runtime.Safety.Lock(
+                                            $"控制卡与IO配置已提交，但IO正式内存替换失败:{ioReplaceError}");
+                                        throw new InvalidOperationException(ioReplaceError);
+                                    }
+                                    if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                            dataStation ?? new List<DataStation>(),
+                                            out List<string> reboundStationErrors))
+                                    {
+                                        string rebindError = string.Join("；", reboundStationErrors);
+                                        Workspace.Runtime.Safety.Lock(
+                                            $"控制卡与IO配置已提交，但工站轴引用重绑定失败:{rebindError}");
+                                        throw new InvalidOperationException(rebindError);
+                                    }
+                                },
+                                message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                                    message, LogLevel.Error),
+                                () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                                FinishDraftEdit,
+                                RefreshCardTree,
+                                Workspace.IO.RefreshIODgv,
+                                Workspace.Main.ResetAxisRuntimeState);
                         }
-                        while (controlCardTemp.axis.Count < draft.AxisCount)
-                        {
-                            int axisIndex = controlCardTemp.axis.Count;
-                            controlCardTemp.axis.Add(new Axis { AxisName = $"Axis{axisIndex}", AxisNum = axisIndex });
-                        }
-                        Workspace.Runtime.Stores.Cards.ReplaceControlCard(cardIndex, controlCardTemp);
-                        if (!Workspace.Runtime.Stores.Cards.Save(
-                                Workspace.Runtime.Paths.ConfigPath, false, out string saveError))
-                        {
-                            Workspace.Runtime.Stores.Cards.ReplaceControlCard(cardIndex, sourceCard);
-                            throw new InvalidOperationException(saveError);
-                        }
-                        Workspace.Main.RequireRestartAfterMotionConfigurationChange();
-                        FinishDraftEdit();
-                        RefreshCardTree();
-                        Workspace.Main.ResetAxisRuntimeState();
                     }, FinishDraftEdit));
             }
         }
-        public void RefreshStationList()
-        {
-            treeView2.Nodes.Clear();
-            if (!stationDefinitionStore.Load(
-                    Workspace.Runtime.Paths.ConfigPath, out string stationLoadError))
-            {
-                Workspace.Runtime.Safety.Lock(stationLoadError);
-                MessageBox.Show(stationLoadError, "工站配置错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            if (!Workspace.Runtime.Stores.Cards.TryValidateStations(dataStation, out List<string> stationErrors))
-            {
-                Workspace.Runtime.ProcessEngine?.Logger?.Log("工站配置加载校验失败：" + string.Join("; ", stationErrors), LogLevel.Error);
-                MessageBox.Show("工站配置校验失败：\r\n" + string.Join("\r\n", stationErrors),
-                    "工站配置错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            if (Workspace.Runtime.ProcessEngine?.Context != null)
-            {
-                Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
-            }
-
-        }
-
         public void RefreshStationTree()
         {
             treeView2.Nodes.Clear();
@@ -492,49 +897,58 @@ namespace Automation
                 {
                     return;
                 }
-                Card cardBackup = CloneForEdit(Workspace.Runtime.Stores.Cards.CardData);
-                List<List<IO>> ioBackup = CloneForEdit(Workspace.IO.IOMap);
-                if (!Workspace.Runtime.Stores.Cards.RemoveControlCardAt(cardIndex))
+                using (BeginMotionConfigurationCommit("删除控制卡配置"))
                 {
-                    return;
-                }
-                Workspace.IO.IOMap.RemoveAt(cardIndex);
-                    for (int i = 0;i < Workspace.IO.IOMap.Count; i++)
+                    if (!TryBuildRemovedCardCandidates(
+                            cardIndex,
+                            out Card candidateCard,
+                            out List<List<IO>> candidateIoMap,
+                            out string candidateError))
                     {
-                        for (int j = 0; j < Workspace.IO.IOMap[i].Count; j++)
-                        {
-                            Workspace.IO.IOMap[i][j].CardNum = i;
-                        }
+                        throw new InvalidOperationException(candidateError);
                     }
-                try
-                {
-                    var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+                    var settings = new JsonSerializerSettings
+                    {
+                        TypeNameHandling = TypeNameHandling.All
+                    };
                     using (var batch = new ConfigurationBatchWriter(Workspace.Runtime.Paths.ConfigPath))
                     {
-                        batch.AddJson("card.json", Workspace.Runtime.Stores.Cards.CardData, settings);
-                        batch.AddJson("IOMap.json", Workspace.IO.IOMap, settings);
+                        batch.AddJson("card.json", candidateCard, settings);
+                        batch.AddJson("IOMap.json", candidateIoMap, settings);
                         batch.Commit();
                     }
-                }
-                catch
-                {
-                    Workspace.Runtime.Stores.Cards.SetCard(cardBackup);
-                    if (!Workspace.Runtime.Stores.IoConfiguration.TryReplaceMap(ioBackup, out string restoreError))
-                    {
-                        Workspace.Runtime.Safety.Lock($"删除控制卡配置事务失败且IO内存恢复失败:{restoreError}");
-                    }
-                    else
-                    {
-                        Workspace.Runtime.Safety.Lock("删除控制卡配置事务失败，正式内存已恢复，需检查配置文件。");
-                    }
-                    throw;
-                }
-                Workspace.Card.RefreshCardTree();
-                Workspace.Main.RequireRestartAfterMotionConfigurationChange();
-                Workspace.Main.ResetAxisRuntimeState();
-                Workspace.IO.dgvIO.Rows.Clear();
 
-                Workspace.IO.RefreshIODgv();
+                    CompleteCommittedMotionConfiguration(
+                        Workspace.Runtime.Readiness,
+                        () =>
+                        {
+                            Workspace.Runtime.Stores.Cards.SetCard(candidateCard);
+                            if (!Workspace.Runtime.Stores.IoConfiguration.TryReplaceMap(
+                                    candidateIoMap,
+                                    out string ioReplaceError))
+                            {
+                                Workspace.Runtime.Safety.Lock(
+                                    $"控制卡删除已提交，但IO正式内存替换失败:{ioReplaceError}");
+                                throw new InvalidOperationException(ioReplaceError);
+                            }
+                            if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                    dataStation ?? new List<DataStation>(),
+                                    out List<string> reboundStationErrors))
+                            {
+                                string rebindError = string.Join("；", reboundStationErrors);
+                                Workspace.Runtime.Safety.Lock(
+                                    $"控制卡删除已提交，但工站轴引用重绑定失败:{rebindError}");
+                                throw new InvalidOperationException(rebindError);
+                            }
+                        },
+                        message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                            message, LogLevel.Error),
+                        () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                        Workspace.Card.RefreshCardTree,
+                        Workspace.Main.ResetAxisRuntimeState,
+                        () => Workspace.IO.dgvIO.Rows.Clear(),
+                        Workspace.IO.RefreshIODgv);
+                }
             }
         }
 
@@ -552,24 +966,46 @@ namespace Automation
             Workspace.Runtime.Editor.Begin(new EditSession<DataStation>("新增工站", dataStationTemp,
                 draft =>
                 {
-                    var candidate = new List<DataStation>(dataStation ?? new List<DataStation>()) { draft };
+                    List<DataStation> candidate = CloneForEdit(
+                        dataStation ?? new List<DataStation>());
+                    candidate.Add(CloneForEdit(draft));
                     return Workspace.Runtime.Stores.Cards.TryValidateStations(candidate, out List<string> errors)
                         ? null : string.Join("\r\n", errors);
                 },
                 draft =>
                 {
-                    var candidate = new List<DataStation>(dataStation) { draft };
-                    if (!stationDefinitionStore.TryCommit(
-                            Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                    using (BeginMotionConfigurationCommit("新增工站配置"))
                     {
-                        throw new InvalidOperationException(error);
+                        List<DataStation> candidate = CloneForEdit(
+                            dataStation ?? new List<DataStation>());
+                        candidate.Add(CloneForEdit(draft));
+                        if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                candidate,
+                                out List<string> validationErrors))
+                        {
+                            throw new InvalidOperationException(
+                                string.Join("；", validationErrors));
+                        }
+                        if (!stationDefinitionStore.TryCommit(
+                                Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                        {
+                            throw new InvalidOperationException(error);
+                        }
+                        CompleteCommittedMotionConfiguration(
+                            Workspace.Runtime.Readiness,
+                            () =>
+                            {
+                                if (Workspace.Runtime.ProcessEngine?.Context != null)
+                                {
+                                    Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
+                                }
+                            },
+                            message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                                message, LogLevel.Error),
+                            () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                            FinishDraftEdit,
+                            RefreshStationTree);
                     }
-                    if (Workspace.Runtime.ProcessEngine?.Context != null)
-                    {
-                        Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
-                    }
-                    FinishDraftEdit();
-                    RefreshStationTree();
                 }, FinishDraftEdit));
             Workspace.Inspector.RefreshObject();
         }
@@ -590,26 +1026,44 @@ namespace Automation
                 Workspace.Runtime.Editor.Begin(new EditSession<DataStation>("修改工站", dataStationTemp,
                     draft =>
                     {
-                        var candidate = new List<DataStation>(dataStation);
-                        candidate[stationIndex] = draft;
+                        List<DataStation> candidate = CloneForEdit(dataStation);
+                        candidate[stationIndex] = CloneForEdit(draft);
                         return Workspace.Runtime.Stores.Cards.TryValidateStations(candidate, out List<string> errors)
                             ? null : string.Join("\r\n", errors);
                     },
                     draft =>
                     {
-                        var candidate = new List<DataStation>(dataStation);
-                        candidate[stationIndex] = draft;
-                        if (!stationDefinitionStore.TryCommit(
-                                Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                        using (BeginMotionConfigurationCommit("修改工站配置"))
                         {
-                            throw new InvalidOperationException(error);
+                            List<DataStation> candidate = CloneForEdit(dataStation);
+                            candidate[stationIndex] = CloneForEdit(draft);
+                            if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                                    candidate,
+                                    out List<string> validationErrors))
+                            {
+                                throw new InvalidOperationException(
+                                    string.Join("；", validationErrors));
+                            }
+                            if (!stationDefinitionStore.TryCommit(
+                                    Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                            {
+                                throw new InvalidOperationException(error);
+                            }
+                            CompleteCommittedMotionConfiguration(
+                                Workspace.Runtime.Readiness,
+                                () =>
+                                {
+                                    if (Workspace.Runtime.ProcessEngine?.Context != null)
+                                    {
+                                        Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
+                                    }
+                                },
+                                message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                                    message, LogLevel.Error),
+                                () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                                FinishDraftEdit,
+                                RefreshStationTree);
                         }
-                        if (Workspace.Runtime.ProcessEngine?.Context != null)
-                        {
-                            Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
-                        }
-                        FinishDraftEdit();
-                        RefreshStationTree();
                     }, FinishDraftEdit));
                 Workspace.Inspector.RefreshObject();
             }
@@ -631,16 +1085,37 @@ namespace Automation
                 {
                     return;
                 }
-                var candidate = new List<DataStation>(dataStation);
-                candidate.RemoveAt(stationIndex);
-                if (!stationDefinitionStore.TryCommit(
-                        Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                using (BeginMotionConfigurationCommit("删除工站配置"))
                 {
-                    throw new InvalidOperationException(error);
-                }
+                    List<DataStation> candidate = CloneForEdit(dataStation);
+                    candidate.RemoveAt(stationIndex);
+                    if (!Workspace.Runtime.Stores.Cards.TryValidateStations(
+                            candidate,
+                            out List<string> validationErrors))
+                    {
+                        throw new InvalidOperationException(
+                            string.Join("；", validationErrors));
+                    }
+                    if (!stationDefinitionStore.TryCommit(
+                            Workspace.Runtime.Paths.ConfigPath, candidate, out string error))
+                    {
+                        throw new InvalidOperationException(error);
+                    }
 
-                Workspace.Card.RefreshStationList();
-                Workspace.Card.RefreshStationTree();
+                    CompleteCommittedMotionConfiguration(
+                        Workspace.Runtime.Readiness,
+                        () =>
+                        {
+                            if (Workspace.Runtime.ProcessEngine?.Context != null)
+                            {
+                                Workspace.Runtime.ProcessEngine.Context.Stations = dataStation;
+                            }
+                        },
+                        message => Workspace.Runtime.ProcessEngine?.Logger?.Log(
+                            message, LogLevel.Error),
+                        () => Workspace.Main.RequireRestartAfterMotionConfigurationChange(),
+                        Workspace.Card.RefreshStationTree);
+                }
             }
         }
 
@@ -725,7 +1200,8 @@ namespace Automation
             return true;
         }
     }
-    public class HomeDirectionItem : StringConverter
+    /// <summary>机器人工站直接引用当前平台已有的 TCP 通讯对象。</summary>
+    public class RobotCommunicationItem : StringConverter
     {
         public override bool GetStandardValuesSupported(ITypeDescriptorContext context)
         {
@@ -734,308 +1210,22 @@ namespace Automation
 
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
-            return new StandardValuesCollection(new List<string>() { "正向", "负向" });
+            PlatformRuntime runtime = context?.GetService(typeof(PlatformRuntime)) as PlatformRuntime;
+            var names = new List<string> { string.Empty };
+            if (runtime?.Stores?.Communication != null)
+            {
+                names.AddRange(runtime.Stores.Communication.GetSocketSnapshot()
+                    .Where(item => item != null && !string.IsNullOrWhiteSpace(item.Name))
+                    .Select(item => item.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            }
+            return new StandardValuesCollection(names);
         }
+
         public override bool GetStandardValuesExclusive(ITypeDescriptorContext context)
         {
             return true;
-        }
-    }
-    public class DataStation
-    {
-        public const int PointCapacity = 400;
-
-        [DisplayName("站名"), Category("A基本参数"), Description(""), ReadOnly(false)]
-        public string Name { get; set; }
-
-        [DisplayName("坐标系"), Category("A基本参数"), Description("协调直线运动使用的控制器坐标系编号。"), ReadOnly(false)]
-        [NumericRange(0, 1)]
-        public ushort CoordinateSystem { get; set; }
-
-        [DisplayName("轴配置"), Category("B工站配置"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public DataAxis dataAxis { get; set; }
-
-
-        [DisplayName("轴回原顺序"), Category("B工站配置"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public HomeSeq homeSeq { get; set; }
-
-       // [Browsable(false)]
-       // public List<DataPos> dataPosList { get; set; }
-        [Browsable(false)]
-        public Dictionary<string, DataPos> dicDataPos { get; set; }
-
-        [Browsable(false)]
-        public List<DataPos> ListDataPos;
-
-        private double manualSpeedPercent = 10;
-        [Browsable(false)]
-        public double ManualSpeedPercent
-        {
-            get => manualSpeedPercent;
-            set
-            {
-                if (value < 1 || value > 100 || double.IsNaN(value) || double.IsInfinity(value))
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value), "手动调试速度百分比必须在1到100之间。");
-                }
-                manualSpeedPercent = value;
-            }
-        }
-
-        public DataStation(bool isnull)
-        {
-            dataAxis = new DataAxis(Name);
-            homeSeq = new HomeSeq(Name);
-            dicDataPos = new Dictionary<string, DataPos>();
-            ListDataPos = new List<DataPos>();
-
-            if (isnull == false)
-            {
-                for (int i = 0; i < PointCapacity; i++)
-                {
-                    DataPos dataPos = dicDataPos.Values.FirstOrDefault(item => item.Index == i);
-                    if (dataPos != null)
-                    {
-                        ListDataPos.Add(dataPos);
-                    }
-                    else
-                    {
-                        ListDataPos.Add(new DataPos(i));
-                    }
-
-                }
-            }
-          
-        }
-
-
-    }
-    [Serializable]
-    public class DataPos : ICloneable
-    {
-        public int Index { get; set; }
-        public string Name { get; set; }
-        /// <summary>
-        /// 点位坐标是否已由人工编辑、取点或运行时真实采集确认。
-        /// null 表示旧版本数据；为兼容既有已用点位，旧数据按已示教处理。
-        /// AI 只登记名称时写入 false，不能据此执行运动。
-        /// </summary>
-        [Browsable(false)]
-        public bool? IsTaught { get; set; }
-
-        [Browsable(false), JsonIgnore]
-        public bool IsMotionReady => !string.IsNullOrWhiteSpace(Name) && IsTaught != false;
-
-        [Browsable(false), JsonIgnore]
-        public string TeachingState => string.IsNullOrWhiteSpace(Name)
-            ? "empty"
-            : IsTaught == false ? "planned" : "taught";
-
-        [Browsable(false), JsonIgnore]
-        public string TeachingStateDisplay => string.IsNullOrWhiteSpace(Name)
-            ? string.Empty
-            : IsTaught == false ? "待示教" : "已示教";
-
-        public double X { get; set; }
-        public double Y { get; set; }
-        public double Z { get; set; }
-        public double U { get; set; }
-        public double V { get; set; }
-        public double W { get; set; }
-
-        public List<double> GetAllValues()
-        {
-            List<double> allValues = new List<double>
-        {
-            X,
-            Y,
-            Z,
-            U,
-            V,
-            W
-            };
-            return allValues;
-        }
-
-        public object Clone()
-        {
-            return ObjectGraphCloner.Clone(this);
-        }
-        public DataPos(int index)
-        {
-            X = 0;
-            Y = 0;
-            Z = 0;
-            U = 0;
-            V = 0;
-            W = 0;
-            Index = index;
-            Name = "";
-         
-        }
-        
-    }
-    public class DataAxis
-    {
-        [Browsable(false)]
-        public string Name { get; set; }
-        public override string ToString()
-        {
-            return "";
-        }
-     
-        [DisplayName("轴1"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public AxisConfig axisConfig1 { get; set; }
-
-        [DisplayName("轴2"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public AxisConfig axisConfig2 { get; set; }
-
-        [DisplayName("轴3"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public AxisConfig axisConfig3 { get; set; }
-
-        [DisplayName("轴4"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisConfig axisConfig4 { get; set; }
-
-        [DisplayName("轴5"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-
-        public AxisConfig axisConfig5 { get; set; }
-
-        [DisplayName("轴6"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisConfig axisConfig6 { get; set; }
-        [Browsable(false)]
-        [JsonIgnore]
-        public List<AxisConfig> axisConfigs = new List<AxisConfig>();
-        
-
-        public DataAxis(string name)
-        {
-            axisConfig1 = new AxisConfig();
-            axisConfig2 = new AxisConfig();
-            axisConfig3 = new AxisConfig();
-            axisConfig4 = new AxisConfig();
-            axisConfig5 = new AxisConfig();
-            axisConfig6 = new AxisConfig();
-            axisConfigs.Add(axisConfig1);
-            axisConfigs.Add(axisConfig2);
-            axisConfigs.Add(axisConfig3);
-            axisConfigs.Add(axisConfig4);
-            axisConfigs.Add(axisConfig5);
-            axisConfigs.Add(axisConfig6);
-
-            Name = name;
-        }
-    }
-    public class AxisConfig
-    {
-      
-        public override string ToString()
-        {
-            return "";
-        }
-
-        private string cardNum;
-        [DisplayName("卡编号"), Description(""), ReadOnly(false), TypeConverter(typeof(CardItem))]
-
-        public string CardNum
-        {
-            get { return cardNum; }
-            set
-            {
-                cardNum = value;
-            }
-        }
-
-        [Browsable(false)]
-        public Axis axis { get; set; } = null;
-        public string axisName;
-        [DisplayName("轴名称"), Description(""), ReadOnly(false), TypeConverter(typeof(AxisItem))]
-        public string AxisName
-        {
-            get { return axisName; }
-            set
-            {
-                axisName = value;
-                PlatformRuntime runtime = EditorServiceRegistry.GetRuntime(this);
-                if (value != "-1"
-                    && runtime?.Editor.ActiveSession?.Draft is DataStation
-                    && int.TryParse(CardNum, out int cardNum))
-                {
-                    if (runtime.Stores.Cards.TryGetAxisByName(cardNum, value, out Axis axis))
-                    {
-                        this.axis = axis;
-                    }
-                }
-            }
-        }
-        public AxisConfig( )
-        {
-            AxisName = "-1";
-            CardNum = "-1";
-        }
-    }
-    public class AxisName
-    {
-        public override string ToString()
-        {
-            return "";
-        }
-        [DisplayName("回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(AxisItem))]
-        public string Name { get; set; }
-
-        public AxisName()
-        {
-            Name = "-1";
-        }
-
-    }
-    public class HomeSeq
-    {
-        [Browsable(false)]
-        public string Name { get; set; }
-
-        [DisplayName("第1回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName1 { get; set; }
-
-        [DisplayName("第2回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName2 { get; set; }
-
-        [DisplayName("第3回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName3 { get; set; }
-        [DisplayName("第4回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName4 { get; set; }
-        [DisplayName("第5回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName5 { get; set; }
-        [DisplayName("第6回原轴"), Description(""), ReadOnly(false), TypeConverter(typeof(ExpandableObjectConverter))]
-        public AxisName AxisName6 { get; set; }
-
-        [Browsable(false)]
-        [JsonIgnore]
-        public List<AxisName> axisSeq = new List<AxisName>(); 
-
-        public override string ToString()
-        {
-            return "";
-        }
-        public HomeSeq(string name)
-        {
-            AxisName1 = new AxisName();
-            AxisName2 = new AxisName();
-            AxisName3 = new AxisName();
-            AxisName4 = new AxisName();
-            AxisName5 = new AxisName();
-            AxisName6 = new AxisName();
-            axisSeq.Add(AxisName1);
-            axisSeq.Add(AxisName2);
-            axisSeq.Add(AxisName3);
-            axisSeq.Add(AxisName4);
-            axisSeq.Add(AxisName5);
-            axisSeq.Add(AxisName6);
-            Name = name;
         }
     }
 }

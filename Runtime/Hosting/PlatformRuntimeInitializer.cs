@@ -42,35 +42,12 @@ namespace Automation
             runtime.Stores.Values.Load(runtime.Paths.ConfigPath, processes);
             EnsureSystemValues(runtime);
 
-            // 下列配置按受影响能力分别降级。需要安全锁的配置会禁止危险动作，但不能阻止 HMI 完成初始化。
-            if (!runtime.Stores.Cards.Load(runtime.Paths.ConfigPath, out string cardError))
-            {
-                Log(runtime,
-                    $"轴配置加载校验失败；MES/通讯流程仍可运行，运动指令将继续执行运行时门禁。{cardError}",
-                    LogLevel.Error);
-            }
-            if (!runtime.Stores.IoConfiguration.Load(runtime.Paths.ConfigPath, out string ioError))
-            {
-                runtime.Safety.Lock(ioError);
-                Log(runtime, ioError, LogLevel.Error);
-            }
-            if (!runtime.Stores.Stations.Load(runtime.Paths.ConfigPath, out string stationError))
-            {
-                runtime.Safety.Lock(stationError);
-                Log(runtime, stationError, LogLevel.Error);
-            }
+            // 运动配置故障只关闭设备与运动能力，MES、通讯及人工修复入口仍继续初始化。
+            LoadMotionConfiguration(runtime);
             if (!runtime.Stores.Topology.Load(runtime.Paths.ConfigPath, out string topologyError))
             {
                 // 拓扑孪生暂不参与运行闸门；配置损坏时保留设备停止、调试和人工修复能力。
                 Log(runtime, topologyError, LogLevel.Error);
-            }
-            if (!runtime.Stores.Cards.TryValidateStations(
-                runtime.Stores.Stations.Items,
-                out List<string> stationErrors))
-            {
-                Log(runtime,
-                    "工站配置加载校验失败：" + string.Join("；", stationErrors),
-                    LogLevel.Error);
             }
 
             runtime.Stores.DataStructures.Load(runtime.Paths.ConfigPath);
@@ -113,7 +90,7 @@ namespace Automation
                 runtime.StateHistory = null;
                 Log(runtime, "设备状态时间线初始化失败：" + ex.Message, LogLevel.Error);
             }
-            if (runtime.StateHistory != null)
+            if (runtime.StateHistory != null && !runtime.Readiness.MotionConfigFaulted)
             {
                 try
                 {
@@ -131,6 +108,12 @@ namespace Automation
                     Log(runtime, "设备状态感知初始化失败：" + ex.Message, LogLevel.Error);
                 }
             }
+            else if (runtime.StateHistory != null)
+            {
+                Log(runtime,
+                    "运动配置故障，已跳过依赖物理IO的设备状态感知；状态历史、MES和通讯服务继续可用。",
+                    LogLevel.Error);
+            }
             runtime.SystemStatus = new PlatformSystemStatusService(runtime);
             runtime.SystemStatus.Start();
             if (runtime.Safety.IsLocked)
@@ -141,6 +124,84 @@ namespace Automation
                     : $"系统处于安全锁定模式，禁止自动启动流程。锁定原因：{runtime.Safety.LockReason}";
                 runtime.Safety.StopAllProcesses(lockReason);
             }
+        }
+
+        /// <summary>
+        /// 加载一组必须共同解释的运动配置。缺失文件由 Store 生成当前默认值；只有已有文件
+        /// 损坏、字段非法或卡/IO/工站交叉引用不一致时才进入运动配置故障态。
+        /// </summary>
+        internal static void LoadMotionConfiguration(PlatformRuntime runtime)
+        {
+            if (runtime == null) throw new ArgumentNullException(nameof(runtime));
+
+            runtime.Readiness.MotionConfigFaulted = false;
+            runtime.Readiness.MotionConfigFaultReason = string.Empty;
+
+            bool cardsLoaded = runtime.Stores.Cards.Load(
+                runtime.Paths.ConfigPath,
+                out string cardError);
+            if (!cardsLoaded)
+            {
+                MarkMotionConfigFault(runtime, cardError);
+            }
+
+            bool ioLoaded = runtime.Stores.IoConfiguration.Load(
+                runtime.Paths.ConfigPath,
+                out string ioError);
+            if (!ioLoaded)
+            {
+                MarkMotionConfigFault(runtime, ioError);
+            }
+
+            if (cardsLoaded && ioLoaded
+                && !runtime.Stores.Cards.TryValidateIoMap(
+                    runtime.Stores.IoConfiguration.Map,
+                    out string cardIoError))
+            {
+                MarkMotionConfigFault(
+                    runtime,
+                    "控制卡与IO配置一致性校验失败：" + cardIoError);
+            }
+
+            bool stationsLoaded = runtime.Stores.Stations.Load(
+                runtime.Paths.ConfigPath,
+                out string stationError);
+            if (!stationsLoaded)
+            {
+                MarkMotionConfigFault(runtime, stationError);
+            }
+
+            if (cardsLoaded && stationsLoaded
+                && !runtime.Stores.Cards.TryValidateStations(
+                    runtime.Stores.Stations.Items,
+                    out List<string> stationErrors))
+            {
+                MarkMotionConfigFault(
+                    runtime,
+                    "工站配置加载校验失败：" + string.Join("；", stationErrors));
+            }
+        }
+
+        private static void MarkMotionConfigFault(PlatformRuntime runtime, string reason)
+        {
+            string rawReason = string.IsNullOrWhiteSpace(reason)
+                ? "运动配置加载或校验失败，未返回详细原因。"
+                : reason.Trim();
+            runtime.Readiness.MotionConfigFaulted = true;
+            if (string.IsNullOrWhiteSpace(runtime.Readiness.MotionConfigFaultReason))
+            {
+                runtime.Readiness.MotionConfigFaultReason = rawReason;
+            }
+            else if (!runtime.Readiness.MotionConfigFaultReason
+                .Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries)
+                .Contains(rawReason, StringComparer.Ordinal))
+            {
+                runtime.Readiness.MotionConfigFaultReason += Environment.NewLine + rawReason;
+            }
+            Log(runtime,
+                "运动配置故障，已禁止控制卡、机器人及刹车初始化；MES/通讯流程仍可使用："
+                + rawReason,
+                LogLevel.Error);
         }
 
         private static void RecoverTransactions(PlatformRuntime runtime)

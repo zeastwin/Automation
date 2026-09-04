@@ -34,6 +34,9 @@ namespace Automation.Core.Tests
                     StringAssert.Contains(html, "machine.process_stop.preview.v1");
                     StringAssert.Contains(html, "只停止当前冻结的运行实例");
                     StringAssert.Contains(html, "AI 无直接执行权");
+                    StringAssert.Contains(html, "<title>设备智能体</title>");
+                    Assert.IsFalse(html.Contains("class=\"agent-title\""),
+                        "对话页左上角不得重复显示 Machine Agent 品牌标题。");
                     Assert.IsFalse(html.Contains("控制契约"), "不得重复展示已由运行边界保证的说明卡。 ");
                     Assert.IsFalse(html.Contains("设备上下文完整度"), "总览不得重复派生一套上下文评分。 ");
                     Assert.IsFalse(html.Contains("class=\"topbar\""), "WebView 内不得再复制外层工作台导航。 ");
@@ -57,6 +60,13 @@ namespace Automation.Core.Tests
                     StringAssert.Contains(html, "--bg: #f6f8fb");
                     StringAssert.Contains(html, ".field label { font-size: 13px; }");
                     StringAssert.Contains(html, ".empty-list { font-size: 13px; }");
+                    StringAssert.Contains(html, ".node.candidate .body { stroke: rgba(255, 189, 105, .82); }");
+                    Assert.IsFalse(html.Contains(".node.candidate .body { stroke: rgba(255, 189, 105, .82); stroke-dasharray"),
+                        "候选节点外框应使用实线，不能用虚线制造视觉噪声。");
+                    StringAssert.Contains(html, "<div class=\"top-actions\">");
+                    StringAssert.Contains(html, "<div class=\"canvas-tools\">");
+                    Assert.IsFalse(html.Contains("class=\"canvas-toolbar\""),
+                        "拓扑筛选和主要操作应合并成单行工具栏，不能继续占用第二行。");
                     Assert.IsFalse(html.Contains("Semantic Equipment Twin"),
                         "拓扑子模块不应重复展示英文解释性品牌标题。");
                     Assert.IsFalse(html.Contains("value: \"vision\"", StringComparison.Ordinal));
@@ -94,6 +104,7 @@ namespace Automation.Core.Tests
                 var overview = ReadField<Button>(form, "overviewButton");
                 var timeline = ReadField<Button>(form, "timelineButton");
                 var topology = ReadField<Button>(form, "topologyButton");
+                var navigation = ReadField<Panel>(form, "navigationPanel");
 
                 Assert.AreEqual(1, layout.ColumnCount);
                 Assert.AreEqual(2, layout.RowCount);
@@ -104,6 +115,11 @@ namespace Automation.Core.Tests
                 Assert.IsTrue(agent.Font.Size >= 10F, "顶部功能页签文字不得再使用小字号。");
                 Assert.AreEqual(Color.FromArgb(246, 248, 251), form.BackColor);
                 Assert.IsFalse(agent.Text.Contains(Environment.NewLine), "功能页签只保留一级名称。");
+                foreach (Control control in navigation.Controls)
+                {
+                    Assert.AreNotEqual("Machine Agent", control.Text,
+                        "顶部导航不得重复显示 Machine Agent 品牌标题。");
+                }
             }, TimeSpan.FromSeconds(10));
         }
 
@@ -119,9 +135,9 @@ namespace Automation.Core.Tests
                         "machineAgent_Page",
                         BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(menu) as Button;
                     Assert.IsNotNull(machineButton);
-                    Assert.AreEqual("Machine Agent", machineButton.Tag,
-                        "主导航自绘后应在 Tag 中保留产品名称。");
-                    Assert.AreEqual("Machine Agent", machineButton.AccessibleName);
+                    Assert.AreEqual("设备智能体", machineButton.Tag,
+                        "主导航自绘后应在 Tag 中保留中文产品名称。");
+                    Assert.AreEqual("设备智能体", machineButton.AccessibleName);
                     Assert.IsNull(typeof(FrmMenu).GetField(
                         "equipmentTopology_Page",
                         BindingFlags.Instance | BindingFlags.NonPublic),

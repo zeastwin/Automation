@@ -399,6 +399,7 @@ namespace Automation
                 {
                     sectionControls[index].Rebind(next.Sections[index], editable);
                 }
+                UpdateContentWidths();
             }
             finally
             {
@@ -548,6 +549,22 @@ namespace Automation
             foreach (InspectorSectionControl section in sectionControls)
             {
                 section.Width = width;
+            }
+            // 同一页面使用统一的属性名列宽；内容过长时只压缩标签列，
+            // 始终为右侧值编辑区保留可操作的最小宽度。
+            int fieldWidth = Math.Max(180, width - 8);
+            int preferredLabelWidth = sectionControls
+                .Select(section => section.PreferredLabelWidth)
+                .DefaultIfEmpty(InspectorFieldControl.MinimumLabelWidth)
+                .Max();
+            int labelWidth = Math.Min(
+                preferredLabelWidth,
+                Math.Max(
+                    InspectorFieldControl.MinimumLabelWidth,
+                    fieldWidth - InspectorFieldControl.MinimumValueWidth));
+            foreach (InspectorSectionControl section in sectionControls)
+            {
+                section.SetLabelWidth(labelWidth);
             }
         }
 

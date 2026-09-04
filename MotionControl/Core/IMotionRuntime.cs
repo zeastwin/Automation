@@ -32,6 +32,9 @@ namespace Automation.MotionControl
     /// <summary>多轴直线插补请求；Axes 与 Positions 必须一一对应。</summary>
     public sealed class CoordinatedLinearMoveRequest
     {
+        /// <summary>雷赛总线卡支持的最大坐标系编号，合法范围为0..7。</summary>
+        public const ushort MaximumCoordinateSystem = 7;
+
         public ushort Card { get; set; }
         public ushort CoordinateSystem { get; set; }
         public IReadOnlyList<ushort> Axes { get; set; }
@@ -71,8 +74,31 @@ namespace Automation.MotionControl
     public interface IMotionRuntime
     {
         bool IsCardInitialized { get; }
+        int StationCount { get; }
         void InitCardType();
         bool InitCard();
+        MotionStationResult InitializeStations();
+        MotionStationResult ReleaseStations();
+        MotionStationStatus GetStationStatus(short station);
+        MotionStationResult SetStationSpeed(short station, double velocity, double acceleration,
+            double deceleration, short axis = -1, StationSpeedType type = StationSpeedType.Joint);
+        MotionStationResult HomeStation(short station, short axis = -1, bool wait = true, bool group = false);
+        MotionStationResult MoveStationToPoint(short station, DataPos point,
+            StationMoveMode mode = StationMoveMode.Go, bool[] disabledAxes = null, short tool = 0);
+        MotionStationResult MoveStationOffset(short station, int basePointIndex,
+            IReadOnlyList<double> offsets, StationMoveMode mode = StationMoveMode.Go);
+        MotionStationResult MoveStationAxis(short station, short axis, double offset,
+            StationAxisMoveMode mode = StationAxisMoveMode.Relative, short tool = 0);
+        MotionStationResult WaitStationMotion(short station, bool isHome = false,
+            int axis = -1, int timeoutMs = 120000);
+        MotionStationResult GetStationPosition(short station, short tool, out DataPos position);
+        MotionStationResult SaveStationPoint(short station, DataPos point);
+        MotionStationResult CreateStationTray(short station, int trayId, int rowCount,
+            int columnCount, IReadOnlyList<DataPos> referencePoints);
+        MotionStationResult MoveStationTrayPoint(short station, int trayId, int position,
+            DataPos calculatedPoint);
+        MotionStationResult StopStation(short station, bool emergency = false);
+        MotionStationResult StopAllStations(bool emergency = false);
         void SettHomeParam(ushort card, ushort axis, ushort dir, ushort speed, ushort homeMode);
         void StartHome(ushort card, ushort axis);
         void CleanPos(ushort card, ushort axis);

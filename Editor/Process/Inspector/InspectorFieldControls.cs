@@ -83,6 +83,19 @@ namespace Automation
 
         internal bool Expanded => expanded;
 
+        internal int PreferredLabelWidth => fields
+            .Select(control => control.PreferredLabelWidth)
+            .DefaultIfEmpty(InspectorFieldControl.MinimumLabelWidth)
+            .Max();
+
+        internal void SetLabelWidth(int labelWidth)
+        {
+            foreach (InspectorFieldControl field in fields)
+            {
+                field.SetLabelWidth(labelWidth);
+            }
+        }
+
         internal void SetExpanded(bool value)
         {
             if (expanded == value)
@@ -216,11 +229,14 @@ namespace Automation
 
     internal abstract class InspectorFieldControl : UserControl
     {
+        internal const int MinimumLabelWidth = 84;
+        internal const int MinimumValueWidth = 124;
         protected const int PropertyRowHeight = 26;
         protected const int PropertyEditorHeight = 24;
         protected InspectorFieldDefinition Definition;
         protected readonly ToolTip DescriptionToolTip;
         protected bool Editable;
+        protected int? PageLabelWidth { get; private set; }
 
         protected InspectorFieldControl(
             InspectorFieldDefinition definition,
@@ -255,6 +271,35 @@ namespace Automation
         {
             return definition != null
                 && Definition.GetType() == definition.GetType();
+        }
+
+        internal virtual int PreferredLabelWidth
+        {
+            get
+            {
+                int textWidth = TextRenderer.MeasureText(
+                    Definition?.Label ?? string.Empty,
+                    InspectorFonts.Regular9,
+                    Size.Empty,
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
+                return Math.Max(MinimumLabelWidth, textWidth + 10);
+            }
+        }
+
+        internal virtual void SetLabelWidth(int labelWidth)
+        {
+            int normalizedWidth = Math.Max(MinimumLabelWidth, labelWidth);
+            if (PageLabelWidth == normalizedWidth)
+            {
+                return;
+            }
+            PageLabelWidth = normalizedWidth;
+            OnLabelWidthChanged();
+        }
+
+        protected virtual void OnLabelWidthChanged()
+        {
+            Invalidate();
         }
 
         protected void OnFieldValueChanged()
@@ -309,9 +354,16 @@ namespace Automation
             }
         }
 
-        protected static int GetLabelWidth(int availableWidth)
+        protected int GetLabelWidth(int availableWidth)
         {
-            return Math.Min(104, Math.Max(84, availableWidth * 28 / 100));
+            int maximumWidth = Math.Max(
+                MinimumLabelWidth,
+                availableWidth - MinimumValueWidth);
+            int preferredWidth = PageLabelWidth
+                ?? Math.Min(104, Math.Max(
+                    MinimumLabelWidth,
+                    availableWidth * 28 / 100));
+            return Math.Min(maximumWidth, preferredWidth);
         }
 
         protected static void PopulateStandardValues(

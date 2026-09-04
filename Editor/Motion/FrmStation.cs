@@ -32,6 +32,7 @@ namespace Automation
         private bool stateTimerErrorReported = false;
         private string axisConfigSignature = string.Empty;
         private int[] axisRowMap = Array.Empty<int>();
+        private MotionStationState? lastRobotState;
         private bool isPointEditing = false;
         private List<DataPos> pointSnapshot = new List<DataPos>();
         private DataStation pointEditStation;
@@ -202,7 +203,15 @@ namespace Automation
                 return;
             }
 
-            List<AxisConfig> axisConfigs = Workspace.Card.dataStation[stationIndex].dataAxis.axisConfigs;
+            DataStation station = Workspace.Card.dataStation[stationIndex];
+            if (station.Type != StationType.Axis)
+            {
+                axisConfigSignature = $"robot:{station.Type}";
+                lastRobotState = null;
+                return;
+            }
+
+            List<AxisConfig> axisConfigs = station.dataAxis?.axisConfigs;
             if (axisConfigs == null)
             {
                 return;
@@ -285,7 +294,7 @@ namespace Automation
                 {
                     return;
                 }
-                if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
+                if (Workspace.Runtime.Motion == null)
                 {
                     return;
                 }
@@ -300,7 +309,18 @@ namespace Automation
                     return;
                 }
 
-                List<AxisConfig> axisConfigs = Workspace.Card.dataStation[stationIndex].dataAxis.axisConfigs;
+                DataStation station = Workspace.Card.dataStation[stationIndex];
+                if (station.Type != StationType.Axis)
+                {
+                    RefreshRobotStationState(stationIndex);
+                    return;
+                }
+                if (!Workspace.Runtime.Motion.IsCardInitialized)
+                {
+                    return;
+                }
+
+                List<AxisConfig> axisConfigs = station.dataAxis?.axisConfigs;
                 if (axisConfigs == null)
                 {
                     return;
@@ -537,7 +557,17 @@ namespace Automation
             }
             if (ClearData != null)
             {
-                ClearData.Enabled = enable;
+                // FrmMain 会先构造页面、再统一挂接 EditorWorkspace；构造期不能通过
+                // Require 属性读取尚未挂接的工作区。进入页面后的编辑切换会再次刷新此状态。
+                bool isRobotStation = editorWorkspace?.Control?.temp != null
+                    && editorWorkspace.Control.temp.Type != StationType.Axis;
+                ClearData.Enabled = enable && !isRobotStation;
+                ClearData.Text = isRobotStation
+                    ? "需在机器人控制器删除点位"
+                    : "清除数据";
+                ClearData.ToolTipText = isRobotStation
+                    ? "机器人点位删除尚未接入控制器契约，本页面禁止只清除本地数据。"
+                    : string.Empty;
             }
             if (Paste != null)
             {
@@ -578,17 +608,21 @@ namespace Automation
             return dict;
         }
 
-        private void ResetPointBinding(List<DataPos> list)
+        private void ResetPointBinding(DataStation station)
         {
+            List<DataPos> source = station?.ListDataPos ?? new List<DataPos>();
+            List<DataPos> visible = station != null && station.Type != StationType.Axis
+                ? source.Take(DataStation.RobotPointCapacity).ToList()
+                : source;
             if (Workspace.Control?.bindingSource != null)
             {
-                Workspace.Control.bindingSource.DataSource = list;
+                Workspace.Control.bindingSource.DataSource = visible;
                 Workspace.Control.bindingSource.ResetBindings(false);
                 dataGridView1.DataSource = Workspace.Control.bindingSource;
                 return;
             }
             dataGridView1.DataSource = null;
-            dataGridView1.DataSource = list;
+            dataGridView1.DataSource = visible;
         }
 
         private void CapturePointSnapshot()
@@ -615,7 +649,7 @@ namespace Automation
             pointEditStation.dicDataPos = BuildDataPosDictionary(pointEditStation.ListDataPos);
             if (Workspace.Control?.temp == pointEditStation || Workspace.Control?.comboBox1?.SelectedIndex == pointEditStationIndex)
             {
-                ResetPointBinding(pointEditStation.ListDataPos);
+                ResetPointBinding(pointEditStation);
             }
         }
 
@@ -666,6 +700,16 @@ namespace Automation
                 ClearPointSnapshot();
                 return;
             }
+            if (station.Type != StationType.Axis)
+            {
+                if (!TrySaveRobotPointChanges(station))
+                {
+                    return;
+                }
+                SetPointEditMode(false);
+                ClearPointSnapshot();
+                return;
+            }
             RebuildPointDictionary(station);
             if (!Workspace.Runtime.Stores.Stations.TryPersistCurrent(
                     Workspace.Runtime.Paths.ConfigPath, out _))
@@ -679,6 +723,141 @@ namespace Automation
             }
             SetPointEditMode(false);
             ClearPointSnapshot();
+        }
+
+        private bool TrySaveRobotPointChanges(DataStation station)
+        {
+            List<DataPos> editedPoints = CloneDataPosList(station.ListDataPos);
+            IGrouping<string, DataPos> duplicateName = editedPoints
+                .Take(DataStation.RobotPointCapacity)
+                .Where(point => point != null && !string.IsNullOrWhiteSpace(point.Name))
+                .GroupBy(point => point.Name, StringComparer.Ordinal)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateName != null)
+            {
+                MessageBox.Show($"机器人点位名称重复：{duplicateName.Key}。请修改后再保存。",
+                    "机器人点位保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            if (pointEditStationIndex < 0 || pointEditStationIndex > short.MaxValue)
+            {
+                MessageBox.Show("机器人工站索引无效，无法保存点位。", "机器人点位保存",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            Dictionary<int, DataPos> snapshotByIndex = pointSnapshot
+                .Where(point => point != null)
+                .GroupBy(point => point.Index)
+                .ToDictionary(group => group.Key, group => group.First());
+            var changedPoints = new List<DataPos>();
+            int visibleCount = Math.Min(DataStation.RobotPointCapacity, editedPoints.Count);
+            for (int i = 0; i < visibleCount; i++)
+            {
+                DataPos current = editedPoints[i];
+                DataPos previous = null;
+                if (current != null)
+                {
+                    snapshotByIndex.TryGetValue(current.Index, out previous);
+                }
+                else if (i < pointSnapshot.Count)
+                {
+                    previous = pointSnapshot[i];
+                }
+                if (ArePointConfigurationsEqual(previous, current))
+                {
+                    continue;
+                }
+                if (previous?.IsMotionReady == true
+                    && (current == null || string.IsNullOrWhiteSpace(current.Name)))
+                {
+                    MessageBox.Show("机器人点位需在机器人控制器删除点位，本页面不会只清除本地数据。",
+                        "机器人点位删除", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return false;
+                }
+                if (current?.IsMotionReady == true)
+                {
+                    changedPoints.Add((DataPos)current.Clone());
+                }
+            }
+
+            // SaveStationPoint 会持久化整个 StationStore。同步期间先恢复已提交基线，
+            // 再逐个并入成功点，防止首个成功就把尚未写入控制器的后续编辑落盘。
+            List<DataPos> committedPoints = CloneDataPosList(pointSnapshot);
+            ReplaceStationPoints(station, committedPoints);
+            foreach (DataPos changedPoint in changedPoints.OrderBy(point => point.Index))
+            {
+                if (!PrepareRobotPointForSave(station, changedPoint)
+                    || !Workspace.Runtime.ManualMotion.TrySaveStationPoint(
+                        (short)pointEditStationIndex, changedPoint))
+                {
+                    RestoreRobotPendingEdits(station, editedPoints, committedPoints);
+                    MessageBox.Show(
+                        $"机器人点位“{changedPoint.Name}”未同步，保存已停止。已成功的点位保持提交，其余编辑可重试或取消。",
+                        "机器人点位保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+                committedPoints = CloneDataPosList(station.ListDataPos);
+            }
+
+            // 名称规划点不写机器人，但仍按当前平台契约保存为“待示教”。
+            ReplaceStationPoints(station, editedPoints);
+            if (!Workspace.Runtime.Stores.Stations.TryPersistCurrent(
+                    Workspace.Runtime.Paths.ConfigPath, out string persistError))
+            {
+                RestoreRobotPendingEdits(station, editedPoints, committedPoints);
+                MessageBox.Show(
+                    $"机器人点位配置保存失败：{persistError}。控制器已确认的点位保持提交，其余编辑可重试或取消。",
+                    "机器人点位保存", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+
+            CapturePointSnapshot();
+            ResetPointBinding(station);
+            return true;
+        }
+
+        private bool PrepareRobotPointForSave(DataStation station, DataPos target)
+        {
+            if (station?.ListDataPos == null || target == null
+                || target.Index < 0 || target.Index >= DataStation.RobotPointCapacity)
+            {
+                return false;
+            }
+            int listIndex = station.ListDataPos.FindIndex(
+                point => point != null && point.Index == target.Index);
+            if (listIndex < 0)
+            {
+                return false;
+            }
+
+            // 名称可能在本次编辑中改变。控制器只按索引保存坐标，因此保留旧坐标作为
+            // SaveStationPoint 的补偿基线，只把配置槽名称切到新名称以通过一致性校验。
+            DataPos prepared = (DataPos)station.ListDataPos[listIndex].Clone();
+            prepared.Name = target.Name;
+            station.ListDataPos[listIndex] = prepared;
+            RebuildPointDictionary(station);
+            return true;
+        }
+
+        private void RestoreRobotPendingEdits(DataStation station, List<DataPos> editedPoints,
+            List<DataPos> committedPoints)
+        {
+            pointSnapshot = CloneDataPosList(committedPoints);
+            ReplaceStationPoints(station, editedPoints);
+            ResetPointBinding(station);
+        }
+
+        private void ReplaceStationPoints(DataStation station, List<DataPos> points)
+        {
+            station.ListDataPos = CloneDataPosList(points);
+            RebuildPointDictionary(station);
+        }
+
+        private static bool ArePointConfigurationsEqual(DataPos left, DataPos right)
+        {
+            JToken leftToken = left == null ? JValue.CreateNull() : JToken.FromObject(left);
+            JToken rightToken = right == null ? JValue.CreateNull() : JToken.FromObject(right);
+            return JToken.DeepEquals(leftToken, rightToken);
         }
 
         private void btnPointCancel_Click(object sender, EventArgs e)
@@ -771,6 +950,37 @@ namespace Automation
             }
         }
 
+        private void RefreshRobotStationState(int stationIndex)
+        {
+            MotionStationStatus status = Workspace.Runtime.Motion.GetStationStatus((short)stationIndex);
+            if (status == null)
+            {
+                return;
+            }
+
+            bool hasPosition = status.State != MotionStationState.Uninitialized
+                && status.State != MotionStationState.Disconnected;
+            int displayCount = Math.Min(6,
+                Math.Min(Workspace.Control.PosTextBox.Count,
+                    Math.Min(Workspace.Control.pictureBoxes.Count, Workspace.Control.VelLabel.Count)));
+            for (int i = 0; i < displayCount; i++)
+            {
+                Workspace.Control.PosTextBox[i].Text = hasPosition && status.Position.Count > i
+                    ? status.Position[i].ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)
+                    : "--";
+                Workspace.Control.pictureBoxes[i].Image = hasPosition
+                    ? status.IsServoEnabled ? validImage : invalidImage
+                    : null;
+                Workspace.Control.VelLabel[i].Text = "--";
+            }
+
+            if (lastRobotState != status.State)
+            {
+                lastRobotState = status.State;
+                Workspace.Control.RefreshMotionControlAvailability();
+            }
+        }
+
         private void Touch_Click(object sender, EventArgs e)
         {
             if (!isPointEditing)
@@ -787,10 +997,57 @@ namespace Automation
                 return;
             }
 
-            if (Workspace.Runtime.Motion == null || !Workspace.Runtime.Motion.IsCardInitialized)
+            DataStation station = Workspace.Control.temp;
+            if (Workspace.Runtime.Motion == null
+                || station.Type == StationType.Axis && !Workspace.Runtime.Motion.IsCardInitialized)
             {
                 MessageBox.Show("运动控制卡未初始化，无法取点。", "工站取点",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (station.Type != StationType.Axis)
+            {
+                if (!(dataGridView1.Rows[iSelectedRow].DataBoundItem is DataPos robotTaughtPoint)
+                    || string.IsNullOrWhiteSpace(robotTaughtPoint.Name))
+                {
+                    MessageBox.Show("请先为点位设置名称。", "工站取点",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // SaveStationPoint 会持久化整个 StationStore。先以编辑开始时的已提交快照为基线，
+                // 只让本次取点进入控制器与磁盘；其他尚未同步的表格编辑继续留在当前编辑会话。
+                List<DataPos> pendingEdits = CloneDataPosList(station.ListDataPos);
+                List<DataPos> committedPoints = CloneDataPosList(pointSnapshot);
+                DataPos teachRequest = (DataPos)robotTaughtPoint.Clone();
+                ReplaceStationPoints(station, committedPoints);
+                if (!PrepareRobotPointForSave(station, teachRequest))
+                {
+                    RestoreRobotPendingEdits(station, pendingEdits, committedPoints);
+                    MessageBox.Show("机器人点位配置与编辑快照不一致，无法取点。", "工站取点",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                if (!Workspace.Runtime.ManualMotion.TryTeachStationPoint(
+                        (short)Workspace.Control.CurrentStationIndex,
+                        teachRequest,
+                        out DataPos robotCapturedPoint))
+                {
+                    RestoreRobotPendingEdits(station, pendingEdits, committedPoints);
+                    return;
+                }
+
+                committedPoints = CloneDataPosList(station.ListDataPos);
+                int pendingIndex = pendingEdits.FindIndex(
+                    point => point != null && point.Index == robotCapturedPoint.Index);
+                if (pendingIndex >= 0)
+                {
+                    pendingEdits[pendingIndex] = (DataPos)robotCapturedPoint.Clone();
+                }
+                RestoreRobotPendingEdits(station, pendingEdits, committedPoints);
+                MessageBox.Show("机器人取点已同步并保存。", "工站取点",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -844,7 +1101,7 @@ namespace Automation
         private void MovePoint_Click(object sender, EventArgs e)
         {
             DataStation station = Workspace.Control.temp;
-            if (station?.dataAxis?.axisConfigs == null)
+            if (station == null)
             {
                 return;
             }
@@ -857,73 +1114,25 @@ namespace Automation
                 MessageBox.Show("点位名称为空，无法移动。");
                 return;
             }
-            if (dataGridView1.Rows[iSelectedRow].DataBoundItem is DataPos selectedPoint
-                && selectedPoint.IsTaught == false)
+            DataPos selectedPoint = dataGridView1.Rows[iSelectedRow].DataBoundItem as DataPos;
+            if (selectedPoint == null)
+            {
+                return;
+            }
+            if (selectedPoint.IsTaught == false)
             {
                 MessageBox.Show("该点位仅完成名称规划，尚未人工示教坐标，不能执行移动。", "点位未示教",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            var commands = new List<(ushort card, ushort axis, double target, Axis config)>();
-            for (int i = 0; i < station.dataAxis.axisConfigs.Count; i++)
-            {
-                AxisConfig axisConfig = station.dataAxis.axisConfigs[i];
-                if (axisConfig == null || axisConfig.AxisName == "-1")
-                {
-                    continue;
-                }
-                if (axisConfig.axis == null)
-                {
-                    MessageBox.Show($"第{i + 1}个轴配置无效，未执行任何轴移动。");
-                    return;
-                }
-                if (!ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
-                {
-                    MessageBox.Show($"第{i + 1}个轴卡号无效，未执行任何轴移动。");
-                    return;
-                }
-                int axisNumValue = axisConfig.axis.AxisNum;
-                if (axisNumValue < 0 || axisNumValue > ushort.MaxValue)
-                {
-                    MessageBox.Show($"第{i + 1}个轴编号无效，未执行任何轴移动。");
-                    return;
-                }
-                if (2 + i >= dataGridView1.Columns.Count)
-                {
-                    MessageBox.Show("点位列与工站轴配置不一致，未执行任何轴移动。");
-                    return;
-                }
-                object cellValue = dataGridView1.Rows[iSelectedRow].Cells[2 + i].Value;
-                if (cellValue == null || !double.TryParse(cellValue.ToString(),
-                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
-                        out double targetPos)
-                    || double.IsNaN(targetPos) || double.IsInfinity(targetPos))
-                {
-                    MessageBox.Show($"第{i + 1}个轴点位无效，未执行任何轴移动。");
-                    return;
-                }
-                ushort axisNum = (ushort)axisNumValue;
-                if (!Workspace.Runtime.Stores.Cards.TryGetAxis(cardNum, axisNum, out Axis runtimeAxis) || runtimeAxis == null)
-                {
-                    MessageBox.Show($"未找到第{i + 1}个轴的运行配置，未执行任何轴移动。");
-                    return;
-                }
-                commands.Add((cardNum, axisNum, targetPos, runtimeAxis));
-            }
-
-            if (commands.Count == 0)
-            {
-                MessageBox.Show("工站没有可执行的轴，未执行移动。");
-                return;
-            }
-
-            List<ManualAxisMoveRequest> moveRequests = commands.Select(command =>
-                new ManualAxisMoveRequest(command.card, command.axis, command.target, 1,
-                    new ManualMotionParameters(0,
-                        command.config.SpeedMax * (station.ManualSpeedPercent / 100d),
-                        command.config.AccMax, command.config.DecMax, 0, 0,
-                        command.config.PulseToMM))).ToList();
-            Workspace.Runtime.ManualMotion.TryMoveAxes(moveRequests);
+            // 轴工站与机器人工站统一走工站运行时，保留 3.0 的 GO 语义；
+            // ProcessEngine 会按站型原子占用实际物理轴，页面不再逐轴拼装命令。
+            Workspace.Runtime.ManualMotion.TryMoveStationToPoint(
+                (short)Workspace.Control.CurrentStationIndex,
+                selectedPoint,
+                station.ManualSpeedPercent,
+                StationMoveMode.Go,
+                false);
         }
 
         private void ClearData_Click(object sender, EventArgs e)
@@ -935,6 +1144,13 @@ namespace Automation
             }
             if (iSelectedRow < 0 || iSelectedRow >= dataGridView1.Rows.Count)
             {
+                return;
+            }
+            if (Workspace.Control?.temp != null
+                && Workspace.Control.temp.Type != StationType.Axis)
+            {
+                MessageBox.Show("机器人点位需在机器人控制器删除点位，本页面不会只清除本地数据。",
+                    "机器人点位删除", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (MessageBox.Show("确认清除选中的点位数据？", "清除确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -1086,7 +1302,12 @@ namespace Automation
                 return;
             }
 
-            int maxPasteCount = Math.Min(ListDataPos4Copy.Count, Workspace.Control.temp.ListDataPos.Count - iSelectedRow);
+            int visibleCapacity = Workspace.Control.temp.Type == StationType.Axis
+                ? Workspace.Control.temp.ListDataPos.Count
+                : Math.Min(
+                    DataStation.RobotPointCapacity,
+                    Workspace.Control.temp.ListDataPos.Count);
+            int maxPasteCount = Math.Min(ListDataPos4Copy.Count, visibleCapacity - iSelectedRow);
             if (maxPasteCount <= 0)
             {
                 return;

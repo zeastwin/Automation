@@ -88,7 +88,7 @@
     .brand-copy strong { display: block; font-size: 16px; letter-spacing: .04em; }
     .brand-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
 
-    .metric-strip { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+    .metric-strip { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 0 auto; }
     .metric {
       height: 34px;
       display: inline-flex;
@@ -205,12 +205,12 @@
     .badge.conflict { color: var(--red); background: rgba(255, 107, 127, .12); }
     .badge.confirmed { color: var(--green); background: rgba(76, 224, 170, .12); }
 
-    .canvas-panel { position: relative; display: grid; grid-template-rows: 50px minmax(0, 1fr) 38px; }
-    .canvas-toolbar { display: flex; align-items: center; gap: 10px; padding: 0 13px; border-bottom: 1px solid var(--line); background: rgba(12, 25, 41, .78); }
+    .canvas-panel { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) 38px; }
     .layer-tabs { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: rgba(4, 12, 22, .42); }
     .layer-tab { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
     .layer-tab.active { color: var(--text); background: rgba(64, 87, 118, .48); }
     .toolbar-spacer { flex: 1; }
+    .canvas-tools { position: absolute; z-index: 7; right: 12px; top: 12px; display: flex; align-items: center; gap: 7px; padding: 6px; border: 1px solid var(--line); border-radius: 11px; background: rgba(12, 25, 41, .86); box-shadow: var(--shadow); }
     .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: rgba(22, 38, 59, .6); color: var(--muted); cursor: pointer; transition: .18s ease; }
     .icon-button:hover, .icon-button.active { color: var(--cyan); border-color: rgba(53, 216, 245, .4); background: rgba(53, 216, 245, .09); }
 
@@ -284,7 +284,7 @@
     .edge.interlock .edge-path { stroke: #ffbd69; stroke-dasharray: 3 7; animation: edge-flow 2.5s linear infinite reverse; }
     .edge.recovery .edge-path { stroke: #4ce0aa; stroke-dasharray: 9 6; animation: edge-flow 1.9s linear infinite; }
     .edge.candidate .edge-path { opacity: .48; stroke-dasharray: 4 8; }
-    .node.candidate .body { stroke: rgba(255, 189, 105, .82); stroke-dasharray: 6 5; }
+    .node.candidate .body { stroke: rgba(255, 189, 105, .82); }
     .node.candidate .node-status-dot { fill: var(--amber); filter: url(#softGlow); }
     .node.conflict .body { stroke: rgba(255, 107, 127, .9); stroke-dasharray: 4 4; }
     .node.conflict .node-status-dot { fill: var(--red); filter: url(#softGlowRed); }
@@ -413,8 +413,8 @@
     .badge.candidate { color: var(--amber); background: #fffbeb; }
     .badge.conflict { color: var(--red); background: #fef2f2; }
     .badge.confirmed { color: var(--green); background: #f0fdf4; }
-    .canvas-panel { grid-template-rows: 52px minmax(0, 1fr) 42px; }
-    .canvas-toolbar, .canvas-footer { background: var(--surface); }
+    .canvas-panel { grid-template-rows: minmax(0, 1fr) 42px; }
+    .canvas-tools, .canvas-footer { background: var(--surface); }
     .layer-tabs { background: var(--surface-soft); }
     .layer-tab { height: 34px; font-size: 13px; }
     .layer-tab.active { color: var(--cyan); background: var(--surface); }
@@ -476,16 +476,24 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="metric-strip">
-        <div class="metric"><i class="metric-dot"></i><span>节点</span><b id="nodeCount">0</b></div>
-        <div class="metric"><i class="metric-dot"></i><span>关系</span><b id="relationCount">0</b></div>
-        <div class="metric candidate"><i class="metric-dot"></i><span>候选</span><b id="candidateCount">0</b></div>
-        <div class="metric conflict"><i class="metric-dot"></i><span>冲突</span><b id="conflictCount">0</b></div>
+      <div class="layer-tabs" id="layerTabs">
+        <button class="layer-tab active" data-layer="all">全部</button>
+        <button class="layer-tab" data-layer="physical">物理</button>
+        <button class="layer-tab" data-layer="state">状态</button>
+        <button class="layer-tab" data-layer="interlock">防呆</button>
+        <button class="layer-tab" data-layer="recovery">恢复</button>
       </div>
       <div class="top-actions">
         <button class="button subtle" id="inferenceButton">⌁ 流程反推</button>
         <button class="button subtle" id="aiButton">✦ AI 精修</button>
         <button class="button primary" id="saveButton"><span id="saveIcon">✓</span><span id="saveText">保存配置</span></button>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="metric-strip">
+        <div class="metric"><i class="metric-dot"></i><span>节点</span><b id="nodeCount">0</b></div>
+        <div class="metric"><i class="metric-dot"></i><span>关系</span><b id="relationCount">0</b></div>
+        <div class="metric candidate"><i class="metric-dot"></i><span>候选</span><b id="candidateCount">0</b></div>
+        <div class="metric conflict"><i class="metric-dot"></i><span>冲突</span><b id="conflictCount">0</b></div>
       </div>
     </header>
 
@@ -509,15 +517,8 @@
       </aside>
 
       <main class="panel canvas-panel">
-        <div class="canvas-toolbar">
-          <div class="layer-tabs" id="layerTabs">
-            <button class="layer-tab active" data-layer="all">全部</button>
-            <button class="layer-tab" data-layer="physical">物理</button>
-            <button class="layer-tab" data-layer="state">状态</button>
-            <button class="layer-tab" data-layer="interlock">防呆</button>
-            <button class="layer-tab" data-layer="recovery">恢复</button>
-          </div>
-          <div class="toolbar-spacer"></div>
+        <div class="canvas-wrap" id="canvasWrap">
+          <div class="canvas-tools">
           <button class="icon-button" id="undoButton" title="撤销 Ctrl+Z">↶</button>
           <button class="icon-button" id="redoButton" title="重做 Ctrl+Y">↷</button>
           <button class="icon-button" id="connectButton" title="创建关系">⌁</button>
@@ -525,8 +526,7 @@
           <button class="icon-button" id="zoomOutButton" title="缩小">−</button>
           <button class="icon-button" id="fitButton" title="适应画布">◎</button>
           <button class="icon-button" id="zoomInButton" title="放大">＋</button>
-        </div>
-        <div class="canvas-wrap" id="canvasWrap">
+          </div>
           <div class="canvas-glow"></div>
           <div class="canvas-hint" id="canvasHint"></div>
           <svg id="graph" aria-label="设备拓扑关系画布">

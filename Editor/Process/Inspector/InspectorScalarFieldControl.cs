@@ -265,6 +265,12 @@ namespace Automation
             Invalidate();
         }
 
+        protected override void OnLabelWidthChanged()
+        {
+            LayoutControls();
+            base.OnLabelWidthChanged();
+        }
+
         private Control CreateEditor()
         {
             Type type = Nullable.GetUnderlyingType(definition.Property.PropertyType)

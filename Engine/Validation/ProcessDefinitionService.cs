@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Automation.MotionControl;
 using Newtonsoft.Json;
 using static Automation.OperationTypePartial;
 
@@ -699,7 +700,7 @@ namespace Automation
             {
                 return;
             }
-            if (station.CoordinateSystem > 1)
+            if (station.CoordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
             {
                 errors.Add($"{location} 引用工站[{stationName}]的坐标系无效:{station.CoordinateSystem}。");
             }

@@ -187,6 +187,17 @@ namespace Automation
 
             AddActuatorMotionTimingWarnings(proc, warnings);
 
+            PlatformReadinessState platformReadiness = validationContext?.Runtime?.Readiness;
+            if (platformReadiness?.MotionConfigFaulted == true
+                && HasEnabledMotionOperation(proc))
+            {
+                incomplete = true;
+                string reason = string.IsNullOrWhiteSpace(platformReadiness.MotionConfigFaultReason)
+                    ? "未提供详细原因。"
+                    : platformReadiness.MotionConfigFaultReason;
+                blockers.Add("运动配置故障，当前流程包含运动指令，禁止启动：" + reason);
+            }
+
             if (enabledOperationCount == 0)
             {
                 blockers.Add("流程没有启用的可执行指令。");
@@ -287,6 +298,16 @@ namespace Automation
                 default:
                     return false;
             }
+        }
+
+        private static bool HasEnabledMotionOperation(Proc proc)
+        {
+            return (proc?.steps ?? new List<Step>())
+                .Where(step => step != null && !step.Disable && step.Ops != null)
+                .SelectMany(step => step.Ops)
+                .Any(operation => operation != null
+                    && !operation.Disable
+                    && IsAxisMotionOperation(operation));
         }
 
         private static bool AddVariableReferenceBlockers(

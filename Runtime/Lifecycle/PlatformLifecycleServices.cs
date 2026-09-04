@@ -14,6 +14,15 @@ namespace Automation
         public bool VersionRestartRequired { get; set; }
 
         public bool MotionConfigRestartRequired { get; set; }
+
+        /// <summary>
+        /// 运动配置文件损坏或跨配置语义不一致。该状态表示当前磁盘配置不能安全解释，
+        /// 与“配置已正常提交、等待重启生效”不是同一状态。
+        /// </summary>
+        public bool MotionConfigFaulted { get; set; }
+
+        /// <summary>保留配置加载或交叉校验返回的原始原因，供所有运动入口给出一致诊断。</summary>
+        public string MotionConfigFaultReason { get; set; } = string.Empty;
     }
 
     /// <summary>

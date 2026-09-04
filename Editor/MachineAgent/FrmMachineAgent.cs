@@ -47,7 +47,7 @@ namespace Automation
 
         public FrmMachineAgent()
         {
-            Text = "Machine Agent";
+            Text = "设备智能体";
             MinimumSize = new Size(1180, 720);
             BackColor = UiPalette.Background;
             Font = new Font("Microsoft YaHei UI", 10F);
@@ -99,21 +99,10 @@ namespace Automation
             navigationPanel.Padding = new Padding(18, 12, 18, 12);
             navigationPanel.BackColor = UiPalette.SurfaceStrong;
 
-            Label productMark = new Label
-            {
-                AutoSize = false,
-                Location = new Point(20, 14),
-                Size = new Size(166, 44),
-                ForeColor = UiPalette.TextPrimary,
-                Font = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold),
-                Text = "Machine Agent",
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-
-            agentButton.Location = new Point(202, 15);
-            overviewButton.Location = new Point(342, 15);
-            timelineButton.Location = new Point(482, 15);
-            topologyButton.Location = new Point(622, 15);
+            agentButton.Location = new Point(20, 15);
+            overviewButton.Location = new Point(160, 15);
+            timelineButton.Location = new Point(300, 15);
+            topologyButton.Location = new Point(440, 15);
 
             perceptionStatusLabel.AutoSize = false;
             perceptionStatusLabel.Location = new Point(920, 15);
@@ -134,7 +123,6 @@ namespace Automation
             {
                 perceptionStatusLabel.Left = Math.Max(780, navigationPanel.ClientSize.Width - perceptionStatusLabel.Width - 20);
             };
-            navigationPanel.Controls.Add(productMark);
             navigationPanel.Controls.Add(agentButton);
             navigationPanel.Controls.Add(overviewButton);
             navigationPanel.Controls.Add(timelineButton);

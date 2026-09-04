@@ -29,6 +29,7 @@ namespace Automation
 {
     public partial class FrmControl : Form
     {
+        private static readonly string[] RobotAxisNames = { "X", "Y", "Z", "U", "V", "W" };
         public System.Drawing.Image validImage = UiStatusImages.CreateValidImage();
         public System.Drawing.Image invalidImage = UiStatusImages.CreateInvalidImage();
         public BindingSource bindingSource = new BindingSource();
@@ -265,7 +266,23 @@ namespace Automation
             {
                 pictureBox1, pictureBox2, pictureBox3, pictureBox4, pictureBox5, pictureBox6
             };
-            bool motionReady = Workspace.Runtime.Motion?.IsCardInitialized == true && !Workspace.Runtime.Readiness.MotionConfigRestartRequired;
+            bool isRobotStation = temp != null && temp.Type != StationType.Axis;
+            bool motionReady = Workspace.Runtime.Motion?.IsCardInitialized == true
+                && !Workspace.Runtime.Readiness.MotionConfigRestartRequired;
+            MotionStationStatus robotStatus = null;
+            if (isRobotStation && lastStationIndex >= 0 && Workspace.Runtime.Motion != null)
+            {
+                robotStatus = Workspace.Runtime.Motion.GetStationStatus((short)lastStationIndex);
+            }
+            bool robotIdle = robotStatus?.State == MotionStationState.Idle
+                && !Workspace.Runtime.Readiness.MotionConfigRestartRequired;
+            // 连续 Jog 期间保持按键可接收 MouseUp；其他运动请求仍由工站资源互斥拒绝。
+            bool robotMotionReady = robotStatus != null
+                && (robotStatus.State == MotionStationState.Idle
+                    || robotStatus.State == MotionStationState.Moving)
+                && !Workspace.Runtime.Readiness.MotionConfigRestartRequired;
+            bool robotStopAvailable = robotStatus != null
+                && robotStatus.State != MotionStationState.Uninitialized;
             bool hasAvailableAxis = false;
 
             for (int i = 0; i < axisLabels.Length; i++)
@@ -275,12 +292,14 @@ namespace Automation
                     && i < temp.dataAxis.axisConfigs.Count
                     ? temp.dataAxis.axisConfigs[i]
                     : null;
-                bool configured = axisConfig?.axis != null
+                bool configured = isRobotStation || axisConfig?.axis != null
                     && ushort.TryParse(axisConfig.CardNum, out _)
                     && axisName.Length > 0
                     && axisName != "-1"
                     && axisName.Any(character => character != '-');
-                bool operationEnabled = configured && motionReady;
+                bool operationEnabled = isRobotStation
+                    ? robotMotionReady
+                    : configured && motionReady;
                 hasAvailableAxis |= operationEnabled;
                 axisLabels[i].BackColor = configured
                     ? UiPalette.SurfaceSubtle
@@ -295,8 +314,9 @@ namespace Automation
                 homeButtons[i].ForeColor = configured
                     ? UiPalette.TextPrimary
                     : UiPalette.TextDisabled;
-                homeButtons[i].Enabled = operationEnabled;
-                enableButtons[i].Enabled = operationEnabled;
+                // 机器人回原是整机命令，六个单通道回原和物理轴使能按钮不适用。
+                homeButtons[i].Enabled = !isRobotStation && operationEnabled;
+                enableButtons[i].Enabled = !isRobotStation && operationEnabled;
 
                 for (int buttonOffset = 0; buttonOffset < 2; buttonOffset++)
                 {
@@ -311,9 +331,15 @@ namespace Automation
                 }
             }
 
-            btnStationHome.Enabled = hasAvailableAxis;
-            btnStop.Enabled = hasAvailableAxis;
-            btnReSet.Enabled = hasAvailableAxis;
+            radioButton1.Text = isRobotStation ? "走点(仅轴工站)" : "走点";
+            radioButton1.Enabled = !isRobotStation && hasAvailableAxis;
+            if (isRobotStation && radioButton1.Checked)
+            {
+                radioButton3.Checked = true;
+            }
+            btnStationHome.Enabled = isRobotStation ? robotIdle : hasAvailableAxis;
+            btnStop.Enabled = isRobotStation ? robotStopAvailable : hasAvailableAxis;
+            btnReSet.Enabled = !isRobotStation && hasAvailableAxis;
         }
 
         private static void ConfigureControlButton(
@@ -389,11 +415,15 @@ namespace Automation
             }
 
             temp = Workspace.Card.dataStation[selectedIndex];
+            lastStationIndex = selectedIndex;
             trackBar1.Maximum = 100;
             trackBar1.Minimum = 1;
             trackBar1.Value = (int)temp.ManualSpeedPercent;
             label6.Text = trackBar1.Value.ToString() + "%";
-            bindingSource.DataSource = temp.ListDataPos;
+            // 机器人与轴工站分别使用模型声明的点位容量。
+            bindingSource.DataSource = temp.Type == StationType.Axis
+                ? temp.ListDataPos
+                : temp.ListDataPos.Take(DataStation.RobotPointCapacity).ToList();
             Workspace.Station.dataGridView1.DataSource = bindingSource;
             Workspace.Station.dataGridView1.Columns[0].HeaderText = "索引";
             Workspace.Station.dataGridView1.Columns[1].HeaderText = "名称";
@@ -421,53 +451,39 @@ namespace Automation
             pictureBox4.Image = invalidImage;
             pictureBox5.Image = invalidImage;
             pictureBox6.Image = invalidImage;
-            for (int i = 0; i < 6; i++)
+            Label[] axisLabels = { AxisName1, AxisName2, AxisName3, AxisName4, AxisName5, AxisName6 };
+            System.Windows.Forms.Button[] positiveButtons =
             {
-                Workspace.Station.dataGridView1.Columns[i + 2].HeaderText = temp.dataAxis.axisConfigs[i].AxisName;
-            }
-
-            AxisName1.Text = temp.dataAxis.axisConfig1.AxisName;
-            AxisName2.Text = temp.dataAxis.axisConfig2.AxisName;
-            AxisName3.Text = temp.dataAxis.axisConfig3.AxisName;
-            AxisName4.Text = temp.dataAxis.axisConfig4.AxisName;
-            AxisName5.Text = temp.dataAxis.axisConfig5.AxisName;
-            AxisName6.Text = temp.dataAxis.axisConfig6.AxisName;
-
-            if (temp.dataAxis.axisConfig1.AxisName != "-1")
+                Handle1, Handle3, Handle5, Handle7, Handle9, Handle11
+            };
+            System.Windows.Forms.Button[] negativeButtons =
             {
-                Handle1.Text = temp.dataAxis.axisConfig1.AxisName + "+";
-                Handle2.Text = temp.dataAxis.axisConfig1.AxisName + "-";
-            }
-            if (temp.dataAxis.axisConfig2.AxisName != "-1")
+                Handle2, Handle4, Handle6, Handle8, Handle10, Handle12
+            };
+            bool isRobotStation = temp.Type != StationType.Axis;
+            for (int i = 0; i < RobotAxisNames.Length; i++)
             {
-                Handle3.Text = temp.dataAxis.axisConfig2.AxisName + "+";
-                Handle4.Text = temp.dataAxis.axisConfig2.AxisName + "-";
-            }
-            if (temp.dataAxis.axisConfig3.AxisName != "-1")
-            {
-                Handle5.Text = temp.dataAxis.axisConfig3.AxisName + "+";
-                Handle6.Text = temp.dataAxis.axisConfig3.AxisName + "-";
-            }
-            if (temp.dataAxis.axisConfig4.AxisName != "-1")
-            {
-                Handle7.Text = temp.dataAxis.axisConfig4.AxisName + "+";
-                Handle8.Text = temp.dataAxis.axisConfig4.AxisName + "-";
-            }
-            if (temp.dataAxis.axisConfig5.AxisName != "-1")
-            {
-                Handle9.Text = temp.dataAxis.axisConfig5.AxisName + "+";
-                Handle10.Text = temp.dataAxis.axisConfig5.AxisName + "-";
-            }
-            if (temp.dataAxis.axisConfig6.AxisName != "-1")
-            {
-                Handle11.Text = temp.dataAxis.axisConfig6.AxisName + "+";
-                Handle12.Text = temp.dataAxis.axisConfig6.AxisName + "-";
+                string axisName = isRobotStation
+                    ? RobotAxisNames[i]
+                    : temp.dataAxis?.axisConfigs != null && i < temp.dataAxis.axisConfigs.Count
+                        ? temp.dataAxis.axisConfigs[i]?.AxisName ?? "-1"
+                        : "-1";
+                if (i + 2 < Workspace.Station.dataGridView1.Columns.Count)
+                {
+                    Workspace.Station.dataGridView1.Columns[i + 2].HeaderText =
+                        isRobotStation ? RobotAxisNames[i] : axisName;
+                }
+                axisLabels[i].Text = axisName;
+                if (axisName != "-1")
+                {
+                    positiveButtons[i].Text = axisName + "+";
+                    negativeButtons[i].Text = axisName + "-";
+                }
             }
 
             RefreshMotionControlAvailability();
 
             Workspace.Station.RefleshDgvState();
-            lastStationIndex = selectedIndex;
         }
     
         //轴按顺序回原
@@ -544,7 +560,6 @@ namespace Automation
             {
                 throw new InvalidOperationException($"轴正在运动，禁止启动回零:{cardNum}-{axis}");
             }
-            ushort dir = 0;
             if (Workspace.Runtime.Stores.Cards == null || !Workspace.Runtime.Stores.Cards.TryGetAxis(cardNum, axis, out axisInfo)
                 || axisInfo.PulseToMM <= 0 || axisInfo.AccMax <= 0 || axisInfo.DecMax <= 0
                 || !double.TryParse(axisInfo.HomeSpeed, out double homeSpeed) || homeSpeed <= 0)
@@ -552,10 +567,6 @@ namespace Automation
                 throw new InvalidOperationException($"轴回零参数无效:{cardNum}-{axis}");
             }
             int sfc = 10;
-            if (axisInfo.HomeDirection == "正向")
-            {
-                dir = 1;
-            }
             Stopwatch timeout = Stopwatch.StartNew();
             while (!completed)
             {
@@ -576,7 +587,12 @@ namespace Automation
                         }))
                         {
                             Workspace.Runtime.Motion.SetMovParam(cardNum, axis, 0, homeSpeed, axisInfo.AccMax, axisInfo.DecMax, 0, 0, axisInfo.PulseToMM);
-                            Workspace.Runtime.Motion.SettHomeParam(cardNum, axis, dir, 1, 1);
+                            Workspace.Runtime.Motion.SettHomeParam(
+                                cardNum,
+                                axis,
+                                0,
+                                1,
+                                axisInfo.HomeMethod > 0 ? (ushort)axisInfo.HomeMethod : (ushort)0);
                             Workspace.Runtime.Motion.StartHome(cardNum, axis);
                         }
                         Thread.Sleep(20);
@@ -642,6 +658,14 @@ namespace Automation
         {
             try
             {
+                if (temp != null && temp.Type != StationType.Axis)
+                {
+                    if (!Workspace.Runtime.ManualMotion.TryHomeStation((short)lastStationIndex))
+                    {
+                        return;
+                    }
+                    return;
+                }
                 if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum))
                 {
                     throw new InvalidOperationException("回零轴配置无效");
@@ -718,354 +742,224 @@ namespace Automation
 
         private void Handle1_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp,0);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum),(ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos1.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos1.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
-            }
-
+            StartManualChannelMotion(0, true);
         }
 
         private void Handle1_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
+            StopContinuousChannelMotion(0);
         }
 
         private void Handle2_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 0);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos1.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos1.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, double.Parse(txtMovPos1.Text), 1, false);
-            }
+            StartManualChannelMotion(0, false);
         }
 
         private void Handle2_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig1.CardNum), (ushort)temp.dataAxis.axisConfig1.axis.AxisNum, 0);
+            StopContinuousChannelMotion(0);
         }
 
         private void Handle3_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 1);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos2.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos2.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
-            }
+            StartManualChannelMotion(1, true);
         }
 
         private void Handle3_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
+            StopContinuousChannelMotion(1);
         }
         private void Handle4_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 1);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos2.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos2.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, double.Parse(txtMovPos2.Text), 1, false);
-            }
-
+            StartManualChannelMotion(1, false);
         }
 
         private void Handle4_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig2.CardNum), (ushort)temp.dataAxis.axisConfig2.axis.AxisNum, 0);
+            StopContinuousChannelMotion(1);
         }
         private void Handle5_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 2);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos3.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos3.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
-            }
+            StartManualChannelMotion(2, true);
         }
 
         private void Handle5_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
+            StopContinuousChannelMotion(2);
         }
 
         private void Handle6_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 2);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos3.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos3.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, double.Parse(txtMovPos3.Text), 1, false);
-            }
-
+            StartManualChannelMotion(2, false);
         }
 
         private void Handle6_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig3.CardNum), (ushort)temp.dataAxis.axisConfig3.axis.AxisNum, 0);
+            StopContinuousChannelMotion(2);
         }
 
         private void Handle7_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 3);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos4.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos4.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
-            }
+            StartManualChannelMotion(3, true);
         }
 
         private void Handle7_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
+            StopContinuousChannelMotion(3);
         }
 
         private void Handle8_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 3);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos4.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos4.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, double.Parse(txtMovPos4.Text), 1, false);
-            }
-
+            StartManualChannelMotion(3, false);
         }
 
         private void Handle8_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig4.CardNum), (ushort)temp.dataAxis.axisConfig4.axis.AxisNum, 0);
+            StopContinuousChannelMotion(3);
         }
 
         private void Handle9_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 4);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos5.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos5.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
-            }
+            StartManualChannelMotion(4, true);
         }
 
         private void Handle9_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
+            StopContinuousChannelMotion(4);
         }
 
         private void Handle10_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 4);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos5.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos5.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, double.Parse(txtMovPos5.Text), 1, false);
-            }
-
+            StartManualChannelMotion(4, false);
         }
 
         private void Handle10_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig5.CardNum), (ushort)temp.dataAxis.axisConfig5.axis.AxisNum, 0);
+            StopContinuousChannelMotion(4);
         }
 
         private void Handle11_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 5);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 1);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos6.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos6.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
-            }
+            StartManualChannelMotion(5, true);
         }
 
         private void Handle11_MouseUp(object sender, MouseEventArgs e)
         {
-            if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
+            StopContinuousChannelMotion(5);
         }
 
         private void Handle12_MouseDown(object sender, MouseEventArgs e)
         {
-            Workspace.Station.SetStationParam(temp, 5);
-            if (radioButton3.Checked)
-            {
-                Workspace.Runtime.ManualMotion.TryJog(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
-                return;
-            }
-            if (TryGetStepDistance(txtMovPos6.Text, out double distance))
-            {
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, -distance, 0, false);
-                return;
-            }
-            if (radioButton1.Checked)
-            {
-                if (txtMovPos6.Text == "")
-                {
-                    return;
-                }
-                Workspace.Runtime.ManualMotion.TryMove(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, double.Parse(txtMovPos6.Text), 1, false);
-            }
-
+            StartManualChannelMotion(5, false);
         }
 
         private void Handle12_MouseUp(object sender, MouseEventArgs e)
         {
+            StopContinuousChannelMotion(5);
+        }
+
+        private void StartManualChannelMotion(int channel, bool positive)
+        {
+            if (temp == null || channel < 0 || channel >= 6)
+            {
+                return;
+            }
+
+            System.Windows.Forms.TextBox[] targetBoxes =
+            {
+                txtMovPos1, txtMovPos2, txtMovPos3, txtMovPos4, txtMovPos5, txtMovPos6
+            };
+            if (temp.Type != StationType.Axis)
+            {
+                double robotOffset;
+                if (radioButton3.Checked)
+                {
+                    // 延续 3.0：1000 表示连续 Jog，松开按钮后停止整个机器人工站。
+                    robotOffset = positive ? 1000d : -1000d;
+                }
+                else if (TryGetStepDistance(targetBoxes[channel].Text, out double stepDistance))
+                {
+                    // 3.0 的机器人步进输入限定为0..10；大于20在汇川驱动中代表连续Jog，
+                    // 若把任意自定义值直接下发，非连续模式松键时不会触发整站停止。
+                    if (stepDistance < 0 || stepDistance > 10
+                        || double.IsNaN(stepDistance) || double.IsInfinity(stepDistance))
+                    {
+                        MessageBox.Show("机器人自定义寸动距离必须在0到10之间。");
+                        return;
+                    }
+                    robotOffset = positive ? stepDistance : -stepDistance;
+                }
+                else
+                {
+                    return;
+                }
+                Workspace.Runtime.ManualMotion.TryMoveStationAxis(
+                    (short)lastStationIndex,
+                    (short)channel,
+                    robotOffset,
+                    temp.ManualSpeedPercent,
+                    false,
+                    0,
+                    radioButton3.Checked
+                        && (temp.Type == StationType.Inovance
+                            || temp.Type == StationType.InovanceV4));
+                return;
+            }
+
+            AxisConfig axisConfig = temp.dataAxis?.axisConfigs != null
+                && channel < temp.dataAxis.axisConfigs.Count
+                ? temp.dataAxis.axisConfigs[channel]
+                : null;
+            if (axisConfig?.axis == null || !ushort.TryParse(axisConfig.CardNum, out ushort cardNum)
+                || axisConfig.axis.AxisNum < 0 || axisConfig.axis.AxisNum > ushort.MaxValue)
+            {
+                return;
+            }
+            ushort axisNum = (ushort)axisConfig.axis.AxisNum;
+            Workspace.Station.SetStationParam(temp, channel);
             if (radioButton3.Checked)
-                Workspace.Runtime.ManualMotion.TryStop(ushort.Parse(temp.dataAxis.axisConfig6.CardNum), (ushort)temp.dataAxis.axisConfig6.axis.AxisNum, 0);
+            {
+                Workspace.Runtime.ManualMotion.TryJog(cardNum, axisNum, positive ? (ushort)1 : (ushort)0);
+                return;
+            }
+            if (TryGetStepDistance(targetBoxes[channel].Text, out double distance))
+            {
+                Workspace.Runtime.ManualMotion.TryMove(
+                    cardNum, axisNum, positive ? distance : -distance, 0, false);
+                return;
+            }
+            if (radioButton1.Checked
+                && double.TryParse(targetBoxes[channel].Text, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double target)
+                && !double.IsNaN(target) && !double.IsInfinity(target))
+            {
+                // 轴工站沿用原有“走点”绝对位置模式；正负按钮均执行输入的绝对目标。
+                Workspace.Runtime.ManualMotion.TryMove(cardNum, axisNum, target, 1, false);
+            }
+        }
+
+        private void StopContinuousChannelMotion(int channel)
+        {
+            if (!radioButton3.Checked || temp == null || channel < 0 || channel >= 6)
+            {
+                return;
+            }
+            if (temp.Type != StationType.Axis)
+            {
+                Workspace.Runtime.ManualMotion.TryStopStation((short)lastStationIndex);
+                return;
+            }
+            AxisConfig axisConfig = temp.dataAxis?.axisConfigs != null
+                && channel < temp.dataAxis.axisConfigs.Count
+                ? temp.dataAxis.axisConfigs[channel]
+                : null;
+            if (axisConfig?.axis != null
+                && ushort.TryParse(axisConfig.CardNum, out ushort cardNum)
+                && axisConfig.axis.AxisNum >= 0 && axisConfig.axis.AxisNum <= ushort.MaxValue)
+            {
+                Workspace.Runtime.ManualMotion.TryStop(
+                    cardNum, (ushort)axisConfig.axis.AxisNum, 0);
+            }
         }
 
         private async void btnStationHome_Click(object sender, EventArgs e)
@@ -1073,6 +967,11 @@ namespace Automation
             try
             {
                 int stationIndex = comboBox1.SelectedIndex;
+                if (temp != null && temp.Type != StationType.Axis)
+                {
+                    Workspace.Runtime.ManualMotion.TryHomeStation((short)stationIndex);
+                    return;
+                }
                 bool hasHomeSequence = stationIndex >= 0
                     && Workspace.Card?.dataStation != null
                     && stationIndex < Workspace.Card.dataStation.Count
@@ -1141,6 +1040,10 @@ namespace Automation
 
         private void pictureBox1_Click(object sender, EventArgs e)
         {
+            if (Workspace.Control.temp == null || Workspace.Control.temp.Type != StationType.Axis)
+            {
+                return;
+            }
             int index = Workspace.Control.pictureBoxes.IndexOf((PictureBox)sender);
             if (Workspace.Control.temp.dataAxis.axisConfigs[index].CardNum == "-1")
                 return;
@@ -1174,6 +1077,12 @@ namespace Automation
         {
             try
             {
+                if (temp != null && temp.Type != StationType.Axis)
+                {
+                    MessageBox.Show("机器人工站复位由控制器初始化与远程登录流程负责。", "工站复位",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
                 await ResetStationAsync(temp);
                 MessageBox.Show("当前工站报警复位完成。", "工站复位", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -1185,14 +1094,15 @@ namespace Automation
 
         private async Task StopStationAsync(DataStation station)
         {
-            List<AxisCommandRequest> axes = GetStationAxisRequests(station);
-            if (!Workspace.Runtime.ProcessEngine.TryReserveManualMotionResources(axes, out IDisposable lease, out string error))
+            if (station == null)
             {
-                throw new InvalidOperationException(error);
+                throw new InvalidOperationException("当前工站为空。");
             }
-            using (lease)
+            bool stopped = await Task.Run(() =>
+                Workspace.Runtime.ManualMotion.TryStopStation((short)lastStationIndex));
+            if (!stopped)
             {
-                await Task.Run(() => StopAxesAndWait(axes, 30000));
+                throw new InvalidOperationException("工站停止未确认，请查看运动报警。");
             }
         }
 

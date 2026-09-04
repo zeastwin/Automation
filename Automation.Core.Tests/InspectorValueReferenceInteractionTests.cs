@@ -650,6 +650,74 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void InspectorPage_UsesLongestVisibleFieldNameForSharedLabelColumn()
+        {
+            StaTestRunner.Run(() =>
+            {
+                var station = new DataStation(false)
+                {
+                    Type = StationType.Inovance
+                };
+                using (var view = new InspectorView { Dock = DockStyle.Fill })
+                using (var form = new Form
+                {
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(-10000, -10000),
+                    ClientSize = new Size(347, 260)
+                })
+                {
+                    form.Controls.Add(view);
+                    form.Show();
+                    view.SetObject(station, false);
+                    Application.DoEvents();
+
+                    List<InspectorFieldControl> fields =
+                        GetPrivateField<List<InspectorSectionControl>>(
+                            view,
+                            "sectionControls")
+                        .SelectMany(section =>
+                            GetPrivateField<List<InspectorFieldControl>>(
+                                section,
+                                "fields"))
+                        .ToList();
+                    List<InspectorScalarFieldControl> scalarFields = fields
+                        .OfType<InspectorScalarFieldControl>()
+                        .ToList();
+                    InspectorScalarFieldControl longestField = scalarFields
+                        .Single(field => field.AccessibleName == "机器人远程通讯对象");
+                    Control longestEditor = GetPrivateField<Control>(
+                        longestField,
+                        "editor");
+                    int expectedLabelWidth = TextRenderer.MeasureText(
+                        "机器人远程通讯对象",
+                        InspectorFonts.Regular9,
+                        Size.Empty,
+                        TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width + 10;
+
+                    Assert.AreEqual(expectedLabelWidth, longestEditor.Left,
+                        "属性名列应按当前页面最长的可见字段名计算。");
+                    Assert.AreEqual(
+                        1,
+                        scalarFields.Select(field =>
+                            GetPrivateField<Control>(field, "editor").Left)
+                            .Distinct()
+                            .Count(),
+                        "同一页面的属性名列应保持对齐。");
+
+                    form.ClientSize = new Size(230, 260);
+                    Application.DoEvents();
+
+                    Assert.IsTrue(
+                        longestField.ClientSize.Width - longestEditor.Left
+                            >= InspectorFieldControl.MinimumValueWidth,
+                        "窄窗口中应优先为右侧值编辑区保留最小宽度。");
+                }
+            }, TimeSpan.FromSeconds(10));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void InvalidActiveEditor_BlocksValidationWithoutChangingDraft()
         {
             StaTestRunner.Run(() =>

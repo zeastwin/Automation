@@ -1529,7 +1529,8 @@ namespace Automation.McpServer
 
         [McpServerTool(Name = "list_stations"), Description(
             "列出当前所有工站（工站是机械臂运动控制的逻辑分组，包含轴配置和点位列表）。"
-            + "返回工站索引、名称、速度、点位数量。需 ProcessAccess 权限。")]
+            + "返回工站索引、名称、类型、机器人通讯/远程配置、速度、点位容量和点位数量。"
+            + "机器人工站容量为200，轴工站容量为400。需 ProcessAccess 权限。")]
         public static async Task<string> ListStations()
         {
             return await ExecuteAsync(
@@ -1539,7 +1540,7 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_station"), Description(
-            "获取指定工站的详情，包括轴配置信息和所有有名点位列表。"
+            "获取指定工站的详情，包括类型、机器人通讯/远程配置、点位容量、轴配置和所有有名点位列表。"
             + "参数：stationIndex（工站索引）。需 ProcessAccess 权限。")]
         public static async Task<string> GetStation(
             [Description("工站索引")] int stationIndex)
@@ -1563,11 +1564,12 @@ namespace Automation.McpServer
         }
 
         [McpServerTool(Name = "get_point"), Description(
-            "获取工站下指定点位的详情。参数：stationIndex（工站索引）；index（点位索引[0,400)）。"
+            "获取工站下指定点位的详情。参数：stationIndex（工站索引）；"
+            + "index（机器人工站为[0,200)，轴工站为[0,400)）。"
             + "需 ProcessAccess 权限。")]
         public static async Task<string> GetPoint(
             [Description("工站索引")] int stationIndex,
-            [Description("点位索引 [0,400)")] int index)
+            [Description("点位索引；机器人工站为 [0,200)，轴工站为 [0,400)")] int index)
         {
             return await ExecuteAsync(
                 toolName: nameof(GetPoint),
@@ -1578,7 +1580,8 @@ namespace Automation.McpServer
         [McpServerTool(Name = "plan_motion_points"), Description(
             "在一个现有工站中批量登记1到20个流程所需的点位名称，供流程结构直接引用。"
             + "该工具只规划固定点位槽和名称，不填写或猜测坐标、不执行运动；现有同名点位幂等保留，"
-            + "新点位返回planned且必须由人工编辑坐标或在工站界面取点后才可启动相关运动。")]
+            + "新点位返回planned且必须由人工编辑坐标或在工站界面取点后才可启动相关运动。"
+            + "机器人工站使用[0,200)，轴工站使用[0,400)点位槽。")]
         public static async Task<string> PlanMotionPoints(
             [Description("现有工站索引")] int stationIndex,
             [Description("要登记的点位名称，1到20项；名称必须具有明确业务含义且在本次调用中唯一")] string[] pointNames)

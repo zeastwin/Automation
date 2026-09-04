@@ -1057,7 +1057,7 @@ namespace Automation
         public string Name { get; set; }
         [DisplayName("卡号"), Category("常规"), Description(""), ReadOnly(true), Browsable(true)]
         public int CardNum { get; set; }
-        [DisplayName("模块(从站)号"), Category("设置"), Description(""), ReadOnly(false), Browsable(true)]
+        [DisplayName("IO模块号"), Category("设置"), Description("当前雷赛总线卡使用扁平IO编号，模块号固定为0。"), ReadOnly(true), Browsable(true)]
         public int  Module { get; set; }
         [DisplayName("IO编号"), Category("常规"), Description(""), ReadOnly(true), Browsable(true)]
         public string IOIndex { get; set; }

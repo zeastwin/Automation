@@ -37,7 +37,17 @@ namespace Automation
                 error = "工站配置主文件及备份均无法读取。";
                 return false;
             }
+            if (!TryValidatePointCapacities(loaded, out error))
+            {
+                error = "工站配置加载失败：" + error;
+                return false;
+            }
             NormalizePointCollections(loaded);
+            if (!TryValidatePointCapacities(loaded, out error))
+            {
+                error = "工站配置加载失败：" + error;
+                return false;
+            }
             ReplaceAll(loaded);
             return true;
         }
@@ -53,7 +63,15 @@ namespace Automation
             List<DataStation> candidate = stations
                 .Select(ObjectGraphCloner.Clone)
                 .ToList();
+            if (!TryValidatePointCapacities(candidate, out error))
+            {
+                return false;
+            }
             NormalizePointCollections(candidate);
+            if (!TryValidatePointCapacities(candidate, out error))
+            {
+                return false;
+            }
             if (!AtomicJsonFileStore.Save(configPath, "DataStation", candidate))
             {
                 error = "工站配置保存失败，正式内存未修改。";
@@ -66,6 +84,10 @@ namespace Automation
         public bool TryPersistCurrent(string configPath, out string error)
         {
             error = null;
+            if (!TryValidatePointCapacities(items, out error))
+            {
+                return false;
+            }
             if (AtomicJsonFileStore.Save(configPath, "DataStation", items))
             {
                 Interlocked.Increment(ref version);
@@ -92,7 +114,7 @@ namespace Automation
             foreach (DataStation station in stations ?? Array.Empty<DataStation>())
             {
                 if (station == null) continue;
-                station.ListDataPos = station.ListDataPos ?? new List<DataPos>();
+                station.NormalizeConfiguration();
                 foreach (DataPos legacyPoint in ((IEnumerable<DataPos>)station.dicDataPos?.Values
                     ?? Array.Empty<DataPos>())
                     .Where(point => point != null
@@ -113,11 +135,45 @@ namespace Automation
                 {
                     station.ListDataPos.Add(new DataPos(station.ListDataPos.Count));
                 }
+                foreach (DataPos point in station.ListDataPos)
+                {
+                    point?.NormalizeRobotMetadata();
+                }
                 station.dicDataPos = station.ListDataPos
                     .Where(point => point != null && !string.IsNullOrWhiteSpace(point.Name))
                     .GroupBy(point => point.Name, StringComparer.Ordinal)
                     .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
             }
+        }
+
+        private static bool TryValidatePointCapacities(
+            IEnumerable<DataStation> stations,
+            out string error)
+        {
+            error = null;
+            foreach (DataStation station in stations ?? Array.Empty<DataStation>())
+            {
+                if (station == null)
+                {
+                    continue;
+                }
+                int capacity = DataStation.GetPointCapacity(station.Type);
+                IEnumerable<DataPos> points = station.ListDataPos ?? new List<DataPos>();
+                if (station.dicDataPos != null)
+                {
+                    points = points.Concat(station.dicDataPos.Values);
+                }
+                DataPos invalidPoint = points.FirstOrDefault(point => point != null
+                    && !string.IsNullOrWhiteSpace(point.Name)
+                    && (point.Index < 0 || point.Index >= capacity));
+                if (invalidPoint == null)
+                {
+                    continue;
+                }
+                error = $"工站“{station.Name}”的命名点位“{invalidPoint.Name}”索引无效：{invalidPoint.Index}；{station.Type} 工站仅允许 [0, {capacity})。";
+                return false;
+            }
+            return true;
         }
     }
 }

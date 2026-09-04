@@ -52,8 +52,13 @@ namespace Automation
             var hardwareMotion = new MotionCtrl(
                 runtime.Stores.Values,
                 runtime.Stores.Cards,
+                runtime.Stores.Stations,
+                runtime.Communication,
+                runtime.Stores.Communication,
+                runtime.Paths,
                 runtime.Safety,
-                runtime.Readiness);
+                runtime.Readiness,
+                logger);
             IMotionRuntime motion = hardwareMotion;
             IIoRuntime io = hardwareMotion;
 

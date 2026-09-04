@@ -2700,13 +2700,20 @@ namespace Automation
             int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
+                DataStation selectedStation = EditorStations[stationIndex];
+                string[] robotAxisNames = { "X", "Y", "Z", "U", "V", "W" };
+                for (int j = 0; j < AxisName.Length; j++)
                 {
-                    ushort index = (ushort)j;
-                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    string displayName = selectedStation.Type != StationType.Axis
+                        ? robotAxisNames[j]
+                        : selectedStation.dataAxis?.axisConfigs != null
+                            && j < selectedStation.dataAxis.axisConfigs.Count
+                            ? selectedStation.dataAxis.axisConfigs[j]?.AxisName ?? "-1"
+                            : "-1";
+                    if (displayName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationRunPos), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationRunPos), AxisName[j], displayName);
                     }
                     else
                     {
@@ -3207,15 +3214,22 @@ namespace Automation
             int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
+                DataStation selectedStation = EditorStations[stationIndex];
+                string[] robotAxisNames = { "X", "Y", "Z", "U", "V", "W" };
+                for (int j = 0; j < AxisName.Length; j++)
                 {
-                    ushort index = (ushort)j;
-                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    string displayName = selectedStation.Type != StationType.Axis
+                        ? robotAxisNames[j]
+                        : selectedStation.dataAxis?.axisConfigs != null
+                            && j < selectedStation.dataAxis.axisConfigs.Count
+                            ? selectedStation.dataAxis.axisConfigs[j]?.AxisName ?? "-1"
+                            : "-1";
+                    if (displayName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
                         SetPropertyAttribute(this, AxisName[j] + "V", typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationRunRel), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
-                        SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName + "变量");
+                        SetDisplayName(typeof(StationRunRel), AxisName[j], displayName);
+                        SetDisplayName(typeof(StationRunRel), AxisName[j] + "V", displayName + "变量");
                     }
                     else
                     {
@@ -3374,13 +3388,26 @@ namespace Automation
             int stationIndex = EditorStations.IndexOf(station);
             if (stationIndex != -1)
             {
-                for (int j = 0; j < EditorStations[stationIndex].dataAxis.axisConfigs.Count; j++)
+                DataStation selectedStation = EditorStations[stationIndex];
+                if (selectedStation.Type != StationType.Axis)
                 {
-                    ushort index = (ushort)j;
-                    if (EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName != "-1")
+                    // 机器人六个通道由同一控制器动作管理，停止时只能按整站处理。
+                    for (int j = 0; j < AxisName.Length; j++)
+                    {
+                        SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", false);
+                    }
+                    return;
+                }
+                for (int j = 0; j < AxisName.Length; j++)
+                {
+                    string displayName = selectedStation.dataAxis?.axisConfigs != null
+                        && j < selectedStation.dataAxis.axisConfigs.Count
+                        ? selectedStation.dataAxis.axisConfigs[j]?.AxisName ?? "-1"
+                        : "-1";
+                    if (displayName != "-1")
                     {
                         SetPropertyAttribute(this, AxisName[j], typeof(BrowsableAttribute), "browsable", true);
-                        SetDisplayName(typeof(StationStop), AxisName[j], EditorStations[stationIndex].dataAxis.axisConfigs[j].AxisName);
+                        SetDisplayName(typeof(StationStop), AxisName[j], displayName);
                     }
                     else
                     {

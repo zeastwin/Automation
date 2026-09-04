@@ -384,6 +384,7 @@ namespace Automation.Core.Tests
             public Func<bool> CancellationObserved { get; set; }
             public bool WasCancellationRequested { get; private set; }
             public bool IsCardInitialized => true;
+            public int StationCount => 0;
 
             public void StopOneAxis(ushort card, ushort axis, ushort stopMode)
             {
@@ -400,6 +401,42 @@ namespace Automation.Core.Tests
 
             public void InitCardType() { }
             public bool InitCard() => true;
+            public MotionStationResult InitializeStations() => MotionStationResult.Success;
+            public MotionStationResult ReleaseStations() => MotionStationResult.Success;
+            public MotionStationStatus GetStationStatus(short station) => new MotionStationStatus();
+            public MotionStationResult SetStationSpeed(short station, double velocity,
+                double acceleration, double deceleration, short axis = -1,
+                StationSpeedType type = StationSpeedType.Joint) => MotionStationResult.Success;
+            public MotionStationResult HomeStation(short station, short axis = -1,
+                bool wait = true, bool group = false) => MotionStationResult.Success;
+            public MotionStationResult MoveStationToPoint(short station, DataPos point,
+                StationMoveMode mode = StationMoveMode.Go, bool[] disabledAxes = null,
+                short tool = 0) => MotionStationResult.Success;
+            public MotionStationResult MoveStationOffset(short station, int basePointIndex,
+                IReadOnlyList<double> offsets, StationMoveMode mode = StationMoveMode.Go) =>
+                MotionStationResult.Success;
+            public MotionStationResult MoveStationAxis(short station, short axis, double offset,
+                StationAxisMoveMode mode = StationAxisMoveMode.Relative, short tool = 0) =>
+                MotionStationResult.Success;
+            public MotionStationResult WaitStationMotion(short station, bool isHome = false,
+                int axis = -1, int timeoutMs = 120000) => MotionStationResult.Success;
+            public MotionStationResult GetStationPosition(short station, short tool,
+                out DataPos position)
+            {
+                position = new DataPos(-1);
+                return MotionStationResult.Success;
+            }
+            public MotionStationResult SaveStationPoint(short station, DataPos point) =>
+                MotionStationResult.Success;
+            public MotionStationResult CreateStationTray(short station, int trayId,
+                int rowCount, int columnCount, IReadOnlyList<DataPos> referencePoints) =>
+                MotionStationResult.Success;
+            public MotionStationResult MoveStationTrayPoint(short station, int trayId,
+                int position, DataPos calculatedPoint) => MotionStationResult.Success;
+            public MotionStationResult StopStation(short station, bool emergency = false) =>
+                MotionStationResult.Success;
+            public MotionStationResult StopAllStations(bool emergency = false) =>
+                MotionStationResult.Success;
             public void SettHomeParam(ushort card, ushort axis, ushort dir, ushort speed, ushort homeMode) { }
             public void StartHome(ushort card, ushort axis) { }
             public void CleanPos(ushort card, ushort axis) { }

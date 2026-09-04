@@ -83,7 +83,6 @@ namespace Automation
         void RefreshProcesses();
         void RefreshProcess(int procIndex);
         void RefreshVariables();
-        void RefreshStations();
         void RefreshDataStructures();
         void RefreshMotionIo();
         void RefreshIoDebug();
@@ -272,12 +271,6 @@ namespace Automation
         public void RefreshVariables()
         {
             owner.frmValue?.FreshFrmValue();
-        }
-
-        public void RefreshStations()
-        {
-            owner.frmCard?.RefreshStationList();
-            owner.frmCard?.RefreshStationTree();
         }
 
         public void RefreshDataStructures()

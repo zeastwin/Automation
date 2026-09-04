@@ -56,6 +56,7 @@ namespace Automation
         private long nextProcRevision;
         private readonly object snapshotDispatchLock = new object();
         internal readonly object procPublishLock = new object();
+        private readonly object motionConfigurationActivityLock = new object();
         private readonly object motionResourceLock = new object();
         internal readonly bool performanceAnalysisEnabled;
         private static readonly object manualMotionOwner = new object();
@@ -332,6 +333,7 @@ namespace Automation
         }
         internal TimeSpan StopJoinTimeout => stopJoinTimeout;
         internal int ActiveAgentCount => activeAgents.Count;
+        internal object MotionConfigurationActivityLock => motionConfigurationActivityLock;
 
         public IReadOnlyList<CycleTimeProbeSample> GetLatestCycleTimeSamples(Guid? procId = null)
         {
@@ -1039,6 +1041,16 @@ namespace Automation
             return TryAcquireMotionResources(evt, new[] { BuildMotionResourceKey(card, axis) }, out error);
         }
 
+        internal bool TryAcquireStationMotionResource(ProcHandle evt, short station, out string error)
+        {
+            if (station < 0)
+            {
+                error = $"工站索引无效:{station}";
+                return false;
+            }
+            return TryAcquireMotionResources(evt, new[] { BuildStationMotionResourceKey(station) }, out error);
+        }
+
         internal bool TryAcquireMotionResources(ProcHandle evt, IEnumerable<long> resourceKeys, out string error)
         {
             error = null;
@@ -1054,13 +1066,12 @@ namespace Automation
                 {
                     if (motionResourceOwners.TryGetValue(key, out object owner) && !ReferenceEquals(owner, evt))
                     {
-                        ushort card = (ushort)(key >> 32);
-                        ushort axis = (ushort)key;
-                        error = ReferenceEquals(owner, manualMotionOwner)
-                            ? $"轴资源已被手动操作占用:{card}-{axis}"
+                        string resource = DescribeMotionResource(key);
+                        error = IsManualMotionOwner(owner)
+                            ? $"{resource}已被手动操作占用"
                             : owner is ProcHandle ownerHandle
-                                ? $"轴资源被流程{ownerHandle.procNum}的其他运行实例占用:{card}-{axis}"
-                                : $"轴资源被其他运行实例占用:{card}-{axis}";
+                                ? $"{resource}被流程{ownerHandle.procNum}的其他运行实例占用"
+                                : $"{resource}被其他运行实例占用";
                         return false;
                     }
                 }
@@ -1078,6 +1089,36 @@ namespace Automation
             return ((long)card << 32) | axis;
         }
 
+        internal static long BuildStationMotionResourceKey(short station)
+        {
+            return long.MinValue | (ushort)station;
+        }
+
+        private static bool IsStationMotionResource(long key)
+        {
+            return key < 0;
+        }
+
+        private static short GetStationFromMotionResource(long key)
+        {
+            return (short)(ushort)key;
+        }
+
+        private static string DescribeMotionResource(long key)
+        {
+            if (IsStationMotionResource(key))
+            {
+                return $"工站资源:{GetStationFromMotionResource(key)}";
+            }
+            return $"轴资源:{(ushort)(key >> 32)}-{(ushort)key}";
+        }
+
+        private static bool IsManualMotionOwner(object owner)
+        {
+            return ReferenceEquals(owner, manualMotionOwner)
+                || owner is ManualStationMotionReservationLease;
+        }
+
         internal bool TryAcquireCoordinateSystem(ProcHandle evt, ushort card, ushort coordinateSystem, out string error)
         {
             error = null;
@@ -1086,14 +1127,21 @@ namespace Automation
                 error = "流程句柄为空。";
                 return false;
             }
+            if (coordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
+            {
+                error = $"卡{card}坐标系必须在0到{CoordinatedLinearMoveRequest.MaximumCoordinateSystem}之间，当前值:{coordinateSystem}。";
+                return false;
+            }
             long key = ((long)card << 32) | coordinateSystem;
             lock (motionResourceLock)
             {
                 if (coordinateResourceOwners.TryGetValue(key, out object owner) && !ReferenceEquals(owner, evt))
                 {
-                    error = owner is ProcHandle ownerHandle
-                        ? $"卡{card}坐标系{coordinateSystem}被流程{ownerHandle.procNum}占用。"
-                        : $"卡{card}坐标系{coordinateSystem}被其他运行实例占用。";
+                    error = IsManualMotionOwner(owner)
+                        ? $"卡{card}坐标系{coordinateSystem}已被手动操作占用。"
+                        : owner is ProcHandle ownerHandle
+                            ? $"卡{card}坐标系{coordinateSystem}被流程{ownerHandle.procNum}占用。"
+                            : $"卡{card}坐标系{coordinateSystem}被其他运行实例占用。";
                     return false;
                 }
                 coordinateResourceOwners[key] = evt;
@@ -1145,6 +1193,33 @@ namespace Automation
 
         [ThreadStatic]
         private static HashSet<long> currentManualMotionReservation;
+
+        private sealed class ManualStationMotionReservationLease : IDisposable
+        {
+            private ProcessEngine owner;
+
+            internal ManualStationMotionReservationLease(
+                ProcessEngine owner,
+                short station,
+                long[] motionKeys,
+                long? coordinateKey)
+            {
+                this.owner = owner;
+                Station = station;
+                MotionKeys = motionKeys;
+                CoordinateKey = coordinateKey;
+            }
+
+            internal short Station { get; }
+            internal long[] MotionKeys { get; }
+            internal long? CoordinateKey { get; }
+
+            public void Dispose()
+            {
+                ProcessEngine currentOwner = Interlocked.Exchange(ref owner, null);
+                currentOwner?.ReleaseManualStationMotionReservation(this);
+            }
+        }
 
         private sealed class ManualMotionReservationLease : IDisposable
         {
@@ -1212,6 +1287,13 @@ namespace Automation
             }
             lock (motionResourceLock)
             {
+                if (Context?.Maintenance?.Active == true)
+                {
+                    error = string.IsNullOrWhiteSpace(Context.Maintenance.Reason)
+                        ? "系统正在执行配置维护，禁止开始手动运动。"
+                        : $"系统正在执行配置维护:{Context.Maintenance.Reason}";
+                    return false;
+                }
                 foreach (long key in keys)
                 {
                     if (!motionResourceOwners.TryGetValue(key, out object resourceOwner))
@@ -1220,7 +1302,7 @@ namespace Automation
                     }
                     ushort card = (ushort)(key >> 32);
                     ushort axis = (ushort)key;
-                    error = ReferenceEquals(resourceOwner, manualMotionOwner)
+                    error = IsManualMotionOwner(resourceOwner)
                         ? $"轴资源已被手动操作占用:{card}-{axis}"
                         : resourceOwner is ProcHandle ownerHandle
                             ? $"轴资源被流程{ownerHandle.procNum}占用:{card}-{axis}"
@@ -1241,23 +1323,183 @@ namespace Automation
         {
             error = null;
             long key = BuildMotionResourceKey(card, axis);
+            return TryAcquireManualMotionResourceCore(key, $"轴资源:{card}-{axis}", out error);
+        }
+
+        public bool TryAcquireManualStationMotionResource(short station, out string error)
+        {
+            if (station < 0)
+            {
+                error = $"工站索引无效:{station}";
+                return false;
+            }
+            return TryAcquireManualMotionResourceCore(
+                BuildStationMotionResourceKey(station),
+                $"工站资源:{station}",
+                out error);
+        }
+
+        /// <summary>
+        /// 原子占用手动工站动作需要的全部资源。轴工站占用工站及所有有效物理轴，
+        /// 协调 MOVE 额外占用卡坐标系；机器人工站保持 3.0 的独立整站资源语义。
+        /// </summary>
+        public bool TryAcquireManualStationMotionResources(
+            short station,
+            bool requiresCoordinateSystem,
+            out IDisposable lease,
+            out string error)
+        {
+            lease = null;
+            error = null;
+            IList<DataStation> stations = Context?.Stations;
+            if (station < 0 || stations == null || station >= stations.Count
+                || stations[station] == null)
+            {
+                error = $"工站索引无效或配置尚未发布:{station}";
+                return false;
+            }
+
+            DataStation configuration = stations[station];
+            var motionKeys = new HashSet<long>
+            {
+                BuildStationMotionResourceKey(station)
+            };
+            long? coordinateKey = null;
+            ushort coordinateCard = 0;
+            if (configuration.Type == StationType.Axis)
+            {
+                IReadOnlyCollection<AxisConfig> configuredAxes = configuration.dataAxis?.axisConfigs;
+                if (configuredAxes == null)
+                {
+                    error = $"轴工站{station}的六通道配置为空。";
+                    return false;
+                }
+
+                var physicalCards = new HashSet<ushort>();
+                foreach (AxisConfig configuredAxis in configuredAxes)
+                {
+                    if (configuredAxis == null || configuredAxis.AxisName == "-1")
+                    {
+                        continue;
+                    }
+                    if (configuredAxis.axis == null
+                        || !ushort.TryParse(configuredAxis.CardNum, out ushort card)
+                        || configuredAxis.axis.AxisNum < 0
+                        || configuredAxis.axis.AxisNum > ushort.MaxValue)
+                    {
+                        error = $"轴工站{station}存在无效的物理轴绑定:{configuredAxis.AxisName}";
+                        return false;
+                    }
+                    long axisKey = BuildMotionResourceKey(card, (ushort)configuredAxis.axis.AxisNum);
+                    if (!motionKeys.Add(axisKey))
+                    {
+                        error = $"轴工站{station}重复绑定物理轴:{card}-{configuredAxis.axis.AxisNum}";
+                        return false;
+                    }
+                    physicalCards.Add(card);
+                }
+
+                if (requiresCoordinateSystem)
+                {
+                    if (physicalCards.Count != 1)
+                    {
+                        error = physicalCards.Count == 0
+                            ? $"轴工站{station}没有可用于协调 MOVE 的有效物理轴。"
+                            : $"轴工站{station}的协调 MOVE 物理轴必须位于同一张卡。";
+                        return false;
+                    }
+                    if (configuration.CoordinateSystem
+                        > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
+                    {
+                        error = $"轴工站{station}坐标系必须在0到{CoordinatedLinearMoveRequest.MaximumCoordinateSystem}之间。";
+                        return false;
+                    }
+                    coordinateCard = physicalCards.Single();
+                    coordinateKey = ((long)coordinateCard << 32) | configuration.CoordinateSystem;
+                }
+            }
+
+            long[] keys = motionKeys.ToArray();
             lock (motionResourceLock)
             {
+                // 配置提交先进入 Maintenance，再检查资源静止。必须在资源锁内复查，
+                // 才能与配置提交的静止检查形成确定的先后关系。
+                if (Context?.Maintenance?.Active == true)
+                {
+                    error = string.IsNullOrWhiteSpace(Context.Maintenance.Reason)
+                        ? "系统正在执行配置维护，禁止开始手动运动。"
+                        : $"系统正在执行配置维护:{Context.Maintenance.Reason}";
+                    return false;
+                }
+                foreach (long key in keys)
+                {
+                    if (!motionResourceOwners.TryGetValue(key, out object resourceOwner))
+                    {
+                        continue;
+                    }
+                    string resource = DescribeMotionResource(key);
+                    error = IsManualMotionOwner(resourceOwner)
+                        ? $"{resource}已被手动操作占用"
+                        : resourceOwner is ProcHandle ownerHandle
+                            ? $"{resource}被流程{ownerHandle.procNum}占用"
+                            : $"{resource}被其他运行实例占用";
+                    return false;
+                }
+                if (coordinateKey.HasValue
+                    && coordinateResourceOwners.TryGetValue(coordinateKey.Value, out object coordinateOwner))
+                {
+                    ushort coordinateSystem = (ushort)coordinateKey.Value;
+                    error = IsManualMotionOwner(coordinateOwner)
+                        ? $"卡{coordinateCard}坐标系{coordinateSystem}已被手动操作占用。"
+                        : coordinateOwner is ProcHandle ownerHandle
+                            ? $"卡{coordinateCard}坐标系{coordinateSystem}被流程{ownerHandle.procNum}占用。"
+                            : $"卡{coordinateCard}坐标系{coordinateSystem}被其他运行实例占用。";
+                    return false;
+                }
+
+                var reservation = new ManualStationMotionReservationLease(
+                    this, station, keys, coordinateKey);
+                foreach (long key in keys)
+                {
+                    motionResourceOwners[key] = reservation;
+                }
+                if (coordinateKey.HasValue)
+                {
+                    coordinateResourceOwners[coordinateKey.Value] = reservation;
+                }
+                lease = reservation;
+                return true;
+            }
+        }
+
+        private bool TryAcquireManualMotionResourceCore(long key, string resource, out string error)
+        {
+            error = null;
+            lock (motionResourceLock)
+            {
+                if (Context?.Maintenance?.Active == true)
+                {
+                    error = string.IsNullOrWhiteSpace(Context.Maintenance.Reason)
+                        ? "系统正在执行配置维护，禁止开始手动运动。"
+                        : $"系统正在执行配置维护:{Context.Maintenance.Reason}";
+                    return false;
+                }
                 if (motionResourceOwners.TryGetValue(key, out object owner))
                 {
-                    if (ReferenceEquals(owner, manualMotionOwner))
+                    if (IsManualMotionOwner(owner))
                     {
                         if (currentManualMotionReservation != null
+                            && ReferenceEquals(owner, manualMotionOwner)
                             && currentManualMotionReservation.Remove(key))
                         {
                             return true;
                         }
-                        error = $"轴资源已被手动操作占用:{card}-{axis}";
+                        error = $"{resource}已被手动操作占用";
                         return false;
                     }
                     error = owner is ProcHandle ownerHandle
-                        ? $"轴资源被流程{ownerHandle.procNum}占用:{card}-{axis}"
-                        : $"轴资源被其他运行实例占用:{card}-{axis}";
+                        ? $"{resource}被流程{ownerHandle.procNum}占用"
+                        : $"{resource}被其他运行实例占用";
                     return false;
                 }
                 motionResourceOwners[key] = manualMotionOwner;
@@ -1267,7 +1509,54 @@ namespace Automation
 
         public void ReleaseManualMotionResource(ushort card, ushort axis)
         {
-            long key = BuildMotionResourceKey(card, axis);
+            ReleaseManualMotionResourceCore(BuildMotionResourceKey(card, axis));
+        }
+
+        public void ReleaseManualStationMotionResource(short station)
+        {
+            ManualStationMotionReservationLease reservation = null;
+            long key = BuildStationMotionResourceKey(station);
+            lock (motionResourceLock)
+            {
+                if (!motionResourceOwners.TryGetValue(key, out object owner))
+                {
+                    return;
+                }
+                if (ReferenceEquals(owner, manualMotionOwner))
+                {
+                    motionResourceOwners.Remove(key);
+                    return;
+                }
+                reservation = owner as ManualStationMotionReservationLease;
+            }
+            reservation?.Dispose();
+        }
+
+        private void ReleaseManualStationMotionReservation(
+            ManualStationMotionReservationLease reservation)
+        {
+            lock (motionResourceLock)
+            {
+                foreach (long key in reservation.MotionKeys)
+                {
+                    if (motionResourceOwners.TryGetValue(key, out object owner)
+                        && ReferenceEquals(owner, reservation))
+                    {
+                        motionResourceOwners.Remove(key);
+                    }
+                }
+                if (reservation.CoordinateKey.HasValue
+                    && coordinateResourceOwners.TryGetValue(
+                        reservation.CoordinateKey.Value, out object coordinateOwner)
+                    && ReferenceEquals(coordinateOwner, reservation))
+                {
+                    coordinateResourceOwners.Remove(reservation.CoordinateKey.Value);
+                }
+            }
+        }
+
+        private void ReleaseManualMotionResourceCore(long key)
+        {
             lock (motionResourceLock)
             {
                 if (motionResourceOwners.TryGetValue(key, out object owner)
@@ -1280,26 +1569,60 @@ namespace Automation
 
         public void StopAllManualMotion()
         {
+            ManualStationMotionReservationLease[] stationReservations;
             long[] keys;
             lock (motionResourceLock)
             {
+                stationReservations = motionResourceOwners.Values
+                    .Concat(coordinateResourceOwners.Values)
+                    .OfType<ManualStationMotionReservationLease>()
+                    .Distinct()
+                    .ToArray();
                 keys = motionResourceOwners
                     .Where(item => ReferenceEquals(item.Value, manualMotionOwner))
                     .Select(item => item.Key)
                     .ToArray();
             }
-            foreach (long key in keys)
+            foreach (ManualStationMotionReservationLease reservation in stationReservations)
             {
-                ushort card = (ushort)(key >> 32);
-                ushort axis = (ushort)key;
                 try
                 {
-                    Context?.Motion?.StopOneAxis(card, axis, 0);
-                    ReleaseManualMotionResource(card, axis);
+                    MotionStationResult result = Context?.Motion?.StopStation(
+                        reservation.Station, false) ?? MotionStationResult.NotInitialized;
+                    if (result != MotionStationResult.Success)
+                    {
+                        throw new InvalidOperationException($"返回结果:{result}");
+                    }
+                    reservation.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    Logger?.Log($"安全停机时停止手动轴失败:{card}-{axis} {ex.Message}", LogLevel.Error);
+                    Logger?.Log(
+                        $"安全停机时停止手动工站失败:{reservation.Station} {ex.Message}",
+                        LogLevel.Error);
+                }
+            }
+            foreach (long key in keys)
+            {
+                try
+                {
+                    if (IsStationMotionResource(key))
+                    {
+                        short station = GetStationFromMotionResource(key);
+                        Context?.Motion?.StopStation(station, false);
+                        ReleaseManualStationMotionResource(station);
+                    }
+                    else
+                    {
+                        ushort card = (ushort)(key >> 32);
+                        ushort axis = (ushort)key;
+                        Context?.Motion?.StopOneAxis(card, axis, 0);
+                        ReleaseManualMotionResource(card, axis);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger?.Log($"安全停机时停止手动运动失败:{DescribeMotionResource(key)} {ex.Message}", LogLevel.Error);
                 }
             }
         }
@@ -1349,15 +1672,28 @@ namespace Automation
                 string stopError = null;
                 foreach (long key in keys)
                 {
-                    ushort card = (ushort)(key >> 32);
-                    ushort axis = (ushort)key;
                     try
                     {
-                        Context?.Motion?.StopOneAxis(card, axis, 0);
+                        if (IsStationMotionResource(key))
+                        {
+                            short station = GetStationFromMotionResource(key);
+                            MotionStationResult result = Context?.Motion?.StopStation(station, false)
+                                ?? MotionStationResult.NotInitialized;
+                            if (result != MotionStationResult.Success)
+                            {
+                                throw new InvalidOperationException($"返回结果:{result}");
+                            }
+                        }
+                        else
+                        {
+                            ushort card = (ushort)(key >> 32);
+                            ushort axis = (ushort)key;
+                            Context?.Motion?.StopOneAxis(card, axis, 0);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        stopError = $"停止轴失败:{card}-{axis} {ex.Message}";
+                        stopError = $"停止运动资源失败:{DescribeMotionResource(key)} {ex.Message}";
                         Logger?.Log(stopError, LogLevel.Error);
                     }
                 }
@@ -1424,6 +1760,73 @@ namespace Automation
             }
             error = $"流程{procIndex}尚未结束，当前状态为{state}。请排查流程未结束原因后再启动。";
             return false;
+        }
+
+        /// <summary>
+        /// 运动配置提交期间的统一静止契约。调用方必须先持有 Maintenance 租约；
+        /// 本检查与流程调度最终启动点、手动运动资源占用使用同一组同步边界。
+        /// </summary>
+        public bool TryValidateMotionConfigurationIdle(out string error)
+        {
+            error = null;
+            if (Context?.Maintenance?.Active != true)
+            {
+                error = "尚未进入配置维护，不能检查或提交运动配置。";
+                return false;
+            }
+
+            lock (motionConfigurationActivityLock)
+            {
+                KeyValuePair<int, ProcAgent>[] runningAgents = activeAgents.ToArray();
+                if (runningAgents.Length > 0)
+                {
+                    int procIndex = runningAgents.Min(item => item.Key);
+                    ProcRunState state = GetSnapshot(procIndex)?.State ?? ProcRunState.Running;
+                    error = $"流程{procIndex}尚未结束，当前状态为{state}，运动配置未提交。";
+                    return false;
+                }
+
+                int procCount = Context?.Procs?.Count ?? 0;
+                for (int procIndex = 0; procIndex < procCount; procIndex++)
+                {
+                    EngineSnapshot snapshot = GetSnapshot(procIndex);
+                    ProcRunState state = snapshot?.State ?? ProcRunState.Ready;
+                    if (!state.IsInactive())
+                    {
+                        error = $"流程{procIndex}尚未结束，当前状态为{state}，运动配置未提交。";
+                        return false;
+                    }
+                }
+
+                lock (motionResourceLock)
+                {
+                    if (motionResourceOwners.Count > 0)
+                    {
+                        KeyValuePair<long, object> occupied = motionResourceOwners.First();
+                        string owner = IsManualMotionOwner(occupied.Value)
+                            ? "手动操作"
+                            : occupied.Value is ProcHandle handle
+                                ? $"流程{handle.procNum}"
+                                : "其他运行实例";
+                        error = $"{DescribeMotionResource(occupied.Key)}仍被{owner}占用，运动配置未提交。";
+                        return false;
+                    }
+                    if (coordinateResourceOwners.Count > 0)
+                    {
+                        KeyValuePair<long, object> occupied = coordinateResourceOwners.First();
+                        ushort card = (ushort)(occupied.Key >> 32);
+                        ushort coordinateSystem = (ushort)occupied.Key;
+                        string owner = IsManualMotionOwner(occupied.Value)
+                            ? "手动操作"
+                            : occupied.Value is ProcHandle handle
+                                ? $"流程{handle.procNum}"
+                                : "其他运行实例";
+                        error = $"卡{card}坐标系{coordinateSystem}仍被{owner}占用，运动配置未提交。";
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         public bool TryValidateProcessStart(Proc proc, int procIndex, out string error)
@@ -2753,15 +3156,27 @@ namespace Automation
             {
                 IsBackground = true
             };
-            lock (sync)
+            lock (engine.MotionConfigurationActivityLock)
             {
-                current = new ExecutionContext
+                // StartProcAt 入队后可能恰好进入配置维护；在活动实例正式可见前，
+                // 必须与运动配置静止检查互斥地重查一次全局启动闸门。
+                if (!engine.TryValidateStartGate(out startError))
                 {
-                    Handle = handle,
-                    Thread = execThread
-                };
+                    waiter.Dispose();
+                    control.Dispose();
+                    engine.Logger?.Log($"启动流程失败:{startError}", LogLevel.Error);
+                    return false;
+                }
+                lock (sync)
+                {
+                    current = new ExecutionContext
+                    {
+                        Handle = handle,
+                        Thread = execThread
+                    };
+                }
+                engine.ActivateAgent(procIndex, this);
             }
-            engine.ActivateAgent(procIndex, this);
             // 活动实例先可见；生命周期开始事实仍先于首个位置快照，便于审计绑定 runId。
             engine.RaiseProcessStarted(handle);
             engine.PublishHandleSnapshot(handle);

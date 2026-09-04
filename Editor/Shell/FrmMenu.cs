@@ -75,7 +75,7 @@ namespace Automation
         private void ConfigureMachineAgentButton()
         {
             machineAgent_Page.Name = "machineAgent_Page";
-            machineAgent_Page.Text = "Machine Agent";
+            machineAgent_Page.Text = "设备智能体";
             machineAgent_Page.Click += machineAgent_Page_Click;
             panel1.Controls.Add(machineAgent_Page);
         }
@@ -508,7 +508,7 @@ namespace Automation
         {
             if (!Workspace.Runtime.Accounts.Authorize(
                 PlatformPermissionCodes.PlatformEditorOpen,
-                "打开Machine Agent",
+                "打开设备智能体",
                 out string permissionError))
             {
                 MessageBox.Show(permissionError, "权限不足", MessageBoxButtons.OK, MessageBoxIcon.Warning);

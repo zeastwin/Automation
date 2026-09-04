@@ -134,6 +134,22 @@ namespace Automation
             }
         }
 
+        internal override int PreferredLabelWidth => itemsPanel.Controls
+            .OfType<InspectorCollectionItemControl>()
+            .Select(item => item.PreferredLabelWidth)
+            .DefaultIfEmpty(MinimumLabelWidth)
+            .Max();
+
+        internal override void SetLabelWidth(int labelWidth)
+        {
+            base.SetLabelWidth(labelWidth);
+            foreach (InspectorCollectionItemControl item in itemsPanel.Controls
+                .OfType<InspectorCollectionItemControl>())
+            {
+                item.SetLabelWidth(labelWidth);
+            }
+        }
+
         public override bool CanRebind(InspectorFieldDefinition next)
         {
             if (!base.CanRebind(next))
@@ -275,6 +291,10 @@ namespace Automation
                 OnFieldValueChanged();
             itemControl.SizeChanged += (sender, args) =>
                 LayoutControls();
+            if (PageLabelWidth.HasValue)
+            {
+                itemControl.SetLabelWidth(PageLabelWidth.Value);
+            }
             return itemControl;
         }
 
@@ -647,6 +667,19 @@ namespace Automation
         public event EventHandler DeleteRequested;
         public event Action<object, int> MoveRequested;
         public event EventHandler FieldValueChanged;
+
+        internal int PreferredLabelWidth => fieldControls
+            .Select(control => control.PreferredLabelWidth)
+            .DefaultIfEmpty(InspectorFieldControl.MinimumLabelWidth)
+            .Max();
+
+        internal void SetLabelWidth(int labelWidth)
+        {
+            foreach (InspectorFieldControl field in fieldControls)
+            {
+                field.SetLabelWidth(labelWidth);
+            }
+        }
 
         public bool IsBoundTo(object candidate)
         {

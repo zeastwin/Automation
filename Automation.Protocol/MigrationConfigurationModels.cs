@@ -8,7 +8,7 @@ namespace Automation.Protocol
 {
     public sealed class MotionIoMigrationDefinition
     {
-        [Description("完整控制卡列表；列表顺序就是cardIndex。")]
+        [Description("完整控制卡列表；当前只允许为空或包含一张雷赛总线卡，唯一卡的cardIndex为0。")]
         public List<ControlCardMigrationDefinition> ControlCards { get; set; } = new List<ControlCardMigrationDefinition>();
         [Description("完整IO映射；每项通过cardIndex关联控制卡。每张卡的输入/输出项数必须与控制卡声明一致。")]
         public List<IoMigrationDefinition> IoMappings { get; set; } = new List<IoMigrationDefinition>();
@@ -16,8 +16,8 @@ namespace Automation.Protocol
 
     public sealed class ControlCardMigrationDefinition
     {
-        [Description("平台注册的控制卡类型名称。")]
-        public string CardType { get; set; } = string.Empty;
+        [Description("严格固定为：雷赛总线卡。")]
+        public string CardType { get; set; } = "雷赛总线卡";
         [Description("该卡通用输入点总数，必须与ioMappings中的通用输入数量一致。")]
         public int InputCount { get; set; }
         [Description("该卡通用输出点总数，必须与ioMappings中的通用输出数量一致。")]
@@ -32,7 +32,14 @@ namespace Automation.Protocol
         public string Name { get; set; } = string.Empty;
         [Description("单位毫米脉冲，必须大于0。")]
         public int PulseToMm { get; set; }
-        public string HomeDirection { get; set; } = string.Empty;
+        [Description("雷赛总线回原方法；-1或0表示沿用card_0.ini，大于0表示使用指定方法。")]
+        public int HomeMethod { get; set; } = -1;
+        [Description("编码器类型：Incremental 或 Absolute。")]
+        public string EncoderType { get; set; } = "Incremental";
+        [Description("负软限位；与正软限位同时为0时沿用card_0.ini。")]
+        public double NegativeSoftLimit { get; set; }
+        [Description("正软限位；与负软限位同时为0时沿用card_0.ini。")]
+        public double PositiveSoftLimit { get; set; }
         public string HomeSpeed { get; set; } = string.Empty;
         public int SpeedInfo { get; set; }
         [Description("最大速度，必须大于0。")]
@@ -49,10 +56,12 @@ namespace Automation.Protocol
         public string Name { get; set; } = string.Empty;
         [Description("控制卡列表的0基索引。")]
         public int CardIndex { get; set; }
+        [Description("当前雷赛总线卡使用扁平IO编号，严格固定为0。")]
         public int Module { get; set; }
         public string IoIndex { get; set; } = string.Empty;
         [Description("严格枚举：通用输入 或 通用输出。")]
         public string IoType { get; set; } = string.Empty;
+        [Description("严格枚举：通用、急停、复位、启动、暂停、停止、刹车。系统控制信号为输入，刹车为输出。")]
         public string UsedType { get; set; } = "通用";
         public string EffectLevel { get; set; } = "正常";
         public string Note { get; set; } = string.Empty;
