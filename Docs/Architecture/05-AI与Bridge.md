@@ -47,7 +47,7 @@ Goose 不直接连接 WinForms，也不直接访问 Named Pipe。它只看到 MC
 3. `session/prompt`
 4. 必要时 `session/cancel`
 
-原 AI 助手的每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程。Machine Agent 不走这条宿主 Prompt 拼接路径，只发送结构化当前请求与首次会话恢复所需的有限独立历史。
+原 AI 助手的每轮 prompt 会附加当前编辑器实际选择到的最深层对象。选择只帮助定位，不代表用户授权修改。Provider、Model、平台集成上下文和 UTF-8 PowerShell 环境只覆盖当前 Goose 子进程，且 Provider/Model 只通过进程环境注入，不在 `session/new._meta` 重复发送；Goose 会把 `_meta.provider` 解释为切换 Provider 并重置为其默认模型。Machine Agent 不走这条宿主 Prompt 拼接路径，只发送结构化当前请求与首次会话恢复所需的有限独立历史。
 
 ACP 流式过程仍可在当前前台显示并进入底层取证日志，正常完成持久化当前工作阶段的最终 assistant 答复。工具过程、推理片段、重复阶段总结和多阶段拼接文本不另行复制进业务历史；用户停止或后续异常时才用已完成阶段的有限输出形成部分结果。同一条用户请求的能力阶段复用一个 Goose 原生会话，能力切换时不重复注入完整目标或阶段摘要；请求到达完成、停止或失败终态后标记可信滚动，下一条用户请求建立新原生会话，只恢复有限最终消息、结构化交接和机械阶段事实。业务 `conversationId` 继续保持，当前用户语句只作为本轮 prompt 发送一次，从而保留对话连续性而不跨请求累积工具 Schema、推理草稿和大型结果。
 
