@@ -328,7 +328,7 @@ namespace Automation.Bridge
                 ["runtimeEvidence"] = runtime.RuntimeBlackBoxRecorder?.BuildEvidencePage(
                     procIndex, evidenceOffset, evidenceLimit)
                     ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePage(
-                        procIndex, evidenceOffset, evidenceLimit)
+                        procIndex, evidenceOffset, evidenceLimit, runtime.StateHistory)
             };
             int targetStep = stepIndex ?? snapshot?.StepIndex ?? -1;
             int targetOp = opIndex ?? snapshot?.OpIndex ?? -1;

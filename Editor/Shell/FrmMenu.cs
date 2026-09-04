@@ -19,6 +19,7 @@ namespace Automation
         private readonly Font normalMenuButtonFont = new Font("Microsoft YaHei UI", 12F, FontStyle.Regular);
         private readonly Font compactMenuButtonFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Regular);
         private readonly Button version_Page = new Button();
+        private readonly Button equipmentTopology_Page = new Button();
         private readonly Button runtimeDiagnostics_Page = new Button();
         private readonly Dictionary<Button, UiIconKind> menuIcons = new Dictionary<Button, UiIconKind>();
         private readonly Dictionary<Button, Image> inactiveMenuIconImages = new Dictionary<Button, Image>();
@@ -33,10 +34,12 @@ namespace Automation
         private const int CommunicationPageIndex = 7;
         private const int PlcPageIndex = 8;
         private const int VersionPageIndex = 9;
+        private const int EquipmentTopologyPageIndex = 10;
 
         public FrmMenu()
         {
             InitializeComponent();
+            ConfigureEquipmentTopologyButton();
             ConfigureVersionButton();
             ConfigureRuntimeDiagnosticsButton();
             ConfigureMenuAppearance();
@@ -69,6 +72,14 @@ namespace Automation
             panel1.Controls.Add(version_Page);
         }
 
+        private void ConfigureEquipmentTopologyButton()
+        {
+            equipmentTopology_Page.Name = "equipmentTopology_Page";
+            equipmentTopology_Page.Text = "拓扑孪生";
+            equipmentTopology_Page.Click += equipmentTopology_Page_Click;
+            panel1.Controls.Add(equipmentTopology_Page);
+        }
+
         private void ConfigureRuntimeDiagnosticsButton()
         {
             runtimeDiagnostics_Page.Name = "runtimeDiagnostics_Page";
@@ -99,6 +110,7 @@ namespace Automation
             menuIcons.Add(Plc_Page, UiIconKind.Plc);
             menuIcons.Add(valueDebug_Page, UiIconKind.Debug);
             menuIcons.Add(Card_Page, UiIconKind.ControlCard);
+            menuIcons.Add(equipmentTopology_Page, UiIconKind.Topology);
             menuIcons.Add(version_Page, UiIconKind.History);
             menuIcons.Add(aiAssistant_Page, UiIconKind.Ai);
             menuIcons.Add(runtimeDiagnostics_Page, UiIconKind.Monitor);
@@ -277,6 +289,7 @@ namespace Automation
                 communication_Page,
                 Plc_Page,
                 Card_Page,
+                equipmentTopology_Page,
                 valueDebug_Page,
                 version_Page,
                 aiAssistant_Page,
@@ -357,6 +370,7 @@ namespace Automation
                 PlatformPermissionCodes.PlcOperate, PlatformPermissionCodes.PlcConfigure);
             Card_Page.Enabled = editorOpen && HasAny(accounts,
                 PlatformPermissionCodes.HardwareConfigure, PlatformPermissionCodes.IoConfigure);
+            equipmentTopology_Page.Enabled = editorOpen;
             valueDebug_Page.Enabled = editorOpen
                 && accounts.CheckPermission(PlatformPermissionCodes.VariableDebug, out _);
             aiAssistant_Page.Enabled = editorOpen
@@ -488,6 +502,14 @@ namespace Automation
                 return;
             }
             ShowEmbeddedMainPage(Workspace.GetOrCreateVersionManager(), version_Page, VersionPageIndex);
+        }
+
+        private void equipmentTopology_Page_Click(object sender, EventArgs e)
+        {
+            ShowEmbeddedMainPage(
+                Workspace.GetOrCreateEquipmentTopologyTwin(),
+                equipmentTopology_Page,
+                EquipmentTopologyPageIndex);
         }
 
         // AI 助手打开时隐藏流程列表的"备注"列，腾出空间给助手窗体

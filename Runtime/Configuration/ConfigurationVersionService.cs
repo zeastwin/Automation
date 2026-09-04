@@ -82,6 +82,7 @@ namespace Automation
                 "card.json",
                 "DataStation.json",
                 "DataStruct.json",
+                "EquipmentTopology.json",
                 "GooseConfig.json",
                 "IODebugMap.json",
                 "IOMap.json",
@@ -2571,6 +2572,7 @@ namespace Automation
             if (IsHmiRelativePath(path) || IsProjectRelativePath(path)) return "HMI 代码";
             if (string.Equals(file, "DataStruct.json", StringComparison.OrdinalIgnoreCase)) return "数据结构";
             if (string.Equals(file, "DataStation.json", StringComparison.OrdinalIgnoreCase)) return "工站点位";
+            if (string.Equals(file, "EquipmentTopology.json", StringComparison.OrdinalIgnoreCase)) return "设备拓扑孪生";
             if (string.Equals(file, "IOMap.json", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(file, "IODebugMap.json", StringComparison.OrdinalIgnoreCase)) return "IO";
             if (string.Equals(file, "card.json", StringComparison.OrdinalIgnoreCase)) return "控制卡";

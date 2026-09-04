@@ -23,6 +23,7 @@ namespace Automation
             IoDebug = new IoDebugConfigurationStore();
             ValueDebug = new ValueDebugConfigurationStore();
             Stations = new StationDefinitionStore();
+            Topology = new EquipmentTopologyStore();
             Cards = new CardConfigStore();
             Values = new ValueConfigStore(runtime);
             DataStructures = new DataStructStore(runtime);
@@ -37,6 +38,7 @@ namespace Automation
         public IoDebugConfigurationStore IoDebug { get; }
         public ValueDebugConfigurationStore ValueDebug { get; }
         public StationDefinitionStore Stations { get; }
+        public EquipmentTopologyStore Topology { get; }
         public CardConfigStore Cards { get; }
         public ValueConfigStore Values { get; }
         public DataStructStore DataStructures { get; }
@@ -111,6 +113,8 @@ namespace Automation
         public PlcRuntimeService PlcRuntime { get; }
         public ConfigurationVersionService VersionService { get; }
         public IPlatformEditorUiAdapter EditorUi { get; internal set; }
+        internal EquipmentStateHistoryService StateHistory { get; set; }
+        internal EquipmentStatePerceptionService StatePerception { get; set; }
         internal RuntimeBlackBoxRecorder RuntimeBlackBoxRecorder { get; set; }
 
         public ProcessDefinitionValidationContext CreateProcessValidationContext()

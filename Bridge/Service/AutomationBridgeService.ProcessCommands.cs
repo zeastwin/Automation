@@ -418,7 +418,8 @@ namespace Automation.Bridge
                 ["elapsedMs"] = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds,
                 ["snapshot"] = BuildEngineSnapshot(snapshot, procIndex),
                 ["runtimeEvidence"] = runtime.RuntimeBlackBoxRecorder?.BuildEvidencePackage(procIndex)
-                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(procIndex)
+                    ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(
+                        procIndex, runtime.StateHistory)
             };
         }
 

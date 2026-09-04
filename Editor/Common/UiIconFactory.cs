@@ -19,6 +19,7 @@ namespace Automation
         Debug,
         ControlCard,
         History,
+        Topology,
         Ai,
         Save,
         Cancel,
@@ -245,6 +246,15 @@ namespace Automation
                         graphics.DrawLine(primaryPen, 4, 5, 9, 5);
                         graphics.DrawLine(primaryPen, 12, 7.5F, 12, 12);
                         graphics.DrawLine(primaryPen, 12, 12, 15.5F, 14);
+                        break;
+                    case UiIconKind.Topology:
+                        graphics.DrawLine(secondaryPen, 12, 6, 6, 17);
+                        graphics.DrawLine(secondaryPen, 12, 6, 18, 17);
+                        graphics.DrawLine(secondaryPen, 6, 17, 18, 17);
+                        FillCircle(graphics, primaryBrush, 12, 5, 2.6F);
+                        FillCircle(graphics, primaryBrush, 5.5F, 18, 2.6F);
+                        FillCircle(graphics, primaryBrush, 18.5F, 18, 2.6F);
+                        FillCircle(graphics, secondaryBrush, 12, 12.5F, 1.8F);
                         break;
                     case UiIconKind.Ai:
                         DrawSparkle(graphics, secondaryPen, 12, 11, 6.5F);

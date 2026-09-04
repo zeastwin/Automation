@@ -38,6 +38,7 @@ namespace Automation
 
         private readonly ProcessEngine engine;
         private readonly ValueConfigStore valueStore;
+        private readonly EquipmentStateHistoryService stateHistory;
         private readonly object syncRoot = new object();
         private readonly Dictionary<Guid, Queue<RuntimeBlackBoxEvent>> processEvents =
             new Dictionary<Guid, Queue<RuntimeBlackBoxEvent>>();
@@ -52,10 +53,14 @@ namespace Automation
         private long nextSequence;
         private int disposed;
 
-        public RuntimeBlackBoxRecorder(ProcessEngine engine, ValueConfigStore valueStore)
+        public RuntimeBlackBoxRecorder(
+            ProcessEngine engine,
+            ValueConfigStore valueStore,
+            EquipmentStateHistoryService stateHistory = null)
         {
             this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
             this.valueStore = valueStore ?? throw new ArgumentNullException(nameof(valueStore));
+            this.stateHistory = stateHistory;
             engine.SnapshotChanged += HandleSnapshotChanged;
             engine.ProcessStarted += HandleProcessStarted;
             engine.OperationFailed += HandleOperationFailed;
@@ -67,9 +72,12 @@ namespace Automation
         public long Revision => Interlocked.Read(ref nextSequence);
 
         /// <summary>生成初始化前的V2空证据包，避免Bridge维护另一份近似契约。</summary>
-        internal static JObject BuildUnavailableEvidencePackage(int procIndex)
+        internal static JObject BuildUnavailableEvidencePackage(
+            int procIndex,
+            EquipmentStateHistoryService stateHistory = null)
         {
-            return new JObject
+            DateTime nowUtc = DateTime.UtcNow;
+            JObject package = new JObject
             {
                 ["schemaVersion"] = 2,
                 ["packageType"] = "ai_evidence",
@@ -85,11 +93,21 @@ namespace Automation
                 ["events"] = new JArray(),
                 ["evidenceLimits"] = new JArray("运行黑匣子尚未初始化。")
             };
+            package["equipmentStateHistory"] = BuildStateHistoryReference(
+                stateHistory,
+                null,
+                nowUtc - DefaultTimelineWindow,
+                nowUtc);
+            return package;
         }
 
-        internal static JObject BuildUnavailableEvidencePage(int procIndex, int offset, int limit)
+        internal static JObject BuildUnavailableEvidencePage(
+            int procIndex,
+            int offset,
+            int limit,
+            EquipmentStateHistoryService stateHistory = null)
         {
-            JObject package = BuildUnavailableEvidencePackage(procIndex);
+            JObject package = BuildUnavailableEvidencePackage(procIndex, stateHistory);
             package["eligibleEventCount"] = 0;
             package["evidenceOffset"] = offset;
             package["evidenceLimit"] = limit;
@@ -554,7 +572,7 @@ namespace Automation
                 : 0;
             DateTime? windowStartUtc = rawEvents.Count > 0 ? rawEvents.Min(item => item.TimeUtc) : (DateTime?)null;
             DateTime? windowEndUtc = rawEvents.Count > 0 ? rawEvents.Max(item => item.TimeUtc) : (DateTime?)null;
-            return new JObject
+            JObject package = new JObject
             {
                 ["schemaVersion"] = 2,
                 ["packageType"] = packageType,
@@ -586,7 +604,102 @@ namespace Automation
                     "流程位置来自50ms节流后的变化快照，不等同于逐指令追踪。",
                     "变量事件只包含平台已启用监控的变量。",
                     "故障事故包保留目标流程故障前3分钟、后60秒；平台级PLC和通讯事件按故障前后30秒关联。",
-                    "IO、轴、PLC和通讯的历史值仅在对应运行事件已产生时存在；诊断时仍需读取当前状态。")
+                    "设备语义状态来自独立状态历史服务；未纳入已确认拓扑绑定的IO、轴、PLC和通讯仍需读取当前状态。")
+            };
+            package["equipmentStateHistory"] = BuildStateHistoryReference(
+                stateHistory,
+                marker,
+                windowStartUtc ?? nowUtc - DefaultTimelineWindow,
+                windowEndUtc ?? nowUtc);
+            return package;
+        }
+
+        private static JObject BuildStateHistoryReference(
+            EquipmentStateHistoryService stateHistory,
+            IncidentMarker marker,
+            DateTime windowStartUtc,
+            DateTime windowEndUtc)
+        {
+            if (stateHistory == null)
+            {
+                return new JObject
+                {
+                    ["available"] = false,
+                    ["owner"] = "equipment_state_history",
+                    ["reason"] = "设备状态历史服务未初始化。"
+                };
+            }
+            DateTime startUtc = marker == null
+                ? windowStartUtc
+                : marker.FailureTimeUtc - IncidentPreWindow;
+            DateTime endUtc = marker == null
+                ? windowEndUtc
+                : marker.FailureTimeUtc + IncidentPostWindow;
+            EquipmentStateHistoryWindow window = stateHistory.GetWindow(
+                startUtc,
+                endUtc,
+                MaximumAiEvidenceEventCount,
+                null);
+            JObject package = new JObject
+            {
+                ["available"] = true,
+                ["owner"] = "equipment_state_history",
+                ["latestSequence"] = window.LatestSequence,
+                ["earliestAvailableSequence"] = window.EarliestAvailableSequence,
+                ["truncated"] = window.Truncated,
+                ["baseline"] = BuildStateSnapshotObject(window.Baseline),
+                ["events"] = new JArray(window.Events.Select(BuildStateEventObject))
+            };
+            return package;
+        }
+
+        private static JObject BuildStateSnapshotObject(EquipmentStateSnapshot snapshot)
+        {
+            return new JObject
+            {
+                ["sequence"] = snapshot.Sequence,
+                ["timeUtc"] = snapshot.TimeUtc.ToString("O", CultureInfo.InvariantCulture),
+                ["topologyRevision"] = snapshot.TopologyRevision,
+                ["nodeStates"] = new JArray(snapshot.NodeStates.Select(item => new JObject
+                {
+                    ["nodeId"] = item.NodeId,
+                    ["nodeLabel"] = item.NodeLabel,
+                    ["stateName"] = item.StateName,
+                    ["meaning"] = item.Meaning,
+                    ["quality"] = item.Quality,
+                    ["confidence"] = item.Confidence,
+                    ["sequence"] = item.Sequence,
+                    ["updatedAtUtc"] = item.UpdatedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+                    ["sourceKind"] = item.SourceKind,
+                    ["resourceRef"] = item.ResourceRef,
+                    ["bindingId"] = item.BindingId
+                }))
+            };
+        }
+
+        private static JObject BuildStateEventObject(EquipmentStateHistoryEvent item)
+        {
+            return new JObject
+            {
+                ["sequence"] = item.Sequence,
+                ["observedAtUtc"] = item.ObservedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+                ["receivedAtUtc"] = item.ReceivedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+                ["topologyRevision"] = item.TopologyRevision,
+                ["eventType"] = item.EventType,
+                ["nodeId"] = item.NodeId,
+                ["nodeLabel"] = item.NodeLabel,
+                ["aspect"] = item.Aspect,
+                ["oldValue"] = item.OldValue,
+                ["newValue"] = item.NewValue,
+                ["meaning"] = item.Meaning,
+                ["quality"] = item.Quality,
+                ["confidence"] = item.Confidence,
+                ["sourceKind"] = item.SourceKind,
+                ["resourceRef"] = item.ResourceRef,
+                ["bindingId"] = item.BindingId,
+                ["causedBySequence"] = item.CausedBySequence.HasValue
+                    ? (JToken)item.CausedBySequence.Value
+                    : JValue.CreateNull()
             };
         }
 

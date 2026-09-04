@@ -241,7 +241,8 @@ namespace Automation
             }
 
             JObject evidence = recorder?.BuildTimelinePackage(selectedProcIndex, fullTimeline)
-                ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(selectedProcIndex);
+                ?? RuntimeBlackBoxRecorder.BuildUnavailableEvidencePackage(
+                    selectedProcIndex, owner.Runtime.StateHistory);
             lastEvidenceRevision = revision;
             lastEvidenceProcIndex = selectedProcIndex;
             lastFullTimeline = fullTimeline;

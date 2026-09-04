@@ -4,6 +4,7 @@ using System;
 // 失败语义：初始化尽量完成并收集 Messages；Safety Lock 与 Readiness 才决定哪些能力禁止运行。
 
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace Automation
@@ -58,6 +59,11 @@ namespace Automation
                 runtime.Safety.Lock(stationError);
                 Log(runtime, stationError, LogLevel.Error);
             }
+            if (!runtime.Stores.Topology.Load(runtime.Paths.ConfigPath, out string topologyError))
+            {
+                // 拓扑孪生暂不参与运行闸门；配置损坏时保留设备停止、调试和人工修复能力。
+                Log(runtime, topologyError, LogLevel.Error);
+            }
             if (!runtime.Stores.Cards.TryValidateStations(
                 runtime.Stores.Stations.Items,
                 out List<string> stationErrors))
@@ -90,6 +96,25 @@ namespace Automation
             // 先发布已验证的资源可用性，再初始化实际设备；运行闸门据此给出精确的不可用原因。
             PublishResourceState(runtime);
             runtime.Devices.Initialize();
+            try
+            {
+                runtime.StateHistory = new EquipmentStateHistoryService(
+                    Path.Combine(@"D:\AutomationLogs", "StateHistory"));
+                runtime.StatePerception = new EquipmentStatePerceptionService(
+                    runtime.Stores.Topology,
+                    runtime.Stores.IoConfiguration,
+                    runtime.Io,
+                    runtime.StateHistory);
+                runtime.StatePerception.Start();
+            }
+            catch (Exception ex)
+            {
+                runtime.StatePerception?.Dispose();
+                runtime.StatePerception = null;
+                runtime.StateHistory?.Dispose();
+                runtime.StateHistory = null;
+                Log(runtime, "设备状态感知初始化失败：" + ex.Message, LogLevel.Error);
+            }
             runtime.SystemStatus = new PlatformSystemStatusService(runtime);
             runtime.SystemStatus.Start();
             if (runtime.Safety.IsLocked)

@@ -398,7 +398,10 @@ namespace Automation
             {
                 try
                 {
-                    runtimeBlackBoxRecorder = new RuntimeBlackBoxRecorder(dataRun, Runtime.Stores.Values);
+                    runtimeBlackBoxRecorder = new RuntimeBlackBoxRecorder(
+                        dataRun,
+                        Runtime.Stores.Values,
+                        Runtime.StateHistory);
                     Runtime.RuntimeBlackBoxRecorder = runtimeBlackBoxRecorder;
                 }
                 catch (Exception ex)

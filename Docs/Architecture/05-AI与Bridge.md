@@ -57,6 +57,8 @@ MCP 进程按固定 Profile 共享复用，各业务对话的 ACP 会话、取�
 
 AI 前台内部按当前职责分层：`AiConversationCoordinator` 统一拥有会话、任务运行时、单轮执行、取消和历史收尾，`GooseAcpEventReader` 解析 ACP 工具结果，`AiPreviewConfirmationCoordinator` 归一化预演状态并去重，`AutomationBridgePreviewClient` 是前台确认/拒绝的最小 Named Pipe 客户端。`FrmAiAssistant` 只组合这些对象并负责输入、气泡和 Web 展示；模板、渲染和审核对话框分别位于对应 partial 文件。
 
+设备拓扑页的“AI 精修”是独立的有界纯计算会话，不进入业务对话历史，也不申请流程、资源或运行能力。页面先用 `TopologyRuleInferenceService` 从指令真实类型、参数路径和确定性控制流产生带 `factId` 的规则事实，再把候选与事实交给同一模型配置；该会话的全部工具请求均拒绝。AI 只能返回节点、状态绑定和关系的白名单候选，每项必须引用本轮有效 `factId`，宿主重新解析、限制枚举与数量并执行 `EquipmentTopologyStore` 完整校验；结果仍停留在未保存的 `candidate/conflict`，需人工确认和显式保存，不能执行设备动作或替代安全联锁。
+
 ## 工具 Profile
 
 `Automation.Protocol/AutomationToolProfiles.cs` 保存档位名称和任务 Profile 的精确工具名集合，`McpServer/McpToolProfile.cs` 负责权限外壳、工具过滤和输入 Schema 收窄。档位分两层：
@@ -228,6 +230,7 @@ AI 助手的首要目标是：让模型在当前能力包内顺畅取得完成�
 | 配置可保存性 | `AiChangeSetCompiler`、`ProcessDefinitionService` |
 | 流程可运行性 | `ProcessReadinessService` 和实际启动闸门 |
 | 运行实例、终态与 CT 样本 | `EngineSnapshot.RunId/State/TerminationReason`、`ProcessEngine.GetLatestCycleTimeSamples`、运行黑匣子 |
+| 设备语义状态与刚才发生的变化 | `EquipmentStateHistoryService` 的状态时间线；节点状态是投影，运行黑匣子只引用事故时段窗口 |
 | 预演、确认、哈希和提交状态 | `AutomationBridgeService` 的结构化响应 |
 | 已提交对象身份 | `createdObjects/affectedProcesses` 返回的稳定 ID |
 

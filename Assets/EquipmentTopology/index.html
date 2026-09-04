@@ -1,0 +1,1455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>设备拓扑孪生</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07101d;
+      --surface: rgba(15, 27, 44, .88);
+      --surface-strong: #111f32;
+      --surface-soft: rgba(24, 39, 61, .72);
+      --line: rgba(151, 174, 207, .14);
+      --line-strong: rgba(151, 174, 207, .28);
+      --text: #edf5ff;
+      --muted: #8ea2bb;
+      --muted-2: #627790;
+      --cyan: #35d8f5;
+      --cyan-soft: rgba(53, 216, 245, .14);
+      --violet: #8a7dff;
+      --violet-soft: rgba(138, 125, 255, .16);
+      --green: #4ce0aa;
+      --amber: #ffbd69;
+      --red: #ff6b7f;
+      --shadow: 0 22px 60px rgba(0, 0, 0, .28);
+      --radius: 16px;
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--text); }
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: -30%;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 22% 8%, rgba(42, 204, 236, .12), transparent 25%),
+        radial-gradient(circle at 83% 12%, rgba(130, 107, 255, .13), transparent 24%),
+        radial-gradient(circle at 58% 100%, rgba(25, 120, 190, .09), transparent 32%);
+      filter: blur(26px);
+      animation: ambient 14s ease-in-out infinite alternate;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 70px minmax(0, 1fr);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 16, 29, .78);
+      backdrop-filter: blur(22px) saturate(145%);
+    }
+
+    .brand { display: flex; align-items: center; min-width: 250px; gap: 12px; }
+    .brand-mark {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      border: 1px solid rgba(90, 225, 250, .35);
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(53, 216, 245, .18), rgba(138, 125, 255, .16));
+      box-shadow: inset 0 0 20px rgba(53, 216, 245, .06), 0 0 26px rgba(53, 216, 245, .1);
+    }
+    .brand-mark::before, .brand-mark::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(53, 216, 245, .8);
+    }
+    .brand-mark::before { width: 7px; height: 7px; top: 8px; left: 15px; }
+    .brand-mark::after { width: 5px; height: 5px; left: 8px; bottom: 8px; box-shadow: 17px 0 0 var(--violet), 0 0 12px var(--cyan); }
+    .brand-mark span { position: absolute; left: 10px; top: 12px; width: 17px; height: 14px; border: 1px solid rgba(199, 239, 255, .58); border-top: 0; transform: skewX(-25deg); }
+    .brand-copy strong { display: block; font-size: 16px; letter-spacing: .04em; }
+    .brand-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+
+    .metric-strip { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+    .metric {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      background: rgba(20, 35, 55, .5);
+      white-space: nowrap;
+    }
+    .metric b { color: var(--text); font-size: 13px; }
+    .metric-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px rgba(53, 216, 245, .75); }
+    .metric.candidate .metric-dot { background: var(--amber); box-shadow: 0 0 10px rgba(255, 189, 105, .65); }
+    .metric.conflict .metric-dot { background: var(--red); box-shadow: 0 0 10px rgba(255, 107, 127, .65); }
+
+    .top-actions { display: flex; align-items: center; gap: 9px; }
+    .button {
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      background: rgba(20, 35, 55, .78);
+      cursor: pointer;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+    .button:hover { transform: translateY(-1px); border-color: rgba(83, 221, 246, .52); background: rgba(28, 48, 73, .92); }
+    .button:active { transform: translateY(0) scale(.98); }
+    .button.primary { border-color: rgba(73, 217, 244, .46); background: linear-gradient(120deg, #1ea9ca, #6d66e8); box-shadow: 0 8px 24px rgba(44, 164, 212, .2); }
+    .button.primary:hover { box-shadow: 0 10px 30px rgba(58, 198, 234, .28); }
+    .button.active { color: #dffbff; border-color: var(--cyan); background: var(--cyan-soft); }
+    .button.subtle { background: transparent; }
+    .button.danger { color: #ffdce1; border-color: rgba(255, 107, 127, .35); background: rgba(255, 107, 127, .1); }
+    .button:disabled { opacity: .5; pointer-events: none; }
+    .button .spin { animation: rotate 1s linear infinite; }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 272px minmax(420px, 1fr) 338px;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(155deg, rgba(17, 31, 50, .91), rgba(11, 23, 38, .9));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(16px);
+    }
+
+    .sidebar { display: flex; flex-direction: column; }
+    .panel-head { padding: 17px 17px 13px; border-bottom: 1px solid var(--line); }
+    .panel-title { display: flex; align-items: center; justify-content: space-between; }
+    .panel-title strong { font-size: 14px; }
+    .panel-title span { color: var(--muted); font-size: 11px; }
+    .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-top: 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(5, 13, 24, .45); }
+    .segment { height: 31px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; transition: .18s ease; }
+    .segment.active { color: var(--text); background: rgba(65, 93, 126, .46); box-shadow: inset 0 0 0 1px rgba(155, 185, 220, .08); }
+    .search { position: relative; margin-top: 12px; }
+    .search input { width: 100%; height: 36px; padding: 0 34px 0 12px; color: var(--text); border: 1px solid var(--line); outline: 0; border-radius: 9px; background: rgba(6, 15, 26, .58); transition: border-color .18s ease, box-shadow .18s ease; }
+    .search input:focus { border-color: rgba(53, 216, 245, .46); box-shadow: 0 0 0 3px rgba(53, 216, 245, .08); }
+    .search::after { content: "⌕"; position: absolute; right: 11px; top: 5px; color: var(--muted); font-size: 18px; }
+
+    .quick-create { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 11px; }
+    .quick-create button { height: 34px; border: 1px solid var(--line); border-radius: 9px; background: rgba(27, 43, 65, .6); color: var(--muted); cursor: pointer; font-size: 11px; transition: .18s ease; }
+    .quick-create button:hover { color: var(--text); border-color: rgba(53, 216, 245, .4); transform: translateY(-1px); }
+
+    .resource-list { flex: 1; min-height: 0; overflow: auto; padding: 10px; scrollbar-color: rgba(111, 138, 170, .42) transparent; }
+    .resource-group { margin-bottom: 15px; }
+    .resource-group-title { display: flex; justify-content: space-between; padding: 3px 6px 8px; color: var(--muted-2); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    .resource-card, .candidate-card {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 56px;
+      padding: 9px 10px;
+      margin-bottom: 7px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: rgba(26, 42, 63, .48);
+      cursor: pointer;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .resource-card:hover, .candidate-card:hover { transform: translateX(2px); border-color: var(--line-strong); background: rgba(33, 53, 79, .72); }
+    .resource-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 10px; background: var(--cyan-soft); color: var(--cyan); font-weight: 700; font-size: 12px; }
+    .resource-icon.ioOutput { color: var(--violet); background: var(--violet-soft); }
+    .resource-icon.motionPoint { color: var(--amber); background: rgba(255, 189, 105, .12); }
+    .resource-copy { min-width: 0; flex: 1; }
+    .resource-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+    .resource-copy span { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
+    .resource-add { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: rgba(9, 18, 31, .58); color: var(--muted); cursor: pointer; }
+    .resource-card:hover .resource-add { color: var(--cyan); border-color: rgba(53, 216, 245, .36); }
+    .empty-list { padding: 30px 16px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
+
+    .candidate-card { display: block; padding: 12px; }
+    .candidate-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .candidate-top strong { font-size: 12px; }
+    .candidate-path { margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .candidate-actions { display: flex; gap: 6px; margin-top: 10px; }
+    .mini-button { height: 27px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: rgba(9, 19, 32, .62); color: var(--muted); cursor: pointer; font-size: 10px; }
+    .mini-button.accept { color: var(--green); border-color: rgba(76, 224, 170, .28); }
+    .badge { display: inline-flex; align-items: center; height: 21px; padding: 0 7px; border-radius: 999px; font-size: 9px; letter-spacing: .04em; }
+    .badge.candidate { color: var(--amber); background: rgba(255, 189, 105, .12); }
+    .badge.conflict { color: var(--red); background: rgba(255, 107, 127, .12); }
+    .badge.confirmed { color: var(--green); background: rgba(76, 224, 170, .12); }
+
+    .canvas-panel { position: relative; display: grid; grid-template-rows: 50px minmax(0, 1fr) 38px; }
+    .canvas-toolbar { display: flex; align-items: center; gap: 10px; padding: 0 13px; border-bottom: 1px solid var(--line); background: rgba(12, 25, 41, .78); }
+    .layer-tabs { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: rgba(4, 12, 22, .42); }
+    .layer-tab { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
+    .layer-tab.active { color: var(--text); background: rgba(64, 87, 118, .48); }
+    .toolbar-spacer { flex: 1; }
+    .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: rgba(22, 38, 59, .6); color: var(--muted); cursor: pointer; transition: .18s ease; }
+    .icon-button:hover, .icon-button.active { color: var(--cyan); border-color: rgba(53, 216, 245, .4); background: rgba(53, 216, 245, .09); }
+
+    .canvas-wrap { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(160deg, rgba(5, 14, 25, .94), rgba(8, 19, 34, .88)); }
+    #graph { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; cursor: grab; }
+    #graph.panning { cursor: grabbing; }
+    #graph.connecting { cursor: crosshair; }
+    .canvas-glow { position: absolute; pointer-events: none; width: 380px; height: 380px; right: -130px; top: -180px; border-radius: 50%; background: rgba(89, 76, 235, .09); filter: blur(34px); }
+    .canvas-hint { position: absolute; z-index: 4; left: 50%; top: 14px; transform: translateX(-50%) translateY(-8px); opacity: 0; pointer-events: none; padding: 8px 12px; border: 1px solid rgba(53, 216, 245, .35); border-radius: 9px; background: rgba(7, 20, 33, .92); color: #c9f8ff; font-size: 11px; transition: .22s ease; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); }
+    .canvas-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .empty-canvas { position: absolute; z-index: 3; inset: 0; display: none; place-items: center; pointer-events: none; }
+    .empty-canvas.show { display: grid; }
+    .empty-card { width: 390px; padding: 28px; text-align: center; border: 1px solid var(--line-strong); border-radius: 18px; background: rgba(13, 27, 45, .82); box-shadow: var(--shadow); pointer-events: auto; backdrop-filter: blur(18px); }
+    .empty-orbit { position: relative; width: 72px; height: 72px; margin: 0 auto 18px; border: 1px solid rgba(53, 216, 245, .2); border-radius: 50%; animation: rotate 11s linear infinite; }
+    .empty-orbit::before, .empty-orbit::after { content: ""; position: absolute; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 15px rgba(53, 216, 245, .8); }
+    .empty-orbit::before { width: 9px; height: 9px; top: 4px; left: 31px; }
+    .empty-orbit::after { width: 7px; height: 7px; bottom: 8px; left: 8px; background: var(--violet); }
+    .empty-card h2 { margin: 0; font-size: 17px; }
+    .empty-card p { margin: 10px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+
+    .canvas-footer { display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; background: rgba(11, 23, 38, .92); }
+    .legend { display: flex; align-items: center; gap: 5px; }
+    .legend-line { width: 18px; height: 2px; border-radius: 2px; background: var(--cyan); }
+    .legend-line.state { background: var(--violet); }
+    .legend-line.interlock { background: var(--amber); }
+    .legend-line.recovery { background: var(--green); }
+    .footer-spacer { flex: 1; }
+    .runtime-indicator { display: flex; align-items: center; gap: 6px; }
+    .runtime-indicator i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-2); }
+    .runtime-indicator.live i { background: var(--green); box-shadow: 0 0 10px rgba(76, 224, 170, .8); animation: pulse-dot 1.8s ease infinite; }
+
+    .history-dock {
+      position: absolute;
+      z-index: 8;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      min-height: 112px;
+      display: grid;
+      grid-template-rows: auto auto auto;
+      gap: 8px;
+      padding: 11px 13px;
+      border: 1px solid rgba(118, 151, 190, .22);
+      border-radius: 14px;
+      background: linear-gradient(145deg, rgba(10, 23, 39, .94), rgba(16, 29, 48, .91));
+      box-shadow: 0 16px 45px rgba(0, 0, 0, .34), inset 0 1px rgba(255, 255, 255, .025);
+      backdrop-filter: blur(18px) saturate(140%);
+    }
+    .history-head, .history-event { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .history-title { font-size: 11px; font-weight: 650; letter-spacing: .04em; }
+    .history-mode { height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 999px; color: var(--green); background: rgba(76, 224, 170, .1); font-size: 9px; }
+    .history-mode.replay { color: var(--amber); background: rgba(255, 189, 105, .11); }
+    .history-summary { flex: 1; min-width: 0; color: var(--muted); font-size: 9px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .history-action { height: 25px; min-width: 46px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: rgba(28, 45, 68, .62); cursor: pointer; font-size: 9px; transition: .18s ease; }
+    .history-action:hover, .history-action.active { color: var(--cyan); border-color: rgba(53, 216, 245, .4); background: rgba(53, 216, 245, .08); }
+    .history-track { display: grid; grid-template-columns: 66px minmax(80px, 1fr) 66px; align-items: center; gap: 9px; }
+    .history-track time { color: #8398b0; font: 9px/1 "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+    .history-track time:last-child { text-align: right; }
+    .history-track input { width: 100%; height: 4px; margin: 0; accent-color: var(--cyan); cursor: pointer; }
+    .history-pulse { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--violet); box-shadow: 0 0 10px rgba(138, 125, 255, .72); }
+    .history-event strong { max-width: 155px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; }
+    .history-event span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 9px; }
+    .node.runtime-unknown .body { stroke: rgba(255, 189, 105, .64); stroke-dasharray: 4 4; }
+    .node.runtime-unknown .node-status-dot { fill: var(--amber); }
+    .canvas-wrap.replaying::after { content: "历史回放"; position: absolute; z-index: 5; right: 18px; top: 16px; padding: 6px 9px; border: 1px solid rgba(255, 189, 105, .3); border-radius: 8px; color: var(--amber); background: rgba(35, 27, 19, .72); font-size: 9px; letter-spacing: .12em; }
+
+    .edge-path { fill: none; stroke-width: 1.7; opacity: .76; transition: opacity .18s ease, stroke-width .18s ease; }
+    .edge-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+    .edge.physical .edge-path { stroke: #4fcce8; }
+    .edge.state .edge-path { stroke: #8a7dff; stroke-dasharray: 7 7; animation: edge-flow 1.8s linear infinite; }
+    .edge.interlock .edge-path { stroke: #ffbd69; stroke-dasharray: 3 7; animation: edge-flow 2.5s linear infinite reverse; }
+    .edge.recovery .edge-path { stroke: #4ce0aa; stroke-dasharray: 9 6; animation: edge-flow 1.9s linear infinite; }
+    .edge.candidate .edge-path { opacity: .48; stroke-dasharray: 4 8; }
+    .node.candidate .body { stroke: rgba(255, 189, 105, .82); stroke-dasharray: 6 5; }
+    .node.candidate .node-status-dot { fill: var(--amber); filter: url(#softGlow); }
+    .node.conflict .body { stroke: rgba(255, 107, 127, .9); stroke-dasharray: 4 4; }
+    .node.conflict .node-status-dot { fill: var(--red); filter: url(#softGlowRed); }
+    .edge.conflict .edge-path { stroke: var(--red); filter: url(#softGlowRed); }
+    .edge.selected .edge-path { opacity: 1; stroke-width: 3; filter: url(#softGlow); }
+    .edge-label { fill: #9eb5cd; font-size: 10px; paint-order: stroke; stroke: #07101d; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+
+    .node { cursor: pointer; }
+    .node .halo { opacity: 0; fill: none; stroke: rgba(53, 216, 245, .4); stroke-width: 1; transform-box: fill-box; transform-origin: center; }
+    .node .body { fill: rgba(17, 33, 53, .96); stroke: rgba(137, 166, 198, .26); stroke-width: 1; filter: url(#nodeShadow); transition: stroke .18s ease, fill .18s ease; }
+    .node:hover .body { stroke: rgba(53, 216, 245, .48); fill: rgba(20, 39, 62, .98); }
+    .node.selected .body { stroke: var(--cyan); stroke-width: 1.6; filter: url(#nodeGlow); }
+    .node.selected .halo { opacity: 1; animation: node-halo 2.1s ease-out infinite; }
+    .node.runtime-active .body { stroke: rgba(76, 224, 170, .72); }
+    .node.runtime-active .halo { opacity: .9; stroke: rgba(76, 224, 170, .5); animation: node-halo 1.65s ease-out infinite; }
+    .node .accent { fill: var(--cyan); }
+    .node.kind-actuator .accent, .node.kind-mechanism .accent { fill: var(--violet); }
+    .node.kind-sensor .accent { fill: var(--green); }
+    .node.kind-workpiece .accent { fill: var(--amber); }
+    .node.kind-safety .accent { fill: var(--red); }
+    .node-title { fill: #edf5ff; font-size: 12px; font-weight: 600; pointer-events: none; }
+    .node-meta { fill: #7189a3; font-size: 9px; pointer-events: none; }
+    .node-state { fill: #b7c8da; font-size: 9px; pointer-events: none; }
+    .node-status-dot { fill: #50657c; }
+    .node.runtime-active .node-status-dot { fill: var(--green); filter: url(#softGlowGreen); }
+    .pin-mark { fill: #8094aa; font-size: 10px; pointer-events: none; }
+
+    .inspector { display: flex; flex-direction: column; }
+    .inspector-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-color: rgba(111, 138, 170, .42) transparent; }
+    .inspector-empty { height: 100%; display: grid; place-items: center; padding: 30px; text-align: center; color: var(--muted); }
+    .inspector-empty .symbol { width: 56px; height: 56px; display: grid; place-items: center; margin: 0 auto 13px; border: 1px solid var(--line); border-radius: 16px; background: rgba(27, 44, 68, .52); color: var(--cyan); font-size: 24px; }
+    .inspector-empty strong { color: var(--text); font-size: 13px; }
+    .inspector-empty p { margin: 8px 0 0; font-size: 11px; line-height: 1.7; }
+    .section { padding: 15px 16px; border-bottom: 1px solid var(--line); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+    .section-head strong { font-size: 12px; }
+    .section-head small { color: var(--muted-2); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { min-width: 0; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      color: var(--text);
+      border: 1px solid var(--line);
+      outline: 0;
+      border-radius: 8px;
+      background: rgba(5, 14, 25, .58);
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    .field input, .field select { height: 34px; padding: 0 9px; }
+    .field textarea { min-height: 62px; padding: 8px 9px; resize: vertical; line-height: 1.55; }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color: rgba(53, 216, 245, .48); box-shadow: 0 0 0 3px rgba(53, 216, 245, .07); }
+    .field select option { background: #102035; }
+    .range-row { display: flex; align-items: center; gap: 9px; }
+    .range-row input { accent-color: var(--cyan); }
+    .range-row output { min-width: 35px; color: var(--cyan); font-size: 10px; }
+
+    .binding-card, .evidence-card { position: relative; padding: 11px; margin-top: 8px; border: 1px solid var(--line); border-radius: 11px; background: rgba(25, 41, 63, .46); }
+    .binding-card::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px; border-radius: 2px; background: linear-gradient(var(--cyan), var(--violet)); }
+    .binding-summary { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; }
+    .binding-summary strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .remove-x { width: 24px; height: 24px; border: 0; border-radius: 7px; background: rgba(255, 107, 127, .08); color: #ff9baa; cursor: pointer; }
+    .small-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .small-grid .field label { font-size: 9px; }
+    .small-grid .field input, .small-grid .field select { height: 31px; font-size: 10px; }
+    .add-row { width: 100%; height: 34px; margin-top: 9px; border: 1px dashed rgba(116, 151, 188, .32); border-radius: 9px; background: rgba(16, 31, 49, .38); color: var(--muted); cursor: pointer; font-size: 10px; transition: .18s ease; }
+    .add-row:hover { color: var(--cyan); border-color: rgba(53, 216, 245, .42); background: rgba(53, 216, 245, .05); }
+    .danger-zone { display: flex; gap: 8px; padding: 14px 16px; }
+    .danger-zone .button { flex: 1; height: 34px; font-size: 11px; }
+    .safety-note { padding: 12px 16px; color: #a8bbcf; border-top: 1px solid rgba(255, 189, 105, .14); background: rgba(255, 189, 105, .055); font-size: 10px; line-height: 1.55; }
+    .safety-note b { color: var(--amber); }
+
+    .toast-stack { position: fixed; z-index: 50; right: 22px; top: 82px; display: grid; gap: 9px; pointer-events: none; }
+    .toast { width: 340px; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 13px; border: 1px solid var(--line-strong); border-radius: 13px; background: rgba(14, 28, 46, .96); box-shadow: 0 18px 50px rgba(0, 0, 0, .34); backdrop-filter: blur(18px); animation: toast-in .28s ease both; }
+    .toast.out { animation: toast-out .22s ease both; }
+    .toast-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: var(--cyan); background: var(--cyan-soft); }
+    .toast.success .toast-icon { color: var(--green); background: rgba(76, 224, 170, .12); }
+    .toast.error .toast-icon { color: var(--red); background: rgba(255, 107, 127, .12); }
+    .toast strong { display: block; font-size: 11px; }
+    .toast p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+    @keyframes ambient { to { transform: translate3d(2.5%, -2%, 0) scale(1.04); } }
+    @keyframes edge-flow { to { stroke-dashoffset: -30; } }
+    @keyframes node-halo { 0% { transform: scale(.98); opacity: .65; } 80%, 100% { transform: scale(1.12); opacity: 0; } }
+    @keyframes pulse-dot { 50% { opacity: .5; transform: scale(.82); } }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+    @keyframes toast-in { from { opacity: 0; transform: translateX(16px) scale(.97); } }
+    @keyframes toast-out { to { opacity: 0; transform: translateX(12px) scale(.98); } }
+
+    @media (max-width: 1260px) {
+      .workspace { grid-template-columns: 238px minmax(390px, 1fr) 308px; }
+      .metric { padding: 0 8px; }
+      .metric span { display: none; }
+      .brand { min-width: 225px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"><span></span></div>
+        <div class="brand-copy"><strong>设备拓扑孪生</strong><small>Semantic Equipment Twin</small></div>
+      </div>
+      <div class="metric-strip">
+        <div class="metric"><i class="metric-dot"></i><span>节点</span><b id="nodeCount">0</b></div>
+        <div class="metric"><i class="metric-dot"></i><span>关系</span><b id="relationCount">0</b></div>
+        <div class="metric candidate"><i class="metric-dot"></i><span>候选</span><b id="candidateCount">0</b></div>
+        <div class="metric conflict"><i class="metric-dot"></i><span>冲突</span><b id="conflictCount">0</b></div>
+      </div>
+      <div class="top-actions">
+        <button class="button subtle" id="inferenceButton">⌁ 流程反推</button>
+        <button class="button subtle" id="aiButton">✦ AI 精修</button>
+        <button class="button primary" id="saveButton"><span id="saveIcon">✓</span><span id="saveText">保存配置</span></button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="panel sidebar">
+        <div class="panel-head">
+          <div class="panel-title"><strong>对象与候选</strong><span id="resourceCount">0 项资源</span></div>
+          <div class="segmented">
+            <button class="segment active" data-library-tab="resources">现场资源</button>
+            <button class="segment" data-library-tab="candidates">待确认</button>
+          </div>
+          <div class="search"><input id="resourceSearch" placeholder="搜索资源、用途或备注" /></div>
+          <div class="quick-create" title="创建未绑定现场资源的具体对象">
+            <button data-create-kind="mechanism">机构</button>
+            <button data-create-kind="workpiece">工件</button>
+            <button data-create-kind="fixture">治具</button>
+            <button data-create-kind="safety">安全域</button>
+          </div>
+        </div>
+        <div class="resource-list" id="resourceList"></div>
+      </aside>
+
+      <main class="panel canvas-panel">
+        <div class="canvas-toolbar">
+          <div class="layer-tabs" id="layerTabs">
+            <button class="layer-tab active" data-layer="all">全部</button>
+            <button class="layer-tab" data-layer="physical">物理</button>
+            <button class="layer-tab" data-layer="state">状态</button>
+            <button class="layer-tab" data-layer="interlock">防呆</button>
+            <button class="layer-tab" data-layer="recovery">恢复</button>
+          </div>
+          <div class="toolbar-spacer"></div>
+          <button class="icon-button" id="undoButton" title="撤销 Ctrl+Z">↶</button>
+          <button class="icon-button" id="redoButton" title="重做 Ctrl+Y">↷</button>
+          <button class="icon-button" id="connectButton" title="创建关系">⌁</button>
+          <button class="icon-button" id="layoutButton" title="自动排布">⌗</button>
+          <button class="icon-button" id="zoomOutButton" title="缩小">−</button>
+          <button class="icon-button" id="fitButton" title="适应画布">◎</button>
+          <button class="icon-button" id="zoomInButton" title="放大">＋</button>
+        </div>
+        <div class="canvas-wrap" id="canvasWrap">
+          <div class="canvas-glow"></div>
+          <div class="canvas-hint" id="canvasHint"></div>
+          <svg id="graph" aria-label="设备拓扑关系画布">
+            <defs>
+              <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#29405a" opacity=".46" /></pattern>
+              <pattern id="gridLarge" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#gridSmall)" /><path d="M100 0H0V100" fill="none" stroke="#34506c" stroke-width=".7" opacity=".25" /></pattern>
+              <filter id="nodeShadow" x="-30%" y="-40%" width="160%" height="190%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".32" /></filter>
+              <filter id="nodeGlow" x="-40%" y="-50%" width="180%" height="210%"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#35d8f5" flood-opacity=".28" /><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".3" /></filter>
+              <filter id="softGlow" x="-40%" y="-200%" width="180%" height="500%"><feGaussianBlur stdDeviation="2.8" result="b" /><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              <filter id="softGlowRed" x="-40%" y="-200%" width="180%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#ff6b7f" flood-opacity=".52" /></filter>
+              <filter id="softGlowGreen" x="-200%" y="-200%" width="500%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#4ce0aa" flood-opacity=".75" /></filter>
+              <marker id="arrow-physical" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#4fcce8" /></marker>
+              <marker id="arrow-state" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#8a7dff" /></marker>
+              <marker id="arrow-interlock" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#ffbd69" /></marker>
+              <marker id="arrow-recovery" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#4ce0aa" /></marker>
+            </defs>
+            <g id="scene"><rect id="gridRect" x="-5000" y="-5000" width="10000" height="10000" fill="url(#gridLarge)" /><g id="edgeLayer"></g><g id="nodeLayer"></g></g>
+          </svg>
+          <div class="empty-canvas" id="emptyCanvas">
+            <div class="empty-card">
+              <div class="empty-orbit"></div>
+              <h2>建立设备的语义地图</h2>
+              <p>从左侧添加现场资源或具体对象，再建立物理、状态、防呆与异常恢复关系。这里表达的是具体设备事实，不是零部件类型库。</p>
+              <button class="button primary" id="demoButton">加载交互示例</button>
+            </div>
+          </div>
+          <section class="history-dock" id="historyDock" aria-label="设备状态时间线">
+            <div class="history-head">
+              <strong class="history-title">状态时间线</strong>
+              <span class="history-mode" id="historyMode">实时</span>
+              <span class="history-summary" id="historySummary">等待状态感知服务</span>
+              <button class="history-action" id="historyPlayButton" title="播放状态变化">▶ 播放</button>
+              <button class="history-action active" id="historyLiveButton" title="回到实时状态">● 实时</button>
+            </div>
+            <div class="history-track">
+              <time id="historyStartTime">--:--:--</time>
+              <input id="historySlider" type="range" min="0" max="0" value="0" disabled />
+              <time id="historyEndTime">--:--:--</time>
+            </div>
+            <div class="history-event">
+              <i class="history-pulse"></i>
+              <strong id="historyEventNode">尚无状态事件</strong>
+              <span id="historyEventDetail">确认拓扑状态绑定后，变化会按全局顺序记录并可回放。</span>
+            </div>
+          </section>
+        </div>
+        <div class="canvas-footer">
+          <span class="legend"><i class="legend-line"></i>物理</span>
+          <span class="legend"><i class="legend-line state"></i>状态</span>
+          <span class="legend"><i class="legend-line interlock"></i>防呆</span>
+          <span class="legend"><i class="legend-line recovery"></i>恢复</span>
+          <span class="footer-spacer"></span>
+          <span id="zoomText">100%</span>
+          <span class="runtime-indicator" id="runtimeIndicator"><i></i><span id="runtimeText">等待实时信号</span></span>
+        </div>
+      </main>
+
+      <aside class="panel inspector">
+        <div class="panel-head">
+          <div class="panel-title"><strong id="inspectorTitle">属性与语义</strong><span id="selectionType">未选择</span></div>
+        </div>
+        <div class="inspector-scroll" id="inspectorContent"></div>
+        <div class="safety-note"><b>边界：</b><span id="safetyNotice">拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。</span></div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const NODE_W = 190;
+      const NODE_H = 78;
+      const host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+      const labels = {
+        nodeKinds: { station: "工位", mechanism: "机构", actuator: "执行器", sensor: "传感器", workpiece: "工件", fixture: "治具", safety: "安全域", buffer: "位置/缓存" },
+        relationKinds: { contains: "包含", installed_on: "安装于", moves_with: "随动", transfers_to: "流转到", drives: "驱动", observes: "检测", requires: "前置条件", blocks: "阻止", recovers_to: "恢复到" },
+        layers: { physical: "物理", state: "状态", interlock: "防呆", recovery: "恢复" },
+        review: { confirmed: "已确认", candidate: "候选", conflict: "冲突" },
+        resources: { station: "工站", motionPoint: "运动点位", ioOutput: "IO 输出", ioInput: "IO 输入" }
+      };
+
+      const state = {
+        definition: emptyDefinition(),
+        catalog: [],
+        libraryTab: "resources",
+        layer: "all",
+        selected: null,
+        connectionSource: null,
+        signals: new Map(),
+        liveNodeStates: new Map(),
+        replayNodeStates: new Map(),
+        stateHistoryWindow: null,
+        stateEvents: [],
+        historyMode: "live",
+        replaySequence: null,
+        playbackTimer: null,
+        perceptionRunning: false,
+        observationError: "",
+        transform: { x: 0, y: 0, k: 1 },
+        history: [],
+        future: [],
+        dirty: false,
+        saving: false,
+        canEdit: true,
+        runtimeAt: null,
+        bootstrapped: false,
+        inferenceRunning: false,
+        inferenceStage: ""
+      };
+
+      function emptyDefinition() {
+        return { schemaVersion: 1, revision: 0, name: "设备拓扑孪生", updatedAtUtc: null, nodes: [], relations: [] };
+      }
+
+      function uid(prefix) {
+        if (window.crypto && crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+        return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+      }
+
+      function clone(value) { return JSON.parse(JSON.stringify(value)); }
+      function esc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch])); }
+      function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+      function selectedNode() { return state.selected && state.selected.type === "node" ? state.definition.nodes.find(n => n.id === state.selected.id) : null; }
+      function selectedRelation() { return state.selected && state.selected.type === "relation" ? state.definition.relations.find(r => r.id === state.selected.id) : null; }
+      function nodeById(id) { return state.definition.nodes.find(n => n.id === id); }
+      function post(action, payload = {}) { if (host) host.postMessage(JSON.stringify({ action, ...payload })); }
+
+      function normalizeDefinition(input) {
+        const value = input && typeof input === "object" ? input : emptyDefinition();
+        value.schemaVersion = value.schemaVersion || 1;
+        value.revision = Number(value.revision || 0);
+        value.name = value.name || "设备拓扑孪生";
+        value.nodes = Array.isArray(value.nodes) ? value.nodes : [];
+        value.relations = Array.isArray(value.relations) ? value.relations : [];
+        value.nodes.forEach((node, index) => {
+          node.id = node.id || uid("node");
+          node.label = node.label || `未命名对象 ${index + 1}`;
+          node.kind = node.kind || "mechanism";
+          node.zone = node.zone || "";
+          node.description = node.description || "";
+          node.resourceKind = node.resourceKind || "";
+          node.resourceRef = node.resourceRef || "";
+          node.x = Number.isFinite(Number(node.x)) ? Number(node.x) : 160 + (index % 4) * 240;
+          node.y = Number.isFinite(Number(node.y)) ? Number(node.y) : 130 + Math.floor(index / 4) * 150;
+          node.layoutPinned = Boolean(node.layoutPinned);
+          node.reviewState = node.reviewState || "confirmed";
+          node.confidence = clamp(Number(node.confidence == null ? 1 : node.confidence), 0, 1);
+          node.evidence = Array.isArray(node.evidence) ? node.evidence : [];
+          node.stateBindings = Array.isArray(node.stateBindings) ? node.stateBindings : [];
+          node.stateBindings.forEach(binding => {
+            binding.id = binding.id || uid("binding");
+            binding.stateName = binding.stateName || "激活";
+            binding.sourceKind = binding.sourceKind || "io";
+            binding.resourceRef = binding.resourceRef || "";
+            binding.operator = binding.operator || "equals";
+            binding.expectedValue = String(binding.expectedValue == null ? "true" : binding.expectedValue);
+            binding.meaning = binding.meaning || "";
+            binding.priority = Number(binding.priority || 0);
+            binding.reviewState = binding.reviewState || "confirmed";
+            binding.confidence = clamp(Number(binding.confidence == null ? 1 : binding.confidence), 0, 1);
+            binding.evidence = Array.isArray(binding.evidence) ? binding.evidence : [];
+          });
+        });
+        value.relations.forEach(relation => {
+          relation.id = relation.id || uid("relation");
+          relation.layer = relation.layer || "physical";
+          relation.kind = relation.kind || "installed_on";
+          relation.label = relation.label || "";
+          relation.condition = relation.condition || "";
+          relation.description = relation.description || "";
+          relation.reviewState = relation.reviewState || "confirmed";
+          relation.confidence = clamp(Number(relation.confidence == null ? 1 : relation.confidence), 0, 1);
+          relation.evidence = Array.isArray(relation.evidence) ? relation.evidence : [];
+        });
+        return value;
+      }
+
+      function checkpoint() {
+        state.history.push(JSON.stringify(state.definition));
+        if (state.history.length > 60) state.history.shift();
+        state.future.length = 0;
+      }
+
+      function mutate(callback, options = {}) {
+        if (!state.canEdit) return toast("error", "当前为只读模式", "当前账号没有拓扑编辑权限。");
+        checkpoint();
+        callback();
+        state.dirty = true;
+        if (!options.keepSelection && state.selected) ensureSelection();
+        renderAll();
+      }
+
+      function ensureSelection() {
+        if (!state.selected) return;
+        const exists = state.selected.type === "node" ? nodeById(state.selected.id) : state.definition.relations.some(r => r.id === state.selected.id);
+        if (!exists) state.selected = null;
+      }
+
+      function undo() {
+        if (!state.history.length) return;
+        state.future.push(JSON.stringify(state.definition));
+        state.definition = normalizeDefinition(JSON.parse(state.history.pop()));
+        state.dirty = true;
+        ensureSelection();
+        renderAll();
+      }
+
+      function redo() {
+        if (!state.future.length) return;
+        state.history.push(JSON.stringify(state.definition));
+        state.definition = normalizeDefinition(JSON.parse(state.future.pop()));
+        state.dirty = true;
+        ensureSelection();
+        renderAll();
+      }
+
+      function addNode(kind, resource) {
+        const count = state.definition.nodes.length;
+        const center = screenToWorld($("#canvasWrap").clientWidth * .5, $("#canvasWrap").clientHeight * .5);
+        const node = {
+          id: uid("node"),
+          label: resource ? resource.label : `${labels.nodeKinds[kind] || "对象"} ${count + 1}`,
+          kind: kind || "mechanism",
+          zone: "",
+          description: resource && resource.note ? resource.note : "",
+          resourceKind: resource ? mapResourceKind(resource.kind) : "",
+          resourceRef: resource ? resource.resourceRef : "",
+          x: center.x - NODE_W / 2 + ((count % 3) - 1) * 24,
+          y: center.y - NODE_H / 2 + ((count % 4) - 1.5) * 18,
+          layoutPinned: false,
+          reviewState: "confirmed",
+          confidence: 1,
+          evidence: [],
+          stateBindings: []
+        };
+        mutate(() => { state.definition.nodes.push(node); state.selected = { type: "node", id: node.id }; }, { keepSelection: true });
+      }
+
+      function mapResourceKind(kind) {
+        if (kind === "ioInput" || kind === "ioOutput") return "io";
+        if (kind === "motionPoint") return "motionPoint";
+        return kind || "";
+      }
+
+      function createRelation(sourceId, targetId) {
+        if (!sourceId || !targetId || sourceId === targetId) return;
+        const relation = {
+          id: uid("relation"), sourceNodeId: sourceId, targetNodeId: targetId,
+          layer: "physical", kind: "installed_on", label: "", condition: "", description: "",
+          reviewState: "confirmed", confidence: 1, evidence: []
+        };
+        mutate(() => { state.definition.relations.push(relation); state.selected = { type: "relation", id: relation.id }; }, { keepSelection: true });
+        state.connectionSource = null;
+        updateConnectionUi();
+      }
+
+      function deleteSelection() {
+        const node = selectedNode();
+        const relation = selectedRelation();
+        if (!node && !relation) return;
+        mutate(() => {
+          if (node) {
+            state.definition.nodes = state.definition.nodes.filter(n => n.id !== node.id);
+            state.definition.relations = state.definition.relations.filter(r => r.sourceNodeId !== node.id && r.targetNodeId !== node.id);
+          } else {
+            state.definition.relations = state.definition.relations.filter(r => r.id !== relation.id);
+          }
+          state.selected = null;
+        }, { keepSelection: true });
+      }
+
+      function buildDemoDefinition() {
+        const ids = { station: uid("node"), axis: uid("node"), cylinder: uid("node"), nozzle: uid("node"), part: uid("node"), sensor: uid("node"), safe: uid("node") };
+        const relation = (source, target, layer, kind, reviewState = "confirmed", confidence = 1, condition = "", label = "") => ({
+          id: uid("relation"), sourceNodeId: ids[source], targetNodeId: ids[target], layer, kind, label, condition, description: "", reviewState, confidence,
+          evidence: reviewState === "candidate" ? [{ sourceType: "process_parameter", sourceRef: "演示证据", operationType: "IO输出", parameterPath: "OutputName/Value", detail: "仅演示证据字段结构，未作为现场事实保存。" }] : []
+        });
+        return normalizeDefinition({
+          schemaVersion: 1, revision: 0, name: "顶盖配重装配单元（演示草稿）", updatedAtUtc: null,
+          nodes: [
+            { id: ids.station, label: "配重装配工位", kind: "station", zone: "装配区", resourceKind: "station", resourceRef: "", x: 110, y: 150, layoutPinned: true, description: "演示节点", stateBindings: [] },
+            { id: ids.axis, label: "搬运模组", kind: "mechanism", zone: "装配区", resourceKind: "station", resourceRef: "", x: 360, y: 75, layoutPinned: false, description: "演示节点", stateBindings: [] },
+            { id: ids.cylinder, label: "下压气缸", kind: "actuator", zone: "装配区", resourceKind: "io", resourceRef: "", x: 360, y: 225, layoutPinned: false, description: "演示节点", stateBindings: [{ id: uid("binding"), stateName: "压紧", sourceKind: "io", resourceRef: "下压气缸电磁阀", operator: "equals", expectedValue: "true", meaning: "输出为 true 时气缸执行压紧", priority: 20 }] },
+            { id: ids.nozzle, label: "配重吸嘴", kind: "actuator", zone: "搬运端", resourceKind: "io", resourceRef: "", x: 620, y: 75, layoutPinned: false, description: "演示节点", stateBindings: [{ id: uid("binding"), stateName: "吸取中", sourceKind: "io", resourceRef: "真空电磁阀", operator: "equals", expectedValue: "true", meaning: "输出为 true 时打开真空进行吸取", priority: 20 }] },
+            { id: ids.part, label: "Ballast 配重块", kind: "workpiece", zone: "流转对象", resourceKind: "", resourceRef: "", x: 865, y: 75, layoutPinned: false, description: "演示节点", stateBindings: [] },
+            { id: ids.sensor, label: "真空到位反馈", kind: "sensor", zone: "搬运端", resourceKind: "io", resourceRef: "", x: 620, y: 250, layoutPinned: false, description: "演示节点", stateBindings: [{ id: uid("binding"), stateName: "吸附确认", sourceKind: "io", resourceRef: "真空检测", operator: "equals", expectedValue: "true", meaning: "真空反馈有效，仅证明吸附条件成立", priority: 30 }] },
+            { id: ids.safe, label: "下压安全条件", kind: "safety", zone: "装配区", resourceKind: "", resourceRef: "", x: 865, y: 250, layoutPinned: false, description: "演示节点", stateBindings: [] }
+          ],
+          relations: [
+            relation("station", "axis", "physical", "contains", "confirmed", 1, "", "包含"),
+            relation("station", "cylinder", "physical", "contains", "confirmed", 1, "", "包含"),
+            relation("axis", "nozzle", "physical", "installed_on", "confirmed", 1, "", "安装于"),
+            relation("nozzle", "part", "state", "drives", "candidate", .86, "真空电磁阀=true 且 真空检测=true", "吸取"),
+            relation("sensor", "nozzle", "state", "observes", "confirmed", 1, "真空检测=true", "反馈"),
+            relation("sensor", "safe", "interlock", "requires", "confirmed", 1, "吸附确认后才允许搬运", "前置条件"),
+            relation("safe", "station", "recovery", "recovers_to", "candidate", .72, "异常后回安全等待态", "恢复路径")
+          ]
+        });
+      }
+
+      function renderAll() {
+        renderHeader();
+        renderLibrary();
+        renderGraph();
+        renderInspector();
+        updateHistoryButtons();
+      }
+
+      function renderHeader() {
+        const reviewItems = [
+          ...state.definition.nodes,
+          ...state.definition.relations,
+          ...state.definition.nodes.flatMap(node => node.stateBindings || [])
+        ];
+        $("#nodeCount").textContent = state.definition.nodes.length;
+        $("#relationCount").textContent = state.definition.relations.length;
+        $("#candidateCount").textContent = reviewItems.filter(item => item.reviewState === "candidate").length;
+        $("#conflictCount").textContent = reviewItems.filter(item => item.reviewState === "conflict").length;
+        $("#saveText").textContent = state.saving ? "保存中…" : state.dirty ? "保存更改" : "已保存";
+        $("#saveIcon").textContent = state.saving ? "◌" : state.dirty ? "↑" : "✓";
+        $("#saveIcon").className = state.saving ? "spin" : "";
+        $("#saveButton").disabled = state.saving || !state.canEdit || !state.dirty;
+        $("#inferenceButton").disabled = state.inferenceRunning || !state.canEdit;
+        $("#aiButton").disabled = state.inferenceRunning || !state.canEdit;
+        $("#inferenceButton").textContent = state.inferenceRunning && state.inferenceStage === "rules" ? "◌ 规则生成中…" : "⌁ 流程反推";
+        $("#aiButton").textContent = state.inferenceRunning && state.inferenceStage === "ai" ? "◌ AI 精修中…" : "✦ AI 精修";
+      }
+
+      function renderLibrary() {
+        $$("[data-library-tab]").forEach(button => button.classList.toggle("active", button.dataset.libraryTab === state.libraryTab));
+        $("#resourceSearch").placeholder = state.libraryTab === "resources" ? "搜索资源、用途或备注" : "搜索候选关系";
+        const query = $("#resourceSearch").value.trim().toLowerCase();
+        const container = $("#resourceList");
+        if (state.libraryTab === "candidates") {
+          const candidates = collectCandidates().filter(candidate => candidate.searchText.toLowerCase().includes(query));
+          container.innerHTML = candidates.length ? candidates.map(candidateTemplate).join("") : `<div class="empty-list">当前没有待处理候选或冲突。<br/>规则反推和 AI 精修结果会先进入这里，不会直接变成已确认事实。</div>`;
+          bindCandidateEvents();
+          return;
+        }
+
+        const filtered = state.catalog.filter(item => `${item.label || ""} ${item.subtitle || ""} ${item.searchText || ""}`.toLowerCase().includes(query));
+        $("#resourceCount").textContent = `${state.catalog.length} 项资源`;
+        const groups = ["station", "ioOutput", "ioInput", "motionPoint"];
+        const html = groups.map(kind => {
+          const items = filtered.filter(item => item.kind === kind).slice(0, 60);
+          if (!items.length) return "";
+          const total = filtered.filter(item => item.kind === kind).length;
+          return `<section class="resource-group"><div class="resource-group-title"><span>${esc(labels.resources[kind] || kind)}</span><span>${total}</span></div>${items.map(resourceTemplate).join("")}${total > items.length ? `<div class="empty-list">还有 ${total - items.length} 项，请继续搜索缩小范围</div>` : ""}</section>`;
+        }).join("");
+        container.innerHTML = html || `<div class="empty-list">没有匹配的现场资源。<br/>仍可使用上方按钮创建具体对象，再手工绑定资源。</div>`;
+        $$(".resource-card", container).forEach(card => card.addEventListener("click", () => {
+          const resource = state.catalog[Number(card.dataset.index)];
+          if (resource) addNode(resource.defaultNodeKind || "mechanism", resource);
+        }));
+      }
+
+      function resourceTemplate(item) {
+        const originalIndex = state.catalog.indexOf(item);
+        const icon = item.kind === "station" ? "ST" : item.kind === "motionPoint" ? "PT" : item.kind === "ioOutput" ? "DO" : "DI";
+        return `<div class="resource-card" data-index="${originalIndex}"><div class="resource-icon ${esc(item.kind)}">${icon}</div><div class="resource-copy"><strong title="${esc(item.label)}">${esc(item.label)}</strong><span title="${esc(item.subtitle)}">${esc(item.subtitle || "未配置说明")}</span></div><button class="resource-add" title="添加到画布">＋</button></div>`;
+      }
+
+      function collectCandidates() {
+        const items = [];
+        state.definition.nodes.filter(node => node.reviewState !== "confirmed").forEach(node => items.push({
+          type: "node", id: node.id, parentId: "", item: node,
+          title: node.label || "待确认对象", pathLines: [`${labels.nodeKinds[node.kind] || node.kind} · ${node.resourceRef || "未绑定资源"}`],
+          searchText: `${node.label || ""} ${node.kind || ""} ${node.resourceRef || ""}`
+        }));
+        state.definition.nodes.forEach(node => (node.stateBindings || []).filter(binding => binding.reviewState !== "confirmed").forEach(binding => items.push({
+          type: "binding", id: binding.id, parentId: node.id, item: binding,
+          title: binding.stateName || "待确认状态语义", pathLines: [`${node.label} · ${binding.resourceRef}=${binding.expectedValue}`, binding.meaning || "物理含义待确认"],
+          searchText: `${node.label} ${binding.stateName || ""} ${binding.resourceRef || ""} ${binding.meaning || ""}`
+        })));
+        state.definition.relations.filter(relation => relation.reviewState !== "confirmed").forEach(relation => {
+          const source = nodeById(relation.sourceNodeId), target = nodeById(relation.targetNodeId);
+          items.push({ type: "relation", id: relation.id, parentId: "", item: relation,
+            title: relation.label || labels.relationKinds[relation.kind] || "待确认关系",
+            pathLines: [`${source?.label || "缺失节点"}　→　${target?.label || "缺失节点"}`, relation.condition || "成立条件待确认"],
+            searchText: `${source?.label || ""} ${target?.label || ""} ${relation.label || ""} ${relation.condition || ""}` });
+        });
+        return items;
+      }
+
+      function candidateTemplate(candidate) {
+        const item = candidate.item;
+        const typeText = candidate.type === "node" ? "对象" : candidate.type === "binding" ? "状态" : "关系";
+        const path = (candidate.pathLines || []).map(esc).join("<br/>");
+        return `<div class="candidate-card" data-type="${candidate.type}" data-id="${esc(candidate.id)}" data-parent-id="${esc(candidate.parentId)}"><div class="candidate-top"><strong>${esc(typeText)} · ${esc(candidate.title)}</strong><span class="badge ${esc(item.reviewState)}">${esc(labels.review[item.reviewState])} · ${Math.round(item.confidence * 100)}%</span></div><div class="candidate-path">${path}</div><div class="candidate-actions"><button class="mini-button accept" data-action="accept">接受为事实</button><button class="mini-button" data-action="inspect">查看详情</button><button class="mini-button" data-action="remove">忽略</button></div></div>`;
+      }
+
+      function bindCandidateEvents() {
+        $$(".candidate-card", $("#resourceList")).forEach(card => {
+          card.addEventListener("click", event => {
+            const id = card.dataset.id;
+            const type = card.dataset.type;
+            const parentId = card.dataset.parentId;
+            const action = event.target.dataset.action;
+            const resolve = () => type === "node" ? nodeById(id) : type === "relation" ? state.definition.relations.find(item => item.id === id) : (nodeById(parentId)?.stateBindings || []).find(item => item.id === id);
+            if (action === "accept") mutate(() => { const item = resolve(); if (item) { item.reviewState = "confirmed"; item.confidence = 1; } });
+            else if (action === "remove") mutate(() => {
+              if (type === "node") { state.definition.nodes = state.definition.nodes.filter(item => item.id !== id); state.definition.relations = state.definition.relations.filter(item => item.sourceNodeId !== id && item.targetNodeId !== id); }
+              else if (type === "relation") state.definition.relations = state.definition.relations.filter(item => item.id !== id);
+              else { const node = nodeById(parentId); if (node) node.stateBindings = node.stateBindings.filter(item => item.id !== id); }
+              state.selected = null;
+            }, { keepSelection: true });
+            else { state.selected = type === "relation" ? { type: "relation", id } : { type: "node", id: type === "node" ? id : parentId }; renderAll(); }
+          });
+        });
+      }
+
+      function renderGraph() {
+        const scene = $("#scene");
+        scene.setAttribute("transform", `translate(${state.transform.x} ${state.transform.y}) scale(${state.transform.k})`);
+        $("#zoomText").textContent = `${Math.round(state.transform.k * 100)}%`;
+        $("#emptyCanvas").classList.toggle("show", state.definition.nodes.length === 0);
+
+        const visibleRelations = state.definition.relations.filter(relation => state.layer === "all" || relation.layer === state.layer);
+        $("#edgeLayer").innerHTML = visibleRelations.map(edgeTemplate).join("");
+        $("#nodeLayer").innerHTML = state.definition.nodes.map(nodeTemplate).join("");
+
+        $$(".edge", $("#edgeLayer")).forEach(group => {
+          group.addEventListener("click", event => { event.stopPropagation(); state.selected = { type: "relation", id: group.dataset.id }; renderAll(); });
+        });
+        $$(".node", $("#nodeLayer")).forEach(group => {
+          group.addEventListener("pointerdown", event => onNodePointerDown(event, group.dataset.id));
+          group.addEventListener("dblclick", event => { event.stopPropagation(); state.connectionSource = group.dataset.id; updateConnectionUi(); });
+        });
+        renderRuntimeIndicator();
+      }
+
+      function edgeTemplate(relation) {
+        const source = nodeById(relation.sourceNodeId), target = nodeById(relation.targetNodeId);
+        if (!source || !target) return "";
+        const sx = source.x + NODE_W / 2, sy = source.y + NODE_H / 2;
+        const tx = target.x + NODE_W / 2, ty = target.y + NODE_H / 2;
+        const dx = tx - sx, curve = clamp(Math.abs(dx) * .34, 55, 165);
+        const c1x = sx + (dx >= 0 ? curve : -curve), c2x = tx - (dx >= 0 ? curve : -curve);
+        const path = `M${sx},${sy} C${c1x},${sy} ${c2x},${ty} ${tx},${ty}`;
+        const mx = (sx + tx) / 2, my = (sy + ty) / 2 - 7;
+        const selected = state.selected && state.selected.type === "relation" && state.selected.id === relation.id;
+        const text = relation.label || labels.relationKinds[relation.kind] || relation.kind;
+        return `<g class="edge ${esc(relation.layer)} ${esc(relation.reviewState)} ${selected ? "selected" : ""}" data-id="${esc(relation.id)}"><path class="edge-path" d="${path}" marker-end="url(#arrow-${esc(relation.layer)})"/><path class="edge-hit" d="${path}"/><text class="edge-label" x="${mx}" y="${my}" text-anchor="middle">${esc(text)}</text></g>`;
+      }
+
+      function resolveRuntimeState(node) {
+        const projection = state.historyMode === "replay" ? state.replayNodeStates : state.liveNodeStates;
+        if (projection.has(node.id)) {
+          const item = projection.get(node.id);
+          const good = item.quality === "good";
+          return {
+            active: good && Boolean(item.bindingId),
+            unknown: !good,
+            observed: true,
+            text: item.stateName || "状态未知"
+          };
+        }
+        const bindings = (node.stateBindings || []).slice().sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+        let observed = false;
+        for (const binding of bindings) {
+          const key = `${binding.sourceKind}:${binding.resourceRef}`;
+          if (!state.signals.has(key)) continue;
+          observed = true;
+          const actual = state.signals.get(key);
+          if (matchesBinding(actual, binding)) return { active: true, observed: true, text: binding.stateName || binding.meaning || "已激活" };
+        }
+        return { active: false, unknown: false, observed, text: observed ? "条件未满足" : "未绑定实时状态" };
+      }
+
+      function matchesBinding(actual, binding) {
+        const expectedText = String(binding.expectedValue).toLowerCase();
+        const expected = expectedText === "true" ? true : expectedText === "false" ? false : Number.isNaN(Number(binding.expectedValue)) ? binding.expectedValue : Number(binding.expectedValue);
+        switch (binding.operator) {
+          case "not_equals": return actual !== expected;
+          case "greater_than": return Number(actual) > Number(expected);
+          case "less_than": return Number(actual) < Number(expected);
+          case "active": return Boolean(actual);
+          case "inactive": return !Boolean(actual);
+          default: return actual === expected || String(actual) === String(expected);
+        }
+      }
+
+      function nodeTemplate(node) {
+        const runtime = resolveRuntimeState(node);
+        const selected = state.selected && state.selected.type === "node" && state.selected.id === node.id;
+        const kindLabel = labels.nodeKinds[node.kind] || node.kind;
+        const meta = node.resourceRef ? `${kindLabel} · ${node.resourceRef}` : `${kindLabel} · 未绑定资源`;
+        return `<g class="node kind-${esc(node.kind)} ${esc(node.reviewState)} ${selected ? "selected" : ""} ${runtime.active ? "runtime-active" : ""} ${runtime.unknown ? "runtime-unknown" : ""}" data-id="${esc(node.id)}" transform="translate(${node.x} ${node.y})"><rect class="halo" x="-5" y="-5" width="${NODE_W + 10}" height="${NODE_H + 10}" rx="18"/><rect class="body" width="${NODE_W}" height="${NODE_H}" rx="14"/><rect class="accent" width="4" height="38" x="0" y="20" rx="2"/><circle class="node-status-dot" cx="${NODE_W - 18}" cy="17" r="4"/><text class="node-title" x="16" y="24">${esc(shorten(node.label, 20))}</text><text class="node-meta" x="16" y="43">${esc(shorten(meta, 31))}</text><text class="node-state" x="16" y="62">${esc(shorten(runtime.text, 29))}</text>${node.layoutPinned ? `<text class="pin-mark" x="${NODE_W - 22}" y="64">◆</text>` : ""}</g>`;
+      }
+
+      function shorten(value, max) { const text = String(value || ""); return text.length > max ? text.slice(0, max - 1) + "…" : text; }
+
+      let nodeDrag = null;
+      function onNodePointerDown(event, id) {
+        event.stopPropagation();
+        if (state.connectionSource) {
+          if (state.connectionSource === id) { state.connectionSource = null; updateConnectionUi(); return; }
+          createRelation(state.connectionSource, id);
+          return;
+        }
+        state.selected = { type: "node", id };
+        const node = nodeById(id);
+        nodeDrag = { id, startX: event.clientX, startY: event.clientY, nodeX: node.x, nodeY: node.y, before: JSON.stringify(state.definition), moved: false };
+        renderAll();
+      }
+
+      window.addEventListener("pointermove", event => {
+        if (!nodeDrag) return;
+        const node = nodeById(nodeDrag.id);
+        if (!node) return;
+        const dx = (event.clientX - nodeDrag.startX) / state.transform.k;
+        const dy = (event.clientY - nodeDrag.startY) / state.transform.k;
+        if (Math.abs(dx) + Math.abs(dy) > 2) nodeDrag.moved = true;
+        node.x = nodeDrag.nodeX + dx;
+        node.y = nodeDrag.nodeY + dy;
+        state.dirty = true;
+        renderHeader();
+        renderGraph();
+      });
+
+      window.addEventListener("pointerup", () => {
+        if (!nodeDrag) return;
+        if (nodeDrag.moved) {
+          state.history.push(nodeDrag.before);
+          if (state.history.length > 60) state.history.shift();
+          state.future.length = 0;
+        }
+        nodeDrag = null;
+        updateHistoryButtons();
+      });
+
+      let pan = null;
+      const graph = $("#graph");
+      graph.addEventListener("pointerdown", event => {
+        if (event.target.closest(".node") || event.target.closest(".edge")) return;
+        state.selected = null;
+        renderInspector();
+        renderGraph();
+        pan = { x: event.clientX, y: event.clientY, tx: state.transform.x, ty: state.transform.y };
+        graph.classList.add("panning");
+      });
+      window.addEventListener("pointermove", event => {
+        if (!pan) return;
+        state.transform.x = pan.tx + event.clientX - pan.x;
+        state.transform.y = pan.ty + event.clientY - pan.y;
+        applyTransform();
+      });
+      window.addEventListener("pointerup", () => { pan = null; graph.classList.remove("panning"); });
+      graph.addEventListener("wheel", event => {
+        event.preventDefault();
+        const rect = graph.getBoundingClientRect();
+        const x = event.clientX - rect.left, y = event.clientY - rect.top;
+        zoomAt(event.deltaY < 0 ? 1.12 : .89, x, y);
+      }, { passive: false });
+
+      function applyTransform() {
+        $("#scene").setAttribute("transform", `translate(${state.transform.x} ${state.transform.y}) scale(${state.transform.k})`);
+        $("#zoomText").textContent = `${Math.round(state.transform.k * 100)}%`;
+      }
+      function zoomAt(factor, x, y) {
+        const next = clamp(state.transform.k * factor, .35, 2.2);
+        const ratio = next / state.transform.k;
+        state.transform.x = x - (x - state.transform.x) * ratio;
+        state.transform.y = y - (y - state.transform.y) * ratio;
+        state.transform.k = next;
+        applyTransform();
+      }
+      function screenToWorld(x, y) { return { x: (x - state.transform.x) / state.transform.k, y: (y - state.transform.y) / state.transform.k }; }
+
+      function fitGraph() {
+        const nodes = state.definition.nodes;
+        const wrap = $("#canvasWrap");
+        if (!nodes.length || !wrap.clientWidth || !wrap.clientHeight) { state.transform = { x: 0, y: 0, k: 1 }; applyTransform(); return; }
+        const minX = Math.min(...nodes.map(n => n.x)), minY = Math.min(...nodes.map(n => n.y));
+        const maxX = Math.max(...nodes.map(n => n.x + NODE_W)), maxY = Math.max(...nodes.map(n => n.y + NODE_H));
+        const width = Math.max(1, maxX - minX), height = Math.max(1, maxY - minY);
+        const k = clamp(Math.min((wrap.clientWidth - 100) / width, (wrap.clientHeight - 100) / height), .35, 1.25);
+        state.transform.k = k;
+        state.transform.x = (wrap.clientWidth - width * k) / 2 - minX * k;
+        state.transform.y = (wrap.clientHeight - height * k) / 2 - minY * k;
+        applyTransform();
+      }
+
+      function autoLayout() {
+        const order = ["station", "mechanism", "actuator", "sensor", "fixture", "workpiece", "safety", "buffer"];
+        mutate(() => {
+          let column = 0;
+          for (const kind of order) {
+            const nodes = state.definition.nodes.filter(node => node.kind === kind && !node.layoutPinned);
+            if (!nodes.length) continue;
+            nodes.forEach((node, row) => { node.x = 120 + column * 245; node.y = 90 + row * 130; });
+            column++;
+          }
+        });
+        requestAnimationFrame(fitGraph);
+      }
+
+      function updateConnectionUi() {
+        const active = Boolean(state.connectionSource);
+        $("#connectButton").classList.toggle("active", active);
+        graph.classList.toggle("connecting", active);
+        const hint = $("#canvasHint");
+        hint.classList.toggle("show", active);
+        hint.textContent = active ? `已选择“${nodeById(state.connectionSource)?.label || "起点"}”，请选择目标节点；再次点击起点取消` : "";
+      }
+
+      function renderInspector() {
+        const container = $("#inspectorContent");
+        const node = selectedNode(), relation = selectedRelation();
+        if (!node && !relation) {
+          $("#inspectorTitle").textContent = "属性与语义";
+          $("#selectionType").textContent = "未选择";
+          container.innerHTML = `<div class="inspector-empty"><div><div class="symbol">⌘</div><strong>选择一个对象或关系</strong><p>在这里配置具体对象的资源绑定、IO 状态含义、关系条件和推断证据。</p></div></div>`;
+          return;
+        }
+        if (node) renderNodeInspector(container, node);
+        else renderRelationInspector(container, relation);
+      }
+
+      function options(map, selected) { return Object.entries(map).map(([value, text]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(text)}</option>`).join(""); }
+      function sourceKindOptions(selected) { return options({ io: "IO 信号", variable: "变量", axis: "轴状态", vision: "视觉结果", runtime: "运行时状态" }, selected); }
+      function operatorOptions(selected) { return options({ equals: "等于", not_equals: "不等于", greater_than: "大于", less_than: "小于", active: "有效", inactive: "无效" }, selected); }
+
+      function evidencePreview(evidence) {
+        const items = Array.isArray(evidence) ? evidence : [];
+        if (!items.length) return "无推断证据";
+        const first = items[0] || {};
+        return `${items.length} 条证据 · ${first.operationType || first.sourceType || "未分类"} / ${first.parameterPath || "未记录参数路径"}`;
+      }
+
+      function readOnlyEvidenceCards(evidence) {
+        const items = Array.isArray(evidence) ? evidence : [];
+        return items.map((item, index) => `<div class="evidence-card"><div class="binding-summary"><span class="badge candidate">证据 ${index + 1}</span><strong>${esc(item.operationType || item.sourceType || "未分类证据")}</strong></div><div class="candidate-path">${esc(item.parameterPath || "未记录参数路径")}<br/>${esc(item.detail || "未记录证据详情")}<br/>${esc(item.sourceRef || "")}</div></div>`).join("");
+      }
+
+      function renderNodeInspector(container, node) {
+        $("#inspectorTitle").textContent = node.label;
+        $("#selectionType").textContent = labels.nodeKinds[node.kind] || "节点";
+        const bindings = (node.stateBindings || []).map((binding, index) => `<div class="binding-card" data-binding-index="${index}"><div class="binding-summary"><span class="badge ${esc(binding.reviewState)}">${esc(labels.review[binding.reviewState])} · P${Number(binding.priority || 0)}</span><strong>${esc(binding.stateName || "未命名状态")}</strong>${binding.reviewState !== "confirmed" ? `<button class="mini-button accept" data-accept-binding="${index}">接受</button>` : ""}<button class="remove-x" data-remove-binding="${index}" title="删除状态绑定">×</button></div><div class="small-grid"><div class="field"><label>信号来源</label><select data-binding-field="sourceKind">${sourceKindOptions(binding.sourceKind)}</select></div><div class="field"><label>资源引用</label><input data-binding-field="resourceRef" value="${esc(binding.resourceRef)}" list="ioResources" /></div><div class="field"><label>比较方式</label><select data-binding-field="operator">${operatorOptions(binding.operator)}</select></div><div class="field"><label>期望值</label><input data-binding-field="expectedValue" value="${esc(binding.expectedValue)}" /></div><div class="field"><label>状态名称</label><input data-binding-field="stateName" value="${esc(binding.stateName)}" /></div><div class="field"><label>优先级</label><input type="number" data-binding-field="priority" value="${Number(binding.priority || 0)}" /></div><div class="field full"><label>具体物理含义</label><input data-binding-field="meaning" value="${esc(binding.meaning)}" placeholder="例如：true 时打开真空进行吸取" /></div></div><div class="candidate-path">${esc(evidencePreview(binding.evidence))}</div></div>`).join("");
+        const ioOptions = state.catalog.filter(item => item.kind === "ioInput" || item.kind === "ioOutput").map(item => `<option value="${esc(item.resourceRef)}"></option>`).join("");
+        const nodeEvidence = readOnlyEvidenceCards(node.evidence);
+        container.innerHTML = `<section class="section"><div class="section-head"><strong>具体对象</strong><small>${esc(labels.review[node.reviewState])} · ${Math.round(node.confidence * 100)}%</small></div><div class="form-grid"><div class="field full"><label>对象名称</label><input data-node-field="label" value="${esc(node.label)}" /></div><div class="field"><label>对象类别</label><select data-node-field="kind">${options(labels.nodeKinds, node.kind)}</select></div><div class="field"><label>区域 / 工位</label><input data-node-field="zone" value="${esc(node.zone)}" /></div><div class="field"><label>资源类型</label><select data-node-field="resourceKind">${options({ "": "未绑定", station: "工站", motionPoint: "运动点位", io: "IO", ioOutput: "IO 输出", ioInput: "IO 输入", variable: "变量", vision: "视觉" }, node.resourceKind)}</select></div><div class="field"><label>资源引用</label><input data-node-field="resourceRef" value="${esc(node.resourceRef)}" /></div><div class="field full"><label>说明</label><textarea data-node-field="description">${esc(node.description)}</textarea></div><div class="field full"><label><input type="checkbox" data-node-field="layoutPinned" ${node.layoutPinned ? "checked" : ""} style="width:auto;height:auto;margin-right:7px;vertical-align:-1px"/>自动排布时固定位置</label></div></div></section><section class="section"><div class="section-head"><strong>对象证据</strong><small>${node.evidence.length} SOURCES</small></div>${nodeEvidence || `<div class="empty-list">人工创建对象，没有自动推断证据。</div>`}</section><section class="section"><div class="section-head"><strong>状态语义绑定</strong><small>${node.stateBindings.length} BINDINGS</small></div>${bindings || `<div class="empty-list">尚未配置状态含义。为具体对象绑定真实信号后，实时状态会在画布上显示。</div>`}<button class="add-row" id="addBindingButton">＋ 添加状态绑定</button><datalist id="ioResources">${ioOptions}</datalist></section><div class="danger-zone">${node.reviewState !== "confirmed" ? `<button class="button" id="acceptNodeButton">接受对象候选</button>` : ""}<button class="button subtle" id="duplicateButton">复制对象</button><button class="button danger" id="deleteButton">删除对象</button></div>`;
+        bindNodeInspector(node);
+      }
+
+      function bindNodeInspector(node) {
+        $$(`[data-node-field]`, $("#inspectorContent")).forEach(control => {
+          control.addEventListener("change", () => mutate(() => {
+            const field = control.dataset.nodeField;
+            node[field] = control.type === "checkbox" ? control.checked : control.value;
+          }, { keepSelection: true }));
+        });
+        $$(`[data-binding-index]`, $("#inspectorContent")).forEach(card => {
+          const index = Number(card.dataset.bindingIndex);
+          $$(`[data-binding-field]`, card).forEach(control => control.addEventListener("change", () => mutate(() => {
+            const binding = node.stateBindings[index]; if (!binding) return;
+            const field = control.dataset.bindingField;
+            binding[field] = field === "priority" ? Number(control.value || 0) : control.value;
+          }, { keepSelection: true })));
+        });
+        $$(`[data-remove-binding]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => node.stateBindings.splice(Number(button.dataset.removeBinding), 1), { keepSelection: true })));
+        $$(`[data-accept-binding]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => {
+          const binding = node.stateBindings[Number(button.dataset.acceptBinding)];
+          if (binding) { binding.reviewState = "confirmed"; binding.confidence = 1; }
+        }, { keepSelection: true })));
+        $("#addBindingButton").addEventListener("click", () => mutate(() => node.stateBindings.push({ id: uid("binding"), stateName: "激活", sourceKind: "io", resourceRef: "", operator: "equals", expectedValue: "true", meaning: "", priority: 10, reviewState: "confirmed", confidence: 1, evidence: [] }), { keepSelection: true }));
+        const acceptNode = $("#acceptNodeButton");
+        if (acceptNode) acceptNode.addEventListener("click", () => mutate(() => { node.reviewState = "confirmed"; node.confidence = 1; }, { keepSelection: true }));
+        $("#deleteButton").addEventListener("click", deleteSelection);
+        $("#duplicateButton").addEventListener("click", () => mutate(() => {
+          const copy = clone(node); copy.id = uid("node"); copy.label += " 副本"; copy.x += 36; copy.y += 36; copy.stateBindings.forEach(item => item.id = uid("binding")); state.definition.nodes.push(copy); state.selected = { type: "node", id: copy.id };
+        }, { keepSelection: true }));
+      }
+
+      function renderRelationInspector(container, relation) {
+        const source = nodeById(relation.sourceNodeId), target = nodeById(relation.targetNodeId);
+        $("#inspectorTitle").textContent = relation.label || labels.relationKinds[relation.kind] || "关系";
+        $("#selectionType").textContent = labels.layers[relation.layer] || "关系";
+        const nodeOptions = state.definition.nodes.map(node => `<option value="${esc(node.id)}">${esc(node.label)}</option>`).join("");
+        const evidence = (relation.evidence || []).map((item, index) => `<div class="evidence-card" data-evidence-index="${index}"><div class="binding-summary"><span class="badge ${esc(relation.reviewState)}">证据 ${index + 1}</span><strong>${esc(item.operationType || item.sourceType || "未分类证据")}</strong><button class="remove-x" data-remove-evidence="${index}">×</button></div><div class="small-grid"><div class="field"><label>来源类型</label><input data-evidence-field="sourceType" value="${esc(item.sourceType)}" /></div><div class="field"><label>来源引用</label><input data-evidence-field="sourceRef" value="${esc(item.sourceRef)}" /></div><div class="field"><label>指令类型</label><input data-evidence-field="operationType" value="${esc(item.operationType)}" /></div><div class="field"><label>参数路径</label><input data-evidence-field="parameterPath" value="${esc(item.parameterPath)}" /></div><div class="field full"><label>原始依据</label><input data-evidence-field="detail" value="${esc(item.detail)}" /></div></div></div>`).join("");
+        container.innerHTML = `<section class="section"><div class="section-head"><strong>关系定义</strong><small>SEMANTIC EDGE</small></div><div class="form-grid"><div class="field"><label>起点</label><select data-relation-field="sourceNodeId">${nodeOptions}</select></div><div class="field"><label>终点</label><select data-relation-field="targetNodeId">${nodeOptions}</select></div><div class="field"><label>关系层</label><select data-relation-field="layer">${options(labels.layers, relation.layer)}</select></div><div class="field"><label>关系类型</label><select data-relation-field="kind">${options(labels.relationKinds, relation.kind)}</select></div><div class="field full"><label>画布标签</label><input data-relation-field="label" value="${esc(relation.label)}" placeholder="留空时显示关系类型" /></div><div class="field"><label>审核状态</label><select data-relation-field="reviewState">${options(labels.review, relation.reviewState)}</select></div><div class="field"><label>置信度</label><div class="range-row"><input type="range" min="0" max="1" step=".01" data-relation-field="confidence" value="${relation.confidence}"/><output>${Math.round(relation.confidence * 100)}%</output></div></div><div class="field full"><label>成立条件</label><textarea data-relation-field="condition" placeholder="只表达条件含义，不在这里替代安全控制逻辑">${esc(relation.condition)}</textarea></div><div class="field full"><label>说明</label><textarea data-relation-field="description">${esc(relation.description)}</textarea></div></div></section><section class="section"><div class="section-head"><strong>推断证据</strong><small>${relation.evidence.length} SOURCES</small></div>${evidence || `<div class="empty-list">没有证据记录。已确认关系应来自人工确认或可追溯的类型与参数证据。</div>`}<button class="add-row" id="addEvidenceButton">＋ 添加证据</button></section><div class="danger-zone">${relation.reviewState !== "confirmed" ? `<button class="button" id="acceptRelationButton">接受为事实</button>` : ""}<button class="button danger" id="deleteButton">删除关系</button></div>`;
+        const sourceSelect = $(`[data-relation-field="sourceNodeId"]`), targetSelect = $(`[data-relation-field="targetNodeId"]`);
+        sourceSelect.value = relation.sourceNodeId; targetSelect.value = relation.targetNodeId;
+        bindRelationInspector(relation);
+      }
+
+      function bindRelationInspector(relation) {
+        $$(`[data-relation-field]`, $("#inspectorContent")).forEach(control => {
+          control.addEventListener("input", () => {
+            if (control.type === "range") control.nextElementSibling.textContent = `${Math.round(Number(control.value) * 100)}%`;
+          });
+          control.addEventListener("change", () => mutate(() => {
+            const field = control.dataset.relationField;
+            relation[field] = field === "confidence" ? Number(control.value) : control.value;
+          }, { keepSelection: true }));
+        });
+        $$(`[data-evidence-index]`, $("#inspectorContent")).forEach(card => {
+          const index = Number(card.dataset.evidenceIndex);
+          $$(`[data-evidence-field]`, card).forEach(control => control.addEventListener("change", () => mutate(() => {
+            const evidence = relation.evidence[index]; if (evidence) evidence[control.dataset.evidenceField] = control.value;
+          }, { keepSelection: true })));
+        });
+        $$(`[data-remove-evidence]`, $("#inspectorContent")).forEach(button => button.addEventListener("click", () => mutate(() => relation.evidence.splice(Number(button.dataset.removeEvidence), 1), { keepSelection: true })));
+        $("#addEvidenceButton").addEventListener("click", () => mutate(() => relation.evidence.push({ sourceType: "process_parameter", sourceRef: "", operationType: "", parameterPath: "", detail: "" }), { keepSelection: true }));
+        $("#deleteButton").addEventListener("click", deleteSelection);
+        const accept = $("#acceptRelationButton");
+        if (accept) accept.addEventListener("click", () => mutate(() => { relation.reviewState = "confirmed"; relation.confidence = 1; }, { keepSelection: true }));
+      }
+
+      function projectionMap(snapshot) {
+        const result = new Map();
+        ((snapshot && snapshot.nodeStates) || []).forEach(item => {
+          if (item && item.nodeId) result.set(item.nodeId, clone(item));
+        });
+        return result;
+      }
+
+      function applyStateEvent(projection, event) {
+        if (!event || event.eventType !== "node.state.changed" || !event.nodeId) return;
+        if (event.quality === "retired") {
+          projection.delete(event.nodeId);
+          return;
+        }
+        projection.set(event.nodeId, {
+          nodeId: event.nodeId,
+          nodeLabel: event.nodeLabel,
+          stateName: event.newValue,
+          meaning: event.meaning,
+          quality: event.quality,
+          confidence: event.confidence,
+          updatedAtUtc: event.observedAtUtc,
+          sequence: event.sequence,
+          topologyRevision: event.topologyRevision,
+          sourceKind: event.sourceKind,
+          resourceRef: event.resourceRef,
+          bindingId: event.bindingId
+        });
+      }
+
+      function setReplaySequence(sequence) {
+        const window = state.stateHistoryWindow;
+        if (!window) return;
+        const minimum = Number(window.baseline?.sequence || 0);
+        const maximum = Number(window.latestSequence || minimum);
+        const target = clamp(Number(sequence || minimum), minimum, maximum);
+        const projection = projectionMap(window.baseline);
+        state.stateEvents.forEach(event => {
+          if (Number(event.sequence) <= target) applyStateEvent(projection, event);
+        });
+        state.historyMode = "replay";
+        state.replaySequence = target;
+        state.replayNodeStates = projection;
+        renderGraph();
+        renderStateTimeline();
+      }
+
+      function stopHistoryPlayback() {
+        if (state.playbackTimer) clearInterval(state.playbackTimer);
+        state.playbackTimer = null;
+      }
+
+      function returnToLive() {
+        stopHistoryPlayback();
+        state.historyMode = "live";
+        state.replaySequence = null;
+        state.replayNodeStates = new Map(state.liveNodeStates);
+        renderGraph();
+        renderStateTimeline();
+      }
+
+      function toggleHistoryPlayback() {
+        if (state.playbackTimer) {
+          stopHistoryPlayback();
+          renderStateTimeline();
+          return;
+        }
+        if (!state.stateEvents.length) return;
+        if (state.historyMode === "live") {
+          setReplaySequence(Number(state.stateHistoryWindow?.baseline?.sequence || 0));
+        }
+        state.playbackTimer = setInterval(() => {
+          const current = Number(state.replaySequence || 0);
+          const next = state.stateEvents.find(item => Number(item.sequence) > current);
+          if (!next) {
+            stopHistoryPlayback();
+            renderStateTimeline();
+            return;
+          }
+          setReplaySequence(Number(next.sequence));
+        }, 520);
+        renderStateTimeline();
+      }
+
+      function formatClock(value) {
+        if (!value) return "--:--:--";
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? "--:--:--" : date.toLocaleTimeString("zh-CN", { hour12: false });
+      }
+
+      function currentTimelineEvent() {
+        if (!state.stateEvents.length) return null;
+        const sequence = state.historyMode === "replay"
+          ? Number(state.replaySequence || 0)
+          : Number(state.stateHistoryWindow?.latestSequence || 0);
+        let selected = null;
+        for (const item of state.stateEvents) {
+          if (Number(item.sequence) > sequence) break;
+          selected = item;
+        }
+        return selected;
+      }
+
+      function renderStateTimeline() {
+        const window = state.stateHistoryWindow;
+        const slider = $("#historySlider");
+        const mode = $("#historyMode");
+        const replay = state.historyMode === "replay";
+        mode.textContent = replay ? "历史回放" : "实时";
+        mode.classList.toggle("replay", replay);
+        $("#canvasWrap").classList.toggle("replaying", replay);
+        $("#historyLiveButton").classList.toggle("active", !replay);
+        $("#historyPlayButton").textContent = state.playbackTimer ? "Ⅱ 暂停" : "▶ 播放";
+        $("#historyPlayButton").classList.toggle("active", Boolean(state.playbackTimer));
+        if (!window) {
+          slider.disabled = true;
+          $("#historySummary").textContent = state.observationError || "等待状态感知服务";
+          return;
+        }
+        const minimum = Number(window.baseline?.sequence || 0);
+        const maximum = Math.max(minimum, Number(window.latestSequence || minimum));
+        slider.min = String(minimum);
+        slider.max = String(maximum);
+        slider.value = String(replay ? clamp(Number(state.replaySequence || minimum), minimum, maximum) : maximum);
+        slider.disabled = maximum <= minimum;
+        const currentStates = replay ? state.replayNodeStates.size : state.liveNodeStates.size;
+        const statusText = state.perceptionRunning ? `${currentStates} 个节点状态 · ${state.stateEvents.length} 条窗口事件` : "状态感知已降级";
+        $("#historySummary").textContent = state.observationError ? `${statusText} · ${state.observationError}` : statusText;
+        $("#historyStartTime").textContent = formatClock(window.baseline?.timeUtc || state.stateEvents[0]?.observedAtUtc);
+        $("#historyEndTime").textContent = formatClock(state.stateEvents[state.stateEvents.length - 1]?.observedAtUtc || window.baseline?.timeUtc);
+        const event = currentTimelineEvent();
+        if (!event) {
+          $("#historyEventNode").textContent = "已建立时间线基线";
+          $("#historyEventDetail").textContent = "当前窗口尚无状态变化。";
+          return;
+        }
+        $("#historyEventNode").textContent = event.nodeLabel || event.resourceRef || "拓扑状态";
+        const transition = event.oldValue
+          ? `${event.oldValue} → ${event.newValue || "未知"}`
+          : (event.newValue || event.eventType || "状态变化");
+        $("#historyEventDetail").textContent = `#${event.sequence} · ${transition}${event.meaning ? " · " + event.meaning : ""} · ${formatClock(event.observedAtUtc)}`;
+      }
+
+      function acceptStateHistory(message) {
+        const window = message.window || null;
+        state.stateHistoryWindow = window;
+        state.stateEvents = ((window && window.events) || [])
+          .slice()
+          .sort((a, b) => Number(a.sequence) - Number(b.sequence));
+        state.liveNodeStates = projectionMap(message.currentSnapshot);
+        state.perceptionRunning = Boolean(message.perceptionRunning);
+        state.observationError = message.observationError || "";
+        state.runtimeAt = Date.now();
+        if (state.historyMode === "replay") {
+          const minimum = Number(window?.baseline?.sequence || 0);
+          setReplaySequence(Math.max(minimum, Number(state.replaySequence || minimum)));
+          return;
+        }
+        state.replayNodeStates = new Map(state.liveNodeStates);
+        renderGraph();
+        renderStateTimeline();
+      }
+
+      function renderRuntimeIndicator() {
+        const indicator = $("#runtimeIndicator");
+        const live = state.runtimeAt && Date.now() - state.runtimeAt < 5000;
+        indicator.classList.toggle("live", Boolean(live));
+        if (state.historyMode === "replay") {
+          $("#runtimeText").textContent = `回放 #${state.replaySequence || 0}`;
+        } else if (state.liveNodeStates.size) {
+          $("#runtimeText").textContent = live ? `${state.liveNodeStates.size} 个节点状态` : "状态感知连接超时";
+        } else {
+          $("#runtimeText").textContent = live ? `${state.signals.size} 个实时信号` : "等待实时状态";
+        }
+      }
+
+      function updateHistoryButtons() {
+        $("#undoButton").disabled = !state.history.length;
+        $("#redoButton").disabled = !state.future.length;
+      }
+
+      function save() {
+        if (!state.dirty || state.saving) return;
+        state.saving = true;
+        renderHeader();
+        if (host) post("save", { definition: state.definition });
+        else setTimeout(() => handleMessage({ type: "saveResult", success: true, message: "浏览器预览模式：已模拟保存。", definition: { ...state.definition, revision: state.definition.revision + 1 } }), 500);
+      }
+
+      function toast(tone, title, message) {
+        const item = document.createElement("div");
+        item.className = `toast ${tone || "info"}`;
+        item.innerHTML = `<div class="toast-icon">${tone === "success" ? "✓" : tone === "error" ? "!" : "i"}</div><div><strong>${esc(title)}</strong><p>${esc(message)}</p></div>`;
+        $("#toastStack").appendChild(item);
+        setTimeout(() => { item.classList.add("out"); setTimeout(() => item.remove(), 250); }, 4200);
+      }
+
+      function handleMessage(message) {
+        if (!message || !message.type) return;
+        if (message.type === "bootstrap") {
+          state.definition = normalizeDefinition(clone(message.definition));
+          state.catalog = Array.isArray(message.catalog) ? message.catalog : [];
+          state.canEdit = message.canEdit !== false;
+          state.history = []; state.future = []; state.dirty = false; state.saving = false; state.bootstrapped = true;
+          $("#safetyNotice").textContent = message.safetyNotice || "拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。";
+          renderAll();
+          requestAnimationFrame(fitGraph);
+        } else if (message.type === "runtime") {
+          state.signals.clear();
+          (message.signals || []).forEach(signal => state.signals.set(`${signal.sourceKind}:${signal.resourceRef}`, signal.value));
+          state.runtimeAt = Date.now();
+          renderGraph();
+        } else if (message.type === "stateHistory") {
+          acceptStateHistory(message);
+        } else if (message.type === "saveResult") {
+          state.saving = false;
+          if (message.success) {
+            if (message.definition) state.definition = normalizeDefinition(clone(message.definition));
+            state.dirty = false; state.history = []; state.future = [];
+            toast("success", "保存成功", message.message || "拓扑配置已保存。");
+          } else toast("error", "保存失败", message.message || "请检查配置后重试。");
+          renderAll();
+        } else if (message.type === "inferenceState") {
+          state.inferenceRunning = Boolean(message.running);
+          state.inferenceStage = message.stage || "";
+          renderHeader();
+        } else if (message.type === "inferenceResult") {
+          checkpoint();
+          state.definition = normalizeDefinition(clone(message.definition));
+          state.selected = null;
+          state.libraryTab = "candidates";
+          state.dirty = true;
+          state.inferenceRunning = false;
+          state.inferenceStage = "";
+          $("#resourceSearch").value = "";
+          renderAll();
+          requestAnimationFrame(fitGraph);
+          toast("success", message.stage === "ai" ? "AI 精修候选已生成" : "规则初版已生成", message.summary || "结果已进入待确认列表，尚未保存。" );
+        } else if (message.type === "notice") toast(message.tone, message.title, message.message);
+      }
+
+      if (host) host.addEventListener("message", event => handleMessage(event.data));
+
+      $$("[data-library-tab]").forEach(button => button.addEventListener("click", () => { state.libraryTab = button.dataset.libraryTab; $("#resourceSearch").value = ""; renderLibrary(); }));
+      $("#resourceSearch").addEventListener("input", renderLibrary);
+      $$("[data-create-kind]").forEach(button => button.addEventListener("click", () => addNode(button.dataset.createKind)));
+      $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = button.dataset.layer; $$("[data-layer]").forEach(item => item.classList.toggle("active", item === button)); renderGraph(); }));
+      $("#saveButton").addEventListener("click", save);
+      $("#aiButton").addEventListener("click", () => post("refineWithAi", { definition: state.definition }));
+      $("#inferenceButton").addEventListener("click", () => post("requestInference", { definition: state.definition }));
+      $("#undoButton").addEventListener("click", undo);
+      $("#redoButton").addEventListener("click", redo);
+      $("#connectButton").addEventListener("click", () => {
+        if (state.connectionSource) { state.connectionSource = null; updateConnectionUi(); return; }
+        toast("info", "创建关系", "双击起点节点，再单击目标节点。也可以先选中节点后点击此按钮。");
+        const node = selectedNode();
+        if (node) { state.connectionSource = node.id; updateConnectionUi(); }
+      });
+      $("#layoutButton").addEventListener("click", autoLayout);
+      $("#fitButton").addEventListener("click", fitGraph);
+      $("#zoomInButton").addEventListener("click", () => zoomAt(1.18, graph.clientWidth / 2, graph.clientHeight / 2));
+      $("#zoomOutButton").addEventListener("click", () => zoomAt(.84, graph.clientWidth / 2, graph.clientHeight / 2));
+      $("#demoButton").addEventListener("click", () => mutate(() => { state.definition = buildDemoDefinition(); state.selected = null; }, { keepSelection: true }));
+      $("#historySlider").addEventListener("input", event => {
+        stopHistoryPlayback();
+        setReplaySequence(Number(event.target.value));
+      });
+      $("#historyPlayButton").addEventListener("click", toggleHistoryPlayback);
+      $("#historyLiveButton").addEventListener("click", returnToLive);
+
+      window.addEventListener("keydown", event => {
+        const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); }
+        else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); redo(); }
+        else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
+        else if (!typing && (event.key === "Delete" || event.key === "Backspace")) deleteSelection();
+        else if (event.key === "Escape" && state.connectionSource) { state.connectionSource = null; updateConnectionUi(); }
+      });
+      window.addEventListener("resize", () => { if (state.bootstrapped && state.definition.nodes.length) applyTransform(); });
+
+      renderAll();
+      renderStateTimeline();
+      if (host) post("ready");
+      else {
+        const demoCatalog = [
+          { kind: "station", resourceRef: "装配工位", label: "装配工位", subtitle: "工站 · 12 个已示教点位", defaultNodeKind: "station" },
+          { kind: "ioOutput", resourceRef: "真空电磁阀", label: "真空电磁阀", subtitle: "输出 · 电磁阀", defaultNodeKind: "actuator" },
+          { kind: "ioInput", resourceRef: "真空检测", label: "真空检测", subtitle: "输入 · 压力开关", defaultNodeKind: "sensor" }
+        ];
+        handleMessage({ type: "bootstrap", definition: buildDemoDefinition(), catalog: demoCatalog, canEdit: true, safetyNotice: "浏览器预览：拓扑孪生用于理解、呈现和诊断，不替代控制器安全联锁。" });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -40,6 +40,7 @@ namespace Automation
         public FrmInfo Info { get; }
         public FrmPlc Plc { get; private set; }
         public FrmVersionManager VersionManager { get; private set; }
+        public FrmEquipmentTopologyTwin EquipmentTopologyTwin { get; private set; }
         public PlatformRuntime Runtime { get; }
         public ProcessEditorSelectionState ProcessSelection { get; }
         public IReadOnlyList<Proc> ProcessDefinitions => Runtime.Stores.Processes.Items;
@@ -114,6 +115,16 @@ namespace Automation
                 Attach(VersionManager);
             }
             return VersionManager;
+        }
+
+        public FrmEquipmentTopologyTwin GetOrCreateEquipmentTopologyTwin()
+        {
+            if (EquipmentTopologyTwin == null || EquipmentTopologyTwin.IsDisposed)
+            {
+                EquipmentTopologyTwin = new FrmEquipmentTopologyTwin();
+                Attach(EquipmentTopologyTwin);
+            }
+            return EquipmentTopologyTwin;
         }
 
         public void RestoreProcessEditorPresentation()
@@ -315,6 +326,13 @@ namespace Automation
     {
         private EditorWorkspace editorWorkspace;
         internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmVersionManager));
+        void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
+    }
+
+    public sealed partial class FrmEquipmentTopologyTwin : IEditorWorkspaceParticipant
+    {
+        private EditorWorkspace editorWorkspace;
+        internal EditorWorkspace Workspace => EditorWorkspaceGuard.Require(editorWorkspace, nameof(FrmEquipmentTopologyTwin));
         void IEditorWorkspaceParticipant.AttachEditorWorkspace(EditorWorkspace workspace) => editorWorkspace = workspace;
     }
 }
