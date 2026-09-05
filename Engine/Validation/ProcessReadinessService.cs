@@ -294,6 +294,11 @@ namespace Automation
                 case "走料盘点":
                 case "偏移量":
                 case "回原":
+                case "添加连续直线":
+                case "添加三点圆弧":
+                case "添加圆心圆弧":
+                case "添加半径圆弧":
+                case "启动连续运动":
                     return true;
                 default:
                     return false;
@@ -383,6 +388,8 @@ namespace Automation
             else if (operation is CreateTray tray) stationName = tray.StationName;
             else if (operation is ModifyStationPos modify) stationName = modify.StationName;
             else if (operation is GetStationPos getPos) stationName = getPos.StationName;
+            else if (operation is ContinuousPathAddOperation addPath) stationName = addPath.StationName;
+            else if (operation is StartContinuousMoveOperation startPath) stationName = startPath.StationName;
             else return false;
 
             DataStation station = stations.FirstOrDefault(item => item != null
@@ -409,10 +416,16 @@ namespace Automation
                 item != null && string.Equals(item.Name, name, StringComparison.Ordinal));
             void RequirePoint(string name, string field, bool requireTaught)
             {
-                DataPos point = FindPoint(name);
-                if (point == null)
+                RequirePointByIndex(name, -1, field, requireTaught);
+            }
+            void RequirePointByIndex(string name, int index, string field, bool requireTaught)
+            {
+                DataPos point = index >= 0
+                    ? station.ListDataPos?.FirstOrDefault(item => item != null && item.Index == index)
+                    : FindPoint(name);
+                if (point == null || string.IsNullOrWhiteSpace(point.Name))
                 {
-                    blockers.Add($"{location} 的{field}不存在：{name ?? string.Empty}。");
+                    blockers.Add($"{location} 的{field}不存在：{(index >= 0 ? index.ToString() : name ?? string.Empty)}。");
                     incomplete = true;
                     return;
                 }
@@ -470,6 +483,25 @@ namespace Automation
                     // 目标槽位只需已规划；本指令会从真实来源写入坐标并转为已示教。
                     RequirePoint(getStationPos.TargetPosName, "保存目标点位", false);
                 }
+            }
+            else if (operation is AddContinuousLineOperation line)
+            {
+                RequirePointByIndex(line.TargetPointName, line.TargetPointIndex, "连续直线目标点", true);
+            }
+            else if (operation is AddContinuousThreePointArcOperation arc)
+            {
+                RequirePointByIndex(arc.StartPointName, arc.StartPointIndex, "圆弧起点A", true);
+                RequirePointByIndex(arc.MiddlePointName, arc.MiddlePointIndex, "圆弧中间点B", true);
+                RequirePointByIndex(arc.TargetPointName, arc.TargetPointIndex, "圆弧目标点C", true);
+            }
+            else if (operation is AddContinuousCenterArcOperation centerArc)
+            {
+                RequirePointByIndex(centerArc.CenterPointName, centerArc.CenterPointIndex, "圆心点", true);
+                RequirePointByIndex(centerArc.TargetPointName, centerArc.TargetPointIndex, "圆弧目标点", true);
+            }
+            else if (operation is AddContinuousRadiusArcOperation radiusArc)
+            {
+                RequirePointByIndex(radiusArc.TargetPointName, radiusArc.TargetPointIndex, "圆弧目标点", true);
             }
             return incomplete;
         }
@@ -1172,6 +1204,8 @@ namespace Automation
             else if (operation is CreateTray tray) stationName = tray.StationName;
             else if (operation is ModifyStationPos modify) stationName = modify.StationName;
             else if (operation is GetStationPos getPos) stationName = getPos.StationName;
+            else if (operation is ContinuousPathAddOperation addPath) stationName = addPath.StationName;
+            else if (operation is StartContinuousMoveOperation startPath) stationName = startPath.StationName;
             else return;
             DataStation station = stations.FirstOrDefault(item => item != null
                 && string.Equals(item.Name, stationName, StringComparison.Ordinal));
@@ -1181,7 +1215,13 @@ namespace Automation
                 item != null && string.Equals(item.Name, pointName, StringComparison.Ordinal));
             void AddPlanned(string pointName, string field)
             {
-                DataPos point = FindPoint(pointName);
+                AddPlannedByIndex(pointName, -1, field);
+            }
+            void AddPlannedByIndex(string pointName, int pointIndex, string field)
+            {
+                DataPos point = pointIndex >= 0
+                    ? station.ListDataPos?.FirstOrDefault(item => item != null && item.Index == pointIndex)
+                    : FindPoint(pointName);
                 if (point == null || point.IsTaught != false) return;
                 items.Add(new JObject
                 {
@@ -1232,6 +1272,25 @@ namespace Automation
                 && string.Equals(getStationPos.SourceType, "指定点位", StringComparison.Ordinal))
             {
                 AddPlanned(getStationPos.SourcePosName, "来源点位");
+            }
+            else if (operation is AddContinuousLineOperation line)
+            {
+                AddPlannedByIndex(line.TargetPointName, line.TargetPointIndex, "连续直线目标点");
+            }
+            else if (operation is AddContinuousThreePointArcOperation arc)
+            {
+                AddPlannedByIndex(arc.StartPointName, arc.StartPointIndex, "圆弧起点A");
+                AddPlannedByIndex(arc.MiddlePointName, arc.MiddlePointIndex, "圆弧中间点B");
+                AddPlannedByIndex(arc.TargetPointName, arc.TargetPointIndex, "圆弧目标点C");
+            }
+            else if (operation is AddContinuousCenterArcOperation centerArc)
+            {
+                AddPlannedByIndex(centerArc.CenterPointName, centerArc.CenterPointIndex, "圆心点");
+                AddPlannedByIndex(centerArc.TargetPointName, centerArc.TargetPointIndex, "圆弧目标点");
+            }
+            else if (operation is AddContinuousRadiusArcOperation radiusArc)
+            {
+                AddPlannedByIndex(radiusArc.TargetPointName, radiusArc.TargetPointIndex, "圆弧目标点");
             }
         }
 

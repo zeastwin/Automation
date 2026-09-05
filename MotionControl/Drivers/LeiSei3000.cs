@@ -1,6 +1,6 @@
 ﻿using System;
 // 模块：运动控制 / 驱动。
-// 职责范围：封装雷赛运动控制卡 SDK 与具体硬件调用。
+// 职责范围：封装 3.0 NEtherCat 路线的雷赛 EtherCAT 总线卡 SDK 与具体硬件调用。
 // 排查入口：本层负责把 LTDMC 返回码转成明确异常；参数来源和运动互斥问题应回到 MotionCtrl/ProcessEngine 排查。
 
 using System.Collections.Generic;
@@ -52,6 +52,7 @@ namespace Automation
             : throw new InvalidOperationException("雷赛总线卡尚未初始化。");
         private readonly object profileLock = new object();
         private readonly object ioOutputLock = new object();
+        private readonly object continuousPathLock = new object();
         private readonly Dictionary<long, MotionProfile> appliedProfiles = new Dictionary<long, MotionProfile>();
 
         private sealed class MotionProfile
@@ -221,8 +222,13 @@ namespace Automation
 
             try
             {
-                short detectedCardCount = LTDMC.dmc_board_init();
+                short detectedCardCount = InitializeBoard();
                 boardOpened = detectedCardCount > 0;
+                if (detectedCardCount == 0)
+                {
+                    throw new MotionCardUnavailableException(
+                        "雷赛总线卡初始化失败，SDK实际发现0张卡。可继续编辑，但物理轴不可用。");
+                }
                 if (detectedCardCount != 1)
                 {
                     throw new InvalidOperationException(
@@ -256,6 +262,34 @@ namespace Automation
                 ResetRuntimeState();
                 throw;
             }
+        }
+
+        private static short InitializeBoard()
+        {
+            try
+            {
+                return LTDMC.dmc_board_init();
+            }
+            catch (DllNotFoundException ex)
+            {
+                throw CreateSdkUnavailableException(ex);
+            }
+            catch (EntryPointNotFoundException ex)
+            {
+                throw CreateSdkUnavailableException(ex);
+            }
+            catch (BadImageFormatException ex)
+            {
+                throw CreateSdkUnavailableException(ex);
+            }
+        }
+
+        private static MotionCardUnavailableException CreateSdkUnavailableException(
+            Exception exception)
+        {
+            return new MotionCardUnavailableException(
+                $"雷赛总线卡原生SDK不可用:{exception.Message}。可继续编辑，但物理轴不可用。",
+                exception);
         }
 
         private static void EnsureEtherCatHealthy(ushort cardId)
@@ -569,6 +603,310 @@ namespace Automation
             ushort physicalCard = ResolveCardId(card);
             EnsureSuccess(LTDMC.dmc_stop_multicoor(physicalCard, coordinateSystem, stopMode),
                 "停止协调直线运动", card, physicalCard, coordinateSystem);
+        }
+
+        public void MoveContinuousPath(ContinuousPathMoveRequest request)
+        {
+            ValidateContinuousPathRequest(request);
+            ushort[] axes = request.Axes.ToArray();
+            ushort physicalCard = ResolveCardId(request.Card);
+            foreach (ContinuousPathSegment segment in request.Segments)
+            {
+                ValidateContinuousPathLimits(request, segment, physicalCard);
+            }
+
+            lock (continuousPathLock)
+            {
+                short runState = LTDMC.dmc_conti_get_run_state(
+                    physicalCard, request.CoordinateSystem);
+                if (runState == 0 || runState == 1)
+                {
+                    throw new InvalidOperationException(
+                        $"连续轨迹坐标系正在运行:卡{request.Card},坐标系{request.CoordinateSystem},状态{runState}");
+                }
+                if (runState == 3)
+                {
+                    EnsureSuccess(
+                        LTDMC.dmc_conti_close_list(physicalCard, request.CoordinateSystem),
+                        "关闭未启动的连续轨迹缓存区",
+                        request.Card,
+                        physicalCard,
+                        request.CoordinateSystem);
+                }
+
+                ushort lookAheadEnabled = request.LookAheadEnabled ? (ushort)1 : (ushort)0;
+                EnsureSuccess(
+                    LTDMC.dmc_conti_set_lookahead_mode(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        lookAheadEnabled,
+                        200,
+                        request.PathError,
+                        request.LookAheadAcceleration),
+                    "设置连续轨迹前瞻",
+                    request.Card,
+                    physicalCard,
+                    request.CoordinateSystem);
+                EnsureSuccess(
+                    LTDMC.dmc_conti_open_list(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        (ushort)axes.Length,
+                        axes),
+                    "打开连续轨迹缓存区",
+                    request.Card,
+                    physicalCard,
+                    request.CoordinateSystem);
+
+                bool listOpened = true;
+                bool startAttempted = false;
+                bool completed = false;
+                try
+                {
+                    foreach (ContinuousPathSegment segment in request.Segments)
+                    {
+                        EnsureSuccess(
+                            LTDMC.dmc_set_vector_s_profile(
+                                physicalCard,
+                                request.CoordinateSystem,
+                                0,
+                                segment.AccelerationTime / 5d),
+                            "设置连续轨迹S曲线",
+                            request.Card,
+                            physicalCard,
+                            request.CoordinateSystem);
+                        EnsureSuccess(
+                            LTDMC.dmc_set_vector_profile_unit(
+                                physicalCard,
+                                request.CoordinateSystem,
+                                0,
+                                segment.MaxVelocity,
+                                segment.AccelerationTime,
+                                segment.DecelerationTime,
+                                segment.EndVelocity),
+                            "设置连续轨迹速度",
+                            request.Card,
+                            physicalCard,
+                            request.CoordinateSystem);
+                        AddContinuousPathSegment(request, segment, physicalCard, axes);
+                    }
+
+                    startAttempted = true;
+                    EnsureSuccess(
+                        LTDMC.dmc_conti_start_list(physicalCard, request.CoordinateSystem),
+                        "启动连续轨迹",
+                        request.Card,
+                        physicalCard,
+                        request.CoordinateSystem);
+                    EnsureSuccess(
+                        LTDMC.dmc_conti_close_list(physicalCard, request.CoordinateSystem),
+                        "关闭已启动的连续轨迹缓存区",
+                        request.Card,
+                        physicalCard,
+                        request.CoordinateSystem);
+                    listOpened = false;
+                    completed = true;
+                }
+                finally
+                {
+                    // start/close 的返回状态不确定时先尽力停下该坐标系，避免失败后仍残留运动。
+                    if (!completed && startAttempted)
+                    {
+                        LTDMC.dmc_conti_stop_list(
+                            physicalCard, request.CoordinateSystem, 1);
+                    }
+                    if (listOpened)
+                    {
+                        LTDMC.dmc_conti_close_list(physicalCard, request.CoordinateSystem);
+                    }
+                }
+            }
+        }
+
+        public bool IsContinuousPathDone(ushort card, ushort coordinateSystem)
+        {
+            EnsureCoordinateSystemInRange(coordinateSystem);
+            ushort physicalCard = ResolveCardId(card);
+            short result = LTDMC.dmc_conti_check_done(physicalCard, coordinateSystem);
+            if (result == 0)
+            {
+                return false;
+            }
+            if (result == 1)
+            {
+                return true;
+            }
+            throw new InvalidOperationException(
+                $"读取连续轨迹状态失败:卡{card},坐标系{coordinateSystem},返回值{result}");
+        }
+
+        public void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode)
+        {
+            EnsureCoordinateSystemInRange(coordinateSystem);
+            ushort physicalCard = ResolveCardId(card);
+            EnsureSuccess(
+                LTDMC.dmc_conti_stop_list(physicalCard, coordinateSystem, stopMode),
+                "停止连续轨迹",
+                card,
+                physicalCard,
+                coordinateSystem);
+        }
+
+        private static void ValidateContinuousPathRequest(ContinuousPathMoveRequest request)
+        {
+            if (request == null || request.Axes == null || request.Segments == null
+                || request.Axes.Count == 0 || request.Axes.Count > 6
+                || request.Axes.Distinct().Count() != request.Axes.Count
+                || request.Segments.Count == 0
+                || request.CoordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem
+                || request.PositionMode != 1
+                || request.PathError < 0 || double.IsNaN(request.PathError)
+                || double.IsInfinity(request.PathError)
+                || request.LookAheadAcceleration <= 0
+                || double.IsNaN(request.LookAheadAcceleration)
+                || double.IsInfinity(request.LookAheadAcceleration))
+            {
+                throw new ArgumentException("连续轨迹公共参数无效。", nameof(request));
+            }
+
+            foreach (ContinuousPathSegment segment in request.Segments)
+            {
+                if (segment == null
+                    || !Enum.IsDefined(typeof(ContinuousPathSegmentType), segment.Type)
+                    || !HasFinitePositions(segment.TargetPositions, request.Axes.Count)
+                    || segment.MaxVelocity <= 0
+                    || segment.AccelerationTime <= 0
+                    || segment.DecelerationTime <= 0
+                    || segment.EndVelocity < 0
+                    || !IsFinite(segment.MaxVelocity)
+                    || !IsFinite(segment.AccelerationTime)
+                    || !IsFinite(segment.DecelerationTime)
+                    || !IsFinite(segment.EndVelocity)
+                    || segment.ArcDirection > 1)
+                {
+                    throw new ArgumentException("连续轨迹段参数无效。", nameof(request));
+                }
+                if (segment.Type == ContinuousPathSegmentType.ArcThreePoint
+                    && (!HasFinitePositions(segment.StartPositions, request.Axes.Count)
+                        || !HasFinitePositions(segment.MiddlePositions, request.Axes.Count)))
+                {
+                    throw new ArgumentException("三点圆弧必须提供完整的起点和中间点。", nameof(request));
+                }
+                if (segment.Type == ContinuousPathSegmentType.ArcCenter
+                    && !HasFinitePositions(segment.MiddlePositions, request.Axes.Count))
+                {
+                    throw new ArgumentException("圆心圆弧必须提供完整圆心。", nameof(request));
+                }
+                if (segment.Type == ContinuousPathSegmentType.ArcRadius
+                    && (!IsFinite(segment.Radius) || segment.Radius <= 0))
+                {
+                    throw new ArgumentException("半径圆弧的半径必须大于0。", nameof(request));
+                }
+            }
+        }
+
+        private static bool HasFinitePositions(IReadOnlyList<double> positions, int count)
+        {
+            return positions != null && positions.Count == count && positions.All(IsFinite);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static void AddContinuousPathSegment(
+            ContinuousPathMoveRequest request,
+            ContinuousPathSegment segment,
+            ushort physicalCard,
+            ushort[] axes)
+        {
+            short result;
+            double[] target = segment.TargetPositions.ToArray();
+            switch (segment.Type)
+            {
+                case ContinuousPathSegmentType.Line:
+                    result = LTDMC.dmc_conti_line_unit(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        (ushort)axes.Length,
+                        axes,
+                        target,
+                        request.PositionMode,
+                        0);
+                    break;
+                case ContinuousPathSegmentType.ArcThreePoint:
+                    result = LTDMC.dmc_conti_arc_move_3points_unit(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        (ushort)axes.Length,
+                        axes,
+                        target,
+                        segment.MiddlePositions.ToArray(),
+                        segment.Circle,
+                        request.PositionMode,
+                        0);
+                    break;
+                case ContinuousPathSegmentType.ArcCenter:
+                    result = LTDMC.dmc_conti_arc_move_center_unit(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        (ushort)axes.Length,
+                        axes,
+                        target,
+                        segment.MiddlePositions.ToArray(),
+                        segment.ArcDirection,
+                        segment.Circle,
+                        request.PositionMode,
+                        0);
+                    break;
+                case ContinuousPathSegmentType.ArcRadius:
+                    result = LTDMC.dmc_conti_arc_move_radius_unit(
+                        physicalCard,
+                        request.CoordinateSystem,
+                        (ushort)axes.Length,
+                        axes,
+                        target,
+                        segment.Radius,
+                        segment.ArcDirection,
+                        segment.Circle,
+                        request.PositionMode,
+                        0);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(segment.Type));
+            }
+            EnsureSuccess(
+                result,
+                $"添加连续轨迹段[{segment.Type}]",
+                request.Card,
+                physicalCard,
+                request.CoordinateSystem);
+        }
+
+        private static void ValidateContinuousPathLimits(
+            ContinuousPathMoveRequest request,
+            ContinuousPathSegment segment,
+            ushort physicalCard)
+        {
+            IEnumerable<IReadOnlyList<double>> positions = new[]
+            {
+                segment.StartPositions,
+                segment.MiddlePositions,
+                segment.TargetPositions
+            }.Where(item => item != null);
+            foreach (IReadOnlyList<double> point in positions)
+            {
+                for (int index = 0; index < request.Axes.Count; index++)
+                {
+                    EnsurePointMotionDirectionAllowed(
+                        request.Card,
+                        physicalCard,
+                        request.Axes[index],
+                        point[index],
+                        request.PositionMode);
+                }
+            }
         }
 
         private static void EnsureCoordinateSystemInRange(ushort coordinateSystem)

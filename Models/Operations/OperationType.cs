@@ -3441,4 +3441,154 @@ namespace Automation
         [DisplayName("超时时间(ms)变量"), Category("参数"), Description("等待超时时间变量名；固定超时无效时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
         public string TimeoutVariableName { get; set; }
     }
+
+    [Serializable]
+    public abstract class ContinuousPathAddOperation : OperationType
+    {
+        protected ContinuousPathAddOperation()
+        {
+            TimeoutMs = 120000;
+        }
+
+        [DisplayName("工站名称"), Category("A.轨迹设置"), Description("目标六轴工站名称。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        [DisplayName("清除以前轨迹"), Category("A.轨迹设置"), Description("添加本段前清除尚未启动的旧轨迹；语义沿用3.0。"), ReadOnly(false)]
+        public bool ClearPreviousPath { get; set; }
+
+        [DisplayName("添加后启动"), Category("A.轨迹设置"), Description("添加本段后立即启动当前工站已经累计的全部轨迹。"), ReadOnly(false)]
+        public bool StartAfterAdding { get; set; }
+
+        [DisplayName("不等待"), Category("D.执行选项"), Description("启动后不等待连续轨迹完成。"), ReadOnly(false)]
+        public bool ContinueWithoutWaiting { get; set; }
+
+        [DisplayName("超时时间(ms)"), Category("D.执行选项"), Description("等待连续轨迹完成的超时时间。"), ReadOnly(false)]
+        [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时时间", EmptyValue = "0")]
+        public int TimeoutMs { get; set; }
+
+        [DisplayName("超时时间(ms)变量"), Category("D.执行选项"), Description("固定超时为0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TimeoutVariableName { get; set; }
+    }
+
+    [Serializable]
+    public sealed class AddContinuousLineOperation : ContinuousPathAddOperation
+    {
+        public AddContinuousLineOperation()
+        {
+            OperaType = "添加连续直线";
+        }
+
+        [DisplayName("目标点位"), Category("B.轨迹点"), Description("当前直线段的目标点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPointName { get; set; }
+
+        [DisplayName("目标点位索引"), Category("B.轨迹点"), Description("非负时优先按索引定位目标点。"), ReadOnly(false)]
+        public int TargetPointIndex { get; set; } = -1;
+    }
+
+    [Serializable]
+    public sealed class AddContinuousThreePointArcOperation : ContinuousPathAddOperation
+    {
+        public AddContinuousThreePointArcOperation()
+        {
+            OperaType = "添加三点圆弧";
+        }
+
+        [DisplayName("起点A"), Category("B.轨迹点"), Description("三点圆弧的起点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string StartPointName { get; set; }
+
+        [DisplayName("起点A索引"), Category("B.轨迹点"), Description("非负时优先按索引定位起点。"), ReadOnly(false)]
+        public int StartPointIndex { get; set; } = -1;
+
+        [DisplayName("中间点B"), Category("B.轨迹点"), Description("三点圆弧经过的中间点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string MiddlePointName { get; set; }
+
+        [DisplayName("中间点B索引"), Category("B.轨迹点"), Description("非负时优先按索引定位中间点。"), ReadOnly(false)]
+        public int MiddlePointIndex { get; set; } = -1;
+
+        [DisplayName("目标点C"), Category("B.轨迹点"), Description("三点圆弧的目标点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPointName { get; set; }
+
+        [DisplayName("目标点C索引"), Category("B.轨迹点"), Description("非负时优先按索引定位目标点。"), ReadOnly(false)]
+        public int TargetPointIndex { get; set; } = -1;
+    }
+
+    [Serializable]
+    public sealed class AddContinuousCenterArcOperation : ContinuousPathAddOperation
+    {
+        public AddContinuousCenterArcOperation()
+        {
+            OperaType = "添加圆心圆弧";
+            Circle = -1;
+        }
+
+        [DisplayName("圆心点"), Category("B.轨迹点"), Description("圆心式圆弧的圆心坐标。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string CenterPointName { get; set; }
+
+        [DisplayName("圆心点索引"), Category("B.轨迹点"), Description("非负时优先按索引定位圆心点。"), ReadOnly(false)]
+        public int CenterPointIndex { get; set; } = -1;
+
+        [DisplayName("目标点"), Category("B.轨迹点"), Description("圆心式圆弧的目标点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPointName { get; set; }
+
+        [DisplayName("目标点索引"), Category("B.轨迹点"), Description("非负时优先按索引定位目标点。"), ReadOnly(false)]
+        public int TargetPointIndex { get; set; } = -1;
+
+        [DisplayName("逆时针"), Category("C.圆弧参数"), Description("启用为逆时针，关闭为顺时针。"), ReadOnly(false)]
+        public bool CounterClockwise { get; set; }
+
+        [DisplayName("螺旋圈数"), Category("C.圆弧参数"), Description("沿用雷赛连续圆弧 Circle 参数，默认-1。"), ReadOnly(false)]
+        public int Circle { get; set; }
+    }
+
+    [Serializable]
+    public sealed class AddContinuousRadiusArcOperation : ContinuousPathAddOperation
+    {
+        public AddContinuousRadiusArcOperation()
+        {
+            OperaType = "添加半径圆弧";
+            Radius = 1;
+            Circle = -1;
+        }
+
+        [DisplayName("目标点"), Category("B.轨迹点"), Description("半径式圆弧的目标点。"), ReadOnly(false), TypeConverter(typeof(StationPosDic))]
+        public string TargetPointName { get; set; }
+
+        [DisplayName("目标点索引"), Category("B.轨迹点"), Description("非负时优先按索引定位目标点。"), ReadOnly(false)]
+        public int TargetPointIndex { get; set; } = -1;
+
+        [DisplayName("半径"), Category("C.圆弧参数"), Description("半径必须是大于0的有限数。"), ReadOnly(false)]
+        [NumericRange(0.000001)]
+        public double Radius { get; set; }
+
+        [DisplayName("逆时针"), Category("C.圆弧参数"), Description("启用为逆时针，关闭为顺时针。"), ReadOnly(false)]
+        public bool CounterClockwise { get; set; }
+
+        [DisplayName("螺旋圈数"), Category("C.圆弧参数"), Description("沿用雷赛连续圆弧 Circle 参数，默认-1。"), ReadOnly(false)]
+        public int Circle { get; set; }
+    }
+
+    [Serializable]
+    public sealed class StartContinuousMoveOperation : OperationType
+    {
+        public StartContinuousMoveOperation()
+        {
+            OperaType = "启动连续运动";
+            TimeoutMs = 120000;
+        }
+
+        [DisplayName("工站名称"), Category("参数"), Description("目标六轴工站名称。"), ReadOnly(false), TypeConverter(typeof(StationtItem))]
+        public string StationName { get; set; }
+
+        [DisplayName("不等待"), Category("执行选项"), Description("启动后不等待连续轨迹完成。"), ReadOnly(false)]
+        public bool ContinueWithoutWaiting { get; set; }
+
+        [DisplayName("超时时间(ms)"), Category("执行选项"), Description("等待连续轨迹完成的超时时间。"), ReadOnly(false)]
+        [NumericRange(0)]
+        [ValueSourceAlternative("Timeout", DisplayName = "超时时间", EmptyValue = "0")]
+        public int TimeoutMs { get; set; }
+
+        [DisplayName("超时时间(ms)变量"), Category("执行选项"), Description("固定超时为0时从变量读取。"), ReadOnly(false), TypeConverter(typeof(ValueItem))]
+        public string TimeoutVariableName { get; set; }
+    }
 }

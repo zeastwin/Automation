@@ -421,6 +421,37 @@ namespace Automation.Core.Tests
 
         [TestMethod]
         [TestCategory("Desktop")]
+        public void Apply_WhileDeviceSafetyLocked_StillKeepsConfigurationRepairAvailable()
+        {
+            StaTestRunner.Run(() =>
+            {
+                using (var directory = new TemporaryDirectory())
+                using (var form = new FrmMain(new PlatformRuntime(directory.FullPath)))
+                {
+                    var service = new AutomationBridgeService(form);
+                    string previewId = PreviewProcess(
+                        service,
+                        "安全锁下修复流程")["previewId"]?.Value<string>();
+                    Assert.AreEqual(200, Confirm(service, previewId).StatusCode);
+                    form.Runtime.Safety.Lock("测试设备故障");
+
+                    AutomationBridgeResponse apply = Apply(service, previewId);
+
+                    Assert.AreEqual(200, apply.StatusCode,
+                        "设备安全锁不能阻断 AI 配置修复入口。");
+                    Assert.AreEqual(
+                        "安全锁下修复流程",
+                        form.Runtime.Stores.Processes.Items.Single().head.Name);
+                    Assert.IsTrue(File.Exists(Path.Combine(
+                        directory.FullPath,
+                        "Work",
+                        "0.json")));
+                }
+            }, TimeSpan.FromSeconds(30));
+        }
+
+        [TestMethod]
+        [TestCategory("Desktop")]
         public void Preview_MisspelledIo_ReturnsTypedResourceRefCandidateWithoutSchemaDump()
         {
             StaTestRunner.Run(() =>
@@ -439,7 +470,9 @@ namespace Automation.Core.Tests
                                     CardNum = 0,
                                     Module = 0,
                                     IOIndex = "0",
-                                    IOType = "通用输入"
+                                    IOType = "通用输入",
+                                    UsedType = "通用",
+                                    EffectLevel = "正常"
                                 }
                             }
                         },

@@ -1310,10 +1310,7 @@ namespace Automation.Bridge
                         ? "系统正在执行配置维护。"
                         : $"系统正在执行配置维护：{runtime.Maintenance.Reason}");
             }
-            if (runtime.Safety.IsLocked)
-            {
-                throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
-            }
+            // 安全锁只阻断运行控制；AI 流程编辑仍是故障后的修复入口。
             if (runtime.Editor.ActiveSession != null)
             {
                 throw new BridgeRequestException(

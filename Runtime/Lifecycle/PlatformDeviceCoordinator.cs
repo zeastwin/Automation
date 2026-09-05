@@ -74,12 +74,8 @@ namespace Automation
                 }
                 else if (!runtime.Motion.InitCard())
                 {
-                    string message = "雷赛总线卡初始化失败，运动设备已进入安全停机。";
-                    runtime.Safety.Lock(message);
-                    runtime.ProcessEngine?.Logger?.Log(message, LogLevel.Error);
-                    StopAndReleaseDevices(true);
-                    TryRaiseFaulted(message);
-                    return;
+                    throw new InvalidOperationException(
+                        "雷赛总线卡初始化返回失败，但没有提供可安全降级的未检测到板卡原因。");
                 }
                 else
                 {
@@ -110,20 +106,22 @@ namespace Automation
                     cardInitialized = true;
                 }
             }
+            catch (MotionControl.MotionCardUnavailableException ex)
+            {
+                // 该异常只允许由驱动在尚未接触物理卡时抛出；编辑器、流程配置和机器人继续启动。
+                runtime.ProcessEngine?.Logger?.Log(
+                    $"雷赛总线卡不可用，已跳过物理轴；编辑、流程配置和机器人工站继续可用:{ex.Message}",
+                    LogLevel.Error);
+            }
             catch (Exception ex)
             {
-                if (configuredCardCount > 0)
-                {
-                    string message = $"雷赛总线卡初始化异常，运动设备已进入安全停机:{ex.Message}";
-                    runtime.Safety.Lock(message);
-                    runtime.ProcessEngine?.Logger?.Log(message, LogLevel.Error);
-                    StopAndReleaseDevices(true);
-                    TryRaiseFaulted(message);
-                    return;
-                }
-                runtime.ProcessEngine?.Logger?.Log(
-                    $"纯机器人模式初始化运动卡类型异常，已跳过物理卡:{ex.Message}",
-                    LogLevel.Error);
+                // 已发现板卡后的总线、下载、轴初始化异常无法证明设备无副作用，必须安全停机。
+                string message = $"雷赛总线卡初始化异常，运动设备已进入安全停机:{ex.Message}";
+                runtime.Safety.Lock(message);
+                runtime.ProcessEngine?.Logger?.Log(message, LogLevel.Error);
+                StopAndReleaseDevices(true);
+                TryRaiseFaulted(message);
+                return;
             }
 
             try
@@ -230,11 +228,15 @@ namespace Automation
                         if (pollCycle % SystemIoPollIntervalCycles == 0)
                         {
                             EnsureStationsNotFaulted();
-                            if (!TryReadActiveEmergencyInput(out IO emergencyInput, out string ioError))
+                            // 急停配置挂在雷赛总线 IO 上。开发机未检测到卡时跳过采样，
+                            // 避免后台监控把已降级的设备离线再次升级为平台故障。
+                            IO emergencyInput = null;
+                            if (runtime.Motion.IsCardInitialized
+                                && !TryReadActiveEmergencyInput(out emergencyInput, out string ioError))
                             {
                                 throw new InvalidOperationException(ioError);
                             }
-                            if (emergencyInput != null)
+                            if (runtime.Motion.IsCardInitialized && emergencyInput != null)
                             {
                                 HandleMonitorFault($"检测到急停输入:{emergencyInput.Name}");
                                 break;
@@ -559,33 +561,23 @@ namespace Automation
                 if (!stopCommandSucceeded || !stopped)
                 {
                     string unsafeMessage = $"运动设备释放前无法确认全部停稳:{stopError ?? waitError}";
-                    try
-                    {
-                        runtime.Safety.Lock(unsafeMessage);
-                    }
-                    catch
-                    {
-                    }
+                    TryLockCleanupFailure(unsafeMessage);
                     runtime.ProcessEngine?.Logger?.Log(unsafeMessage, LogLevel.Error);
                 }
 
-                if (!TryWriteBrakeOutputs(false, out string brakeError))
+                // 卡从未初始化时无法也无需访问总线刹车输出；驱动关闭和工站释放仍保持幂等。
+                if (runtime.Motion?.IsCardInitialized == true
+                    && !TryWriteBrakeOutputs(false, out string brakeError))
                 {
                     string message = $"运动设备释放前抱刹车失败:{brakeError}";
-                    try
-                    {
-                        runtime.Safety.Lock(message);
-                    }
-                    catch
-                    {
-                    }
+                    TryLockCleanupFailure(message);
                     runtime.ProcessEngine?.Logger?.Log(message, LogLevel.Error);
                 }
                 try
                 {
                     MotionControl.MotionStationResult releaseResult = runtime.Motion?.ReleaseStations()
                         ?? MotionControl.MotionStationResult.Success;
-                    if (releaseResult != MotionControl.MotionStationResult.Success)
+                    if (!IsIdempotentCleanupResult(releaseResult))
                     {
                         runtime.ProcessEngine?.Logger?.Log(
                             $"释放六轴工站失败:{releaseResult}",
@@ -618,7 +610,7 @@ namespace Automation
             try
             {
                 MotionControl.MotionStationResult result = runtime.Motion.StopAllStations(emergency);
-                if (result != MotionControl.MotionStationResult.Success)
+                if (!IsIdempotentCleanupResult(result))
                 {
                     failures.Add($"停止六轴工站返回:{result}");
                 }
@@ -692,11 +684,16 @@ namespace Automation
                         false,
                         -1,
                         remaining);
-                    if (result != MotionControl.MotionStationResult.Success)
+                    if (!IsIdempotentCleanupResult(result))
                     {
                         error = $"等待{station}号六轴工站停稳失败:{result}";
                         return false;
                     }
+                }
+
+                if (!runtime.Motion.IsCardInitialized)
+                {
+                    return true;
                 }
 
                 while (true)
@@ -731,6 +728,29 @@ namespace Automation
                 error = $"确认运动停止异常:{ex.Message}";
                 return false;
             }
+        }
+
+        private void TryLockCleanupFailure(string message)
+        {
+            try
+            {
+                // 清理是故障后的补偿阶段。已有安全锁原因必须保留，不能被次生停止/释放错误覆盖。
+                if (!runtime.Safety.IsLocked)
+                {
+                    runtime.Safety.Lock(message);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool IsIdempotentCleanupResult(
+            MotionControl.MotionStationResult result)
+        {
+            return result == MotionControl.MotionStationResult.Success
+                || result == MotionControl.MotionStationResult.NotInitialized
+                || result == MotionControl.MotionStationResult.NotConnected;
         }
 
         private void TryRaiseFaulted(string message)

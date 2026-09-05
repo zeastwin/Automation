@@ -75,6 +75,7 @@ namespace Automation
         private readonly WinFormsProcessInteractionCoordinator processInteraction;
         private FrmMain platformEditor;
         private PlatformRuntimeState state = PlatformRuntimeState.Created;
+        private string deviceFaultMessage;
         private bool autoStartTriggered;
         private bool runtimeCoreStopped;
         private bool disposed;
@@ -237,11 +238,7 @@ namespace Automation
                 MonitorSystemValue("复位状态");
                 MonitorSystemValue("系统状态");
 
-                SetState(PlatformRuntimeState.Ready, runtime.Safety.IsLocked
-                    ? $"平台已初始化，但处于安全锁定状态:{runtime.Safety.LockReason}"
-                    : runtime.Readiness.ProcConfigFaulted
-                        ? "平台已初始化，但流程配置异常；所有流程已停止且禁止启动，请处理流程配置报警。"
-                        : "平台已就绪");
+                SetState(PlatformRuntimeState.Ready, BuildReadyStateMessage());
                 return true;
             }
             catch (Exception ex)
@@ -603,7 +600,9 @@ namespace Automation
         public bool TryMonitorValue(string name, bool enabled, out string error)
         {
             error = null;
-            if (state != PlatformRuntimeState.Ready && state != PlatformRuntimeState.Initializing)
+            if (state != PlatformRuntimeState.Ready
+                && state != PlatformRuntimeState.Initializing
+                && state != PlatformRuntimeState.Faulted)
             {
                 error = $"当前状态禁止设置变量监控:{state}";
                 return false;
@@ -734,7 +733,11 @@ namespace Automation
         {
             if (!TryMonitorValue(name, true, out string error))
             {
-                throw new InvalidOperationException(error);
+                // 变量配置可能损坏或系统保留区已满，此时运行值监控不可用，但编辑器正是
+                // 修复该配置的入口。记录原始原因并继续完成宿主初始化。
+                runtime.ProcessEngine?.Logger?.Log(
+                    $"系统变量监控未启用，平台编辑器继续启动:{error}",
+                    LogLevel.Error);
             }
         }
 
@@ -754,7 +757,36 @@ namespace Automation
             {
                 return;
             }
-            SetState(PlatformRuntimeState.Faulted, message ?? "设备运行时发生故障。");
+            deviceFaultMessage = string.IsNullOrWhiteSpace(message)
+                ? "设备运行时发生故障。"
+                : message.Trim();
+            runtime.ProcessEngine?.Logger?.Log(
+                $"设备能力不可用，平台编辑和非设备能力继续运行:{deviceFaultMessage}",
+                LogLevel.Error);
+
+            // Faulted 只表示平台对象图或核心配置未能完成初始化。设备初始化、急停、限位等
+            // 运行故障由设备协调器和 Safety/Readiness 收窄受影响能力，不能关闭编辑器修复入口。
+            if (state == PlatformRuntimeState.Ready)
+            {
+                SetState(PlatformRuntimeState.Ready, BuildReadyStateMessage());
+            }
+        }
+
+        private string BuildReadyStateMessage()
+        {
+            if (runtime.Safety.IsLocked)
+            {
+                return $"平台已初始化，但处于安全锁定状态:{runtime.Safety.LockReason}";
+            }
+            if (runtime.Readiness.ProcConfigFaulted)
+            {
+                return "平台已初始化，但流程配置异常；所有流程已停止且禁止启动，请打开编辑器修复流程配置。";
+            }
+            if (!string.IsNullOrWhiteSpace(deviceFaultMessage))
+            {
+                return $"平台已就绪；设备能力暂不可用，但编辑器和非设备功能可继续使用:{deviceFaultMessage}";
+            }
+            return "平台已就绪";
         }
 
         private void SetState(PlatformRuntimeState nextState, string message)
@@ -901,31 +933,11 @@ namespace Automation
             {
                 throw new InvalidDataException($"程序配置初始化失败:{appConfigError}");
             }
-            if (!GooseConfigStorage.TryLoad(out _, out string gooseConfigError))
-            {
-                throw new InvalidDataException($"AI 配置初始化失败:{gooseConfigError}");
-            }
-
+            // AI 是辅助能力，其配置在真正启动 AI 时自行校验并降级，不能阻止平台编辑器启动。
+            // Work 内容由 ProcessWorkDirectoryTransaction 加载并形成 ProcConfigFaulted，
+            // 这样即使流程文件损坏或编号断档，用户仍能进入编辑器修复。
             string workRoot = Path.Combine(ConfigRoot, "Work");
             Directory.CreateDirectory(workRoot);
-            List<int> indices = new List<int>();
-            foreach (string filePath in Directory.GetFiles(workRoot, "*.json", SearchOption.TopDirectoryOnly))
-            {
-                string fileName = Path.GetFileNameWithoutExtension(filePath);
-                if (!int.TryParse(fileName, NumberStyles.None, CultureInfo.InvariantCulture, out int index) || index < 0)
-                {
-                    throw new InvalidDataException($"流程文件名无效:{Path.GetFileName(filePath)}");
-                }
-                indices.Add(index);
-            }
-            indices.Sort();
-            for (int i = 0; i < indices.Count; i++)
-            {
-                if (indices[i] != i)
-                {
-                    throw new InvalidDataException($"流程文件索引不连续，期望 {i}.json，实际 {indices[i]}.json");
-                }
-            }
         }
     }
 }

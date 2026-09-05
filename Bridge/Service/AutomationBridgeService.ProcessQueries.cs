@@ -216,7 +216,7 @@ namespace Automation.Bridge
                 }
 
                 JObject behavior = OperationBehaviorCatalog.BuildContract(template);
-                items.Add(new JObject
+                var item = new JObject
                 {
                     ["operaType"] = template.OperaType ?? string.Empty,
                     ["name"] = template.Name ?? string.Empty,
@@ -226,7 +226,12 @@ namespace Automation.Bridge
                     // 让模型看到现场资源的同时拿到精确指令类型名，不靠猜。
                     ["domains"] = BuildOperationDomains(template, behavior),
                     ["intentAliases"] = behavior?["intentAliases"]?.DeepClone() ?? new JArray()
-                });
+                };
+                if (behavior?["supportedStationTypes"] is JArray supportedStationTypes)
+                {
+                    item["supportedStationTypes"] = supportedStationTypes.DeepClone();
+                }
+                items.Add(item);
             }
 
             return new JObject

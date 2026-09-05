@@ -45,6 +45,45 @@ namespace Automation.MotionControl
         public double DecelerationTime { get; set; }
     }
 
+    /// <summary>连续轨迹段类型；语义沿用3.0的直线、三点圆弧和圆心/半径圆弧。</summary>
+    public enum ContinuousPathSegmentType
+    {
+        Line = 0,
+        ArcThreePoint = 1,
+        ArcCenter = 2,
+        ArcRadius = 3
+    }
+
+    /// <summary>连续轨迹中的单段运动数据。</summary>
+    public sealed class ContinuousPathSegment
+    {
+        public ContinuousPathSegmentType Type { get; set; }
+        public IReadOnlyList<double> StartPositions { get; set; }
+        public IReadOnlyList<double> MiddlePositions { get; set; }
+        public IReadOnlyList<double> TargetPositions { get; set; }
+        public double Radius { get; set; }
+        public ushort ArcDirection { get; set; }
+        public int Circle { get; set; } = -1;
+        public double MaxVelocity { get; set; }
+        public double AccelerationTime { get; set; }
+        public double DecelerationTime { get; set; }
+        public double EndVelocity { get; set; }
+    }
+
+    /// <summary>一次雷赛连续插补请求；各段共用同一张卡、坐标系和轴列表。</summary>
+    public sealed class ContinuousPathMoveRequest
+    {
+        public ushort Card { get; set; }
+        public ushort CoordinateSystem { get; set; }
+        public IReadOnlyList<ushort> Axes { get; set; }
+        public ushort PositionMode { get; set; } = 1;
+        public IReadOnlyList<ContinuousPathSegment> Segments { get; set; }
+        public bool LookAheadEnabled { get; set; }
+        public double PathError { get; set; }
+        /// <summary>换算到控制器单位后的前瞻加速度。</summary>
+        public double LookAheadAcceleration { get; set; } = 2000;
+    }
+
     /// <summary>批量输出中的单点目标状态。</summary>
     public sealed class IoOutputCommand
     {
@@ -97,6 +136,13 @@ namespace Automation.MotionControl
             int columnCount, IReadOnlyList<DataPos> referencePoints);
         MotionStationResult MoveStationTrayPoint(short station, int trayId, int position,
             DataPos calculatedPoint);
+        MotionStationResult ClearStationContinuousPath(short station);
+        MotionStationResult AddStationContinuousLine(short station, DataPos target);
+        MotionStationResult AddStationContinuousArc(short station, DataPos start,
+            DataPos middle, DataPos target);
+        MotionStationResult AddStationContinuousArcCenterRadius(short station,
+            DataPos target, DataPos center, double radius, int circle, bool counterClockwise);
+        MotionStationResult StartStationContinuousMove(short station);
         MotionStationResult StopStation(short station, bool emergency = false);
         MotionStationResult StopAllStations(bool emergency = false);
         void SettHomeParam(ushort card, ushort axis, ushort dir, ushort speed, ushort homeMode);
@@ -108,6 +154,9 @@ namespace Automation.MotionControl
         void MoveCoordinatedLinear(CoordinatedLinearMoveRequest request);
         bool IsCoordinatedLinearDone(ushort card, ushort coordinateSystem);
         void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode);
+        void MoveContinuousPath(ContinuousPathMoveRequest request);
+        bool IsContinuousPathDone(ushort card, ushort coordinateSystem);
+        void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode);
         void Jog(ushort card, ushort axis, ushort direction);
         void StopOneAxis(ushort card, ushort axis, ushort stopMode);
         void StopConnect();

@@ -33,11 +33,7 @@ namespace Automation
                 Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
                 return false;
             }
-            if (runtime.Safety.IsLocked)
-            {
-                runtime.EditorUi?.ShowMessage(runtime.Safety.LockReason, "系统已安全锁定", true);
-                return false;
-            }
+            // Safety 只限制运行副作用；流程编辑是排查和修复设备故障的入口。
             if (procIndex < 0 || procIndex >= runtime.Stores.Processes.Items.Count)
             {
                 return false;
@@ -94,14 +90,7 @@ namespace Automation
                 Warn(runtime.Maintenance.Reason, "系统正在执行配置维护");
                 return false;
             }
-            if (runtime.Safety.IsLocked)
-            {
-                runtime.EditorUi?.ShowMessage(
-                    runtime.Safety.LockReason,
-                    "系统已安全锁定",
-                    true);
-                return false;
-            }
+            // 即使设备处于安全锁定，变量定义仍必须允许人工修复。
             return true;
         }
 
@@ -115,9 +104,7 @@ namespace Automation
             {
                 error = runtime.Maintenance.Active
                     ? runtime.Maintenance.Reason ?? "系统正在执行配置维护。"
-                    : runtime.Safety.IsLocked
-                        ? runtime.Safety.LockReason ?? "系统已安全锁定。"
-                        : "变量配置当前不可编辑。";
+                    : "变量配置当前不可编辑。";
                 return false;
             }
 

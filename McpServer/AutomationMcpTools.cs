@@ -2318,7 +2318,9 @@ namespace Automation.McpServer
                 string stationResourceRef = AuthoringResourceRefs.ForStableId(
                     "motion_station", stationIndex.ToString(CultureInfo.InvariantCulture));
                 selectedStation["resourceRef"] = stationResourceRef;
-                selectedStation["motionOperations"] = (JsonArray)motionOperations.DeepClone();
+                selectedStation["motionOperations"] = FilterMotionOperationsForStationType(
+                    motionOperations,
+                    selectedStation["type"]?.GetValue<string>());
                 int taughtPointCount = allPoints.Count(point =>
                     point["taught"]?.GetValue<bool>() == true);
                 int plannedPointCount = allPoints.Length - taughtPointCount;
@@ -2380,8 +2382,27 @@ namespace Automation.McpServer
                 ["nextOffset"] = hasMore ? offset + returnedPointCount : null,
                 ["items"] = stations,
                 ["authoringGaps"] = authoringGaps,
-                ["note"] = "每个工站项同时包含实际轴配置、已规划/已示教点位和 motionOperations 工站范围原生指令（如工站走点、回原）；流程可以先引用有业务含义的规划点位名，但planned坐标不能执行运动。resourceRef用于稳定识别，authoringGaps只暴露事实缺口和可选下一步，不强制固定工作流。"
+                ["note"] = "每个工站项同时包含实际轴配置、已规划/已示教点位和按工站类型过滤的 motionOperations 原生指令；流程可以先引用有业务含义的规划点位名，但planned坐标不能执行运动。resourceRef用于稳定识别，authoringGaps只暴露事实缺口和可选下一步，不强制固定工作流。"
             };
+        }
+
+        internal static JsonArray FilterMotionOperationsForStationType(
+            JsonArray operations,
+            string? stationType)
+        {
+            var result = new JsonArray();
+            foreach (JsonObject operation in (operations ?? new JsonArray()).OfType<JsonObject>())
+            {
+                JsonArray? supported = operation["supportedStationTypes"] as JsonArray;
+                if (supported != null && supported.Count > 0
+                    && !supported.Any(value => string.Equals(
+                        value?.GetValue<string>(), stationType, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+                result.Add((JsonNode)operation.DeepClone());
+            }
+            return result;
         }
 
         private static async Task<JsonArray> ListStationScopedOperationsAsync(
@@ -2395,11 +2416,16 @@ namespace Automation.McpServer
                 ?? new JsonArray()).OfType<JsonObject>())
             {
                 if (item["stationScoped"]?.GetValue<bool>() != true) continue;
-                operations.Add(new JsonObject
+                var operation = new JsonObject
                 {
                     ["operaType"] = item["operaType"]?.DeepClone(),
                     ["name"] = item["name"]?.DeepClone()
-                });
+                };
+                if (item["supportedStationTypes"] is JsonArray supportedStationTypes)
+                {
+                    operation["supportedStationTypes"] = supportedStationTypes.DeepClone();
+                }
+                operations.Add(operation);
             }
             return operations;
         }
@@ -2630,6 +2656,13 @@ namespace Automation.McpServer
                 .ThenBy(entry => entry.item["operaType"]?.GetValue<string>() ?? string.Empty, StringComparer.Ordinal)
                 .Take(8)
                 .ToArray();
+            // 精确类型名、显示名或行为别名优先形成唯一候选；若多个指令错误地复用了同一别名，
+            // 仍保留全部同分候选交给模型消歧，不静默任选一个。
+            if (candidates.Length > 0 && candidates[0].score >= 1000)
+            {
+                int exactScore = candidates[0].score;
+                candidates = candidates.Where(entry => entry.score == exactScore).ToArray();
+            }
             var result = new JsonArray();
             foreach (var entry in candidates)
                 result.Add((JsonNode)entry.item.DeepClone());
@@ -2658,7 +2691,7 @@ namespace Automation.McpServer
 
         internal static int ScoreTextAffinity(string left, string right)
         {
-            if (string.Equals(left, right, StringComparison.Ordinal)) return 0;
+            if (string.Equals(left, right, StringComparison.Ordinal)) return 1000;
             int bigrams = CountSharedBigrams(left, right);
             bool contains = right.IndexOf(left, StringComparison.OrdinalIgnoreCase) >= 0
                 || left.IndexOf(right, StringComparison.OrdinalIgnoreCase) >= 0;

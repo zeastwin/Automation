@@ -4,6 +4,7 @@ using System;
 // 排查入口：Work 缺失或编号不连续时检查 Work_tmp、Work_bak 与 .complete，再看 Load 返回的恢复消息。
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace Automation
@@ -37,6 +38,22 @@ namespace Automation
                 }
 
                 Directory.CreateDirectory(workDir);
+                foreach (string filePath in Directory.EnumerateFiles(
+                    workDir,
+                    "*.json",
+                    SearchOption.TopDirectoryOnly))
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(filePath);
+                    if (!int.TryParse(
+                            fileName,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out int fileIndex)
+                        || fileIndex < 0)
+                    {
+                        errors.Add($"流程文件名无效：{Path.GetFileName(filePath)}");
+                    }
+                }
                 Dictionary<int, string> indexMap =
                     ProcessDefinitionService.BuildProcFileIndexMap(workDir, out int maxIndex);
                 errors.AddRange(ProcessDefinitionService.ValidateProcFileContinuity(indexMap, maxIndex));

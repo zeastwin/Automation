@@ -41,6 +41,29 @@ namespace Automation
         [NumericRange(0, CoordinatedLinearMoveRequest.MaximumCoordinateSystem)]
         public ushort CoordinateSystem { get; set; }
 
+        [DisplayName("前瞻使能"), Category("D连续轨迹"), Description("沿用3.0连续插补前瞻开关。"), ReadOnly(false)]
+        public bool LookAheadEnabled { get; set; }
+
+        [DisplayName("轨迹误差"), Category("D连续轨迹"), Description("连续插补前瞻允许的路径误差。"), ReadOnly(false)]
+        [NumericRange(0)]
+        public double PathError { get; set; }
+
+        [DisplayName("前瞻加速度倍数"), Category("D连续轨迹"), Description("轨迹实际加速度的前瞻放大倍数；默认沿用3.0的2000。"), ReadOnly(false)]
+        [NumericRange(0.000001)]
+        public double LookAheadAccelerationMultiplier { get; set; } = 2000;
+
+        [DisplayName("插补最大速度"), Category("D连续轨迹"), Description("连续插补速度基准；默认沿用3.0的20。"), ReadOnly(false)]
+        [NumericRange(0.000001)]
+        public double ContinuousPathMaximumVelocity { get; set; } = 20;
+
+        [DisplayName("插补最大加速度"), Category("D连续轨迹"), Description("连续插补加速度基准；默认沿用3.0的200。"), ReadOnly(false)]
+        [NumericRange(0.000001)]
+        public double ContinuousPathMaximumAcceleration { get; set; } = 200;
+
+        [DisplayName("插补最大减速度"), Category("D连续轨迹"), Description("连续插补减速度基准；默认沿用3.0的200。"), ReadOnly(false)]
+        [NumericRange(0.000001)]
+        public double ContinuousPathMaximumDeceleration { get; set; } = 200;
+
         /// <summary>
         /// XYZUVW 六个通道的到位精度，语义沿用 3.0 StationInfo.beta。
         /// </summary>
@@ -93,6 +116,10 @@ namespace Automation
             CommunicationName = string.Empty;
             RemoteCommunicationName = string.Empty;
             PointFromRobot = true;
+            LookAheadAccelerationMultiplier = 2000;
+            ContinuousPathMaximumVelocity = 20;
+            ContinuousPathMaximumAcceleration = 200;
+            ContinuousPathMaximumDeceleration = 200;
             PositionTolerances = CreateDefaultPositionTolerances();
             dataAxis = new DataAxis(Name);
             homeSeq = new HomeSeq(Name);
@@ -120,6 +147,28 @@ namespace Automation
             ListDataPos = ListDataPos ?? new List<DataPos>();
             dataAxis.NormalizeConfiguration();
             homeSeq.NormalizeConfiguration();
+            if (double.IsNaN(PathError) || double.IsInfinity(PathError) || PathError < 0)
+            {
+                throw new InvalidOperationException($"工站{Name ?? "<未命名>"}轨迹误差必须是大于等于0的有限数。");
+            }
+            if (double.IsNaN(LookAheadAccelerationMultiplier)
+                || double.IsInfinity(LookAheadAccelerationMultiplier)
+                || LookAheadAccelerationMultiplier <= 0)
+            {
+                throw new InvalidOperationException($"工站{Name ?? "<未命名>"}前瞻加速度倍数必须是大于0的有限数。");
+            }
+            if (!IsFinitePositive(ContinuousPathMaximumVelocity)
+                || !IsFinitePositive(ContinuousPathMaximumAcceleration)
+                || !IsFinitePositive(ContinuousPathMaximumDeceleration))
+            {
+                throw new InvalidOperationException(
+                    $"工站{Name ?? "<未命名>"}插补最大速度、加速度和减速度必须是大于0的有限数。");
+            }
+        }
+
+        private static bool IsFinitePositive(double value)
+        {
+            return value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static double[] CreateDefaultPositionTolerances()

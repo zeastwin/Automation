@@ -14,7 +14,7 @@ namespace Automation
     /// </summary>
     public static class OperationBehaviorCatalog
     {
-        public const int ContractVersion = 17;
+        public const int ContractVersion = 18;
 
         public static JObject BuildContract(OperationType operation)
         {
@@ -109,6 +109,88 @@ namespace Automation
                     AddRequiredField(contract, "StationName", "目标工站精确名称");
                     contract["constraints"] = new JArray("参与轴必须位于同一张控制卡", "工站 CoordinateSystem 必须为控制器支持的坐标系", "每个轴固定偏移为0时可从对应变量读取", "ChangeVel=改变速度时 Vel/Acc/Dec 使用固定值或变量且最终范围1..100", "ContinueWithoutWaiting=true 时不等待完成");
                     contract["failureModes"] = new JArray("工站、同卡约束、坐标系、轴、偏移、速度、超时或运动资源无效时报警", "组运动启动失败、等待超时或未到位时报警并停止整组");
+                    break;
+
+                case "添加连续直线":
+                    contract = CreateContract(
+                        "向目标工站的连续轨迹缓存添加一段直线，并可选择立即启动。",
+                        new[] { "按 StationName 定位工站", "按 TargetPointIndex 或 TargetPointName 定位已示教点位", "ClearPreviousPath=true 时先清除未启动轨迹", "添加直线段", "StartAfterAdding=true 时启动并按配置等待" },
+                        true);
+                    contract["intentAliases"] = new JArray("连续直线插补", "连续直线运动", "加入直线轨迹", "缓存直线段");
+                    contract["supportedStationTypes"] = new JArray("Axis", "Epson", "Inovance", "InovanceV4");
+                    contract["continuousPath"] = BuildContinuousPathAppendContract("line");
+                    contract["pointReferences"] = new JArray(
+                        BuildPointReference("目标点", "TargetPointName", "TargetPointIndex"));
+                    AddRequiredField(contract, "StationName", "目标工站精确名称");
+                    contract["constraints"] = new JArray("TargetPointIndex 非负时优先按索引定位，否则按 TargetPointName 定位", "目标点必须已示教", "轴工站全部参与轴必须位于同一张雷赛总线卡", "StartAfterAdding=false 时只添加不运动", "设置速度指令可在各段之间改变后续段速度");
+                    contract["failureModes"] = new JArray("工站、点位、坐标系、轴配置或运动资源无效时报警", "添加、启动或等待失败时报警");
+                    break;
+
+                case "添加三点圆弧":
+                    contract = CreateContract(
+                        "向目标工站的连续轨迹缓存添加由A、B、C三点定义的圆弧，并可选择立即启动。",
+                        new[] { "按 StationName 定位工站", "定位已示教的起点A、中间点B和目标点C", "ClearPreviousPath=true 时先清除未启动轨迹", "添加三点圆弧段", "StartAfterAdding=true 时启动并按配置等待" },
+                        true);
+                    contract["intentAliases"] = new JArray("三点圆弧插补", "三点圆弧运动", "经过三点走圆弧", "机器人圆弧运动");
+                    contract["supportedStationTypes"] = new JArray("Axis", "Epson", "Inovance", "InovanceV4");
+                    contract["continuousPath"] = BuildContinuousPathAppendContract("arc_three_point");
+                    contract["pointReferences"] = new JArray(
+                        BuildPointReference("起点A", "StartPointName", "StartPointIndex"),
+                        BuildPointReference("中间点B", "MiddlePointName", "MiddlePointIndex"),
+                        BuildPointReference("目标点C", "TargetPointName", "TargetPointIndex"));
+                    AddRequiredField(contract, "StationName", "目标工站精确名称");
+                    contract["constraints"] = new JArray("每个点位的 Index 非负时优先按索引定位，否则按对应 Name 定位", "三个点位必须属于同一工站且均已示教", "雷赛、EPSON、汇川均沿用3.0三点圆弧语义", "StartAfterAdding=false 时只添加不运动");
+                    contract["failureModes"] = new JArray("工站、任一点位、坐标系、轴配置或运动资源无效时报警", "添加、启动或等待失败时报警");
+                    break;
+
+                case "添加圆心圆弧":
+                    contract = CreateContract(
+                        "向雷赛轴工站连续轨迹缓存添加圆心式圆弧，并可选择立即启动。",
+                        new[] { "按 StationName 定位轴工站", "定位已示教的圆心点和目标点", "按 CounterClockwise 与 Circle 生成圆弧参数", "添加后按 StartAfterAdding 决定是否启动" },
+                        true);
+                    contract["intentAliases"] = new JArray("圆心圆弧插补", "圆心圆弧运动", "按圆心走圆弧");
+                    contract["supportedStationTypes"] = new JArray("Axis");
+                    contract["continuousPath"] = BuildContinuousPathAppendContract("arc_center");
+                    contract["pointReferences"] = new JArray(
+                        BuildPointReference("圆心点", "CenterPointName", "CenterPointIndex"),
+                        BuildPointReference("目标点", "TargetPointName", "TargetPointIndex"));
+                    AddRequiredField(contract, "StationName", "目标轴工站精确名称");
+                    contract["constraints"] = new JArray("各点位的 Index 非负时优先按索引定位，否则按对应 Name 定位", "仅雷赛轴工站支持；3.0 EPSON 与汇川协议未实现圆心式圆弧", "圆心点和目标点必须已示教", "Circle 原样传给雷赛连续插补接口");
+                    contract["failureModes"] = new JArray("非轴工站、点位、坐标系、轴配置或运动资源无效时报警", "添加、启动或等待失败时报警");
+                    break;
+
+                case "添加半径圆弧":
+                    contract = CreateContract(
+                        "向雷赛轴工站连续轨迹缓存添加半径式圆弧，并可选择立即启动。",
+                        new[] { "按 StationName 定位轴工站", "定位已示教的目标点", "校验 Radius、CounterClockwise 与 Circle", "添加后按 StartAfterAdding 决定是否启动" },
+                        true);
+                    contract["intentAliases"] = new JArray("半径圆弧插补", "半径圆弧运动", "按半径走圆弧");
+                    contract["supportedStationTypes"] = new JArray("Axis");
+                    contract["continuousPath"] = BuildContinuousPathAppendContract("arc_radius");
+                    contract["pointReferences"] = new JArray(
+                        BuildPointReference("目标点", "TargetPointName", "TargetPointIndex"));
+                    AddRequiredField(contract, "StationName", "目标轴工站精确名称");
+                    AddRequiredField(contract, "Radius", "大于0的圆弧半径");
+                    contract["constraints"] = new JArray("TargetPointIndex 非负时优先按索引定位，否则按 TargetPointName 定位", "仅雷赛轴工站支持；3.0 EPSON 与汇川协议未实现半径式圆弧", "Radius 必须大于0", "目标点必须已示教", "Circle 原样传给雷赛连续插补接口");
+                    contract["failureModes"] = new JArray("非轴工站、半径、点位、坐标系、轴配置或运动资源无效时报警", "添加、启动或等待失败时报警");
+                    break;
+
+                case "启动连续运动":
+                    contract = CreateContract(
+                        "启动目标工站已经添加的全部连续直线和圆弧轨迹。",
+                        new[] { "按 StationName 定位工站", "确认该流程持有工站及轴/坐标系资源", "启动累计轨迹", "ContinueWithoutWaiting=false 时等待运动完成" },
+                        true);
+                    contract["intentAliases"] = new JArray("启动连续插补", "开始连续运动", "执行连续轨迹", "运行缓存轨迹");
+                    contract["supportedStationTypes"] = new JArray("Axis", "Epson", "Inovance", "InovanceV4");
+                    contract["continuousPath"] = new JObject
+                    {
+                        ["bufferAction"] = "start",
+                        ["requiresQueuedSegment"] = true,
+                        ["waitFields"] = new JArray("ContinueWithoutWaiting", "TimeoutMs", "TimeoutVariableName")
+                    };
+                    AddRequiredField(contract, "StationName", "目标工站精确名称");
+                    contract["constraints"] = new JArray("启动前必须至少添加一段轨迹", "固定 TimeoutMs 为0时从 TimeoutVariableName 读取", "取消等待时停止整个工站");
+                    contract["failureModes"] = new JArray("轨迹为空、工站或运动资源无效时报警", "启动失败或等待超时时报警");
                     break;
 
                 case "设置速度":
@@ -864,6 +946,35 @@ namespace Automation
                     ["description"] = "未提供控制流结论；不得由通用默认值推断是否顺序执行。"
                 },
                 ["fieldRules"] = new JObject()
+            };
+        }
+
+        private static JObject BuildContinuousPathAppendContract(string segmentType)
+        {
+            return new JObject
+            {
+                ["bufferAction"] = "append_segment",
+                ["segmentType"] = segmentType,
+                ["clearBeforeAppendField"] = "ClearPreviousPath",
+                ["startAfterAppendField"] = "StartAfterAdding",
+                ["waitFields"] = new JArray("ContinueWithoutWaiting", "TimeoutMs", "TimeoutVariableName"),
+                ["compositionRule"] = "首段可用 ClearPreviousPath=true 清除旧缓存；后续段保持 false；最后一段用 StartAfterAdding=true，或追加完成后单独使用“启动连续运动”。"
+            };
+        }
+
+        private static JObject BuildPointReference(
+            string role,
+            string nameField,
+            string indexField)
+        {
+            return new JObject
+            {
+                ["role"] = role,
+                ["nameField"] = nameField,
+                ["indexField"] = indexField,
+                ["resolution"] = $"{indexField} 非负时按索引，否则按 {nameField}",
+                ["sameStationRequired"] = true,
+                ["teachingRequired"] = true
             };
         }
 

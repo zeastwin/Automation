@@ -142,6 +142,26 @@ namespace Automation.MotionControl
         /// <summary>执行料盘点运动；position 为从零开始的料盘位置。</summary>
         MotionStationResult MoveTrayPoint(int trayId, int position, DataPos calculatedPoint);
 
+        /// <summary>清除尚未启动的连续轨迹段。</summary>
+        MotionStationResult ClearContinuousPath();
+
+        /// <summary>向当前连续轨迹添加一段直线。</summary>
+        MotionStationResult AddContinuousLine(DataPos target);
+
+        /// <summary>向当前连续轨迹添加由起点、中间点和终点定义的圆弧。</summary>
+        MotionStationResult AddContinuousArc(DataPos start, DataPos middle, DataPos target);
+
+        /// <summary>向当前连续轨迹添加圆心式或半径式圆弧；radius 大于0时使用半径式。</summary>
+        MotionStationResult AddContinuousArcCenterRadius(
+            DataPos target,
+            DataPos center,
+            double radius,
+            int circle,
+            bool counterClockwise);
+
+        /// <summary>把已添加轨迹下发并启动，启动后清空待执行列表。</summary>
+        MotionStationResult StartContinuousMove();
+
         MotionStationResult Stop(bool emergency = false);
 
         MotionStationStatus GetStatus();

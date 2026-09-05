@@ -274,6 +274,29 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void SafetyLock_DoesNotBlockProcessOrVariableConfigurationEditing()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                Proc process = TestProcessFactory.CreateEndingProcess("安全锁下可修复流程");
+                var runtime = new PlatformRuntime(directory.FullPath);
+                runtime.Stores.Processes.ReplaceAll(new[] { ObjectGraphCloner.Clone(process) });
+                using (var engine = CreateEngine(runtime, process))
+                {
+                    runtime.ProcessEngine = engine;
+                    runtime.Safety.Lock("测试设备故障");
+
+                    Assert.IsTrue(runtime.ProcessEditing.CanEditProcess(0),
+                        "设备安全锁不得关闭流程编辑入口。");
+                    Assert.IsTrue(runtime.ProcessEditing.CanEditVariableConfiguration(),
+                        "设备安全锁不得关闭变量配置修复入口。");
+                    Assert.IsFalse(engine.StartProc(process, 0),
+                        "编辑可用不代表绕过运行安全门禁。");
+                }
+            }
+        }
+
+        [TestMethod]
         public void VariableConfigurationGate_WhileProcessRuns_RemainsAvailable()
         {
             using (var directory = new TemporaryDirectory())

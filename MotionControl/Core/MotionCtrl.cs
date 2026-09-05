@@ -73,6 +73,9 @@ namespace Automation.MotionControl
         public delegate void MoveCoordinatedLinearHandler(CoordinatedLinearMoveRequest request);
         public delegate bool IsCoordinatedLinearDoneHandler(ushort card, ushort coordinateSystem);
         public delegate void StopCoordinatedLinearHandler(ushort card, ushort coordinateSystem, ushort stopMode);
+        public delegate void MoveContinuousPathHandler(ContinuousPathMoveRequest request);
+        public delegate bool IsContinuousPathDoneHandler(ushort card, ushort coordinateSystem);
+        public delegate void StopContinuousPathHandler(ushort card, ushort coordinateSystem, ushort stopMode);
         public delegate void JogHandler(ushort card, ushort axis, ushort sDir);
         public delegate void StopOneAxisHandler(ushort card, ushort axis, ushort stop_mode);
         public delegate void StopConnectHandler();
@@ -102,6 +105,9 @@ namespace Automation.MotionControl
         public event MoveCoordinatedLinearHandler moveCoordinatedLinear;
         public event IsCoordinatedLinearDoneHandler isCoordinatedLinearDone;
         public event StopCoordinatedLinearHandler stopCoordinatedLinear;
+        public event MoveContinuousPathHandler moveContinuousPath;
+        public event IsContinuousPathDoneHandler isContinuousPathDone;
+        public event StopContinuousPathHandler stopContinuousPath;
         public event JogHandler jog;
         public event StopOneAxisHandler stopOneAxis;
         public event StopConnectHandler stopConnect;
@@ -534,6 +540,67 @@ namespace Automation.MotionControl
                 trayId, position, calculatedPoint);
         }
 
+        public MotionStationResult ClearStationContinuousPath(short station)
+        {
+            if (!TryValidateStationCommand(station, out IMotionStation runtimeStation,
+                out MotionStationResult error))
+            {
+                return error;
+            }
+            return runtimeStation.ClearContinuousPath();
+        }
+
+        public MotionStationResult AddStationContinuousLine(short station, DataPos target)
+        {
+            if (!TryValidateStationCommand(station, out IMotionStation runtimeStation,
+                out MotionStationResult error))
+            {
+                return error;
+            }
+            return runtimeStation.AddContinuousLine(target);
+        }
+
+        public MotionStationResult AddStationContinuousArc(
+            short station,
+            DataPos start,
+            DataPos middle,
+            DataPos target)
+        {
+            if (!TryValidateStationCommand(station, out IMotionStation runtimeStation,
+                out MotionStationResult error))
+            {
+                return error;
+            }
+            return runtimeStation.AddContinuousArc(start, middle, target);
+        }
+
+        public MotionStationResult AddStationContinuousArcCenterRadius(
+            short station,
+            DataPos target,
+            DataPos center,
+            double radius,
+            int circle,
+            bool counterClockwise)
+        {
+            if (!TryValidateStationCommand(station, out IMotionStation runtimeStation,
+                out MotionStationResult error))
+            {
+                return error;
+            }
+            return runtimeStation.AddContinuousArcCenterRadius(
+                target, center, radius, circle, counterClockwise);
+        }
+
+        public MotionStationResult StartStationContinuousMove(short station)
+        {
+            if (!TryValidateStationCommand(station, out IMotionStation runtimeStation,
+                out MotionStationResult error))
+            {
+                return error;
+            }
+            return runtimeStation.StartContinuousMove();
+        }
+
         private static bool MayHaveChangedController(MotionStationResult result)
         {
             return result == MotionStationResult.SendFailed
@@ -811,9 +878,17 @@ namespace Automation.MotionControl
         public bool InitCard()
         {
             EnsureMotionConfigurationReady();
-            initCard?.Invoke();
-            IsCardInitialized = ls != null && ls.IsCardInitialized;
-            return IsCardInitialized;
+            try
+            {
+                initCard?.Invoke();
+                return ls != null && ls.IsCardInitialized;
+            }
+            finally
+            {
+                // 驱动在初始化失败时会关闭可能已打开的板卡；即使异常向上抛出，
+                // 门面状态也必须立即与驱动一致，不能遗留上一次会话的 true。
+                IsCardInitialized = ls != null && ls.IsCardInitialized;
+            }
         }
         public bool SetIO(IO io, bool isOpen)
         {
@@ -914,6 +989,42 @@ namespace Automation.MotionControl
             EnsureCoordinateSystemInRange(coordinateSystem);
             (stopCoordinatedLinear
                 ?? throw new InvalidOperationException("协调直线运动停止接口未初始化"))
+                .Invoke(card, coordinateSystem, stopMode);
+        }
+
+        public void MoveContinuousPath(ContinuousPathMoveRequest request)
+        {
+            EnsureCardInitialized();
+            EnsureResetCompleted();
+            if (request?.Axes == null || request.Segments == null
+                || request.Axes.Count == 0 || request.Segments.Count == 0
+                || request.CoordinateSystem > CoordinatedLinearMoveRequest.MaximumCoordinateSystem)
+            {
+                throw new ArgumentException("连续轨迹轴或轨迹段列表无效。", nameof(request));
+            }
+            for (int i = 0; i < request.Axes.Count; i++)
+            {
+                EnsureCommandValidated(request.Card, request.Axes[i], AxisCommandKind.Motion, false);
+            }
+            (moveContinuousPath
+                ?? throw new InvalidOperationException("连续轨迹运动接口未初始化"))
+                .Invoke(request);
+        }
+
+        public bool IsContinuousPathDone(ushort card, ushort coordinateSystem)
+        {
+            EnsureCardInitialized();
+            EnsureCoordinateSystemInRange(coordinateSystem);
+            return isContinuousPathDone?.Invoke(card, coordinateSystem)
+                ?? throw new InvalidOperationException("连续轨迹状态接口未初始化");
+        }
+
+        public void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode)
+        {
+            EnsureCardInitialized();
+            EnsureCoordinateSystemInRange(coordinateSystem);
+            (stopContinuousPath
+                ?? throw new InvalidOperationException("连续轨迹停止接口未初始化"))
                 .Invoke(card, coordinateSystem, stopMode);
         }
 
@@ -1040,6 +1151,9 @@ namespace Automation.MotionControl
                 moveCoordinatedLinear = driver.MoveCoordinatedLinear;
                 isCoordinatedLinearDone = driver.IsCoordinatedLinearDone;
                 stopCoordinatedLinear = driver.StopCoordinatedLinear;
+                moveContinuousPath = driver.MoveContinuousPath;
+                isContinuousPathDone = driver.IsContinuousPathDone;
+                stopContinuousPath = driver.StopContinuousPath;
                 jog = driver.Jog;
                 stopOneAxis = driver.StopOneAxis;
                 stopConnect = driver.StopConnect;

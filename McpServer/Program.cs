@@ -1320,6 +1320,33 @@ namespace Automation.McpServer
             {
                 throw new InvalidOperationException("规划点位没有明确返回人工示教与启动阻塞边界。");
             }
+            var motionOperations = new JsonArray
+            {
+                new JsonObject { ["operaType"] = "添加连续直线" },
+                new JsonObject
+                {
+                    ["operaType"] = "添加圆心圆弧",
+                    ["supportedStationTypes"] = new JsonArray("Axis")
+                },
+                new JsonObject
+                {
+                    ["operaType"] = "添加半径圆弧",
+                    ["supportedStationTypes"] = new JsonArray("Axis")
+                }
+            };
+            JsonArray axisOperations = AutomationMcpTools.FilterMotionOperationsForStationType(
+                motionOperations, "Axis");
+            JsonArray robotOperations = AutomationMcpTools.FilterMotionOperationsForStationType(
+                motionOperations, "Epson");
+            if (axisOperations.Count != 3
+                || robotOperations.Count != 1
+                || !string.Equals(
+                    robotOperations[0]?["operaType"]?.GetValue<string>(),
+                    "添加连续直线",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("运动作者目录没有按工站类型过滤连续轨迹指令。");
+            }
             request.Type = "station";
             try
             {
@@ -1362,6 +1389,53 @@ namespace Automation.McpServer
                 || native[0]?["operaType"]?.GetValue<string>() != "工站走点")
             {
                 throw new InvalidOperationException("运动业务措辞未能映射到权威原生动作别名。");
+            }
+            var continuousOperations = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["operaType"] = "添加连续直线",
+                    ["name"] = string.Empty,
+                    ["intentAliases"] = new JsonArray("连续直线插补", "连续直线运动")
+                },
+                new JsonObject
+                {
+                    ["operaType"] = "添加三点圆弧",
+                    ["name"] = string.Empty,
+                    ["intentAliases"] = new JsonArray("三点圆弧插补", "三点圆弧运动")
+                },
+                new JsonObject
+                {
+                    ["operaType"] = "添加圆心圆弧",
+                    ["name"] = string.Empty,
+                    ["intentAliases"] = new JsonArray("圆心圆弧插补")
+                },
+                new JsonObject
+                {
+                    ["operaType"] = "添加半径圆弧",
+                    ["name"] = string.Empty,
+                    ["intentAliases"] = new JsonArray("半径圆弧插补")
+                },
+                new JsonObject
+                {
+                    ["operaType"] = "启动连续运动",
+                    ["name"] = string.Empty,
+                    ["intentAliases"] = new JsonArray("启动连续插补")
+                }
+            };
+            string[] exactContinuousIntents =
+            {
+                "添加连续直线", "三点圆弧插补", "圆心圆弧插补", "半径圆弧插补", "启动连续插补"
+            };
+            foreach (string exactIntent in exactContinuousIntents)
+            {
+                JsonArray exactMatches = AutomationMcpTools.RankNativeOperationCandidates(
+                    continuousOperations, exactIntent);
+                if (exactMatches.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"连续轨迹意图[{exactIntent}]没有形成唯一原生指令候选。");
+                }
             }
             JsonObject exactSemantic = AutomationMcpTools.BuildOperationCapabilityResolutionItem(
                 "clear-count", "清零执行次数", new[] { "number.zero" }, new JsonArray());

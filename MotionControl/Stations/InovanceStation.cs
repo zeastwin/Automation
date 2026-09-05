@@ -74,6 +74,8 @@ namespace Automation.MotionControl
         private readonly MotionStationStatus status = new MotionStationStatus();
         private readonly Dictionary<int, PalletDefinition> pallets =
             new Dictionary<int, PalletDefinition>();
+        private readonly List<InovanceContinuousSegment> continuousSegments =
+            new List<InovanceContinuousSegment>();
 
         private int connectionId;
         private uint robotAddress;
@@ -127,6 +129,7 @@ namespace Automation.MotionControl
                 initialized = false;
                 nativeConnectionOpen = false;
                 pointsLoading = false;
+                continuousSegments.Clear();
                 status.State = MotionStationState.Disconnected;
                 status.LastError = string.Empty;
                 status.HasAlarm = false;
@@ -172,6 +175,7 @@ namespace Automation.MotionControl
                 if (!nativeConnectionOpen)
                 {
                     pallets.Clear();
+                    continuousSegments.Clear();
                     initialized = false;
                     pointsLoading = false;
                     status.State = MotionStationState.Uninitialized;
@@ -195,6 +199,7 @@ namespace Automation.MotionControl
                 finally
                 {
                     pallets.Clear();
+                    continuousSegments.Clear();
                     initialized = false;
                     lifecycleInitialized = false;
                     nativeConnectionOpen = false;
@@ -989,6 +994,155 @@ namespace Automation.MotionControl
             }
         }
 
+        public MotionStationResult ClearContinuousPath()
+        {
+            lock (syncRoot)
+            {
+                MotionStationResult ready = EnsureReadyForMotion();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                continuousSegments.Clear();
+                status.LastError = string.Empty;
+                return MotionStationResult.Success;
+            }
+        }
+
+        public MotionStationResult AddContinuousLine(DataPos target)
+        {
+            lock (syncRoot)
+            {
+                MotionStationResult ready = EnsureReadyForMotion();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (!IsValidContinuousPoint(target))
+                {
+                    return Fail(
+                        MotionStationResult.InvalidParameter,
+                        "汇川机器人连续直线目标点无效。",
+                        status.State);
+                }
+                continuousSegments.Add(new InovanceContinuousSegment
+                {
+                    Type = ContinuousPathSegmentType.Line,
+                    Target = ToRobotPose(target),
+                    Speed = speedPercent
+                });
+                status.LastError = string.Empty;
+                return MotionStationResult.Success;
+            }
+        }
+
+        public MotionStationResult AddContinuousArc(
+            DataPos start,
+            DataPos middle,
+            DataPos target)
+        {
+            lock (syncRoot)
+            {
+                MotionStationResult ready = EnsureReadyForMotion();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (!IsValidContinuousPoint(start)
+                    || !IsValidContinuousPoint(middle)
+                    || !IsValidContinuousPoint(target))
+                {
+                    return Fail(
+                        MotionStationResult.InvalidParameter,
+                        "汇川机器人三点圆弧点位无效。",
+                        status.State);
+                }
+                continuousSegments.Add(new InovanceContinuousSegment
+                {
+                    Type = ContinuousPathSegmentType.ArcThreePoint,
+                    Start = ToRobotPose(start),
+                    Middle = ToRobotPose(middle),
+                    Target = ToRobotPose(target),
+                    Speed = speedPercent
+                });
+                status.LastError = string.Empty;
+                return MotionStationResult.Success;
+            }
+        }
+
+        public MotionStationResult AddContinuousArcCenterRadius(
+            DataPos target,
+            DataPos center,
+            double radius,
+            int circle,
+            bool counterClockwise)
+        {
+            return Fail(
+                MotionStationResult.CommandRejected,
+                "3.0 汇川机器人只支持三点圆弧，不支持圆心或半径式连续圆弧。",
+                status.State);
+        }
+
+        public MotionStationResult StartContinuousMove()
+        {
+            lock (syncRoot)
+            {
+                MotionStationResult ready = EnsureReadyForMotion();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (continuousSegments.Count == 0)
+                {
+                    return Fail(
+                        MotionStationResult.InvalidParameter,
+                        "汇川机器人尚未添加连续轨迹段。",
+                        status.State);
+                }
+
+                int result = SetDataStreamMode(DataStreamOn);
+                int zone = configuration.LookAheadEnabled
+                    ? Math.Max(-1, Math.Min(5, (int)configuration.PathError))
+                    : Zone;
+                if (result == 0)
+                {
+                    foreach (InovanceContinuousSegment segment in continuousSegments)
+                    {
+                        if (segment.Type == ContinuousPathSegmentType.Line)
+                        {
+                            result = api.MovePosition(
+                                segment.Target, true, segment.Speed, zone, connectionId);
+                        }
+                        else
+                        {
+                            // 沿用3.0：三点圆弧先直线进入A点，再以B、C两点调用MovC。
+                            result = api.MovePosition(
+                                segment.Start, true, segment.Speed, zone, connectionId);
+                            if (result == 0)
+                            {
+                                result = api.MoveArcPosition(
+                                    segment.Middle,
+                                    segment.Target,
+                                    segment.Speed,
+                                    zone,
+                                    connectionId);
+                            }
+                        }
+                        if (result != 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                MotionStationResult moveResult = FinishMoveCommand(
+                    result, "汇川机器人启动连续轨迹失败");
+                // 3.0 在 StartCPMove 开始时即结束本轮缓存，失败后由下一次添加重新建轨迹。
+                continuousSegments.Clear();
+                return moveResult;
+            }
+        }
+
         public MotionStationResult Stop(bool emergency = false)
         {
             lock (syncRoot)
@@ -1000,6 +1154,7 @@ namespace Automation.MotionControl
                 }
 
                 int firstError = 0;
+                continuousSegments.Clear();
                 CaptureFirstError(ref firstError, SetDataStreamMode(DataStreamOff));
                 if (emergency)
                 {
@@ -1484,6 +1639,15 @@ namespace Automation.MotionControl
         private static bool IsFinitePositive(double value) =>
             value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
 
+        private static bool IsValidContinuousPoint(DataPos point)
+        {
+            return point != null
+                && point.IsMotionReady
+                && point.Enabled
+                && point.GetAllValues().All(value =>
+                    !double.IsNaN(value) && !double.IsInfinity(value));
+        }
+
         private static double ClampPercent(double value) => Math.Max(1d, Math.Min(100d, value));
 
         private static void CaptureFirstError(ref int firstError, int result)
@@ -1524,6 +1688,19 @@ namespace Automation.MotionControl
             public int Point2 { get; }
             public int Point3 { get; }
             public int Point4 { get; }
+        }
+
+        private sealed class InovanceContinuousSegment
+        {
+            public ContinuousPathSegmentType Type { get; set; }
+
+            public InovanceRobotPose Start { get; set; }
+
+            public InovanceRobotPose Middle { get; set; }
+
+            public InovanceRobotPose Target { get; set; }
+
+            public int Speed { get; set; }
         }
 
         private sealed class PointLoadRequest

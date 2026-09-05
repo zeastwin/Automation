@@ -439,10 +439,7 @@ namespace Automation.Bridge
             }
             try
             {
-                if (runtime.Safety.IsLocked)
-                {
-                    throw new BridgeRequestException(423, "SECURITY_LOCKED", $"系统已安全锁定：{runtime.Safety.LockReason}");
-                }
+                // 安全锁不阻断配置修复；维护租约和全部流程静止仍是提交边界。
                 if (runtime.Editor.ActiveSession != null)
                 {
                     throw new BridgeRequestException(409, "EDITOR_SESSION_ACTIVE",

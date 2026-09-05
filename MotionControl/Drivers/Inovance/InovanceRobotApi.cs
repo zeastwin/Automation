@@ -87,6 +87,9 @@ namespace Automation.MotionControl
 
         int MovePosition(InovanceRobotPose position, bool linear, int speed, int zone, int connectionId);
 
+        int MoveArcPosition(InovanceRobotPose middle, InovanceRobotPose target,
+            int speed, int zone, int connectionId);
+
         int SetRapidMove(int moveType, int enabled, int connectionId);
 
         int SetVelocity(int velocity, int connectionId);
@@ -214,6 +217,14 @@ namespace Automation.MotionControl
             return linear
                 ? V3Api.IMC100_MovL2(native, speed, zone, connectionId)
                 : V3Api.IMC100_MovJ2(native, speed, zone, connectionId);
+        }
+
+        public int MoveArcPosition(InovanceRobotPose middle, InovanceRobotPose target,
+            int speed, int zone, int connectionId)
+        {
+            V3Pose nativeMiddle = ToV3(middle);
+            V3Pose nativeTarget = ToV3(target);
+            return V3Api.IMC100_MovC2(nativeMiddle, nativeTarget, speed, zone, connectionId);
         }
 
         public int SetRapidMove(int moveType, int enabled, int connectionId) =>
@@ -389,6 +400,23 @@ namespace Automation.MotionControl
             return linear
                 ? V4Api.IMC100_MovL_RobPos(ref native, ref velocity, zone, 0, ref moveIo, connectionId)
                 : V4Api.IMC100_MovJ_RobPos(ref native, ref velocity, zone, 0, ref moveIo, connectionId);
+        }
+
+        public int MoveArcPosition(InovanceRobotPose middle, InovanceRobotPose target,
+            int speed, int zone, int connectionId)
+        {
+            V4Pose nativeMiddle = ToV4(middle);
+            V4Pose nativeTarget = ToV4(target);
+            var velocity = new V4Velocity { velPercent = speed };
+            var moveIo = new V4MoveIo();
+            return V4Api.IMC100_MovC_RobPos(
+                ref nativeMiddle,
+                ref nativeTarget,
+                ref velocity,
+                zone,
+                0,
+                ref moveIo,
+                connectionId);
         }
 
         public int SetRapidMove(int moveType, int enabled, int connectionId) =>

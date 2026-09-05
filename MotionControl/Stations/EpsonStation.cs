@@ -27,6 +27,7 @@ namespace Automation.MotionControl
         private readonly Func<string, string, int, CommReceiveResult> testExchange;
         private readonly Func<string, bool> testIsChannelActive;
         private readonly MotionStationStatus status = new MotionStationStatus();
+        private bool continuousPathPending;
 
         private EpsonCommandCatalog commands;
         private CancellationTokenSource pendingMoveWait;
@@ -121,6 +122,7 @@ namespace Automation.MotionControl
                 }
 
                 initialized = true;
+                continuousPathPending = false;
                 remoteLoggedIn = !configuration.RemoteMode;
                 pointsLoadedFromRobot = !configuration.PointFromRobot;
                 SetState(AreRequiredChannelsActive()
@@ -163,6 +165,7 @@ namespace Automation.MotionControl
                     }
                 }
                 initialized = false;
+                continuousPathPending = false;
                 remoteLoggedIn = false;
                 pointsLoadedFromRobot = false;
                 SetState(MotionStationState.Uninitialized);
@@ -453,6 +456,7 @@ namespace Automation.MotionControl
                     status.HasAlarm = false;
                     status.LastError = string.Empty;
                 }
+                continuousPathPending = false;
                 return MotionStationResult.Success;
             }
         }
@@ -559,6 +563,131 @@ namespace Automation.MotionControl
                     return MotionStationResult.InvalidConfiguration;
                 }
                 return SendMoveCommand(command);
+            }
+        }
+
+        public MotionStationResult ClearContinuousPath()
+        {
+            lock (operationGate)
+            {
+                MotionStationResult ready = EnsureIdle();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                // 3.0 的 EPSON 协议没有单独的控制器清空命令；这里只清除本轮待启动标志。
+                continuousPathPending = false;
+                ClearError();
+                return MotionStationResult.Success;
+            }
+        }
+
+        public MotionStationResult AddContinuousLine(DataPos target)
+        {
+            lock (operationGate)
+            {
+                MotionStationResult ready = EnsureIdle();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (!IsValidMotionPoint(target))
+                {
+                    return Fail(MotionStationResult.InvalidParameter, "EPSON 连续直线目标点无效。");
+                }
+                if (!TryBuild(
+                    EpsonCommandCatalog.AddContinuousLine,
+                    out string command,
+                    1,
+                    target.Index))
+                {
+                    return MotionStationResult.InvalidConfiguration;
+                }
+                MotionStationResult result = SendWithWaitOk(
+                    configuration.CommunicationName, command, CommandTimeoutMs);
+                if (result == MotionStationResult.Success)
+                {
+                    continuousPathPending = true;
+                }
+                return result;
+            }
+        }
+
+        public MotionStationResult AddContinuousArc(
+            DataPos start,
+            DataPos middle,
+            DataPos target)
+        {
+            lock (operationGate)
+            {
+                MotionStationResult ready = EnsureIdle();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (!IsValidMotionPoint(start)
+                    || !IsValidMotionPoint(middle)
+                    || !IsValidMotionPoint(target))
+                {
+                    return Fail(MotionStationResult.InvalidParameter, "EPSON 三点圆弧点位无效。");
+                }
+                if (!TryBuild(
+                    EpsonCommandCatalog.AddContinuousArc,
+                    out string command,
+                    start.Index,
+                    middle.Index,
+                    target.Index))
+                {
+                    return MotionStationResult.InvalidConfiguration;
+                }
+                MotionStationResult result = SendWithWaitOk(
+                    configuration.CommunicationName, command, CommandTimeoutMs);
+                if (result == MotionStationResult.Success)
+                {
+                    continuousPathPending = true;
+                }
+                return result;
+            }
+        }
+
+        public MotionStationResult AddContinuousArcCenterRadius(
+            DataPos target,
+            DataPos center,
+            double radius,
+            int circle,
+            bool counterClockwise)
+        {
+            return Fail(
+                MotionStationResult.CommandRejected,
+                "3.0 EPSON 协议只支持三点圆弧，不支持圆心或半径式连续圆弧。");
+        }
+
+        public MotionStationResult StartContinuousMove()
+        {
+            lock (operationGate)
+            {
+                MotionStationResult ready = EnsureIdle();
+                if (ready != MotionStationResult.Success)
+                {
+                    return ready;
+                }
+                if (!continuousPathPending)
+                {
+                    return Fail(MotionStationResult.InvalidParameter, "EPSON 尚未添加连续轨迹段。");
+                }
+                if (!TryBuild(
+                    EpsonCommandCatalog.StartContinuousMove,
+                    out string command,
+                    AxisCount))
+                {
+                    return MotionStationResult.InvalidConfiguration;
+                }
+                MotionStationResult result = SendMoveCommand(command);
+                if (result == MotionStationResult.Success)
+                {
+                    continuousPathPending = false;
+                }
+                return result;
             }
         }
 

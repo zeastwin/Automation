@@ -101,11 +101,7 @@ namespace Automation
             {
                 return false;
             }
-            if (runtime.Safety.IsLocked)
-            {
-                error = $"系统已安全锁定：{runtime.Safety.LockReason}";
-                return false;
-            }
+            // 设备安全锁不等于配置只读；编辑提交仍由维护互斥、流程状态和事务校验保护。
             if (runtime.Maintenance.Active)
             {
                 error = string.IsNullOrWhiteSpace(runtime.Maintenance.Reason)

@@ -640,6 +640,19 @@ Get-ChildItem -LiteralPath $motionPath -Filter *.cs -Recurse | ForEach-Object {
     }
 }
 
+# 设备安全锁只约束运行副作用；流程、变量和平台配置必须保留人工/AI 修复入口。
+foreach ($repairEntryFile in @(
+    "Engine\Editing\ProcessAccessServices.cs",
+    "Engine\Editing\ProcessEditingService.cs",
+    "Bridge\Service\AutomationBridgeService.ChangeSet.cs",
+    "Bridge\Service\AutomationBridgeService.Migration.cs"))
+{
+    $repairEntryPath = Join-Path $repoRoot $repairEntryFile
+    Select-String -LiteralPath $repairEntryPath -SimpleMatch "Safety.IsLocked" | ForEach-Object {
+        $violations.Add("配置修复入口被设备安全锁阻断：$($_.Path):$($_.LineNumber): $($_.Line.Trim())")
+    }
+}
+
 if ($violations.Count -gt 0)
 {
     $violations | ForEach-Object { Write-Error $_ }

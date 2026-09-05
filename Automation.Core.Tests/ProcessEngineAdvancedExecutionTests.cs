@@ -27,7 +27,7 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void MotionBehaviorCatalog_ProvidesNaturalLanguageDiscoveryAliases()
+        public void MotionAiContracts_ExposeDiscoveryAliasesAndContinuousPathFields()
         {
             JObject contract = OperationBehaviorCatalog.BuildContract(new StationRunPos());
             JArray aliases = contract?["intentAliases"] as JArray;
@@ -37,6 +37,97 @@ namespace Automation.Core.Tests
                 string.Equals(value?.Value<string>(), "移动到取料位", StringComparison.Ordinal)));
             Assert.AreEqual(OperationBehaviorCatalog.ContractVersion,
                 contract?["contractVersion"]?.Value<int>());
+
+            string[] continuousTypes =
+            {
+                "添加连续直线",
+                "添加三点圆弧",
+                "添加圆心圆弧",
+                "添加半径圆弧",
+                "启动连续运动"
+            };
+            foreach (string operaType in continuousTypes)
+            {
+                OperationType operation = OperationDefinitionRegistry.Create(operaType);
+                JObject behavior = OperationBehaviorCatalog.BuildContract(operation);
+                Assert.AreEqual("specialized", behavior?["coverage"]?.Value<string>(), operaType);
+                Assert.IsTrue((behavior?["intentAliases"] as JArray)?.Count > 0, operaType);
+                Assert.IsNotNull(behavior?["supportedStationTypes"], operaType);
+                Assert.IsNotNull(behavior?["continuousPath"], operaType);
+            }
+
+            JObject lineContract = StructuredOperationCompiler.BuildContract("添加连续直线");
+            JObject lineFields = lineContract["fields"] as JObject;
+            Assert.AreEqual(
+                "station.position",
+                lineFields?[nameof(AddContinuousLineOperation.TargetPointName)]?["referenceType"]?.Value<string>());
+            Assert.AreEqual(
+                "boolean",
+                lineFields?[nameof(ContinuousPathAddOperation.ClearPreviousPath)]?["jsonType"]?.Value<string>());
+            Assert.AreEqual(
+                "boolean",
+                lineFields?[nameof(ContinuousPathAddOperation.StartAfterAdding)]?["jsonType"]?.Value<string>());
+
+            JObject centerBehavior = OperationBehaviorCatalog.BuildContract(
+                new AddContinuousCenterArcOperation());
+            CollectionAssert.AreEqual(
+                new[] { "Axis" },
+                ((JArray)centerBehavior["supportedStationTypes"])
+                    .Values<string>()
+                    .ToArray());
+            Assert.AreEqual(
+                2,
+                (centerBehavior["pointReferences"] as JArray)?.Count);
+
+            JObject radiusFields = StructuredOperationCompiler
+                .BuildContract("添加半径圆弧")["fields"] as JObject;
+            Assert.AreEqual(
+                0.000001D,
+                radiusFields?[nameof(AddContinuousRadiusArcOperation.Radius)]?["minimum"]?.Value<double>());
+
+            var compileContext = new AiOperationCompileContext(
+                0,
+                new Dictionary<string, DicValue>(StringComparer.Ordinal),
+                new AiResourceSnapshot());
+            var writableDefinitions = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal)
+            {
+                ["添加连续直线"] = new Dictionary<string, object>
+                {
+                    [nameof(ContinuousPathAddOperation.StationName)] = "六轴工站",
+                    [nameof(AddContinuousLineOperation.TargetPointName)] = "取料点"
+                },
+                ["添加三点圆弧"] = new Dictionary<string, object>
+                {
+                    [nameof(ContinuousPathAddOperation.StationName)] = "六轴工站",
+                    [nameof(AddContinuousThreePointArcOperation.StartPointName)] = "圆弧起点",
+                    [nameof(AddContinuousThreePointArcOperation.MiddlePointName)] = "圆弧中间点",
+                    [nameof(AddContinuousThreePointArcOperation.TargetPointName)] = "圆弧终点"
+                },
+                ["添加圆心圆弧"] = new Dictionary<string, object>
+                {
+                    [nameof(ContinuousPathAddOperation.StationName)] = "六轴工站",
+                    [nameof(AddContinuousCenterArcOperation.CenterPointName)] = "圆心",
+                    [nameof(AddContinuousCenterArcOperation.TargetPointName)] = "圆弧终点"
+                },
+                ["添加半径圆弧"] = new Dictionary<string, object>
+                {
+                    [nameof(ContinuousPathAddOperation.StationName)] = "六轴工站",
+                    [nameof(AddContinuousRadiusArcOperation.TargetPointName)] = "圆弧终点",
+                    [nameof(AddContinuousRadiusArcOperation.Radius)] = 25D
+                },
+                ["启动连续运动"] = new Dictionary<string, object>
+                {
+                    [nameof(StartContinuousMoveOperation.StationName)] = "六轴工站"
+                }
+            };
+            foreach (KeyValuePair<string, Dictionary<string, object>> definition in writableDefinitions)
+            {
+                OperationType compiled = StructuredOperationCompiler.Compile(
+                    definition.Key,
+                    definition.Value,
+                    compileContext);
+                Assert.AreEqual(definition.Key, compiled.OperaType);
+            }
         }
 
         [TestMethod]

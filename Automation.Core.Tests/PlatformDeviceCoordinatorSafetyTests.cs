@@ -105,7 +105,7 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
-        public void Initialize_ConfiguredCardReturnsFalse_LocksAndReleasesWithoutInitializingStations()
+        public void Initialize_ConfiguredCardReturnsFalseWithoutReason_LocksBecauseHardwareStateIsUnknown()
         {
             using (var fixture = new CoordinatorFixture(
                 configureCard: true,
@@ -122,18 +122,17 @@ namespace Automation.Core.Tests
 
                 string[] calls = fixture.Device.SnapshotCalls();
                 Assert.IsTrue(fixture.Runtime.Safety.IsLocked);
-                StringAssert.Contains(fault, "雷赛总线卡初始化失败");
+                StringAssert.Contains(fault, "没有提供可安全降级");
                 Assert.IsFalse(calls.Contains("InitializeStations"));
                 Assert.IsFalse(calls.Contains("SetAllAxisSevonOn"));
                 Assert.IsFalse(calls.Contains("SetIO:刹车输出:True:取反"));
-                AssertBefore(calls, "StopAll:True", "SetIO:刹车输出:False:取反");
-                AssertBefore(calls, "SetIO:刹车输出:False:取反", "ReleaseStations");
+                Assert.IsTrue(calls.Contains("StopAll:True"));
                 AssertBefore(calls, "ReleaseStations", "StopConnect");
             }
         }
 
         [TestMethod]
-        public void Initialize_ConfiguredCardThrows_LocksAndReleasesWithoutInitializingStations()
+        public void Initialize_UnclassifiedInitializationException_LocksBecauseHardwareStateIsUnknown()
         {
             using (var fixture = new CoordinatorFixture(
                 configureCard: true,
@@ -154,8 +153,123 @@ namespace Automation.Core.Tests
                 Assert.IsFalse(calls.Contains("InitializeStations"));
                 Assert.IsFalse(calls.Contains("SetAllAxisSevonOn"));
                 Assert.IsFalse(calls.Contains("SetIO:刹车输出:True:取反"));
-                AssertBefore(calls, "StopAll:True", "SetIO:刹车输出:False:取反");
+                Assert.IsTrue(calls.Contains("StopAll:True"));
                 AssertBefore(calls, "ReleaseStations", "StopConnect");
+            }
+        }
+
+        [TestMethod]
+        public void Initialize_ConfirmedCardUnavailable_DegradesAndContinuesInitializingStations()
+        {
+            using (var fixture = new CoordinatorFixture(
+                configureCard: true,
+                axisCount: 1,
+                stationCount: 1,
+                includeEmergencyInput: false,
+                includeBrakeOutput: true))
+            {
+                fixture.Device.InitCardException = new MotionCardUnavailableException(
+                    "SDK实际发现0张卡");
+                string fault = null;
+                fixture.Coordinator.Faulted += message => fault = message;
+
+                fixture.Coordinator.Initialize();
+
+                string[] calls = fixture.Device.SnapshotCalls();
+                Assert.IsFalse(fixture.Runtime.Safety.IsLocked);
+                Assert.IsNull(fault);
+                Assert.IsTrue(calls.Contains("InitializeStations"));
+                Assert.IsFalse(calls.Contains("SetAllAxisSevonOn"));
+                Assert.IsFalse(calls.Contains("SetIO:刹车输出:True:取反"));
+                Assert.IsFalse(calls.Contains("StopAll:True"));
+
+                Proc process = TestProcessFactory.CreateEndingProcess("缺卡开发环境流程", 1);
+                fixture.Runtime.ProcessEngine.Context.Procs = new List<Proc> { process };
+                Assert.IsTrue(
+                    fixture.Runtime.ProcessEngine.StartProc(process, 0),
+                    "明确未检测到控制卡不能形成全局流程启动门禁。");
+            }
+        }
+
+        [TestMethod]
+        public void Initialize_CardBecomesActiveThenFails_StillLocksAndReleasesSafely()
+        {
+            using (var fixture = new CoordinatorFixture(
+                configureCard: true,
+                axisCount: 1,
+                stationCount: 1,
+                includeEmergencyInput: false,
+                includeBrakeOutput: true))
+            {
+                fixture.Device.DownLoadConfigException =
+                    new InvalidOperationException("测试下载配置异常");
+                string fault = null;
+                fixture.Coordinator.Faulted += message => fault = message;
+
+                fixture.Coordinator.Initialize();
+
+                string[] calls = fixture.Device.SnapshotCalls();
+                Assert.IsTrue(fixture.Runtime.Safety.IsLocked);
+                StringAssert.Contains(fixture.Runtime.Safety.LockReason, "测试下载配置异常");
+                StringAssert.Contains(fault, "测试下载配置异常");
+                Assert.IsFalse(calls.Contains("InitializeStations"));
+                Assert.IsTrue(calls.Contains("StopAll:True"));
+                Assert.IsTrue(calls.Contains("StopAxis:0-0:1"));
+                AssertBefore(calls, "ReleaseStations", "StopConnect");
+            }
+        }
+
+        [TestMethod]
+        public void Stop_UninitializedCardAndStations_AreIdempotentAndDoNotCreateSafetyLock()
+        {
+            using (var fixture = new CoordinatorFixture(
+                configureCard: true,
+                axisCount: 1,
+                stationCount: 1,
+                includeEmergencyInput: false,
+                includeBrakeOutput: true))
+            {
+                fixture.Device.InitCardException = new MotionCardUnavailableException(
+                    "SDK实际发现0张卡");
+                fixture.Device.InitializeStationsResult = MotionStationResult.NotConnected;
+                fixture.Device.StopAllStationsResult = MotionStationResult.NotInitialized;
+                fixture.Device.WaitStationMotionResult = MotionStationResult.NotInitialized;
+                fixture.Device.ReleaseStationsResult = MotionStationResult.NotInitialized;
+
+                fixture.Coordinator.Initialize();
+                fixture.Device.ClearCalls();
+                fixture.Coordinator.Stop();
+
+                string[] calls = fixture.Device.SnapshotCalls();
+                Assert.IsFalse(fixture.Runtime.Safety.IsLocked);
+                Assert.IsTrue(calls.Contains("StopAll:False"));
+                Assert.IsTrue(calls.Contains("WaitStationMotion:0"));
+                Assert.IsTrue(calls.Contains("ReleaseStations"));
+                Assert.IsTrue(calls.Contains("StopConnect"));
+                Assert.IsFalse(calls.Any(call => call.StartsWith("GetInPos:", StringComparison.Ordinal)));
+                Assert.IsFalse(calls.Any(call => call.StartsWith("SetIO:刹车输出:", StringComparison.Ordinal)));
+            }
+        }
+
+        [TestMethod]
+        public void Stop_CleanupFailure_DoesNotOverwriteExistingSafetyLockReason()
+        {
+            using (var fixture = new CoordinatorFixture(
+                configureCard: true,
+                axisCount: 1,
+                stationCount: 1,
+                includeEmergencyInput: false,
+                includeBrakeOutput: false))
+            {
+                fixture.Coordinator.Initialize();
+                fixture.Device.StopAllStationsResult = MotionStationResult.BaseFunctionError;
+                fixture.Device.WaitStationMotionResult = MotionStationResult.Timeout;
+                fixture.Runtime.Safety.Lock("首个设备故障");
+
+                fixture.Coordinator.Stop();
+
+                Assert.IsTrue(fixture.Runtime.Safety.IsLocked);
+                Assert.AreEqual("首个设备故障", fixture.Runtime.Safety.LockReason);
             }
         }
 
@@ -179,6 +293,31 @@ namespace Automation.Core.Tests
                 Assert.IsFalse(calls.Contains("InitCard"));
                 Assert.IsTrue(calls.Contains("InitializeStations"));
                 Assert.IsFalse(fixture.Runtime.Safety.IsLocked);
+            }
+        }
+
+        [TestMethod]
+        public void Initialize_CardUnavailableWithEmergencyIo_DoesNotPollMissingBusOrLockLater()
+        {
+            using (var fixture = new CoordinatorFixture(
+                configureCard: true,
+                axisCount: 1,
+                stationCount: 1,
+                includeEmergencyInput: true,
+                includeBrakeOutput: false))
+            {
+                fixture.Device.InitCardException = new MotionCardUnavailableException(
+                    "SDK实际发现0张卡");
+
+                fixture.Coordinator.Initialize();
+                Assert.IsTrue(fixture.Device.StationStatusRead.Wait(1000));
+
+                string[] calls = fixture.Device.SnapshotCalls();
+                Assert.IsFalse(fixture.Runtime.Safety.IsLocked);
+                Assert.IsTrue(calls.Contains("InitializeStations"));
+                Assert.IsTrue(calls.Contains("GetStationStatus:0"));
+                Assert.IsFalse(calls.Any(call => call.StartsWith(
+                    "GetInIO:急停输入", StringComparison.Ordinal)));
             }
         }
 
@@ -512,6 +651,8 @@ namespace Automation.Core.Tests
                     Io = Device,
                     CardStore = Runtime.Stores.Cards,
                     Stations = Runtime.Stores.Stations.Items,
+                    ValueStore = Runtime.Stores.Values,
+                    Maintenance = Runtime.Maintenance,
                     Paths = Runtime.Paths,
                     Safety = Runtime.Safety,
                     Readiness = Runtime.Readiness
@@ -584,6 +725,15 @@ namespace Automation.Core.Tests
             public bool ActivateEmergencyOnStationInitialize { get; set; }
             public bool InitCardSucceeds { get; set; } = true;
             public Exception InitCardException { get; set; }
+            public Exception DownLoadConfigException { get; set; }
+            public MotionStationResult InitializeStationsResult { get; set; } =
+                MotionStationResult.Success;
+            public MotionStationResult StopAllStationsResult { get; set; } =
+                MotionStationResult.Success;
+            public MotionStationResult WaitStationMotionResult { get; set; } =
+                MotionStationResult.Success;
+            public MotionStationResult ReleaseStationsResult { get; set; } =
+                MotionStationResult.Success;
 
             public void SetStationState(
                 short station,
@@ -636,13 +786,13 @@ namespace Automation.Core.Tests
                 {
                     EmergencyActive = true;
                 }
-                return MotionStationResult.Success;
+                return InitializeStationsResult;
             }
 
             public MotionStationResult ReleaseStations()
             {
                 Record("ReleaseStations");
-                return MotionStationResult.Success;
+                return ReleaseStationsResult;
             }
 
             public MotionStationStatus GetStationStatus(short station)
@@ -723,7 +873,7 @@ namespace Automation.Core.Tests
                 int timeoutMs = 120000)
             {
                 Record($"WaitStationMotion:{station}");
-                return MotionStationResult.Success;
+                return WaitStationMotionResult;
             }
 
             public MotionStationResult GetStationPosition(
@@ -759,6 +909,12 @@ namespace Automation.Core.Tests
                 return MotionStationResult.Success;
             }
 
+            public MotionStationResult ClearStationContinuousPath(short station) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousLine(short station, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArc(short station, DataPos start, DataPos middle, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArcCenterRadius(short station, DataPos target, DataPos center, double radius, int circle, bool counterClockwise) => MotionStationResult.Success;
+            public MotionStationResult StartStationContinuousMove(short station) => MotionStationResult.Success;
+
             public MotionStationResult StopStation(short station, bool emergency = false)
             {
                 return MotionStationResult.Success;
@@ -767,7 +923,7 @@ namespace Automation.Core.Tests
             public MotionStationResult StopAllStations(bool emergency = false)
             {
                 Record($"StopAll:{emergency}");
-                return MotionStationResult.Success;
+                return StopAllStationsResult;
             }
 
             public void SettHomeParam(
@@ -831,6 +987,10 @@ namespace Automation.Core.Tests
             {
             }
 
+            public void MoveContinuousPath(ContinuousPathMoveRequest request) { }
+            public bool IsContinuousPathDone(ushort card, ushort coordinateSystem) => true;
+            public void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode) { }
+
             public void Jog(ushort card, ushort axis, ushort direction)
             {
             }
@@ -872,6 +1032,10 @@ namespace Automation.Core.Tests
             public void DownLoadConfig()
             {
                 Record("DownLoadConfig");
+                if (DownLoadConfigException != null)
+                {
+                    throw DownLoadConfigException;
+                }
             }
 
             public void SetAllAxisSevonOn()

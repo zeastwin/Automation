@@ -34,6 +34,11 @@ namespace Automation.Tests
                     {
                         throw new InvalidOperationException(initializeError);
                     }
+                    string loginError;
+                    if (!host.Authentication.Login("system", "software_123", out loginError))
+                    {
+                        throw new InvalidOperationException(loginError);
+                    }
                     if (Application.OpenForms.Count != 0 || host.IsPlatformVisible)
                     {
                         throw new InvalidOperationException("HMI 运行时初始化期间创建了平台编辑器窗体。");

@@ -539,6 +539,12 @@ namespace Automation.Core.Tests
                 return MotionStationResult.Success;
             }
 
+            public MotionStationResult ClearStationContinuousPath(short station) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousLine(short station, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArc(short station, DataPos start, DataPos middle, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArcCenterRadius(short station, DataPos target, DataPos center, double radius, int circle, bool counterClockwise) => MotionStationResult.Success;
+            public MotionStationResult StartStationContinuousMove(short station) => MotionStationResult.Success;
+
             public MotionStationResult StopStation(short station, bool emergency = false) =>
                 MotionStationResult.Success;
 
@@ -605,6 +611,10 @@ namespace Automation.Core.Tests
                 ushort stopMode)
             {
             }
+
+            public void MoveContinuousPath(ContinuousPathMoveRequest request) { }
+            public bool IsContinuousPathDone(ushort card, ushort coordinateSystem) => true;
+            public void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode) { }
 
             public void Jog(ushort card, ushort axis, ushort direction)
             {

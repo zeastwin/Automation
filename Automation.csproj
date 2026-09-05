@@ -616,6 +616,7 @@
     <Compile Include="Models\Topology\EquipmentTopologyModels.cs" />
     <Compile Include="MotionControl\Core\AxisStatusCache.cs" />
     <Compile Include="MotionControl\Core\IMotionRuntime.cs" />
+    <Compile Include="MotionControl\Core\MotionCardUnavailableException.cs" />
     <Compile Include="MotionControl\Core\MotionCtrl.cs" />
     <Compile Include="MotionControl\Core\StationConfigurationModels.cs" />
     <Compile Include="MotionControl\Drivers\Inovance\IMC100API.cs" />

@@ -690,6 +690,14 @@ namespace Automation
             {
                 stationName = stationRunRel.StationName;
             }
+            else if (operation is ContinuousPathAddOperation addPath)
+            {
+                stationName = addPath.StationName;
+            }
+            else if (operation is StartContinuousMoveOperation startPath)
+            {
+                stationName = startPath.StationName;
+            }
             else
             {
                 return;
@@ -697,6 +705,16 @@ namespace Automation
             DataStation station = validationContext?.Runtime?.Stores.Stations.Items
                 .FirstOrDefault(item => item != null && string.Equals(item.Name, stationName, StringComparison.Ordinal));
             if (station == null)
+            {
+                return;
+            }
+            if ((operation is AddContinuousCenterArcOperation
+                    || operation is AddContinuousRadiusArcOperation)
+                && station.Type != StationType.Axis)
+            {
+                errors.Add($"{location} 的圆心式或半径式连续圆弧只适用于雷赛轴工站。");
+            }
+            if (station.Type != StationType.Axis)
             {
                 return;
             }
@@ -1090,7 +1108,12 @@ namespace Automation
             foreach (string file in Directory.EnumerateFiles(path, "*.json"))
             {
                 string name = Path.GetFileNameWithoutExtension(file);
-                if (!int.TryParse(name, out int index))
+                if (!int.TryParse(
+                        name,
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out int index)
+                    || index < 0)
                 {
                     continue;
                 }

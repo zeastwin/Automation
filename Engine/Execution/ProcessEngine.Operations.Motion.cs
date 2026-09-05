@@ -465,6 +465,279 @@ namespace Automation
                     StationSpeedType.Move));
         }
 
+        private DataStation ResolveContinuousPathStation(
+            ProcHandle evt,
+            string stationName,
+            string operationName)
+        {
+            if (Context.Motion == null || Context.Stations == null)
+            {
+                throw CreateAlarmException(evt, "连续轨迹运动运行时或工站列表未初始化");
+            }
+            DataStation station = Context.Stations.FirstOrDefault(item => item != null
+                && string.Equals(item.Name, stationName, StringComparison.Ordinal));
+            if (station == null)
+            {
+                throw CreateAlarmException(evt, $"{operationName}找不到工站:{stationName}");
+            }
+            return station;
+        }
+
+        private DataPos ResolveContinuousPathPoint(
+            ProcHandle evt,
+            DataStation station,
+            string pointName,
+            int pointIndex,
+            string role)
+        {
+            DataPos point = pointIndex >= 0
+                ? station.ListDataPos?.FirstOrDefault(item => item != null && item.Index == pointIndex)
+                : station.ListDataPos?.FirstOrDefault(item => item != null
+                    && string.Equals(item.Name, pointName, StringComparison.Ordinal));
+            if (point == null)
+            {
+                throw CreateAlarmException(evt,
+                    $"工站{station.Name}的{role}不存在:{(pointIndex >= 0 ? pointIndex.ToString() : pointName)}");
+            }
+            if (!point.IsMotionReady)
+            {
+                throw CreateAlarmException(evt,
+                    $"工站{station.Name}的{role}[{point.Name}]名称为空或尚未人工示教坐标");
+            }
+            return point;
+        }
+
+        private short ReserveContinuousPathResources(
+            ProcHandle evt,
+            DataStation station,
+            string operationName)
+        {
+            if (station.Type == StationType.Axis)
+            {
+                return ReserveAxisStationMove(evt, station, null, operationName).StationIndex;
+            }
+            short stationIndex = GetStationRuntimeIndex(station, evt);
+            if (!TryAcquireStationMotionResource(evt, stationIndex, out string resourceError))
+            {
+                throw CreateAlarmException(evt, resourceError);
+            }
+            return stationIndex;
+        }
+
+        private void ClearContinuousPathWhenRequested(
+            ProcHandle evt,
+            DataStation station,
+            short stationIndex,
+            bool clearPreviousPath)
+        {
+            if (!clearPreviousPath)
+            {
+                return;
+            }
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "清除未启动连续轨迹",
+                Context.Motion.ClearStationContinuousPath(stationIndex));
+        }
+
+        private void StartContinuousPathAndWait(
+            ProcHandle evt,
+            DataStation station,
+            short stationIndex,
+            bool continueWithoutWaiting,
+            int timeoutMs,
+            string timeoutVariableName,
+            string operationName)
+        {
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "启动连续轨迹",
+                Context.Motion.StartStationContinuousMove(stationIndex));
+            if (continueWithoutWaiting)
+            {
+                return;
+            }
+            int timeout = checked((int)ResolveStationTimeout(
+                evt, timeoutMs, timeoutVariableName, operationName));
+            WaitRobotStation(
+                evt, station, stationIndex, false, timeout, "连续轨迹运动");
+        }
+
+        public bool RunAddContinuousLine(
+            ProcHandle evt,
+            AddContinuousLineOperation operation)
+        {
+            DataStation station = ResolveContinuousPathStation(
+                evt, operation.StationName, operation.Name);
+            DataPos target = ResolveContinuousPathPoint(
+                evt,
+                station,
+                operation.TargetPointName,
+                operation.TargetPointIndex,
+                "连续直线目标点");
+            short stationIndex = ReserveContinuousPathResources(evt, station, operation.Name);
+            ClearContinuousPathWhenRequested(
+                evt, station, stationIndex, operation.ClearPreviousPath);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "添加连续直线",
+                Context.Motion.AddStationContinuousLine(stationIndex, target));
+            if (operation.StartAfterAdding)
+            {
+                StartContinuousPathAndWait(
+                    evt,
+                    station,
+                    stationIndex,
+                    operation.ContinueWithoutWaiting,
+                    operation.TimeoutMs,
+                    operation.TimeoutVariableName,
+                    operation.Name);
+            }
+            return true;
+        }
+
+        public bool RunAddContinuousThreePointArc(
+            ProcHandle evt,
+            AddContinuousThreePointArcOperation operation)
+        {
+            DataStation station = ResolveContinuousPathStation(
+                evt, operation.StationName, operation.Name);
+            DataPos start = ResolveContinuousPathPoint(
+                evt, station, operation.StartPointName, operation.StartPointIndex, "圆弧起点A");
+            DataPos middle = ResolveContinuousPathPoint(
+                evt, station, operation.MiddlePointName, operation.MiddlePointIndex, "圆弧中间点B");
+            DataPos target = ResolveContinuousPathPoint(
+                evt, station, operation.TargetPointName, operation.TargetPointIndex, "圆弧目标点C");
+            short stationIndex = ReserveContinuousPathResources(evt, station, operation.Name);
+            ClearContinuousPathWhenRequested(
+                evt, station, stationIndex, operation.ClearPreviousPath);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "添加三点圆弧",
+                Context.Motion.AddStationContinuousArc(stationIndex, start, middle, target));
+            if (operation.StartAfterAdding)
+            {
+                StartContinuousPathAndWait(
+                    evt,
+                    station,
+                    stationIndex,
+                    operation.ContinueWithoutWaiting,
+                    operation.TimeoutMs,
+                    operation.TimeoutVariableName,
+                    operation.Name);
+            }
+            return true;
+        }
+
+        public bool RunAddContinuousCenterArc(
+            ProcHandle evt,
+            AddContinuousCenterArcOperation operation)
+        {
+            DataStation station = ResolveContinuousPathStation(
+                evt, operation.StationName, operation.Name);
+            if (station.Type != StationType.Axis)
+            {
+                throw CreateAlarmException(evt, "圆心式连续圆弧只适用于雷赛轴工站");
+            }
+            DataPos center = ResolveContinuousPathPoint(
+                evt, station, operation.CenterPointName, operation.CenterPointIndex, "圆心点");
+            DataPos target = ResolveContinuousPathPoint(
+                evt, station, operation.TargetPointName, operation.TargetPointIndex, "圆弧目标点");
+            short stationIndex = ReserveContinuousPathResources(evt, station, operation.Name);
+            ClearContinuousPathWhenRequested(
+                evt, station, stationIndex, operation.ClearPreviousPath);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "添加圆心圆弧",
+                Context.Motion.AddStationContinuousArcCenterRadius(
+                    stationIndex,
+                    target,
+                    center,
+                    0,
+                    operation.Circle,
+                    operation.CounterClockwise));
+            if (operation.StartAfterAdding)
+            {
+                StartContinuousPathAndWait(
+                    evt,
+                    station,
+                    stationIndex,
+                    operation.ContinueWithoutWaiting,
+                    operation.TimeoutMs,
+                    operation.TimeoutVariableName,
+                    operation.Name);
+            }
+            return true;
+        }
+
+        public bool RunAddContinuousRadiusArc(
+            ProcHandle evt,
+            AddContinuousRadiusArcOperation operation)
+        {
+            DataStation station = ResolveContinuousPathStation(
+                evt, operation.StationName, operation.Name);
+            if (station.Type != StationType.Axis)
+            {
+                throw CreateAlarmException(evt, "半径式连续圆弧只适用于雷赛轴工站");
+            }
+            if (operation.Radius <= 0 || double.IsNaN(operation.Radius)
+                || double.IsInfinity(operation.Radius))
+            {
+                throw CreateAlarmException(evt, $"连续圆弧半径无效:{operation.Radius}");
+            }
+            DataPos target = ResolveContinuousPathPoint(
+                evt, station, operation.TargetPointName, operation.TargetPointIndex, "圆弧目标点");
+            short stationIndex = ReserveContinuousPathResources(evt, station, operation.Name);
+            ClearContinuousPathWhenRequested(
+                evt, station, stationIndex, operation.ClearPreviousPath);
+            EnsureStationCommandSucceeded(
+                evt,
+                station,
+                "添加半径圆弧",
+                Context.Motion.AddStationContinuousArcCenterRadius(
+                    stationIndex,
+                    target,
+                    null,
+                    operation.Radius,
+                    operation.Circle,
+                    operation.CounterClockwise));
+            if (operation.StartAfterAdding)
+            {
+                StartContinuousPathAndWait(
+                    evt,
+                    station,
+                    stationIndex,
+                    operation.ContinueWithoutWaiting,
+                    operation.TimeoutMs,
+                    operation.TimeoutVariableName,
+                    operation.Name);
+            }
+            return true;
+        }
+
+        public bool RunStartContinuousMove(
+            ProcHandle evt,
+            StartContinuousMoveOperation operation)
+        {
+            DataStation station = ResolveContinuousPathStation(
+                evt, operation.StationName, operation.Name);
+            short stationIndex = ReserveContinuousPathResources(evt, station, operation.Name);
+            StartContinuousPathAndWait(
+                evt,
+                station,
+                stationIndex,
+                operation.ContinueWithoutWaiting,
+                operation.TimeoutMs,
+                operation.TimeoutVariableName,
+                operation.Name);
+            return true;
+        }
+
         public bool RunStationRunPos(ProcHandle evt, StationRunPos stationRunPos)
         {
             DataStation station;

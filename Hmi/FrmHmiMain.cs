@@ -29,6 +29,8 @@ namespace Automation.Hmi
         private IAutomationPlatform platform;
         private EquipmentProcessMessageService processMessages;
         private LegacyEquipmentServices equipmentServices;
+        private NotifyIcon editorTrayIcon;
+        private Icon editorTrayIconImage;
         private bool closingConfirmed;
         private bool hostEventsDetached;
         private int displayedAccountIconColor = int.MinValue;
@@ -137,6 +139,32 @@ namespace Automation.Hmi
                 platform.Authentication.Changed += Authentication_Changed;
             }
             RefreshAccountButton();
+            InitializeEditorTrayIcon();
+        }
+
+        private void InitializeEditorTrayIcon()
+        {
+            Icon executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            editorTrayIconImage = executableIcon == null
+                ? (Icon)SystemIcons.Application.Clone()
+                : (Icon)executableIcon.Clone();
+            executableIcon?.Dispose();
+
+            editorTrayIcon = new NotifyIcon
+            {
+                Icon = editorTrayIconImage,
+                Text = "Automation 平台编辑器（单击打开）"
+            };
+            editorTrayIcon.MouseClick += EditorTrayIcon_MouseClick;
+            editorTrayIcon.Visible = true;
+        }
+
+        private void EditorTrayIcon_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                ShowPlatformEditor();
+            }
         }
 
         private void FrmHmiMain_Shown(object sender, EventArgs e)
@@ -544,6 +572,15 @@ namespace Automation.Hmi
         private void FrmHmiMain_Disposed(object sender, EventArgs e)
         {
             refreshTimer.Dispose();
+            if (editorTrayIcon != null)
+            {
+                editorTrayIcon.Visible = false;
+                editorTrayIcon.MouseClick -= EditorTrayIcon_MouseClick;
+                editorTrayIcon.Dispose();
+                editorTrayIcon = null;
+            }
+            editorTrayIconImage?.Dispose();
+            editorTrayIconImage = null;
             foreach (Button button in commandBar.Controls.OfType<Button>())
             {
                 button.Image?.Dispose();

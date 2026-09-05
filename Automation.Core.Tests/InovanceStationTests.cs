@@ -440,6 +440,9 @@ namespace Automation.Core.Tests
                 return 0;
             }
 
+            public int MoveArcPosition(InovanceRobotPose middle, InovanceRobotPose target,
+                int speed, int zone, int connectionId) => 0;
+
             public int SetRapidMove(int moveType, int enabled, int connectionId) => 0;
 
             public int SetVelocity(int velocity, int connectionId) => 0;

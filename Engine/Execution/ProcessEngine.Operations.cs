@@ -228,6 +228,21 @@ namespace Automation
                 case StationRunRel stationRunRel:
                     return RunStationRunRel(evt, stationRunRel);
 
+                case AddContinuousLineOperation addContinuousLine:
+                    return RunAddContinuousLine(evt, addContinuousLine);
+
+                case AddContinuousThreePointArcOperation addContinuousArc:
+                    return RunAddContinuousThreePointArc(evt, addContinuousArc);
+
+                case AddContinuousCenterArcOperation addCenterArc:
+                    return RunAddContinuousCenterArc(evt, addCenterArc);
+
+                case AddContinuousRadiusArcOperation addRadiusArc:
+                    return RunAddContinuousRadiusArc(evt, addRadiusArc);
+
+                case StartContinuousMoveOperation startContinuousMove:
+                    return RunStartContinuousMove(evt, startContinuousMove);
+
                 case SetStationVel setStationVel:
                     return RunSetStationVel(evt, setStationVel);
 

@@ -172,6 +172,46 @@ namespace Automation.Core.Tests
         }
 
         [TestMethod]
+        public void ContinuousPath_PreservesSegmentsAndMapsConfiguredAxesOnceAtStart()
+        {
+            AxisMotionStation station = CreateStation(
+                new[] { 4, 2, 5, 0, 3, 1 },
+                out RecordingMotionRuntime runtime,
+                out DataStation definition);
+            definition.LookAheadEnabled = true;
+            definition.PathError = 0.25;
+            definition.LookAheadAccelerationMultiplier = 1800;
+
+            Assert.AreEqual(MotionStationResult.Success,
+                station.AddContinuousLine(CreatePoint(1, 2, 3, 4, 5, 6)));
+            Assert.AreEqual(MotionStationResult.Success,
+                station.AddContinuousArc(
+                    CreatePoint(1, 2, 3, 4, 5, 6),
+                    CreatePoint(7, 8, 9, 10, 11, 12),
+                    CreatePoint(13, 14, 15, 16, 17, 18)));
+            Assert.AreEqual(MotionStationResult.Success, station.StartContinuousMove());
+
+            ContinuousPathMoveRequest request = runtime.ContinuousPathMove;
+            Assert.IsNotNull(request);
+            Assert.AreEqual((ushort)1, request.CoordinateSystem);
+            CollectionAssert.AreEqual(
+                new ushort[] { 4, 2, 5, 0, 3, 1 },
+                request.Axes.ToArray());
+            Assert.AreEqual(2, request.Segments.Count);
+            Assert.AreEqual(ContinuousPathSegmentType.Line, request.Segments[0].Type);
+            Assert.AreEqual(ContinuousPathSegmentType.ArcThreePoint, request.Segments[1].Type);
+            Assert.AreEqual(0.2, request.Segments[0].MaxVelocity, 0.000001);
+            Assert.AreEqual(0.1, request.Segments[0].AccelerationTime, 0.000001);
+            CollectionAssert.AreEqual(
+                new double[] { 13, 14, 15, 16, 17, 18 },
+                request.Segments[1].TargetPositions.ToArray());
+            Assert.IsTrue(request.LookAheadEnabled);
+            Assert.AreEqual(0.25, request.PathError, 0.000001);
+            Assert.AreEqual(360000, request.LookAheadAcceleration, 0.000001);
+            Assert.AreEqual(1, runtime.ValidationBatches.Count);
+        }
+
+        [TestMethod]
         public void Release_UsesDeceleratedStopForAllConfiguredAxes()
         {
             AxisMotionStation station = CreateStation(
@@ -592,6 +632,7 @@ namespace Automation.Core.Tests
             public List<List<AxisCommandRequest>> ValidationBatches { get; }
                 = new List<List<AxisCommandRequest>>();
             public CoordinatedLinearMoveRequest CoordinatedMove { get; private set; }
+            public ContinuousPathMoveRequest ContinuousPathMove { get; private set; }
 
             public void InitCardType()
             {
@@ -702,6 +743,12 @@ namespace Automation.Core.Tests
                 return MotionStationResult.Success;
             }
 
+            public MotionStationResult ClearStationContinuousPath(short station) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousLine(short station, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArc(short station, DataPos start, DataPos middle, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddStationContinuousArcCenterRadius(short station, DataPos target, DataPos center, double radius, int circle, bool counterClockwise) => MotionStationResult.Success;
+            public MotionStationResult StartStationContinuousMove(short station) => MotionStationResult.Success;
+
             public MotionStationResult StopStation(short station, bool emergency = false)
             {
                 return MotionStationResult.Success;
@@ -778,6 +825,13 @@ namespace Automation.Core.Tests
             public void StopCoordinatedLinear(ushort card, ushort coordinateSystem, ushort stopMode)
             {
             }
+
+            public void MoveContinuousPath(ContinuousPathMoveRequest request)
+            {
+                ContinuousPathMove = request;
+            }
+            public bool IsContinuousPathDone(ushort card, ushort coordinateSystem) => true;
+            public void StopContinuousPath(ushort card, ushort coordinateSystem, ushort stopMode) { }
 
             public void Jog(ushort card, ushort axis, ushort direction)
             {

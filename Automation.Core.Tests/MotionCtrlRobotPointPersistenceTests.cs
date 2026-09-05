@@ -403,6 +403,12 @@ namespace Automation.Core.Tests
                 return MotionStationResult.Success;
             }
 
+            public MotionStationResult ClearContinuousPath() => MotionStationResult.Success;
+            public MotionStationResult AddContinuousLine(DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddContinuousArc(DataPos start, DataPos middle, DataPos target) => MotionStationResult.Success;
+            public MotionStationResult AddContinuousArcCenterRadius(DataPos target, DataPos center, double radius, int circle, bool counterClockwise) => MotionStationResult.Success;
+            public MotionStationResult StartContinuousMove() => MotionStationResult.Success;
+
             public MotionStationResult Stop(bool emergency = false)
             {
                 return MotionStationResult.Success;

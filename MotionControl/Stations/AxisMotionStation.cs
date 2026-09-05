@@ -39,12 +39,15 @@ namespace Automation.MotionControl
         };
         private readonly MotionStationStatus status = new MotionStationStatus();
         private readonly HashSet<short> pendingHomeCleanChannels = new HashSet<short>();
+        private readonly List<ContinuousPathSegment> queuedContinuousSegments =
+            new List<ContinuousPathSegment>();
 
         private AxisBinding[] bindings = Array.Empty<AxisBinding>();
         private double[] lastTarget;
         private bool[] lastTargetChannels;
         private int[] activeMoveDirections;
         private bool coordinatedMoveActive;
+        private bool continuousMoveActive;
         private bool stationMoveActive;
         private bool initialized;
 
@@ -92,7 +95,9 @@ namespace Automation.MotionControl
                 bindings = resolved;
                 initialized = true;
                 coordinatedMoveActive = false;
+                continuousMoveActive = false;
                 stationMoveActive = false;
+                queuedContinuousSegments.Clear();
                 pendingHomeCleanChannels.Clear();
                 lastTarget = null;
                 lastTargetChannels = null;
@@ -116,7 +121,9 @@ namespace Automation.MotionControl
                 initialized = false;
                 bindings = Array.Empty<AxisBinding>();
                 coordinatedMoveActive = false;
+                continuousMoveActive = false;
                 stationMoveActive = false;
+                queuedContinuousSegments.Clear();
                 pendingHomeCleanChannels.Clear();
                 lastTarget = null;
                 lastTargetChannels = null;
@@ -338,6 +345,7 @@ namespace Automation.MotionControl
                 lock (stateLock)
                 {
                     coordinatedMoveActive = mode == StationMoveMode.Move;
+                    continuousMoveActive = false;
                     stationMoveActive = true;
                     lastTarget = tracksTarget ? (double[])positions.Clone() : null;
                     lastTargetChannels = tracksTarget
@@ -447,6 +455,7 @@ namespace Automation.MotionControl
                     lock (stateLock)
                     {
                         coordinatedMoveActive = false;
+                        continuousMoveActive = false;
                         stationMoveActive = false;
                         lastTarget = new double[ChannelCount];
                         lastTarget[axis] = absoluteTarget;
@@ -500,11 +509,18 @@ namespace Automation.MotionControl
 
                     bool done;
                     bool coordinated;
+                    bool continuous;
                     lock (stateLock)
                     {
                         coordinated = coordinatedMoveActive;
+                        continuous = continuousMoveActive;
                     }
-                    if (axis < 0 && coordinated)
+                    if (axis < 0 && continuous)
+                    {
+                        AxisBinding first = bindings[0];
+                        done = motion.IsContinuousPathDone(first.Card, configuration.CoordinateSystem);
+                    }
+                    else if (axis < 0 && coordinated)
                     {
                         AxisBinding first = bindings[0];
                         done = motion.IsCoordinatedLinearDone(first.Card, configuration.CoordinateSystem);
@@ -526,6 +542,7 @@ namespace Automation.MotionControl
                             if (axis < 0)
                             {
                                 coordinatedMoveActive = false;
+                                continuousMoveActive = false;
                                 stationMoveActive = false;
                                 activeMoveDirections = null;
                             }
@@ -619,6 +636,217 @@ namespace Automation.MotionControl
             return MoveToPoint(calculatedPoint, StationMoveMode.Move);
         }
 
+        public MotionStationResult ClearContinuousPath()
+        {
+            MotionStationResult ready = EnsureOperational();
+            if (ready != MotionStationResult.Success)
+            {
+                return ready;
+            }
+            lock (stateLock)
+            {
+                if (continuousMoveActive)
+                {
+                    return SetFailure(MotionStationResult.Busy, "连续轨迹正在运行，不能清除待执行轨迹。");
+                }
+                queuedContinuousSegments.Clear();
+                status.LastError = string.Empty;
+            }
+            return MotionStationResult.Success;
+        }
+
+        public MotionStationResult AddContinuousLine(DataPos target)
+        {
+            MotionStationResult ready = EnsureOperational();
+            if (ready != MotionStationResult.Success)
+            {
+                return ready;
+            }
+            if (!TryValidateContinuousPoint(target, "直线目标点", out string error))
+            {
+                return SetFailure(MotionStationResult.InvalidParameter, error);
+            }
+            if (!target.Enabled)
+            {
+                ClearError();
+                return MotionStationResult.Success;
+            }
+            lock (stateLock)
+            {
+                if (continuousMoveActive)
+                {
+                    return SetFailure(MotionStationResult.Busy, "连续轨迹正在运行，不能继续添加轨迹段。");
+                }
+                queuedContinuousSegments.Add(CreateContinuousSegment(
+                    ContinuousPathSegmentType.Line, null, null, target, 0, 0, -1));
+                status.LastError = string.Empty;
+            }
+            return MotionStationResult.Success;
+        }
+
+        public MotionStationResult AddContinuousArc(DataPos start, DataPos middle, DataPos target)
+        {
+            MotionStationResult ready = EnsureOperational();
+            if (ready != MotionStationResult.Success)
+            {
+                return ready;
+            }
+            if (!TryValidateContinuousPoint(start, "三点圆弧起点", out string error)
+                || !TryValidateContinuousPoint(middle, "三点圆弧中间点", out error)
+                || !TryValidateContinuousPoint(target, "三点圆弧目标点", out error))
+            {
+                return SetFailure(MotionStationResult.InvalidParameter, error);
+            }
+            if (!start.Enabled || !middle.Enabled || !target.Enabled)
+            {
+                ClearError();
+                return MotionStationResult.Success;
+            }
+            lock (stateLock)
+            {
+                if (continuousMoveActive)
+                {
+                    return SetFailure(MotionStationResult.Busy, "连续轨迹正在运行，不能继续添加轨迹段。");
+                }
+                queuedContinuousSegments.Add(CreateContinuousSegment(
+                    ContinuousPathSegmentType.ArcThreePoint,
+                    start,
+                    middle,
+                    target,
+                    0,
+                    0,
+                    -1));
+                status.LastError = string.Empty;
+            }
+            return MotionStationResult.Success;
+        }
+
+        public MotionStationResult AddContinuousArcCenterRadius(
+            DataPos target,
+            DataPos center,
+            double radius,
+            int circle,
+            bool counterClockwise)
+        {
+            MotionStationResult ready = EnsureOperational();
+            if (ready != MotionStationResult.Success)
+            {
+                return ready;
+            }
+            if (!TryValidateContinuousPoint(target, "圆弧目标点", out string error)
+                || (radius <= 0 && !TryValidateContinuousPoint(center, "圆心点", out error))
+                || !IsFinite(radius))
+            {
+                return SetFailure(MotionStationResult.InvalidParameter,
+                    error ?? "圆弧半径必须是有限数。");
+            }
+            if (!target.Enabled || (radius <= 0 && !center.Enabled))
+            {
+                ClearError();
+                return MotionStationResult.Success;
+            }
+            lock (stateLock)
+            {
+                if (continuousMoveActive)
+                {
+                    return SetFailure(MotionStationResult.Busy, "连续轨迹正在运行，不能继续添加轨迹段。");
+                }
+                queuedContinuousSegments.Add(CreateContinuousSegment(
+                    radius > 0
+                        ? ContinuousPathSegmentType.ArcRadius
+                        : ContinuousPathSegmentType.ArcCenter,
+                    null,
+                    center,
+                    target,
+                    radius,
+                    counterClockwise ? (ushort)1 : (ushort)0,
+                    circle));
+                status.LastError = string.Empty;
+            }
+            return MotionStationResult.Success;
+        }
+
+        public MotionStationResult StartContinuousMove()
+        {
+            MotionStationResult ready = EnsureOperational();
+            if (ready != MotionStationResult.Success)
+            {
+                return ready;
+            }
+
+            ContinuousPathSegment[] queued;
+            lock (stateLock)
+            {
+                if (continuousMoveActive)
+                {
+                    return MotionStationResult.Busy;
+                }
+                if (queuedContinuousSegments.Count == 0)
+                {
+                    return SetFailure(MotionStationResult.InvalidParameter, "尚未添加连续轨迹段。");
+                }
+                queued = queuedContinuousSegments.ToArray();
+            }
+
+            List<AxisBinding> activeBindings = bindings.OrderBy(item => item.Channel).ToList();
+            ushort card = activeBindings[0].Card;
+            if (activeBindings.Any(item => item.Card != card))
+            {
+                return SetFailure(
+                    MotionStationResult.InvalidConfiguration,
+                    "连续轨迹要求六通道位于同一张雷赛总线卡。");
+            }
+
+            double[] finalTarget = queued[queued.Length - 1].TargetPositions.ToArray();
+            try
+            {
+                int[] moveDirections;
+                using (motion.ValidateAxesForCommand(
+                    activeBindings.Select(CreateMotionRequest).ToArray()))
+                {
+                    moveDirections = ResolveMoveDirections(
+                        activeBindings, finalTarget, StationMoveMode.Move);
+                    EnsureStationMoveAllowed(moveDirections);
+                    motion.MoveContinuousPath(new ContinuousPathMoveRequest
+                    {
+                        Card = card,
+                        CoordinateSystem = configuration.CoordinateSystem,
+                        Axes = activeBindings.Select(item => item.Axis).ToArray(),
+                        PositionMode = 1,
+                        Segments = queued.Select(item => ProjectContinuousSegment(
+                            item, activeBindings)).ToArray(),
+                        LookAheadEnabled = configuration.LookAheadEnabled,
+                        PathError = configuration.PathError,
+                        LookAheadAcceleration = ResolveLookAheadAcceleration()
+                    });
+                }
+
+                lock (stateLock)
+                {
+                    queuedContinuousSegments.Clear();
+                    coordinatedMoveActive = false;
+                    continuousMoveActive = true;
+                    stationMoveActive = true;
+                    lastTarget = finalTarget;
+                    lastTargetChannels = BuildActiveChannelFlags(activeBindings);
+                    activeMoveDirections = moveDirections;
+                    status.State = MotionStationState.Moving;
+                    status.LastError = string.Empty;
+                }
+                return MotionStationResult.Success;
+            }
+            catch (Exception ex)
+            {
+                // 3.0 在 StartCPMove 下发前即结束本轮缓存；失败后不能再次启动同一批轨迹。
+                lock (stateLock)
+                {
+                    queuedContinuousSegments.Clear();
+                    continuousMoveActive = false;
+                }
+                return MapCommandFailure(ex);
+            }
+        }
+
         public MotionStationResult Stop(bool emergency = false)
         {
             MotionStationResult ready = EnsureInitialized();
@@ -634,7 +862,14 @@ namespace Automation.MotionControl
             Exception failure = null;
             try
             {
-                if (coordinatedMoveActive && bindings.Length > 0)
+                if (continuousMoveActive && bindings.Length > 0)
+                {
+                    motion.StopContinuousPath(
+                        bindings[0].Card,
+                        configuration.CoordinateSystem,
+                        emergency ? (ushort)1 : (ushort)0);
+                }
+                else if (coordinatedMoveActive && bindings.Length > 0)
                 {
                     motion.StopCoordinatedLinear(
                         bindings[0].Card,
@@ -664,7 +899,9 @@ namespace Automation.MotionControl
             lock (stateLock)
             {
                 coordinatedMoveActive = false;
+                continuousMoveActive = false;
                 stationMoveActive = false;
+                queuedContinuousSegments.Clear();
                 pendingHomeCleanChannels.Clear();
                 lastTarget = null;
                 lastTargetChannels = null;
@@ -745,6 +982,8 @@ namespace Automation.MotionControl
                     status.SetPosition(positions);
                     if (!moving)
                     {
+                        coordinatedMoveActive = false;
+                        continuousMoveActive = false;
                         stationMoveActive = false;
                         activeMoveDirections = null;
                     }
@@ -792,6 +1031,7 @@ namespace Automation.MotionControl
                 lock (stateLock)
                 {
                     coordinatedMoveActive = false;
+                    continuousMoveActive = false;
                     stationMoveActive = false;
                     foreach (AxisBinding binding in homeBindings)
                     {
@@ -1083,6 +1323,7 @@ namespace Automation.MotionControl
 
             AxisBinding[] stopBindings;
             bool stopCoordinated;
+            bool stopContinuous;
             lock (stateLock)
             {
                 if (!stationMoveActive)
@@ -1091,15 +1332,31 @@ namespace Automation.MotionControl
                 }
                 stopBindings = bindings.ToArray();
                 stopCoordinated = coordinatedMoveActive;
+                stopContinuous = continuousMoveActive;
                 stationMoveActive = false;
                 coordinatedMoveActive = false;
+                continuousMoveActive = false;
                 lastTarget = null;
                 lastTargetChannels = null;
                 activeMoveDirections = null;
             }
 
             Exception failure = null;
-            if (stopCoordinated && stopBindings.Length > 0)
+            if (stopContinuous && stopBindings.Length > 0)
+            {
+                try
+                {
+                    motion.StopContinuousPath(
+                        stopBindings[0].Card,
+                        configuration.CoordinateSystem,
+                        0);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            }
+            else if (stopCoordinated && stopBindings.Length > 0)
             {
                 try
                 {
@@ -1435,6 +1692,113 @@ namespace Automation.MotionControl
                 V = values[4],
                 W = values[5]
             };
+        }
+
+        private bool TryValidateContinuousPoint(DataPos point, string role, out string error)
+        {
+            error = null;
+            if (point == null || !point.IsMotionReady)
+            {
+                error = $"{role}不存在、名称为空或尚未示教。";
+                return false;
+            }
+            IReadOnlyList<double> values = point.GetAllValues();
+            foreach (AxisBinding binding in bindings)
+            {
+                double value = values[binding.Channel];
+                if (!IsFinite(value) || !IsWithinPointLimit(point, binding.Channel, value))
+                {
+                    error = $"{role}P{point.Index}通道{binding.Channel}坐标无效或超出点位限值:{value}";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private ContinuousPathSegment CreateContinuousSegment(
+            ContinuousPathSegmentType type,
+            DataPos start,
+            DataPos middle,
+            DataPos target,
+            double radius,
+            ushort direction,
+            int circle)
+        {
+            SpeedProfileSnapshot profile = CreateContinuousMoveProfile();
+            return new ContinuousPathSegment
+            {
+                Type = type,
+                StartPositions = start?.GetAllValues().ToArray(),
+                MiddlePositions = middle?.GetAllValues().ToArray(),
+                TargetPositions = target.GetAllValues().ToArray(),
+                Radius = radius,
+                ArcDirection = direction,
+                Circle = circle,
+                MaxVelocity = profile.Velocity,
+                AccelerationTime = profile.AccelerationTime,
+                DecelerationTime = profile.DecelerationTime,
+                EndVelocity = 0
+            };
+        }
+
+        private static ContinuousPathSegment ProjectContinuousSegment(
+            ContinuousPathSegment source,
+            IReadOnlyList<AxisBinding> activeBindings)
+        {
+            double[] Project(IReadOnlyList<double> values) => values == null
+                ? null
+                : activeBindings.Select(item => values[item.Channel]).ToArray();
+            return new ContinuousPathSegment
+            {
+                Type = source.Type,
+                StartPositions = Project(source.StartPositions),
+                MiddlePositions = Project(source.MiddlePositions),
+                TargetPositions = Project(source.TargetPositions),
+                Radius = source.Radius,
+                ArcDirection = source.ArcDirection,
+                Circle = source.Circle,
+                MaxVelocity = source.MaxVelocity,
+                AccelerationTime = source.AccelerationTime,
+                DecelerationTime = source.DecelerationTime,
+                EndVelocity = source.EndVelocity
+            };
+        }
+
+        private double ResolveLookAheadAcceleration()
+        {
+            // 3.0 EtherCatDmc 使用工站插补最大加速度乘 lookMultipleAcc；
+            // 参数在 open_list 之前下发，且不随本段速度百分比缩小。
+            return Math.Max(1,
+                configuration.ContinuousPathMaximumAcceleration
+                * configuration.LookAheadAccelerationMultiplier);
+        }
+
+        private SpeedProfileSnapshot CreateContinuousMoveProfile()
+        {
+            lock (stateLock)
+            {
+                double velocityRatio = PercentRatio(moveSpeed.Velocity, globalSpeed.Velocity);
+                double accelerationRatio = PercentRatio(moveSpeed.Acceleration, globalSpeed.Acceleration);
+                double decelerationRatio = PercentRatio(moveSpeed.Deceleration, globalSpeed.Deceleration);
+                double velocity = configuration.ContinuousPathMaximumVelocity * velocityRatio;
+                double acceleration = configuration.ContinuousPathMaximumAcceleration * accelerationRatio;
+                double deceleration = configuration.ContinuousPathMaximumDeceleration * decelerationRatio;
+                return new SpeedProfileSnapshot
+                {
+                    Velocity = Math.Max(0.000001, velocity),
+                    AccelerationTime = ConvertAccelerationToTime(velocity, acceleration),
+                    DecelerationTime = ConvertAccelerationToTime(velocity, deceleration)
+                };
+            }
+        }
+
+        private static double ConvertAccelerationToTime(double velocity, double acceleration)
+        {
+            if (acceleration <= 0)
+            {
+                return 0.5;
+            }
+            return Math.Max(0.0005, Math.Min(0.5, velocity / acceleration));
         }
 
         private static AxisCommandRequest CreateMotionRequest(AxisBinding binding)
